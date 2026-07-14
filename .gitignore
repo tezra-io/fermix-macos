@@ -1,0 +1,16 @@
+# Swift / SwiftPM
+.build/
+.build-ci/
+.build-release/
+.swiftpm/
+*.xcodeproj
+
+# Release output
+dist/
+
+# Rendered cask (generated from Casks/fermixpet.rb.tmpl by release-fermixpet.yml;
+# never committed with a placeholder sha)
+Casks/fermixpet.rb
+
+# macOS
+.DS_Store

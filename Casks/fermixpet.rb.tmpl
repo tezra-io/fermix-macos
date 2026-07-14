@@ -1,0 +1,34 @@
+# Template — release-fermixpet.yml renders Casks/fermixpet.rb from this, filling
+# __VERSION__ / __SHA256__ from the notarized DMG's actual bytes. The rendered
+# .rb is never committed with a placeholder sha (see .gitignore).
+cask "fermixpet" do
+  version "__VERSION__"
+  sha256 "__SHA256__"
+
+  url "https://github.com/tezra-io/fermix-macos/releases/download/fermixpet-v#{version}/FermixPet-#{version}.dmg"
+  name "Fermix"
+  desc "Floating macOS voice companion for Fermix"
+  homepage "https://github.com/tezra-io/fermix-macos"
+
+  depends_on macos: ">= :ventura"
+
+  app "FermixPet.app"
+
+  uninstall quit: "io.tezra.FermixPet"
+
+  zap trash: [
+    "~/Library/Caches/io.tezra.FermixPet",
+  ]
+
+  caveats <<~EOS
+    FermixPet talks to a running Fermix daemon over $FERMIX_HOME/realtime.sock and
+    needs Realtime voice enabled there — that requires an OpenAI API key (a Codex
+    subscription / OAuth login does NOT authorize the Realtime API). Check with:
+      fermix voice status
+
+    If you previously ran a source build from ~/Applications, remove it first so
+    the two copies don't fight over the microphone grant:
+      rm -rf ~/Applications/FermixPet.app
+      tccutil reset Microphone io.tezra.FermixPet
+  EOS
+end

@@ -1,0 +1,53 @@
+name: ci
+
+# PR + main gates. Proves the pet builds universal2 (arm64 + x86_64) and the
+# static runtime-policy / build-harness checks pass, on every change — BEFORE any
+# signed release. No secrets: signing/notarization live in release-fermixpet.yml.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pet:
+    name: FermixPet (build + verify)
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: Apps/FermixPet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ripgrep (runtime_policy_test.sh dependency)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: brew install ripgrep
+
+      - name: Static runtime-policy + build-harness tests
+        run: |
+          script/runtime_policy_test.sh
+          script/build_and_run_test.sh
+
+      - name: Universal2 build (arm64 + x86_64)
+        run: swift build -c release --arch arm64 --arch x86_64 --build-path .build-ci
+
+      - name: Assert both arches are present
+        run: |
+          set -euo pipefail
+          bin="$(swift build -c release --arch arm64 --arch x86_64 --build-path .build-ci --show-bin-path)/FermixPet"
+          lipo -info "$bin"
+          lipo -info "$bin" | grep -q arm64
+          lipo -info "$bin" | grep -q x86_64
+
+      - name: Entitlements lint
+        run: plutil -lint Sources/FermixPet/FermixPet.entitlements
+
+  contract:
+    name: realtime wire contract (checksum pin)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/verify_protocol_contract.sh

@@ -1,0 +1,160 @@
+name: release-fermixpet
+
+# Push a tag `fermixpet-vX.Y.Z` to cut a release: build universal2, Developer-ID
+# sign, notarize + staple, DMG, then publish a GitHub Release with the DMG, its
+# sha256, a keyless cosign signature, and the rendered Homebrew cask.
+#
+# Signing is gated by the protected `release-macos` environment (see notarize.yml).
+# The `fermixpet-v*` tag namespace is maintainer-only via a protected-tag ruleset,
+# and `--latest=false` keeps this off the repo-wide /releases/latest pointer.
+on:
+  push:
+    tags: ["fermixpet-v*.*.*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  version:
+    name: resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${REF_NAME#fermixpet-v}"
+          # Strict semver — reject anything the tag namespace shouldn't carry.
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error title=Bad tag::'$REF_NAME' is not fermixpet-vX.Y.Z"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  notarize:
+    name: sign + notarize
+    needs: version
+    uses: ./.github/workflows/notarize.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      build_number: ${{ github.run_number }}
+    secrets: inherit
+
+  publish:
+    name: publish release + cask
+    needs: [version, notarize]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download DMG artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: fermixpet-dmg
+          path: dist
+
+      - name: Verify DMG sha256 (from the uploaded bytes)
+        env:
+          EXPECTED: ${{ needs.notarize.outputs.dmg_sha256 }}
+        run: |
+          set -euo pipefail
+          dmg="$(ls dist/FermixPet-*.dmg)"
+          actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
+          echo "dmg=$dmg sha256=$actual"
+          [ "$actual" = "$EXPECTED" ] || { echo "::error title=sha mismatch::$actual != $EXPECTED"; exit 1; }
+
+      - name: Render the Homebrew cask from the DMG bytes
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          SHA256: ${{ needs.notarize.outputs.dmg_sha256 }}
+        run: |
+          set -euo pipefail
+          sed -e "s/__VERSION__/$VERSION/g" -e "s/__SHA256__/$SHA256/g" \
+            Casks/fermixpet.rb.tmpl > Casks/fermixpet.rb
+          cat Casks/fermixpet.rb
+
+      - name: Style-check the cask
+        run: brew style Casks/fermixpet.rb
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: cosign sign-blob (keyless)
+        run: |
+          set -euo pipefail
+          dmg="$(ls dist/FermixPet-*.dmg)"
+          cosign sign-blob --yes \
+            --output-signature "${dmg}.sig" \
+            --output-certificate "${dmg}.pem" \
+            "$dmg"
+
+      - name: Create GitHub Release (not marked latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          dmg="$(ls dist/FermixPet-*.dmg)"
+          gh release create "$REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$REF_NAME" \
+            --latest=false \
+            --generate-notes \
+            "$dmg" "$dmg.sha256" "$dmg.sig" "$dmg.pem" Casks/fermixpet.rb
+
+      # The real cask integrity gate: install from the cask exactly as a user
+      # would, which exercises the release URL, the sha256 stanza, the DMG mount,
+      # and the app copy. Runs AFTER the release exists (the url must be live) and
+      # BEFORE the tap sees the cask — a failure here fails the job and the cask
+      # never reaches the tap. Bounded retry covers release-asset CDN propagation.
+      - name: Cask install smoke (from the published release)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          set -euo pipefail
+          installed=""
+          for attempt in 1 2 3; do
+            if brew install --cask ./Casks/fermixpet.rb; then
+              installed=1
+              break
+            fi
+            echo "install attempt $attempt failed; retrying in 15s"
+            sleep 15
+          done
+          [ -n "$installed" ] || { echo "::error title=Cask install smoke failed::cask does not install from the published release"; exit 1; }
+          test -d /Applications/FermixPet.app
+
+      # Tap publish is a PR, not a direct push: the tap's own review/CI is the
+      # blocking gate, and a PR sidesteps the cross-repo push race with the CLI's
+      # release workflow. Skipped (loudly) until HOMEBREW_TAP_TOKEN is configured.
+      - name: Open a cask PR on the tap (if configured)
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            echo "::notice title=Tap publish skipped::set HOMEBREW_TAP_TOKEN to auto-open a cask PR on tezra-io/homebrew-tap; the rendered cask is attached to the Release"
+            exit 0
+          fi
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/tezra-io/homebrew-tap.git" tap
+          cd tap
+          branch="fermixpet-v${VERSION}"
+          git checkout -b "$branch"
+          mkdir -p Casks
+          cp ../Casks/fermixpet.rb Casks/fermixpet.rb
+          git add Casks/fermixpet.rb
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "fermixpet ${VERSION}"
+          git push origin "$branch"
+          GH_TOKEN="$TAP_TOKEN" gh pr create \
+            --repo tezra-io/homebrew-tap \
+            --head "$branch" \
+            --title "fermixpet ${VERSION}" \
+            --body "Notarized FermixPet ${VERSION} cask, rendered from the release DMG bytes and install-smoked on the release runner."

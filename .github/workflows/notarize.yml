@@ -1,0 +1,126 @@
+name: notarize
+
+# Reusable signing + notarization workflow. The signing steps live here ONCE so a
+# future macOS app under Apps/ calls this with its own package script instead of
+# duplicating the flow. Gated by the protected `release-macos` environment (a
+# required reviewer must approve before the Apple secrets are exposed).
+#
+# NOTE (hardening): actions are pinned to major-version tags to match the proven
+# compux release flow. Pin to immutable commit SHAs for supply-chain hardening.
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      build_number:
+        required: true
+        type: string
+      package_script:
+        required: false
+        type: string
+        default: scripts/package_release.sh
+    secrets:
+      MACOS_CERT_P12_BASE64:
+        required: true
+      MACOS_CERT_PASSWORD:
+        required: true
+      MACOS_KEYCHAIN_PASSWORD:
+        required: true
+      MACOS_DEVELOPER_ID:
+        required: true
+      APPLE_ID:
+        required: true
+      APPLE_TEAM_ID:
+        required: true
+      APPLE_APP_PASSWORD:
+        required: true
+    outputs:
+      dmg_name:
+        value: ${{ jobs.notarize.outputs.dmg_name }}
+      dmg_sha256:
+        value: ${{ jobs.notarize.outputs.dmg_sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  notarize:
+    name: sign + notarize
+    runs-on: macos-14
+    environment: release-macos
+    outputs:
+      dmg_name: ${{ steps.out.outputs.dmg_name }}
+      dmg_sha256: ${{ steps.out.outputs.dmg_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate signing secrets are complete
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+          MACOS_DEVELOPER_ID: ${{ secrets.MACOS_DEVELOPER_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for v in MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD MACOS_KEYCHAIN_PASSWORD \
+                   MACOS_DEVELOPER_ID APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Missing signing secrets::signing is mandatory but these are unset:$missing"
+            exit 1
+          fi
+
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: scripts/keychain.sh import
+
+      - name: Build, sign, notarize + staple (DMG)
+        env:
+          MACOS_DEVELOPER_ID: ${{ secrets.MACOS_DEVELOPER_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          VERSION: ${{ inputs.version }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          PACKAGE_SCRIPT: ${{ inputs.package_script }}
+        run: |
+          set -euo pipefail
+          "$PACKAGE_SCRIPT" "$VERSION" "$BUILD_NUMBER"
+
+      - name: Gatekeeper quarantine-acceptance gate
+        run: |
+          set -euo pipefail
+          dmg="$(ls dist/FermixPet-*.dmg)"
+          # Simulate a browser download; a headless spctl otherwise never sees quarantine.
+          xattr -w com.apple.quarantine "0081;$(date +%s);Safari;$(uuidgen)" "$dmg"
+          spctl -a -t open --context context:primary-signature -vv "$dmg"
+          mp="$(mktemp -d)"
+          hdiutil attach "$dmg" -nobrowse -mountpoint "$mp"
+          spctl -a -t exec -vv "$mp/FermixPet.app"
+          hdiutil detach "$mp"
+
+      - name: Export artifact outputs
+        id: out
+        run: |
+          set -euo pipefail
+          dmg="$(ls dist/FermixPet-*.dmg)"
+          echo "dmg_name=$(basename "$dmg")" >> "$GITHUB_OUTPUT"
+          echo "dmg_sha256=$(cat "$dmg.sha256")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fermixpet-dmg
+          path: |
+            dist/FermixPet-*.dmg
+            dist/FermixPet-*.dmg.sha256
+          if-no-files-found: error
