@@ -194,6 +194,7 @@ private struct AnimatedMascot: View {
 /// of hard-swapping the PNG stack on mode change. The head "ball" lives here,
 /// above the fading faces, so the shared pearl stays put across expression
 /// changes instead of fading and popping with every swap.
+@MainActor
 private struct MascotCrossfade: View {
     let expression: PetExpression
     let blinkOpacity: Double
@@ -224,6 +225,7 @@ private struct MascotCrossfade: View {
     }
 }
 
+@MainActor
 private struct MascotImage: View {
     let expression: PetExpression
     let blinkOpacity: Double
