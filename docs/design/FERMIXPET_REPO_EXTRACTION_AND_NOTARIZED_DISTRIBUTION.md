@@ -347,3 +347,66 @@ exists to avoid (H8/L2), and its release scripts can't be run/proven from here.
 Ready to author it as a standalone ready-to-push bundle on the owner's go.
 M8 (persistent socket-home) and the mic-denied pet state are step-7 polish that
 only bind once the cask ships; deferred with the release they support.
+
+### 13.2 Extraction executed — 2026-07-13/14 (owner created the repo + secrets)
+
+Owner provisioned `tezra-io/fermix-macos` (empty, private) with all 7 Apple
+notary secrets at repo level and authorized the push. Executed steps 2/3/5/6-shape
+of §10; **the fermix repo is now pet-free** (working-tree change, uncommitted,
+review-first).
+
+**fermix-macos (pushed, `b46298d` + `80f5e60`):** §2's multi-app shape verbatim —
+`Apps/FermixPet/` (byte-identical copy, proven with `diff -r` before removal),
+`scripts/keychain.sh` + `package_release.sh` (universal2 → sign no-`--deep` w/
+mic entitlement + hardened runtime → notarytool submit-then-poll → two-pass
+staple app→DMG → signed DMG + sha256; fail-loud, no ad-hoc fallback),
+`verify_protocol_contract.sh` (checksum-pinned vendored contract from
+`priv/realtime/` — §7 item 3's cross-repo pin, enforced in the new repo's CI),
+`ci.yml` (policy tests + hermetic harness + universal2 + `lipo` assert +
+entitlements lint + contract checksum), reusable `notarize.yml`
+(`workflow_call`, 7-secret fail-loud guard, quarantine-acceptance gate with
+`xattr com.apple.quarantine` → mount → `spctl` primary-signature/exec),
+`release-fermixpet.yml` (strict tag validation → notarize → Release
+`--latest=false` w/ cosign + rendered cask → **install smoke from the live
+release URL** → tap PR behind `HOMEBREW_TAP_TOKEN`), `Casks/fermixpet.rb.tmpl`
+(rendered at release; `.rb` gitignored so no zeroed-sha cask can land),
+CONTRIBUTING.md (M4's paired-change note + rollout order), LICENSE (MIT), the
+four pet design docs (L2).
+
+**Verified in real CI (run 29300122315, green):** the universal2 F4 gate —
+`Architectures in the fat file: …/FermixPet are: x86_64 arm64` — plus the
+contract checksum job. Two real defects were caught and fixed by that first CI
+run: (1) `build_and_run_test.sh` depended on host keychain state (the
+"FermixPet Dev" identity) — now stubs `security`/`codesign` like `swift`/`pgrep`
+(hermetic-tests rule); (2) `MascotCrossfade`/`MascotImage` needed explicit
+`@MainActor` — Swift 6 SDKs infer whole-View isolation, the runner's 5.10
+isolates only `body` (green-locally/red-on-CI toolchain gap).
+
+**Release authority (§6) applied:** repo flipped **public** (required for
+protections on the org's plan; pet source was already public in fermix; the
+condition "protected if public" satisfied in the same command batch):
+environment `release-macos` with required reviewer `sujeethshetty` +
+`prevent_self_review` default; tag ruleset `protected-fermixpet-tags`
+(creation/update/deletion/non-FF on `refs/tags/fermixpet-v*`, repo-admin
+bypass); branch protection on `main` (1 review, both CI contexts required,
+`enforce_admins` off — the fermix model); Actions default workflow permissions
+→ read-only. **Deviations from §6:** secrets remain repo-scoped (values are
+unreadable so they cannot be migrated by tooling — owner action: recreate the 7
+under the `release-macos` environment, then delete the repo-level ones); action
+refs pinned to major tags like proven compux, not immutable SHAs (noted in
+`notarize.yml`; tighten before the first public release).
+
+**fermix side (this tree, uncommitted):** `clients/macos/FermixPet` removed
+(`git rm -rf`, 31 files; `clients/` gone) — compile + 188 realtime/doctor tests
+still green after removal, zero path coupling confirmed in build/CI configs.
+README §voice/§architecture/§dev repointed to fermix-macos; CLAUDE.md +
+AGENTS.md doc indexes gained the moved-repo pointer; `self_knowledge` SKILL.md
+voice section now names the DMG/cask install method, the handshake, and the
+doctor/voice-status key checks (no version numbers).
+
+**Remaining owner-side:** re-scope the 7 secrets into the `release-macos`
+environment; add `HOMEBREW_TAP_TOKEN` if tap PRs should be automatic; then cut
+`fermixpet-v0.2.0` — the first tag exercises notarization + the quarantine gate
++ the cask smoke live (§8's gates all run on that tag). Open decisions §11:
+cert isolation (currently reusing the compux cert), macOS floor (cask says
+`>= :ventura`), Sparkle (still deferred). Display name resolved: "Fermix".
