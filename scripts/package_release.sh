@@ -3,11 +3,14 @@
 # Build -> sign -> notarize -> staple -> DMG for FermixPet.
 #
 # Release-only. Signing is MANDATORY: this fails loud if the Developer ID / notary
-# environment is incomplete. There is NO ad-hoc fallback here — local, unsigned
-# builds are `Apps/FermixPet/script/build_and_run.sh`'s job. Ported from the proven
-# compux release flow (submit-then-poll notarization, never `--wait`), adapted for
-# a universal2 SwiftPM app with a microphone entitlement and a drag-to-Applications
-# DMG.
+# environment is incomplete. There is NO ad-hoc fallback here — local unsigned
+# builds are `Apps/FermixPet/script/build_and_run.sh`'s job.
+#
+# The build+stage and the inside-out signing are shared with CI via
+# scripts/stage_app.sh + scripts/sign_app.sh (CI runs them ad-hoc and ungated, so
+# a build / bundle-layout / signing-structure regression is caught without a
+# gated release). This script adds the credentialed notarization (submit-then-poll,
+# never `--wait`), two-pass stapling, and the signed drag-to-Applications DMG.
 #
 # Usage: package_release.sh <version> <build_number>
 #   <version>       marketing version, e.g. 0.2.0 (from the fermixpet-vX.Y.Z tag)
@@ -24,15 +27,9 @@ VERSION="${1:?usage: package_release.sh <version> <build_number>}"
 BUILD_NUMBER="${2:?usage: package_release.sh <version> <build_number>}"
 
 APP_NAME="FermixPet"
-BUNDLE_ID="io.tezra.FermixPet"
 DISPLAY_NAME="Fermix"
-MIN_SYSTEM_VERSION="13.0"
-RESOURCE_BUNDLE_NAME="FermixPet_FermixPet.bundle"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PET_DIR="$ROOT_DIR/Apps/$APP_NAME"
-ENTITLEMENTS="$PET_DIR/Sources/FermixPet/FermixPet.entitlements"
-BUILD_PATH="$PET_DIR/.build-release"
 DIST="$ROOT_DIR/dist"
 STAGE="$(mktemp -d)"
 APP="$STAGE/$APP_NAME.app"
@@ -46,70 +43,6 @@ DMG="$DIST/$APP_NAME-$VERSION.dmg"
 fail() {
   echo "package_release: $*" >&2
   exit 1
-}
-
-build_universal() {
-  cd "$PET_DIR"
-  swift build -c release --arch arm64 --arch x86_64 --build-path "$BUILD_PATH"
-
-  local bin_dir
-  bin_dir="$(swift build -c release --arch arm64 --arch x86_64 --build-path "$BUILD_PATH" --show-bin-path)"
-  BIN="$bin_dir/$APP_NAME"
-  RESOURCE_BUNDLE="$bin_dir/$RESOURCE_BUNDLE_NAME"
-
-  [ -x "$BIN" ] || fail "built binary missing: $BIN"
-  [ -d "$RESOURCE_BUNDLE" ] || fail "resource bundle missing: $RESOURCE_BUNDLE"
-  lipo -info "$BIN" | grep -q "arm64" || fail "binary is missing the arm64 slice"
-  lipo -info "$BIN" | grep -q "x86_64" || fail "binary is missing the x86_64 slice"
-}
-
-write_info_plist() {
-  cat >"$APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDisplayName</key><string>$DISPLAY_NAME</string>
-  <key>CFBundleExecutable</key><string>$APP_NAME</string>
-  <key>CFBundleIconFile</key><string>FermixPet</string>
-  <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-  <key>CFBundleName</key><string>$DISPLAY_NAME</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>$VERSION</string>
-  <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
-  <key>LSMinimumSystemVersion</key><string>$MIN_SYSTEM_VERSION</string>
-  <key>NSMicrophoneUsageDescription</key><string>FermixPet uses microphone input only while you explicitly start a voice call.</string>
-  <key>NSPrincipalClass</key><string>NSApplication</string>
-</dict>
-</plist>
-PLIST
-}
-
-stage_app() {
-  rm -rf "$APP"
-  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-  cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
-  chmod 0755 "$APP/Contents/MacOS/$APP_NAME"
-  cp "$RESOURCE_BUNDLE/FermixPet.icns" "$APP/Contents/Resources/FermixPet.icns"
-  cp -R "$RESOURCE_BUNDLE" "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME"
-  write_info_plist
-}
-
-sign_app() {
-  # No --deep (Apple-discouraged; the resource bundle is a flat asset dir sealed
-  # into CodeResources). One explicit entitlement; hardened runtime + timestamp.
-  codesign --force --timestamp --options runtime \
-    --entitlements "$ENTITLEMENTS" \
-    --identifier "$BUNDLE_ID" \
-    --sign "$MACOS_DEVELOPER_ID" "$APP"
-
-  codesign --verify --deep --strict --verbose=2 "$APP"
-
-  codesign -d --entitlements - "$APP" 2>&1 | grep -q "com.apple.security.device.audio-input" \
-    || fail "microphone entitlement absent after signing"
-  if codesign -d --entitlements - "$APP" 2>&1 | grep -q "get-task-allow"; then
-    fail "get-task-allow present — not a release build"
-  fi
 }
 
 # Submit to notarytool and poll (never --wait: it holds one HTTP loop open for the
@@ -161,9 +94,8 @@ build_dmg() {
 
 main() {
   mkdir -p "$DIST"
-  build_universal
-  stage_app
-  sign_app
+  "$ROOT_DIR/scripts/stage_app.sh" "$VERSION" "$BUILD_NUMBER" "$APP"
+  "$ROOT_DIR/scripts/sign_app.sh" "$APP" "$MACOS_DEVELOPER_ID"
 
   # Two-pass staple: notarize + staple the app first (offline-robust first launch),
   # then package it into a DMG and notarize + staple the DMG.

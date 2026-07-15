@@ -31,19 +31,21 @@ jobs:
           script/runtime_policy_test.sh
           script/build_and_run_test.sh
 
-      - name: Universal2 build (arm64 + x86_64)
-        run: swift build -c release --arch arm64 --arch x86_64 --build-path .build-ci
-
-      - name: Assert both arches are present
-        run: |
-          set -euo pipefail
-          bin="$(swift build -c release --arch arm64 --arch x86_64 --build-path .build-ci --show-bin-path)/FermixPet"
-          lipo -info "$bin"
-          lipo -info "$bin" | grep -q arm64
-          lipo -info "$bin" | grep -q x86_64
-
       - name: Entitlements lint
         run: plutil -lint Sources/FermixPet/FermixPet.entitlements
+
+      # Runs the exact release build + stage + inside-out sign, but ad-hoc
+      # (no secrets), so a universal2 build failure, a bundle-layout regression,
+      # or a broken signing structure fails here — in ungated CI — instead of
+      # only when a signed release tag is pushed. Only real notarization (Apple
+      # round-trip) is left to release-fermixpet.yml.
+      - name: Build + stage + adhoc-sign (universal2 / layout / signing gate)
+        working-directory: ${{ github.workspace }}
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          scripts/stage_app.sh "0.0.0-ci" "$RUN_NUMBER" "$RUNNER_TEMP/FermixPet-ci.app"
+          scripts/sign_app.sh "$RUNNER_TEMP/FermixPet-ci.app" "-"
 
   contract:
     name: realtime wire contract (checksum pin)
