@@ -47,6 +47,20 @@ jobs:
           scripts/stage_app.sh "0.0.0-ci" "$RUN_NUMBER" "$RUNNER_TEMP/FermixPet-ci.app"
           scripts/sign_app.sh "$RUNNER_TEMP/FermixPet-ci.app" "-"
 
+      # Render the cask with placeholder version/sha and lint it exactly as the
+      # release job does, so a cask-template style regression fails here in
+      # ungated CI instead of after a full sign+notarize on a release tag.
+      - name: Cask style-check
+        working-directory: ${{ github.workspace }}
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          sha="$(printf '%064d' 0)"
+          sed -e "s/__VERSION__/0.0.0/g" -e "s/__SHA256__/$sha/g" \
+            Casks/fermixpet.rb.tmpl > Casks/fermixpet.rb
+          brew style Casks/fermixpet.rb
+          rm -f Casks/fermixpet.rb
+
   contract:
     name: realtime wire contract (checksum pin)
     runs-on: ubuntu-latest
