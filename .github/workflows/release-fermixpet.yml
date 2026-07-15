@@ -117,9 +117,23 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
           set -euo pipefail
+          # Homebrew rejects a loose cask file ("casks must be in a tap"), so stage
+          # the rendered cask in a throwaway local tap and install from there —
+          # exercising the real release URL, the sha256, the DMG mount, the app
+          # copy, and Gatekeeper exactly as a user would. Install to a temp appdir,
+          # not /Applications. Retry covers release-asset CDN propagation.
+          tapdir="$(brew --repository)/Library/Taps/tezra-io/homebrew-fpsmoke"
+          brew tap-new tezra-io/fpsmoke >/dev/null
+          mkdir -p "$tapdir/Casks"
+          cp Casks/fermixpet.rb "$tapdir/Casks/fermixpet.rb"
+          git -C "$tapdir" add -A
+          git -C "$tapdir" -c user.email=ci@local -c user.name=ci commit -q -m smoke
+
+          appdir="$RUNNER_TEMP/fpsmoke-apps"
+          mkdir -p "$appdir"
           installed=""
           for attempt in 1 2 3; do
-            if brew install --cask ./Casks/fermixpet.rb; then
+            if brew install --cask --appdir="$appdir" tezra-io/fpsmoke/fermixpet; then
               installed=1
               break
             fi
@@ -127,7 +141,10 @@ jobs:
             sleep 15
           done
           [ -n "$installed" ] || { echo "::error title=Cask install smoke failed::cask does not install from the published release"; exit 1; }
-          test -d /Applications/FermixPet.app
+          test -d "$appdir/FermixPet.app"
+          spctl -a -t exec -vv "$appdir/FermixPet.app"
+          brew uninstall --cask --appdir="$appdir" tezra-io/fpsmoke/fermixpet >/dev/null 2>&1 || true
+          brew untap tezra-io/fpsmoke >/dev/null 2>&1 || true
 
       # Tap publish is a PR, not a direct push: the tap's own review/CI is the
       # blocking gate, and a PR sidesteps the cross-repo push race with the CLI's
