@@ -87,6 +87,25 @@ final class AudioController {
         }
     }
 
+    /// Warm the capture pipeline without exposing any audio: installs the
+    /// tap and starts the engine with the path muted and handlerless, so the
+    /// tap's two-stage gate drops every buffer on the floor. Called from the
+    /// call flow only (after the permission gate) so the slow engine bring-up
+    /// overlaps the daemon/provider handshake instead of running after the
+    /// server already reports listening.
+    func prepareCapture() throws {
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            throw CaptureError.microphoneDenied
+        }
+
+        chunkHandlerLock.lock()
+        onChunkHandler = nil
+        chunkHandlerLock.unlock()
+        setCaptureMuted(true)
+
+        try ensureCaptureRunning()
+    }
+
     /// Attach a chunk handler and unmute so capture starts pushing data
     /// to the socket. The caller must have already awaited
     /// `requestCapturePermission()` — this throws `.microphoneDenied` if

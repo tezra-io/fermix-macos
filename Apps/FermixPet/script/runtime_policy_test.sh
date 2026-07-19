@@ -26,4 +26,18 @@ if rg -n "audio\\.stopCapture\\(\\)" "$STATE_FILE" >/dev/null; then
   fail "CompanionState must use full audio.shutdown() for teardown"
 fi
 
+prepare_count="$(rg -c "audio\\.prepareCapture\\(\\)" "$STATE_FILE" || true)"
+if [ "${prepare_count:-0}" != "1" ]; then
+  fail "prepareCapture must be referenced exactly once, from beginCall only"
+fi
+
+if ! awk '
+  /private func beginCall\(\)/ { in_begin_call = 1 }
+  in_begin_call && /audio\.prepareCapture\(\)/ { found = 1 }
+  in_begin_call && /^    (private )?func / && !/func beginCall\(\)/ { in_begin_call = 0 }
+  END { exit(found ? 0 : 1) }
+' "$STATE_FILE"; then
+  fail "prepareCapture must be called from beginCall, inside the permission-gated call flow"
+fi
+
 echo "runtime_policy_test: ok"

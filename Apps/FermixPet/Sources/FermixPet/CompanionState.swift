@@ -89,8 +89,17 @@ final class CompanionState: ObservableObject {
     }
 
     func shutdown() {
+        // Best-effort: `socket.send` enqueues asynchronously, and on the quit
+        // path (`quitApplication` → `NSApp.terminate`) the process can exit
+        // before the socket queue drains this frame. That is intentional — the
+        // daemon treats the socket EOF that follows the pet exiting as the real
+        // call teardown (it must, to survive pet crashes), so a `call_stop` that
+        // never reaches the wire changes nothing. We do not block the quit path
+        // to guarantee delivery: a synchronous drain here is exactly the
+        // main-thread-on-the-socket-queue wait this transport was rewritten to
+        // remove.
         if connected && callActive {
-            try? socket.send(["type": "call_stop"])
+            socket.send(["type": "call_stop"])
         }
 
         cancelHandshakeTimeout()
@@ -179,7 +188,7 @@ final class CompanionState: ObservableObject {
             handshaking = true
             mode = .idle
             statusText = "connecting"
-            try socket.send(["type": "client_hello", "protocol_version": Self.protocolVersion])
+            socket.send(["type": "client_hello", "protocol_version": Self.protocolVersion])
             startHandshakeTimeout()
             debugLog("client_hello v\(Self.protocolVersion) sent; awaiting server_hello: \(socketPath)")
         } catch {
@@ -267,14 +276,23 @@ final class CompanionState: ObservableObject {
             try await audio.requestCapturePermission()
             guard callActive else { return }
 
-            try socket.send(["type": "call_start"])
+            // Warm the capture engine now — muted and handlerless, so no
+            // audio can leave the process — instead of after the server's
+            // "listening" arrives. The engine bring-up is the slow part of
+            // call start; doing it before the daemon/provider handshake
+            // means the mic is already hot when the UI goes green, so the
+            // first words are never lost to warm-up.
+            try audio.prepareCapture()
+            guard callActive else { return }
+
+            socket.send(["type": "call_start"])
             statusText = "starting"
         } catch {
             mode = .error
             callActive = false
             captureStarted = false
             if connected {
-                try? socket.send(["type": "call_stop"])
+                socket.send(["type": "call_stop"])
             }
             statusText = captureErrorMessage(error)
             debugLog(
@@ -289,7 +307,7 @@ final class CompanionState: ObservableObject {
         shutdownAudio()
         captureStarted = false
         if connected {
-            try? socket.send(["type": "call_stop"])
+            socket.send(["type": "call_stop"])
         }
         callActive = false
         muted = false
@@ -319,7 +337,7 @@ final class CompanionState: ObservableObject {
         audio.setCaptureMuted(enabled)
 
         if connected && callActive {
-            try? socket.send(["type": "mute", "enabled": enabled])
+            socket.send(["type": "mute", "enabled": enabled])
         }
 
         if callActive {
@@ -546,7 +564,7 @@ final class CompanionState: ObservableObject {
             callActive = false
             captureStarted = false
             if connected {
-                try? socket.send(["type": "call_stop"])
+                socket.send(["type": "call_stop"])
             }
             statusText = captureErrorMessage(error)
             debugLog(
@@ -565,7 +583,7 @@ final class CompanionState: ObservableObject {
             if let ms = playedMs {
                 payload["audio_end_ms"] = ms
             }
-            try? socket.send(payload)
+            socket.send(payload)
         }
     }
 

@@ -24,6 +24,10 @@ let package = Package(
                     .when(platforms: [.macOS])
                 )
             ]
+        ),
+        .testTarget(
+            name: "FermixPetTests",
+            dependencies: ["FermixPet"]
         )
     ]
 )

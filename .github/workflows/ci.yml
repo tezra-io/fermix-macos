@@ -31,6 +31,12 @@ jobs:
           script/runtime_policy_test.sh
           script/build_and_run_test.sh
 
+      # Unit tests, incl. the RealtimeSocketClient wedged-writer regression that
+      # pins the deadlock fix. Needs a full Xcode (XCTest); the macos-14 runner
+      # has one, so no toolchain select is required.
+      - name: Unit tests (swift test)
+        run: swift test
+
       - name: Entitlements lint
         run: plutil -lint Sources/FermixPet/FermixPet.entitlements
 
