@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "recorded_on": "2026-08-21",
+  "note": "The vendored roster snapshot. PROVENANCE.json must carry one record per key here, and roster_source.roster_sha256 pins these bytes, so a vendor cannot be dropped from either file alone. The upstream cross-check (vendor_marks.py check --fermix-repo <checkout>) is what re-vendors it when fermix moves.",
+  "source": {
+    "repository": "https://github.com/tezra-io/fermix",
+    "providers": {
+      "path": "apps/fermix_core/lib/fermix_core/providers/descriptor.ex",
+      "symbol": "Providers.Descriptor.all/0",
+      "sha256": "e5b70c75fa66d1e5471838ecc760e506554c1b5acbfc23d1ff143cdce4a91288"
+    },
+    "channels": {
+      "path": "apps/fermix_web/lib/fermix_web_web/live/setup_live.ex",
+      "symbol": "the channels form map",
+      "sha256": "f8e8be3b32ac822158baa921dee9a09dfc4a99ff6ca2eb26e24c0728604151d0"
+    }
+  },
+  "providers": [
+    "anthropic",
+    "mistral",
+    "ollama",
+    "openai",
+    "openai_codex",
+    "openrouter",
+    "xai"
+  ],
+  "channels": [
+    "discord",
+    "signal",
+    "slack",
+    "telegram",
+    "whatsapp"
+  ],
+  "channel_exclusions": {
+    "editing": "The form map's own cursor, not a channel.",
+    "acp": "The ACP agent surface from milestone 29. It is a local agent protocol endpoint, not a messaging vendor, so it has no vendor mark to record."
+  }
+}

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# Build -> sign -> notarize -> staple -> DMG for FermixPet.
+# Build -> sign -> notarize -> staple -> DMG for the Fermix application.
 #
 # Release-only. Signing is MANDATORY: this fails loud if the Developer ID / notary
 # environment is incomplete. There is NO ad-hoc fallback here — local unsigned
-# builds are `Apps/FermixPet/script/build_and_run.sh`'s job.
+# builds are `scripts/dev_run.sh`'s job.
 #
 # The build+stage and the inside-out signing are shared with CI via
 # scripts/stage_app.sh + scripts/sign_app.sh (CI runs them ad-hoc and ungated, so
@@ -12,28 +12,39 @@
 # gated release). This script adds the credentialed notarization (submit-then-poll,
 # never `--wait`), two-pass stapling, and the signed drag-to-Applications DMG.
 #
+# The bundle name, the DMG name, and the disk image's volume name all come from
+# Product.json through scripts/product_config.sh. The artifact name is therefore
+# whatever `app_bundle_name` says without its .app suffix — and because the
+# legacy FermixPet release path (notarize.yml, release-fermixpet.yml, and the
+# cask template) matches that name literally, scripts/check_product_config.sh
+# gates those three files against this configuration.
+#
 # Usage: package_release.sh <version> <build_number>
-#   <version>       marketing version, e.g. 0.2.0 (from the fermixpet-vX.Y.Z tag)
+#   <version>       marketing version, e.g. 0.2.0 (from the release tag)
 #   <build_number>  monotonic CFBundleVersion, e.g. the CI run number
 #
 # Required env:
 #   MACOS_DEVELOPER_ID  "Developer ID Application: <Name> (<TEAMID>)"
 #   APPLE_ID  APPLE_TEAM_ID  APPLE_APP_PASSWORD   notarytool credentials
 #
-# Produces: dist/FermixPet-<version>.dmg (+ .sha256), stapled app + DMG.
+# Produces: dist/<artifact>-<version>.dmg (+ .sha256), stapled app + DMG.
 set -euo pipefail
 
 VERSION="${1:?usage: package_release.sh <version> <build_number>}"
 BUILD_NUMBER="${2:?usage: package_release.sh <version> <build_number>}"
 
-APP_NAME="FermixPet"
-DISPLAY_NAME="Fermix"
-
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/product_config.sh
+source "$ROOT_DIR/scripts/product_config.sh"
+
+APP_BUNDLE_NAME="$(product_config app_bundle_name)"
+ARTIFACT_NAME="${APP_BUNDLE_NAME%.app}"
+DISPLAY_NAME="$(product_config product_name)"
+
 DIST="$ROOT_DIR/dist"
 STAGE="$(mktemp -d)"
-APP="$STAGE/$APP_NAME.app"
-DMG="$DIST/$APP_NAME-$VERSION.dmg"
+APP="$STAGE/$APP_BUNDLE_NAME"
+DMG="$DIST/$ARTIFACT_NAME-$VERSION.dmg"
 
 : "${MACOS_DEVELOPER_ID:?release signing is mandatory: MACOS_DEVELOPER_ID is required}"
 : "${APPLE_ID:?APPLE_ID is required}"
@@ -94,13 +105,17 @@ build_dmg() {
 
 main() {
   mkdir -p "$DIST"
-  "$ROOT_DIR/scripts/stage_app.sh" "$VERSION" "$BUILD_NUMBER" "$APP"
+  "$ROOT_DIR/scripts/stage_app.sh" "$VERSION" "$BUILD_NUMBER" "$APP" universal
   "$ROOT_DIR/scripts/sign_app.sh" "$APP" "$MACOS_DEVELOPER_ID"
+  # The composed gate over the signed bundle: layout, configured identity, both
+  # property lists, the vendored contracts, the assets, the declared slots, and
+  # the signing/architecture/entitlement inventory this release records.
+  "$ROOT_DIR/scripts/verify_staged_app.sh" "$APP" universal signed
 
   # Two-pass staple: notarize + staple the app first (offline-robust first launch),
   # then package it into a DMG and notarize + staple the DMG.
-  ditto -c -k --keepParent "$APP" "$STAGE/$APP_NAME.zip"
-  notarize_and_wait "$STAGE/$APP_NAME.zip"
+  ditto -c -k --keepParent "$APP" "$STAGE/$ARTIFACT_NAME.zip"
+  notarize_and_wait "$STAGE/$ARTIFACT_NAME.zip"
   xcrun stapler staple "$APP"
 
   build_dmg

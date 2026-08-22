@@ -9,17 +9,24 @@ signing / notarization / release pipeline.
 
 | App | Path | Cask | Tag namespace |
 |---|---|---|---|
-| **FermixPet** — floating voice companion | `Apps/FermixPet/` | `Casks/fermixpet.rb` | `fermixpet-v*` |
+| **Fermix** — the macOS app (voice companion today, the unified surface in progress) | `Apps/Fermix/` | `Casks/fermixpet.rb` | `fermixpet-v*` |
 
 ## Layout
 
 ```
-Apps/<App>/            SwiftPM package for each app
-scripts/               keychain.sh, package_release.sh (build→sign→notarize→staple→DMG),
+Apps/<App>/            SwiftPM package for each app, plus its XcodeGen project.yml
+Apps/Fermix/Sources/FermixAppCore/Resources/Product.json
+                       the one product configuration: identity, layout, versions,
+                       agent label, engine + Tools paths. Swift and the scripts
+                       both read it; no plist is written anywhere else.
+scripts/               product_config.sh + render_info_plist.sh + check_product_config.sh,
+                       keychain.sh, package_release.sh (build→sign→notarize→staple→DMG),
                        verify_protocol_contract.sh
 .github/workflows/     ci.yml (PR gates), notarize.yml (reusable signing), release-<app>.yml
 Casks/                 Homebrew cask templates (rendered at release with the real sha)
-docs/realtime-contract/  vendored copy of Fermix's realtime wire contract, pinned by checksum
+Apps/Fermix/Sources/FermixAppCore/Resources/Contracts/
+                       vendored copies of Fermix's management and realtime wire
+                       contracts, pinned by CHECKSUMS.txt + SOURCE.json
 ```
 
 ## Releasing an app
@@ -43,19 +50,33 @@ brew install --cask tezra-io/tap/fermixpet   # or the local Casks/fermixpet.rb
 Local, unsigned build (self-signed identity, no notarization):
 
 ```sh
-Apps/FermixPet/script/build_and_run.sh run
+Apps/Fermix/script/build_and_run.sh run
 ```
+
+Gates:
+
+```sh
+cd Apps/Fermix && swift build && script/swift_test.sh
+xcodegen generate                 # validates project.yml
+../../scripts/check_product_config.sh
+```
+
+`script/swift_test.sh` supplies the swift-testing search path and rpaths that
+Command Line Tools need and a full Xcode toolchain does not.
 
 `ci.yml` proves the universal2 build (`arm64` + `x86_64`) and the static
 runtime-policy / build-harness checks on every PR, before any signed release.
 
-## The realtime wire contract
+## The wire contracts
 
-FermixPet speaks the newline-delimited JSON protocol defined canonically by
-`FermixCore.Realtime.Protocol` in the fermix repo. `docs/realtime-contract/` is a
-vendored copy pinned by checksum; `scripts/verify_protocol_contract.sh` (run in CI)
-fails if it drifts. Bump order across the two repos: **ship daemon support first,
-then the pet** — see `docs/realtime-contract/PROTOCOL.md`.
+The app speaks two socket protocols defined canonically in the fermix repo: the
+packet-4 management protocol on `daemon.sock` and the newline-delimited realtime
+protocol on `realtime.sock`. Both are vendored under
+`Apps/Fermix/Sources/FermixAppCore/Resources/Contracts/` and pinned by
+`CHECKSUMS.txt` plus `SOURCE.json`; `scripts/verify_protocol_contract.sh` (run in
+CI) fails if either drifts, and `--source <fermix-checkout>` additionally proves
+the copy is byte-identical to upstream. Bump order across the two repos: **ship
+daemon support first, then the app** — see each `PROTOCOL.md`.
 
 ## Required repo secrets (release only)
 

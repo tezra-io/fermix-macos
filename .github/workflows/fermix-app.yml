@@ -1,0 +1,126 @@
+name: fermix-app
+
+# PR + main gates for the unified Fermix application.
+#
+# It runs on every change, needs no secrets, and produces no release artifact:
+# build, unit tests, the checked-in Xcode project spec, the product-configuration
+# and asset gates, and a staging dry run that performs the exact release build,
+# stage, and inside-out signature ad-hoc. A universal2 build failure, a bundle
+# layout regression, or a broken signing structure therefore fails here, in
+# ungated CI, instead of only when a signed release tag is pushed. Only the Apple
+# round-trip — real Developer ID signing, notarization, stapling, and the DMG —
+# is left to the gated release workflow.
+#
+# This file is deliberately separate from ci.yml, which keeps the legacy
+# FermixPet release path's own gate alive until general availability.
+#
+# Actions are pinned to immutable commit SHAs per M34 section 7.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: Fermix (build + verify)
+    # macos-15's default toolchain is Xcode 16, i.e. SwiftPM 6 and swift-testing.
+    # Package.swift is tools-version 6.0 (required for the macOS 15 floor) and
+    # the suite is swift-testing, so an Xcode 15 runner cannot resolve or run it.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install ripgrep (runtime_policy_test.sh dependency)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: brew install ripgrep
+
+      # Cheapest possible gate, and it runs first: every shell script in the
+      # repository must at least parse. A release script with a syntax error is
+      # otherwise discovered by the release that needed it.
+      - name: Shell syntax
+        run: |
+          set -euo pipefail
+          find scripts Apps/Fermix/script -name '*.sh' -print0 | xargs -0 -n1 bash -n
+
+      # Nothing may restate a value Product.json owns: the linked Info.plist is
+      # regenerated and diffed, the manifest and XcodeGen spec are checked
+      # against the same configuration, and so are the three files in the legacy
+      # release path that name the released artifact literally.
+      - name: Product configuration (single source of truth)
+        run: scripts/check_product_config.sh
+
+      - name: Vendor marks + brand images
+        run: |
+          scripts/check_vendor_marks.sh
+          scripts/check_brand_images.sh
+
+      # The staging and signing gates, exercised against a reference bundle
+      # rather than a real build, so their refusals are proven to fire without
+      # waiting on universal2. Ad-hoc identity only; no keychain, no secrets.
+      - name: Staging + signing gate harnesses
+        run: |
+          scripts/verify_staged_app_test.sh
+          scripts/sign_app_test.sh
+
+      - name: Static runtime-policy + build-harness tests
+        working-directory: Apps/Fermix
+        run: |
+          script/runtime_policy_test.sh
+          script/build_and_run_test.sh
+
+      # Unit tests, incl. the RealtimeSocketClient wedged-writer regression that
+      # pins the deadlock fix. The wrapper adds the swift-testing search path
+      # and rpaths a Command Line Tools toolchain needs; on this runner's full
+      # Xcode it is a plain `swift test`.
+      - name: Unit tests (swift-testing)
+        working-directory: Apps/Fermix
+        run: script/swift_test.sh
+
+      - name: Entitlements lint
+        working-directory: Apps/Fermix
+        run: plutil -lint Sources/Fermix/Fermix.entitlements
+
+      # The checked-in Xcode project spec must still generate. This machine's
+      # toolchain has no Xcode.app, so the spec plus `xcodegen generate` is what
+      # satisfies M34's Xcode-project requirement locally; the runner has the
+      # full toolchain and generates the same project.
+      - name: XcodeGen spec
+        working-directory: Apps/Fermix
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      # The staging dry run: the real release build, stage, and inside-out
+      # signature, ad-hoc and into a temporary directory, then the composed
+      # verification that prints the signing, architecture, entitlement, and
+      # artifact inventory into the job log.
+      - name: Staging dry run (universal2 / layout / signing)
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          source scripts/product_config.sh
+          stage="$RUNNER_TEMP/stage"
+          bundle="$(product_config app_bundle_name)"
+          mkdir -p "$stage"
+          scripts/stage_app.sh "0.0.0-ci" "$RUN_NUMBER" "$stage/$bundle" universal
+          scripts/sign_app.sh "$stage/$bundle" "-"
+          scripts/verify_staged_app.sh "$stage/$bundle" universal signed
+
+  # The vendored management + realtime contracts must match both pin records.
+  # The fourth check the script offers — a byte-compare against a real fermix
+  # checkout, the only one that can see upstream moving ahead of the vendored
+  # copy — needs cross-repo credentials this workflow does not have, so it runs
+  # at re-vendor time (`--source <fermix-checkout>`), not here.
+  contract:
+    name: wire contracts (checksum + provenance pin)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: scripts/verify_protocol_contract.sh

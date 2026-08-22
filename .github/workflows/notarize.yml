@@ -47,7 +47,10 @@ permissions:
 jobs:
   notarize:
     name: sign + notarize
-    runs-on: macos-14
+    # macos-15 defaults to Xcode 16, i.e. SwiftPM 6. Apps/Fermix/Package.swift
+    # is tools-version 6.0 (required for its macOS 15 deployment floor), which
+    # an Xcode 15 runner refuses to resolve.
+    runs-on: macos-15
     environment: release-macos
     outputs:
       dmg_name: ${{ steps.out.outputs.dmg_name }}

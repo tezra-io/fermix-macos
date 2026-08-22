@@ -1,0 +1,307 @@
+{
+  "schema_version": 1,
+  "recorded_on": "2026-08-21",
+  "contract": "MILESTONE_34_UNIFIED_MACOS_APP_IMPLEMENTATION.md section 7",
+  "policy": {
+    "sources": "A mark ships only when it was retrieved from the vendor's own official brand resource. Nothing here is redrawn, traced, recolored, or reconstructed from a screenshot.",
+    "no_fabrication": "A vendor whose official mark could not be retrieved and redistributed accurately renders as the vendor text name beside a neutral SF Symbol. A monogram is never invented and another vendor's mark is never substituted.",
+    "neutral_symbols": "One neutral symbol per roster kind, so the fallback carries no invented vendor identity: providers use cpu, channels use bubble.left.and.bubble.right. Both exist on the macOS 15 floor.",
+    "accessibility": "Every record carries the exact VoiceOver label for its row or chip. A mark is decorative when the label is already spoken by the surrounding row; the label here is the authority either way.",
+    "sizing": "Marks ship as vendor SVG masters. SVG is resolution independent, so the 2x tier is covered by construction; see the deviation note in the M34 implementation log about local rasterization."
+  },
+  "roster_source": {
+    "repository": "https://github.com/tezra-io/fermix",
+    "providers": "apps/fermix_core/lib/fermix_core/providers/descriptor.ex (Providers.Descriptor.all/0)",
+    "channels": "apps/fermix_web/lib/fermix_web_web/live/setup_live.ex (the channels form map)",
+    "roster": "ROSTER.json",
+    "roster_sha256": "a8be8ff413371f7a7f54c48ccef0de64f4dab0a351804d32d656a702e115f46b",
+    "provider_count": 7,
+    "channel_count": 5,
+    "channel_exclusions": {
+      "editing": "The form map's own cursor, not a channel.",
+      "acp": "The ACP agent surface from milestone 29. It is a local agent protocol endpoint, not a messaging vendor, so it has no vendor mark to record."
+    }
+  },
+  "marks": [
+    {
+      "key": "openai_codex",
+      "kind": "provider",
+      "display_name": "OpenAI Codex (ChatGPT)",
+      "accessibility_label": "OpenAI Codex, sign in with ChatGPT",
+      "treatment": "vendor_text_with_symbol",
+      "source_url": "https://openai.com/brand",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "Not retrieved. openai.com/brand answers HTTP 403 to every non-interactive request from this environment, so the terms could not be read first hand and are not restated here.",
+      "permitted_treatment": "Vendor text name beside a neutral SF Symbol until the official kit and its terms are retrieved.",
+      "dark_mode_policy": "Text follows the system label color; the symbol is template rendered.",
+      "assets": [],
+      "fallback": {
+        "sf_symbol": "cpu",
+        "reason": "unretrievable_official_asset",
+        "detail": "openai.com/brand returned HTTP 403 to curl and to the agent fetcher, with a browser user agent and full navigation headers. The page is reachable interactively; an owner run of scripts/fetch_vendor_marks.sh from a browser-capable context is what closes this."
+      },
+      "notes": "The Codex sign-in row and the OpenAI API-key row are two roster entries over one vendor mark. Both wait on the same retrieval."
+    },
+    {
+      "key": "openai",
+      "kind": "provider",
+      "display_name": "OpenAI",
+      "accessibility_label": "OpenAI",
+      "treatment": "vendor_text_with_symbol",
+      "source_url": "https://openai.com/brand",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "Not retrieved. openai.com/brand answers HTTP 403 to every non-interactive request from this environment, so the terms could not be read first hand and are not restated here.",
+      "permitted_treatment": "Vendor text name beside a neutral SF Symbol until the official kit and its terms are retrieved.",
+      "dark_mode_policy": "Text follows the system label color; the symbol is template rendered.",
+      "assets": [],
+      "fallback": {
+        "sf_symbol": "cpu",
+        "reason": "unretrievable_official_asset",
+        "detail": "Same HTTP 403 as openai_codex; one page owns both marks."
+      },
+      "notes": ""
+    },
+    {
+      "key": "anthropic",
+      "kind": "provider",
+      "display_name": "Anthropic",
+      "accessibility_label": "Anthropic",
+      "treatment": "vendor_text_with_symbol",
+      "source_url": "https://www.anthropic.com/",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "Anthropic publishes no public brand kit or trademark-use page. Newsroom media assets are press illustrations, not a redistributable mark under stated terms.",
+      "permitted_treatment": "Vendor text name beside a neutral SF Symbol. Section 7 names this treatment for exactly this case.",
+      "dark_mode_policy": "Text follows the system label color; the symbol is template rendered.",
+      "assets": [],
+      "fallback": {
+        "sf_symbol": "cpu",
+        "reason": "no_published_brand_kit",
+        "detail": "This is a vendor policy outcome, not a fetch failure. It does not change if the fetch is retried from a browser."
+      },
+      "notes": "Claude sign-in row on Connect AI uses this record."
+    },
+    {
+      "key": "xai",
+      "kind": "provider",
+      "display_name": "SpaceXAI",
+      "accessibility_label": "SpaceXAI",
+      "treatment": "vendor_text_with_symbol",
+      "source_url": "https://x.ai/legal/brand-guidelines",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "Not retrieved. x.ai answers HTTP 403 to every non-interactive request from this environment, so the guidelines could not be read first hand and are not restated here.",
+      "permitted_treatment": "Vendor text name beside a neutral SF Symbol until the official guidelines and asset are retrieved.",
+      "dark_mode_policy": "Text follows the system label color; the symbol is template rendered.",
+      "assets": [],
+      "fallback": {
+        "sf_symbol": "cpu",
+        "reason": "unretrievable_official_asset",
+        "detail": "x.ai/legal/brand-guidelines returned HTTP 403 to curl and to the agent fetcher with a browser user agent and full navigation headers."
+      },
+      "notes": "SpaceXAI is the display label; the vendor and the brand page are xAI. Internal identifiers stay xai."
+    },
+    {
+      "key": "openrouter",
+      "kind": "provider",
+      "display_name": "OpenRouter",
+      "accessibility_label": "OpenRouter",
+      "treatment": "vendor_text_with_symbol",
+      "source_url": "https://openrouter.ai/",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "OpenRouter publishes no brand or trademark-use page, so there are no stated redistribution terms to record.",
+      "permitted_treatment": "Vendor text name beside a neutral SF Symbol. Section 7 names this treatment for exactly this case.",
+      "dark_mode_policy": "Text follows the system label color; the symbol is template rendered.",
+      "assets": [],
+      "fallback": {
+        "sf_symbol": "cpu",
+        "reason": "no_published_brand_kit",
+        "detail": "Vendor policy outcome, not a fetch failure."
+      },
+      "notes": ""
+    },
+    {
+      "key": "mistral",
+      "kind": "provider",
+      "display_name": "Mistral",
+      "accessibility_label": "Mistral",
+      "treatment": "vendor_text_with_symbol",
+      "source_url": "https://mistral.ai/brand/",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "The brand page was read and states: prefer the gradient version, respect clearspace, use monochrome on busy backgrounds; do not stretch, deform, rotate, modify the layout, recolor, use old or unofficial versions, place on a colored background, or add a frame. The asset files themselves could not be downloaded, so no file is redistributed under those terms here.",
+      "permitted_treatment": "Vendor text name beside a neutral SF Symbol until the icon file is retrieved. Once retrieved, the gradient icon is the default and the vendor's own black and white icons are the monochrome variants; recoloring is forbidden.",
+      "dark_mode_policy": "Vendor supplies Icon-Mistral-Black and Icon-Mistral-White. Light appearance takes black, dark appearance takes white, and neither is produced by tinting the other.",
+      "assets": [],
+      "fallback": {
+        "sf_symbol": "cpu",
+        "reason": "unretrievable_official_asset",
+        "detail": "The asset host cms.globalaegis.net returned HTTP 403 with a Cloudflare interstitial for every icon URL, including with a mistral.ai referer. Known asset URLs for an owner run: https://cms.globalaegis.net/api/documents/file/Mistral-Icon-Gradient-RGB.png, .../Icon-Mistral-Black.png, .../Icon-Mistral-White.png, and the bundle .../Mistral_Logos_2026.zip."
+      },
+      "notes": "Mistral has no artboard in DESIGN_SPEC section 6; the mark is needed by the Home provider chips and the hosted Setup surface."
+    },
+    {
+      "key": "ollama",
+      "kind": "provider",
+      "display_name": "Ollama",
+      "accessibility_label": "Ollama",
+      "treatment": "vendor_mark",
+      "source_url": "https://github.com/ollama/ollama/blob/main/docs/ollama-logo.svg",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "Repository licensed, not brand-kit licensed. The mark lives inside the ollama/ollama repository, which is under the MIT License (https://github.com/ollama/ollama/blob/main/LICENSE, sha256 5934ed2ce0d15154bcdb9c85203210abac0da4314af34081e36df4599f90b226, retrieved 2026-08-21). MIT permits redistribution and modification with the copyright and permission notice preserved. Ollama publishes no separate trademark policy, so the repository licence is the recorded term rather than an assumed permissive one.",
+      "permitted_treatment": "Ship the file verbatim. Scale uniformly. The MIT licence permits a tinted or recolored derivative, but no derivative is shipped here.",
+      "dark_mode_policy": "The official file is a single fill=\"black\" path with no light variant published. It is rendered as a template image tinted with the system label color, which is why no separate dark asset exists.",
+      "assets": [
+        {
+          "role": "monochrome",
+          "path": "providers/ollama-mono.svg",
+          "sha256": "397a6ee071cce1496edd8a86dd1c91ce005712ec161690e411b3dc7f151181f5",
+          "asset_url": "https://raw.githubusercontent.com/ollama/ollama/main/docs/ollama-logo.svg",
+          "asset_member": null,
+          "retrieved_on": "2026-08-21"
+        }
+      ],
+      "fallback": null,
+      "notes": "raw.githubusercontent.com serves the branch tip, so a refresh can legitimately change the hash. The fetch script reports a hash change as a vendor update to review, never as corruption."
+    },
+    {
+      "key": "telegram",
+      "kind": "channel",
+      "display_name": "Telegram",
+      "accessibility_label": "Telegram",
+      "treatment": "vendor_mark",
+      "source_url": "https://telegram.org/tour/screenshots",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "The official page states: \"Please feel free to use these Telegram logos for article illustrations, graphs, 'forward to Telegram' buttons, etc. Just make sure people understand you're not representing Telegram officially.\"",
+      "permitted_treatment": "Ship the file verbatim and scale uniformly. The surrounding copy must not imply Fermix is an official Telegram product; the Connect channel row names Telegram only as a destination.",
+      "dark_mode_policy": "One gradient roundel with its own white glyph on a blue disc. It carries its own ground, so it needs no appearance variant and is never rendered as a template image.",
+      "assets": [
+        {
+          "role": "color",
+          "path": "channels/telegram-color.svg",
+          "sha256": "85059d5e5bf7bda91ebab30664993c49867a26be6b947834aca16c846581766a",
+          "asset_url": "https://telegram.org/img/t_logo.svg",
+          "asset_member": null,
+          "retrieved_on": "2026-08-21"
+        }
+      ],
+      "fallback": null,
+      "notes": "The tour page also offers a logo bundle at https://telegram.org/file/464001088/1/bI7AJLo7oX4.287931.zip/374fe3b0a59dc60005; the single canonical SVG telegram.org serves was taken instead so the pin is one file, not an archive member."
+    },
+    {
+      "key": "whatsapp",
+      "kind": "channel",
+      "display_name": "WhatsApp",
+      "accessibility_label": "WhatsApp",
+      "treatment": "vendor_text_with_symbol",
+      "source_url": "https://www.meta.com/brand/resources/whatsapp/whatsapp-brand/",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "The brand page was read and states: the resources may be scaled; the letters W and A stay capitalized and the word WhatsApp is never modified or abbreviated; do not combine the WhatsApp name or logos with any other logo, company name, mark, or generic term; do not use a confusingly similar image; do not modify any colors in the logos. The asset bundle itself could not be downloaded, so no file is redistributed under those terms here.",
+      "permitted_treatment": "Vendor text name beside a neutral SF Symbol until the bundle is retrieved. The name renders as WhatsApp, never abbreviated, and never locked up with the Fermix mark.",
+      "dark_mode_policy": "Colors may not be modified, so a retrieved mark would ship in its published colors in both appearances. The text fallback follows the system label color.",
+      "assets": [],
+      "fallback": {
+        "sf_symbol": "bubble.left.and.bubble.right",
+        "reason": "unretrievable_official_asset",
+        "detail": "The bundle is served from a signed, expiring Meta CDN URL (scontent-*.xx.fbcdn.net/.../WhatsApp-Brand-Resource-Center.zip) which returned HTTP 403 to a direct request. The URL is minted per page view, so the fetch script cannot pin it; an owner download from the brand page is what closes this."
+      },
+      "notes": "WhatsApp has no artboard in DESIGN_SPEC section 6 and still needs a channel chip."
+    },
+    {
+      "key": "discord",
+      "kind": "channel",
+      "display_name": "Discord",
+      "accessibility_label": "Discord",
+      "treatment": "vendor_mark",
+      "source_url": "https://discord.com/branding",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "The official branding page states the marks may be used to inform people that you are a Discord user or have a Discord server, subject to the brand guidelines, and that you must not edit, change, distort, recolor, or reconfigure the Discord logo, or use the marks on merchandise. Published colors: Blurple #5865F2, Light Blurple #E0E3FF, Black #000000.",
+      "permitted_treatment": "Ship the vendor's own symbol files verbatim and scale uniformly. Never recolor: the black and white files are the vendor's variants, not tints of the blurple one.",
+      "dark_mode_policy": "Blurple is the default in both appearances. Where a surface needs a monochrome mark, light appearance takes discord-black and dark appearance takes discord-white, both official files.",
+      "assets": [
+        {
+          "role": "color",
+          "path": "channels/discord-blurple.svg",
+          "sha256": "d06eaa51e78a9984ebbd3fbc82f0245ac2ecb5bf0150f537204397c1da5c7bd8",
+          "asset_url": "https://cdn.discordapp.com/assets/content/a736b95923ddbc155e828651c92471292e40727655d770a06cec89c48ba0b41f.zip",
+          "asset_member": "Discord_Symbol_Color/Discord-Symbol-Blurple.svg",
+          "retrieved_on": "2026-08-21"
+        },
+        {
+          "role": "light",
+          "path": "channels/discord-black.svg",
+          "sha256": "2d1bd85831cdab67a5b8c893a218a47c3892b66a9fd073659022b8c8669fff2e",
+          "asset_url": "https://cdn.discordapp.com/assets/content/aecd9009fd6a24c06c8ce71f6bb84463eaf7252bc5259022fb887b381a428250.zip",
+          "asset_member": "Discord_Symbol_Black/Discord-Symbol-Black.svg",
+          "retrieved_on": "2026-08-21"
+        },
+        {
+          "role": "dark",
+          "path": "channels/discord-white.svg",
+          "sha256": "de4cc484cdc0e3a8f3a58a84b0c80c5ac8acefeebf730930545ff3b279b5d0a3",
+          "asset_url": "https://cdn.discordapp.com/assets/content/80af2c38f13b4a7d2cb3572e1220f6e958d3c3aedccc7c7d3ddc9832f6b3d725.zip",
+          "asset_member": "Discord_Symbol_White/Discord-Symbol-White.svg",
+          "retrieved_on": "2026-08-21"
+        }
+      ],
+      "fallback": null,
+      "notes": "The branding page's Color and White symbol download links are transposed relative to the archives they serve: the link labelled Color delivers Discord_Symbol_White and the link labelled White delivers Discord_Symbol_Color. Each asset here records the URL that actually contains its member, so the fetch script verifies content rather than the page's label."
+    },
+    {
+      "key": "slack",
+      "kind": "channel",
+      "display_name": "Slack",
+      "accessibility_label": "Slack",
+      "treatment": "vendor_text_with_symbol",
+      "source_url": "https://slack.com/media-kit",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "The media kit states: \"By using the Slack marks you agree to follow these guidelines as well as our Terms of Service and all our rules and policies,\" and directs unusual uses to feedback@slack.com with a visual mockup. The logo files are held in a Salesforce digital asset manager, and the linked brand center is under construction.",
+      "permitted_treatment": "Vendor text name beside a neutral SF Symbol until the files are retrieved from the asset manager under those guidelines.",
+      "dark_mode_policy": "Text follows the system label color; the symbol is template rendered.",
+      "assets": [],
+      "fallback": {
+        "sf_symbol": "bubble.left.and.bubble.right",
+        "reason": "unretrievable_official_asset",
+        "detail": "The logo collection is behind a Salesforce Widen portal (salesforce.widencollective.com/c/yn6bxnam) that requires an interactive session, and brand.slackhq.com is under construction. There is no stable direct file URL to pin."
+      },
+      "notes": "Slack is a compact row on the Connect channel artboard, so this fallback is visible in onboarding."
+    },
+    {
+      "key": "signal",
+      "kind": "channel",
+      "display_name": "Signal",
+      "accessibility_label": "Signal",
+      "treatment": "vendor_mark",
+      "source_url": "https://signal.org/brand/",
+      "source_retrieved_on": "2026-08-21",
+      "usage_terms": "The brand page states: always maintain the set proportions and never show the glyph smaller than 26 by 26 pixels; keep clear space of at least half the size of the logo around it; do not alter the Signal logo by rotating, stretching, outlining, or adding effects; do not modify the typography of the Signal wordmark; distinguish the brand assets from surrounding text.",
+      "permitted_treatment": "Ship the vendor's own logo files verbatim, scale uniformly, and never render below 26 by 26 points. The wordmark lockups are not used; only the logo glyph is.",
+      "dark_mode_policy": "Ultramarine is the default in both appearances. Where a surface needs a monochrome mark, light appearance takes signal-black and dark appearance takes signal-white, both official files rather than tints.",
+      "assets": [
+        {
+          "role": "color",
+          "path": "channels/signal-ultramarine.svg",
+          "sha256": "60c84ad5184f14b9f85a1e7852411762cd0879a45439abd31810f2775f4db9d9",
+          "asset_url": "https://signal.org/brand/bundles/Signal%20Logo.zip",
+          "asset_member": "Logo/SVG/Signal-Logo-Ultramarine.svg",
+          "retrieved_on": "2026-08-21"
+        },
+        {
+          "role": "light",
+          "path": "channels/signal-black.svg",
+          "sha256": "fb83fd63ff6b09ca12148857b15387d290b64e5fc27e467d0321ee8502c3ac61",
+          "asset_url": "https://signal.org/brand/bundles/Signal%20Logo.zip",
+          "asset_member": "Logo/SVG/Signal-Logo-Black.svg",
+          "retrieved_on": "2026-08-21"
+        },
+        {
+          "role": "dark",
+          "path": "channels/signal-white.svg",
+          "sha256": "d434b1f688ed4c978b413bf7b2f0c6e5e44bac74c12e68529ce2782a977e52fd",
+          "asset_url": "https://signal.org/brand/bundles/Signal%20Logo.zip",
+          "asset_member": "Logo/SVG/Signal-Logo-White.svg",
+          "retrieved_on": "2026-08-21"
+        }
+      ],
+      "fallback": null,
+      "notes": "The 26 by 26 point floor is the tightest published minimum in this file. Any chip that renders a Signal mark must respect it; the 30 point icon tile in the redlines does."
+    }
+  ]
+}

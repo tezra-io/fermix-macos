@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- The hardened-runtime exception set for ERTS executables inside the bundled
+     engine tree. M34 Stage 0 gate 3: this starts EMPTY and gains exactly the
+     keys a real signed launch demonstrates are required, one at a time, each
+     recorded in the Stage 0 evidence table. The expected discovery ladder,
+     from Livebook prior art, is allow-unsigned-executable-memory first (BEAM
+     JIT), then allow-jit; do not add either before its failure is observed. -->
+<dict>
+  <!-- Rung 1, observed 2026-08-21 on the ad-hoc signed arm64 engine:
+       beam_jit_main.cpp pick_allocator "Failed to allocate executable+writable
+       memory". BEAM's JIT allocates W+X without MAP_JIT, which the hardened
+       runtime forbids without this exception. -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Rung 2, observed 2026-08-21 under the AD-HOC identity only: dlopen of
+       lib/runtime_tools/priv/lib/dyntrace.so refused with "different Team
+       IDs" (ad-hoc carries none). A Developer ID signs every Mach-O with one
+       team, so the signed session must FIRST retry without this key and drop
+       it if the load passes — keep the shipped set minimal. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

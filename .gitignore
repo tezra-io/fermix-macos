@@ -14,3 +14,9 @@ Casks/fermixpet.rb
 
 # macOS
 .DS_Store
+
+# Local e2e staging output (engine-embedded ad-hoc bundles)
+dist-e2e/
+
+# BEAM crash dumps from local engine smokes
+erl_crash.dump

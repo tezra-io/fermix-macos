@@ -47,7 +47,8 @@ jobs:
   publish:
     name: publish release + cask
     needs: [version, notarize]
-    runs-on: macos-14
+    # Matches the notarize job's runner: see notarize.yml for why macos-15.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 

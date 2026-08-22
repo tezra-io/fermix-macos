@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "product_name": "Fermix",
+  "bundle_identifier": "io.tezra.FermixPet",
+  "url_scheme": "fermix",
+  "app_bundle_name": "FermixPet.app",
+  "gui_executable_name": "Fermix",
+  "agent_executable_name": "FermixAgent",
+  "agent_service_label": "io.tezra.FermixPet.agent",
+  "minimum_system_version": "15.0",
+  "supported_architectures": [
+    "arm64",
+    "x86_64"
+  ],
+  "marketing_version": "0.1.0",
+  "build_number": "1",
+  "icon_file": "FermixPet",
+  "swift_resource_bundle_name": "Fermix_FermixAppCore.bundle",
+  "engine_relative_path": "Contents/Resources/Engine",
+  "tools_relative_path": "Contents/Resources/Tools",
+  "microphone_usage_description": "Fermix uses microphone input only while you explicitly start a voice call."
+}
