@@ -276,6 +276,36 @@ struct VendorMarkTests {
         #expect(VendorMark.Kind.channel.neutralSymbol == "bubble.left.and.bubble.right")
         #expect(VendorMark.Kind.plugin.neutralSymbol == "puzzlepiece.extension")
         #expect(VendorMark.Kind.feature.neutralSymbol == "puzzlepiece.extension")
+        #expect(VendorMark.Kind.meetingPlatform.neutralSymbol == "video")
+    }
+
+    /// The two platforms the Meetings pane is sectioned by, each drawing the
+    /// mark its own vendor publishes.
+    ///
+    /// A meeting platform is its own kind rather than a feature: `meetings` is
+    /// one native driver with one Fermix mark, and Google Meet and Zoom are two
+    /// vendors underneath it, so folding them into the feature roster would put
+    /// three different things behind one key.
+    @Test("both meeting platforms draw an official mark of their own")
+    func meetingPlatformMarks() throws {
+        let recorded = try Self.marks().filter { $0["kind"] as? String == "meeting_platform" }
+
+        #expect(recorded.map { $0["key"] as? String }.sorted { ($0 ?? "") < ($1 ?? "") }
+            == ["google_meet", "zoom"])
+
+        for entry in recorded {
+            let key = try #require(entry["key"] as? String)
+            let mark = try #require(VendorMarks.mark(.meetingPlatform, key))
+
+            // Every record here is a retrieved vendor file. A platform whose
+            // official mark could not be retrieved would carry the text
+            // treatment instead, and would ship no file at all.
+            #expect(entry["origin"] as? String == "vendor", "\(key) is not a vendor's own mark")
+            #expect(entry["treatment"] as? String == "vendor_mark", "\(key)")
+            #expect(mark.asset(dark: false) != nil, "\(key) draws no file")
+            #expect(!mark.isTemplate, "\(key) is a colour mark and is never tinted")
+            #expect(mark.plate == .neutral, "\(key) is drawn on transparency")
+        }
     }
 
     /// The Integrations page draws plugins and the three native driver features

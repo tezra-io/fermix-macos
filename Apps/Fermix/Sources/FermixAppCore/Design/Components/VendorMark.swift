@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// One provider, channel, plugin or feature mark, and the ways it may be drawn.
+/// One provider, channel, plugin, feature or meeting platform mark, and the ways
+/// it may be drawn.
 ///
 /// M34 §7 and redline §8.4: a mark ships only when it was retrieved from the
 /// source recorded beside it and shipped byte for byte. When nothing could be
@@ -20,6 +21,10 @@ public struct VendorMark: Equatable, Sendable {
         case channel
         case plugin
         case feature
+        /// The platforms the Meetings pane is sectioned by. Their keys are the
+        /// app's own, the way the feature keys are; only their marks are the
+        /// vendors'.
+        case meetingPlatform = "meeting_platform"
         case oauthClient = "oauth_client"
 
         /// The neutral symbol this kind falls back to. Deliberately generic: a
@@ -29,6 +34,7 @@ public struct VendorMark: Equatable, Sendable {
             switch self {
             case .provider: return "cpu"
             case .channel: return "bubble.left.and.bubble.right"
+            case .meetingPlatform: return "video"
             case .plugin, .feature, .oauthClient: return "puzzlepiece.extension"
             }
         }
@@ -174,6 +180,15 @@ public enum VendorMarks {
         VendorMark(.feature, "computer_history", .file(.init("features", "computer-history-color", "svg"))),
         VendorMark(.feature, "computer_use", .file(.init("features", "computer-use-color", "svg"))),
         VendorMark(.feature, "meetings", .file(.init("features", "meetings-color", "svg"))),
+
+        // The two platforms the Meetings pane is sectioned by, each from its
+        // own vendor's official publication of its mark.
+        VendorMark(
+            .meetingPlatform,
+            "google_meet",
+            .file(.init("meeting_platforms", "google-meet-color", "png"))
+        ),
+        VendorMark(.meetingPlatform, "zoom", .file(.init("meeting_platforms", "zoom-color", "png"))),
 
         VendorMark(
             .oauthClient,

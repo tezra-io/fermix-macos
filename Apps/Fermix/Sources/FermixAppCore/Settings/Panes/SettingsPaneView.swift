@@ -144,10 +144,48 @@ enum MeetingsSettingsSection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The vendor whose mark heads this section, where the section is about
+    /// one. The shared settings are about both platforms, so they carry none:
+    /// a mark belongs where a surface is about a single vendor.
+    var markKey: String? {
+        switch self {
+        case .shared: return nil
+        case .googleMeet: return "google_meet"
+        case .zoom: return "zoom"
+        }
+    }
+
     func rows(from published: [ManagementSettingRow]) -> [ManagementSettingRow] {
         guard self != .googleMeet else { return [] }
 
         return published.filter { $0.key.hasPrefix("meetings_zoom_") == (self == .zoom) }
+    }
+}
+
+/// A Meetings section header: the platform's own mark before the section name.
+///
+/// Redline section 5.8 sizes every settings mark at `SettingsRowMetrics.markSize`
+/// and names no separate measure for a section, so a section takes the same 20
+/// the rows under it take. The mark is decorative, as it is everywhere else: the
+/// header speaks the platform's name, which is the accessibility label the
+/// provenance record carries for that key.
+struct MeetingsSectionHeader: View {
+    let section: MeetingsSettingsSection
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            if let key = section.markKey {
+                VendorMarkView(
+                    mark: VendorMarks.mark(.meetingPlatform, key),
+                    kind: .meetingPlatform,
+                    size: SettingsRowMetrics.markSize
+                )
+            }
+
+            Text(section.title)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(section.title)
     }
 }
 
@@ -172,12 +210,14 @@ struct MeetingsPane: View {
                 enableSwitch
 
                 ForEach(MeetingsSettingsSection.allCases) { section in
-                    Section(section.title) {
+                    Section {
                         if section == .googleMeet {
                             googleMeetControls
                         } else {
                             descriptorRows(section)
                         }
+                    } header: {
+                        MeetingsSectionHeader(section: section)
                     }
                 }
             }

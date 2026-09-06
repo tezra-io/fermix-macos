@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "recorded_on": "2026-09-04",
+  "recorded_on": "2026-09-06",
   "note": "The vendored roster snapshot. PROVENANCE.json must carry one record per key here, and roster_source.roster_sha256 pins these bytes, so a vendor cannot be dropped from either file alone. The upstream cross-check (vendor_marks.py check --fermix-repo <checkout>) is what re-vendors it when fermix moves.",
   "source": {
     "repository": "https://github.com/tezra-io/fermix",
@@ -81,6 +81,11 @@
   },
   "feature_note": "The three native drivers are this build's, not the registry's: they are daemon settings the Integrations page counts under its Features pill. Their keys are the app's own, and only their marks come from the engine, which is why source.features pins files rather than a symbol.",
   "plugin_note": "The plugin roster is the union of two upstream sets, and reading only the first is how the three plugins every install already has came to draw the generic tile. index.json is the static catalog a machine installs FROM; catalog.json names the plugins the engine ships INSIDE itself, which Registry.list unions into every plugins.list answer. Both are pinned, and the drift check compares the roster against their union.",
+  "meeting_platforms": [
+    "google_meet",
+    "zoom"
+  ],
+  "meeting_platform_note": "The two platforms the Meetings pane is sectioned by. Like the features, these keys are the app's own: the daemon publishes meetings_zoom_ settings and a Google sign-in job rather than a platform list, so there is no upstream set to compare them against and source carries no entry for them. Unlike the features, their marks are the vendors' own, retrieved from Google and Zoom and pinned in PROVENANCE.json, so a refresh re-downloads them rather than re-vendoring them from fermix.",
   "oauth_clients": [
     "google"
   ],

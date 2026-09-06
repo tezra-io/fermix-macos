@@ -1,13 +1,13 @@
 {
   "schema_version": 2,
-  "recorded_on": "2026-09-04",
+  "recorded_on": "2026-09-06",
   "contract": "MILESTONE_34_UNIFIED_MACOS_APP_IMPLEMENTATION.md section 7",
   "policy": {
     "sources": "A mark ships only when it was retrieved from the source recorded beside it and shipped byte for byte. Nothing here is redrawn, traced, recolored, or reconstructed from a screenshot. Three source kinds appear, and each record says which it is: a vendor's own host, fermix's checked-in plugin catalog, and fermix's own first-party artwork.",
     "no_fabrication": "A vendor whose official mark could not be retrieved renders as the vendor text name beside a neutral SF Symbol. A monogram is never invented and another vendor's mark is never substituted.",
-    "neutral_symbols": "One neutral symbol per roster kind, so the fallback carries no invented vendor identity: providers use cpu, channels use bubble.left.and.bubble.right, plugins and features use puzzlepiece.extension. All exist on the macOS 15 floor.",
+    "neutral_symbols": "One neutral symbol per roster kind, so the fallback carries no invented vendor identity: providers use cpu, channels use bubble.left.and.bubble.right, meeting platforms use video, plugins and features use puzzlepiece.extension. All exist on the macOS 15 floor.",
     "accessibility": "A mark is decorative at every site that draws one: the row around it carries the name, so nothing is spoken twice. The label recorded here is the name that row must speak, and it is unique within its kind. Two kinds may name one vendor, because Discord and Slack are each both a channel and a plugin.",
-    "sizing": "Marks ship as the vendor's own file, in the format that vendor serves, and the file is named for the format its bytes actually are. An SVG is resolution independent; a raster is at least 128 points square, which covers the 20 to 36 point tiles at 2x.",
+    "sizing": "Marks ship as the vendor's own file, in the format that vendor serves, and the file is named for the format its bytes actually are. An SVG is resolution independent; a raster is at least 128 points on its shorter side, which covers the 20 to 36 point tiles at 2x. A vendor that publishes a horizontal lockup rather than a square icon is shipped as that lockup, because cropping one into a square is an edit no record here permits.",
     "origin": "Every record names where its bytes came from, and the refresh step reads it: vendor marks are re-downloaded from the vendor's own URL, while catalog and first_party marks are pinned to fermix's own repository and are re-vendored there rather than fetched from a third party.",
     "plate": "Every shipped mark records the plate it is drawn on, and the app reads that field rather than guessing from the pixels. neutral: a coloured glyph on transparency, inset on the app's own tile. bleed: the file is an opaque square or disc carrying its own ground, so it fills the tile and is clipped to its radius. There is deliberately no third plate: a plate painted under a single dark ink is the treatment GitHub and Notion were given on 2026-09-03, and it failed both ways, vanishing into the light ground it matched and glaring on the dark one. A vendor that publishes two inks resolves by appearance, and a vendor that publishes one that already carries its own light ink needs nothing. The catalog's brand_color is not used as a plate either: painting a vendor's brand colour behind a mark authored for white is a recolouring of the mark's context that no record here permits."
   },
@@ -18,7 +18,7 @@
     "plugins": "apps/fermix_core/priv/plugins/index.json and catalog.json (the static catalog and the bundled set)",
     "features": "apps/fermix_web/lib/fermix_web_web/live/setup_live (the three native driver logos)",
     "roster": "ROSTER.json",
-    "roster_sha256": "e6c53813e03702c78eb2ac62ca2878271ebc701b0d363a45fcc08ddf7664503c",
+    "roster_sha256": "d196c85ee026e4e28903885b576970c9c91a3ca3c92afa08fdfbe64976fcc18d",
     "provider_count": 7,
     "channel_count": 5,
     "plugin_count": 12,
@@ -27,7 +27,8 @@
       "editing": "The form map's own cursor, not a channel.",
       "acp": "The ACP agent surface from milestone 29. It is a local agent protocol endpoint, not a messaging vendor, so it has no vendor mark to record."
     },
-    "oauth_client_count": 1
+    "oauth_client_count": 1,
+    "meeting_platform_count": 2
   },
   "marks": [
     {
@@ -795,6 +796,58 @@
       ],
       "plate": "neutral",
       "notes": "The SpaceXAI provider serves Grok; the row uses the official Grok service icon."
+    },
+    {
+      "key": "google_meet",
+      "kind": "meeting_platform",
+      "origin": "vendor",
+      "display_name": "Google Meet",
+      "accessibility_label": "Google Meet",
+      "treatment": "vendor_mark",
+      "plate": "neutral",
+      "source_url": "https://about.google/brand-resource-center/",
+      "source_retrieved_on": "2026-09-06",
+      "usage_terms": "Google's brand resource center routes logo use to its trademark guidelines at https://www.google.com/permissions/trademark/rules/, which state: “Use only Google-approved artwork when using Google’s logos.”, “Maintain clear space around Google logos according to the provided guidelines.”, “Don’t remove, distort, or alter any element of a Google Brand Feature.”, “Don’t display any Google Brand Features as the most prominent element in your content.” and “Don’t display Google Brand Features in any manner that implies a relationship with, affiliation with, sponsorship by, or endorsement by Google.” The brand resource center gates its own asset downloads behind an application (“Please complete your application to access brand resources.”), so what ships is the Google Meet product icon Google itself serves, byte for byte and unmodified.",
+      "permitted_treatment": "Ship the vendor's own file verbatim and scale uniformly. Never recolored, never cropped, never redrawn. It heads the Google Meet section of the Meetings pane beside that section's name, at the same measure every other mark in settings takes, so it is never the most prominent element on the page, and the copy around it names Google Meet only as a platform the notetaker joins.",
+      "dark_mode_policy": "One coloured camera glyph on transparency, which reads on both appearances, so it needs no appearance variant, is never rendered as a template image, and is drawn inset on the app's own neutral tile.",
+      "assets": [
+        {
+          "role": "color",
+          "path": "meeting_platforms/google-meet-color.png",
+          "sha256": "c5b75f2bb1da327999c6fa414f825650884bb2f4f05860fd0f0a83347bb911af",
+          "asset_url": "https://www.gstatic.com/images/branding/productlogos/meet_2026/v2/web-96dp/logo_meet_2026_color_2x_web_96dp.png",
+          "asset_member": null,
+          "retrieved_on": "2026-09-06"
+        }
+      ],
+      "fallback": null,
+      "notes": "meet.google.com references this exact product logo path, which is how the current mark was identified: the older fonts.gstatic.com/s/i/productlogos/meet_2020q4 icon still resolves and is superseded artwork. The raster is taken rather than the 192 point SVG Google serves beside it, for the reason the Google sign-in client already records: AppKit loads that SVG but omits its feGaussianBlur filter, so the soft wedge inside the camera draws with a hard edge. The vendor's own raster renders the complete artwork with no custom renderer."
+    },
+    {
+      "key": "zoom",
+      "kind": "meeting_platform",
+      "origin": "vendor",
+      "display_name": "Zoom",
+      "accessibility_label": "Zoom",
+      "treatment": "vendor_mark",
+      "plate": "neutral",
+      "source_url": "https://www.zoom.com/en/about/media-kit/",
+      "source_retrieved_on": "2026-09-06",
+      "usage_terms": "Zoom's media kit publishes this file under its own “Download Zoom logo” action and sends written guidance to “Zoom Brand Guidelines” at https://brand.zoom.com/. Zoom's own terms for the marks, published in plain text in its App Marketplace terms of service at https://www.zoom.com/en/trust/legal/zoom-api-license-and-tou/, state: “The “Zoom” word mark and the Zoom logo are trademarks and/or registered trademarks of Zoom (“Zoom Marks”). Subject to compliance with the Terms, Zoom grants SDK App developers a non-exclusive, non-transferable, royalty-free, fully paid-up, revocable, worldwide right and license, during the term of use of the Zoom SDK, to use the Zoom Marks solely for display within your SDK App and on your SDK App’s website to promote your SDK App’s compatibility with Zoom’s services and software. Zoom must agree in advance and in writing to all other uses of the Zoom Marks. All uses of the Zoom Marks must comply with Zoom’s Brand Guidelines and Partner Guide, which may be modified from time to time and are available at https://zoom.us/brandguidelines or from brand@zoom.us.” The Brand Center itself is a JavaScript portal: its logo library and the guideline text on it cannot be read without an interactive session, so the terms recorded here are the ones Zoom publishes as text.",
+      "permitted_treatment": "Ship the vendor's own file verbatim and scale uniformly. Never recolored, never cropped, never re-lettered, never redrawn. It heads the Zoom section of the Meetings pane beside that section's name, and the copy around it names Zoom only as a platform the notetaker joins, never as an endorsement or a partnership.",
+      "dark_mode_policy": "One blue wordmark on transparency. Zoom publishes no second ink for it, so it needs no appearance variant, is never rendered as a template image, and is drawn inset on the app's own neutral tile, whose grey it holds against in both appearances.",
+      "assets": [
+        {
+          "role": "color",
+          "path": "meeting_platforms/zoom-color.png",
+          "sha256": "f8b5cc5e08ca27af64550b48205b49260299c219599968eec9d22ac7e43a4f90",
+          "asset_url": "https://media.zoom.com/images/assets/zoom-logo-2025.png/Zz04ZjU1ODA4OGM5NjUxMWYwYWQ3NDIyZTYxNWM4NmY4Yg==",
+          "asset_member": null,
+          "retrieved_on": "2026-09-06"
+        }
+      ],
+      "fallback": null,
+      "notes": "What Zoom publishes for download is a horizontal wordmark, not a square icon, so it draws short inside a square tile: 1426 by 321 pixels scaled to fit is a band about a fifth of the tile's height. It is kept as Zoom serves it, because cropping a mark is an edit no record here permits and substituting the square zm application icon is not an option either: the only copy Zoom serves without an interactive session is the 48 pixel image in the Brand Center's own page chrome, which is below the size a tile needs. A square Zoom mark at a usable size is an owner retrieval from https://brand.zoom.com/."
     },
     {
       "key": "google",

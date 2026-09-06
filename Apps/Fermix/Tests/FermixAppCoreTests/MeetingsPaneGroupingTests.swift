@@ -35,6 +35,69 @@ struct MeetingsPaneGroupingTests {
     }
 }
 
+/// The marks on the Meetings pane's platform sections.
+///
+/// Two of the three sections are about one vendor each, and redline section 5.8
+/// puts that vendor's mark on a surface that is about it. The third is the
+/// settings both platforms share, so it is about neither and carries none: a
+/// mark there would name one of the two platforms over settings that serve both.
+@Suite("Meetings platform marks")
+struct MeetingsPlatformMarkTests {
+    @Test("the two platform sections resolve their marks and the shared section does not")
+    func sectionsResolveTheirMarks() throws {
+        #expect(MeetingsSettingsSection.shared.markKey == nil)
+
+        for section in [MeetingsSettingsSection.googleMeet, .zoom] {
+            let key = try #require(
+                section.markKey, "\(section.rawValue) is about one platform and names none"
+            )
+            let mark = try #require(
+                VendorMarks.mark(.meetingPlatform, key), "\(key) is not in the mark table"
+            )
+
+            // One of exactly two treatments, the second being the vendor's text
+            // name beside the neutral symbol where nothing official could be
+            // retrieved. The header draws the name either way.
+            #expect(
+                mark.asset(dark: false) != nil || mark.treatment == .textWithSymbol,
+                "\(key) draws neither a recorded file nor the text fallback"
+            )
+        }
+    }
+
+    /// The header speaks the platform's name, and that name is the label the
+    /// provenance record carries for the key. Two spellings of one vendor's name
+    /// is how a mark ends up announced as something it is not.
+    @Test("each platform section is titled with the label its record carries")
+    func sectionTitlesAreTheRecordedLabels() throws {
+        let recorded = try VendorMarkTests.marks().filter { $0["kind"] as? String == "meeting_platform" }
+
+        for section in [MeetingsSettingsSection.googleMeet, .zoom] {
+            let key = try #require(section.markKey)
+            let entry = try #require(
+                recorded.first { $0["key"] as? String == key }, "\(key) has no record"
+            )
+
+            #expect(section.title == entry["accessibility_label"] as? String, "\(key)")
+        }
+    }
+
+    /// Drawn through the one component that reads the provenance record, at the
+    /// one measure settings marks take, from the section header rather than from
+    /// a row: the first row of each platform section is a shared job row and a
+    /// daemon-published descriptor row, neither of which is about a vendor.
+    @Test("the pane draws its platform marks through the recorded table")
+    func thePaneDrawsRecordedMarks() throws {
+        let text = try #require(
+            try SourceTree.swiftFiles(matching: "Settings/Panes/SettingsPaneView.swift").first?.text
+        )
+
+        #expect(text.contains("VendorMarks.mark(.meetingPlatform, key)"))
+        #expect(text.contains("size: SettingsRowMetrics.markSize"))
+        #expect(text.contains("MeetingsSectionHeader(section: section)"))
+    }
+}
+
 /// The switch that heads the Meetings pane (M34 §5.4).
 ///
 /// The notetaker and its browser have to be on this Mac before the daemon's

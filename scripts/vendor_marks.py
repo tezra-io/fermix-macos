@@ -38,7 +38,7 @@ ROSTER_SCHEMA_VERSION = 2
 ROSTER_FILE = "ROSTER.json"
 # The two records, which describe the tree rather than living in it.
 RECORD_FILES = ("PROVENANCE.json", ROSTER_FILE)
-KINDS = ("provider", "channel", "plugin", "feature", "oauth_client")
+KINDS = ("provider", "channel", "plugin", "feature", "meeting_platform", "oauth_client")
 TREATMENTS = ("vendor_mark", "vendor_text_with_symbol")
 ASSET_ROLES = ("color", "light", "dark", "monochrome")
 # The plate a shipped mark is drawn on. The app reads this field rather than
@@ -73,6 +73,7 @@ NEUTRAL_SYMBOL = {
     "channel": "bubble.left.and.bubble.right",
     "plugin": "puzzlepiece.extension",
     "feature": "puzzlepiece.extension",
+    "meeting_platform": "video",
     "oauth_client": "puzzlepiece.extension",
 }
 
@@ -412,7 +413,9 @@ def check_upstream(roster: dict, fermix_repo: Path | None) -> None:
 
     # The three feature keys are the app's own, so there is no upstream list to
     # compare them against. What upstream owns is their artwork, and that is
-    # pinned file by file.
+    # pinned file by file. The two meeting platform keys are the app's own too,
+    # and their artwork is the vendors' rather than fermix's, so upstream owns
+    # nothing about them and this function checks nothing for them.
     feature_dir = fermix_repo / source["features"]["path"]
     for name, pinned in source["features"]["files"].items():
         path = feature_dir / name
