@@ -1,81 +1,185 @@
 import SwiftUI
 
-/// Ready: the mascot with its two bloom rings, the success pill, and the one
-/// admin moment.
+/// Ready: the status, the optional next steps, and the one admin moment.
 ///
-/// The CLI row is unchecked and copies a Terminal command. There is no
-/// privileged helper anywhere in this app, and the row says what it will do
-/// before it does it.
+/// It refuses to render while a gating readiness failure stands (M34 §4): the
+/// screen claims the install is live, and that claim has to be the daemon's.
+/// Advisory failures render as one row whose action opens Home, never as a
+/// block.
 struct ReadySurface: View {
     @ObservedObject var model: OnboardingModel
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            BloomingMascot(size: 116)
-                .padding(.bottom, 10)
+            content
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, OnboardingMetrics.horizontalPadding)
+        .onAppear { model.refreshCLIPlan() }
+        // The claim this screen makes is the daemon's, so the screen asks the
+        // daemon. Readiness used to arrive only from the activation that walked
+        // here, which meant every other way in — a route that resumes at Ready
+        // (§3.4), and every fixture launch of this surface — drew the "not
+        // answering yet" block against a daemon that was up. Connect your AI
+        // already reads readiness on appear for the same reason.
+        .task { await model.refreshReadiness() }
+    }
+
+    /// The refusal is a state, not a crash: a gate that arrives after Ready has
+    /// opened puts the blocking sentence on screen instead of a claim that
+    /// everything is live.
+    @ViewBuilder
+    private var content: some View {
+        if let blocked = model.readiness.block {
+            VStack(spacing: 0) {
+                SurfaceHeading(title: ProductStrings[.readyBlockedTitle], subcopy: model.message(for: blocked))
+
+                // A gating failure on a pane the assistant has no screen for
+                // names that pane and opens it. Without this the sentence said
+                // something in Settings still needed an answer and offered no
+                // way to reach it (M34 §3.4).
+                if let pane = blocked.pane {
+                    Form {
+                        Section {
+                            NextStepRow(
+                                title: String(format: ProductStrings[.readyOpenPaneFormat], pane.title),
+                                symbol: "gearshape"
+                            ) {
+                                model.open(.settings(pane))
+                            }
+                        }
+                    }
+                    .formStyle(.grouped)
+                    .assistantFormChrome()
+                    .padding(.top, Spacing.l)
+                }
+            }
+        } else {
+            live
+        }
+    }
+
+    /// The mascot, the claim, the state, and the optional next steps.
+    ///
+    /// §5.5 always asked for the mascot here; the wordmark that stood in its
+    /// place said `Fermix` directly above a line that already says
+    /// `Fermix is live`, which is the repeated label the owner's directive of
+    /// 2026-09-03 asks the assistant to lose. The provider line is this
+    /// screen's one line of subcopy, so the pill above it is the only other
+    /// tier.
+    private var live: some View {
+        VStack(spacing: 0) {
+            MascotArtwork(size: OnboardingMetrics.mascotSize)
+                .padding(.bottom, Spacing.s)
 
             Text(ProductStrings[.readyTitle])
                 .fermixType(Typography.style(.titleLarge))
                 .foregroundStyle(Palette.ink.color)
-                .padding(.bottom, 6)
+                .padding(.bottom, Spacing.xs)
                 .fermixRiseIn(step: 0, ladder: MotionStagger.readyRiseIn)
 
-            StatusPill(title: ProductStrings[.readyPill], tone: .pass)
-                .padding(.bottom, Spacing.m)
+            StatusPill(title: ProductStrings[.readyStatus], tone: .pass)
                 .fermixRiseIn(step: 1, ladder: MotionStagger.readyRiseIn)
 
-            CLIInstallRow(model: model)
-                .fermixRiseIn(step: 2, ladder: MotionStagger.readyRiseIn)
-
-            HStack(spacing: 14) {
-                PrimaryAction(ProductStrings[.readyOpen], size: .onboarding) { model.finish() }
-
-                Button(ProductStrings[.readyAdvanced]) { model.openHostedSetup() }
-                    .buttonStyle(SecondaryButtonStyle(.onboarding))
+            if let summary = providerSummary {
+                Text(summary)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+                    .padding(.top, Spacing.xs)
+                    .fermixRiseIn(step: 1, ladder: MotionStagger.readyRiseIn)
             }
-            .padding(.top, 26)
-            .fermixRiseIn(step: 3, ladder: MotionStagger.readyRiseIn)
 
-            Spacer(minLength: 0)
+            nextSteps
+                .padding(.top, Spacing.l)
+                .fermixRiseIn(step: 2, ladder: MotionStagger.readyRiseIn)
         }
-        .padding(.horizontal, 110)
-        .onAppear { model.refreshCLIPlan() }
+    }
+
+    /// The provider and model line beneath the status, from the daemon's own
+    /// snapshot. A home whose primary is not reported simply has no line.
+    private var providerSummary: String? {
+        guard let primary = model.settings.setupState.value?.providers.first(where: \.primary) else { return nil }
+        guard let named = primary.defaultModel, !named.isEmpty else { return primary.label }
+
+        return ProductStrings.middot(primary.label, named)
+    }
+
+    /// Two deep links into Settings, the advisory row where the daemon reported
+    /// one, and the existing unchecked CLI row.
+    ///
+    /// The section label above them is gone: every row already names what it
+    /// opens and carries its own chevron, so the eyebrow was a heading over
+    /// three self-describing rows.
+    ///
+    /// They are grouped-form rows, which is the one grammar Connect your AI and
+    /// About you keep: drawn bare on the window's ground they were the third
+    /// container shape in three screens, and the `fermix` row beside them was a
+    /// hand-drawn card in the middle of them.
+    private var nextSteps: some View {
+        Form {
+            Section {
+                if !model.readiness.advisory.isEmpty {
+                    NextStepRow(title: ProductStrings[.readyAttention], symbol: "exclamationmark.circle") {
+                        model.open(.surface(.home))
+                    }
+                }
+
+                NextStepRow(title: ProductStrings[.readyNextChannels], symbol: "bubble.left.and.bubble.right") {
+                    model.open(.settings(.channels))
+                }
+
+                NextStepRow(title: ProductStrings[.readyNextVoice], symbol: "waveform") {
+                    model.open(.settings(.voice))
+                }
+
+                if model.cliPlan.offersRow {
+                    CLIInstallRow(model: model)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .assistantFormChrome(width: OnboardingMetrics.nextStepsWidth)
     }
 }
 
-/// The mascot's arrival, with the two one-shot bloom rings. Both are skipped
-/// under Reduce Motion; the success is carried by the pill's words.
-struct BloomingMascot: View {
-    let size: Double
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    @State private var bloomed = false
+/// One optional next step: a system symbol, a sentence, and the pane it opens.
+///
+/// The chevron is `chevron.forward` rather than `chevron.right`, which is the
+/// direction-relative symbol the system's own disclosure rows draw and the only
+/// one that mirrors under a right-to-left layout. The settings back control
+/// takes `chevron.backward` for the same reason (redlines §5.8).
+struct NextStepRow: View {
+    let title: String
+    let symbol: String
+    let action: () -> Void
 
     var body: some View {
-        let motion = Motion(reduceMotion: reduceMotion)
+        Button(action: action) {
+            HStack(spacing: Spacing.s) {
+                Image(systemName: symbol)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Palette.secondary.color)
+                    .frame(width: SettingsRowMetrics.markSize)
+                    .accessibilityHidden(true)
 
-        return ZStack {
-            if !motion.isSuppressed(.successBloom) {
-                ForEach(Array(MotionStagger.successBloom.enumerated()), id: \.offset) { index, delay in
-                    Circle()
-                        .strokeBorder(Palette.accent.color.opacity(index == 0 ? 0.5 : 0.3), lineWidth: 2)
-                        .padding(10)
-                        .scaleEffect(bloomed ? 1.85 : 0.45)
-                        .opacity(bloomed ? 0 : 1)
-                        .animation(motion.animation(.successBloom)?.delay(delay), value: bloomed)
-                }
+                Text(title)
+                    .fermixType(Typography.style(.bodyCompact))
+                    .foregroundStyle(Palette.ink.color)
+
+                Spacer(minLength: Spacing.s)
+
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.faint.color)
+                    .accessibilityHidden(true)
             }
-
-            MascotArtwork(size: size)
+            .contentShape(Rectangle())
         }
-        .frame(width: size, height: size)
-        .onAppear { bloomed = true }
-        .accessibilityHidden(true)
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 }
 
@@ -83,49 +187,50 @@ struct BloomingMascot: View {
 ///
 /// Four states, one per plan: a command to copy, a link this app already owns,
 /// a link Homebrew owns, and a foreign file the app refuses to replace.
+///
+/// A grouped-form row like the rows above it. The card it used to draw made it
+/// the one boxed thing in a column of bare rows, which is the container drift
+/// the assistant's one grammar exists to stop.
 struct CLIInstallRow: View {
+    /// The row's title with the command itself in the mono face (redlines
+    /// §5.5). The sentence is the catalogue's; only the face of the one token
+    /// inside it belongs to this row.
+    static var title: AttributedString {
+        var text = AttributedString(ProductStrings[.readyCLITitle])
+        guard let range = text.range(of: CLILinkPlanner.commandName) else { return text }
+
+        text[range].font = Typography.style(.mono).font
+        return text
+    }
+
     @ObservedObject var model: OnboardingModel
 
-    @Environment(\.colorSchemeContrast) private var contrast
-
     var body: some View {
-        HStack(spacing: Spacing.s) {
-            checkbox
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(ProductStrings[.readyCLITitle])
-                    .fermixType(Typography.style(.bodyCompact).weight(.semibold))
-                    .foregroundStyle(Palette.ink.color)
-
-                Text(model.cliPlan.hint)
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.faint.color)
-            }
-
-            Spacer(minLength: Spacing.s)
-
+        LabeledContent {
             if model.cliPlan.offersCommand, model.cliSelected {
                 Button(ProductStrings[.readyCLICopy]) {
                     model.copyCLICommand()
                 }
-                .buttonStyle(SecondaryButtonStyle(.inWindow))
 
                 Button(ProductStrings[.readyCLIVerify]) {
                     model.refreshCLIPlan()
                 }
-                .buttonStyle(SecondaryButtonStyle(.inWindow))
+            }
+        } label: {
+            HStack(spacing: Spacing.s) {
+                checkbox
+
+                VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+                    Text(CLIInstallRow.title)
+                        .fermixType(Typography.style(.bodyCompact).weight(.semibold))
+                        .foregroundStyle(Palette.ink.color)
+
+                    Text(model.cliPlan.hint)
+                        .fermixType(Typography.style(.calloutSmall))
+                        .foregroundStyle(Palette.secondary.color)
+                }
             }
         }
-        .padding(.horizontal, Spacing.m)
-        .padding(.vertical, 14)
-        .frame(width: 470)
-        .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(Palette.cardFill.color))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(
-                Palette.hairline(.standard, increaseContrast: contrast == .increased).color,
-                lineWidth: Stroke.hairline
-            )
-        )
     }
 
     /// The row starts unchecked. A plan with no command to run has nothing to
@@ -141,9 +246,9 @@ struct CLIInstallRow: View {
             .accessibilityLabel(ProductStrings[.readyCLITitle])
         } else {
             Image(systemName: model.cliInstalled ? "checkmark.circle" : "info.circle")
-                .font(.system(size: 18))
+                .font(.system(size: 15))
                 .foregroundStyle(model.cliInstalled ? Palette.success.color : Palette.faint.color)
-                .frame(width: 20, height: 20)
+                .frame(width: SettingsRowMetrics.markSize, height: SettingsRowMetrics.markSize)
                 .accessibilityHidden(true)
         }
     }

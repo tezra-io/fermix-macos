@@ -64,8 +64,15 @@ public enum ManagementError: Error, Equatable, Sendable {
     case invalidRequestIdentifier(String)
     /// A call was made before `hello` established the daemon's window.
     case notNegotiated(method: ManagementMethod)
-    /// The daemon's window excludes the version this app speaks.
-    case unsupportedProtocolVersion(declared: Int, minimum: Int, maximum: Int)
+    /// The app and the daemon share no protocol version. There is nothing to
+    /// negotiate and nothing to restart into: this is a boot failure.
+    case incompatibleProtocol(app: [Int], daemon: ManagementProtocolRange)
+    /// The negotiated version is below the method's published minimum, which is
+    /// the ordinary state of a running daemon one release behind the bundle it
+    /// was launched from. It is **not** a boot failure: everything at minimum 1
+    /// still works, so the app reads the state, says why, and offers the
+    /// restart that fixes it.
+    case methodRequiresNewerEngine(method: ManagementMethod, required: Int, negotiated: Int)
     case transport(ManagementTransportFailure)
 }
 

@@ -22,16 +22,36 @@
 # it appears in the CI log and in the operator's terminal without a second
 # artifact to keep in step.
 #
-# Usage: verify_staged_app.sh <app-path> <architectures> <signature>
+# Usage: verify_staged_app.sh <app-path> <architectures> <signature> [audience]
 #   <architectures>  universal  both slices required (release and CI)
 #                    native     the building machine's slice only (dev_run.sh)
 #   <signature>      unsigned   straight out of stage_app.sh
 #                    signed     after sign_app.sh, ad-hoc or Developer ID
+#   [audience]       development  the default: a bundle for this machine
+#                    release      a bundle that will leave this machine
+#
+# Two declared configurations rather than a strictness dial. A release bundle
+# carries three promises a development one deliberately does not: it speaks no
+# draft contract, the engine beside it serves the protocol it speaks, and it has
+# none of the app's debug-only configurations compiled into it (M34 section
+# 15.0). A development bundle is also the only one that may be built
+# `--configuration debug`, which is what those configurations need.
 set -euo pipefail
 
-APP="${1:?usage: verify_staged_app.sh <app-path> <architectures> <signature>}"
-ARCHITECTURES="${2:?usage: verify_staged_app.sh <app-path> <architectures> <signature>}"
-SIGNATURE="${3:?usage: verify_staged_app.sh <app-path> <architectures> <signature>}"
+USAGE="usage: verify_staged_app.sh <app-path> <architectures> <signature> [audience]"
+
+APP="${1:?$USAGE}"
+ARCHITECTURES="${2:?$USAGE}"
+SIGNATURE="${3:?$USAGE}"
+AUDIENCE="${4:-development}"
+
+case "$AUDIENCE" in
+  development | release) ;;
+  *)
+    echo "verify_staged_app: unknown audience '$AUDIENCE' (expected development or release)" >&2
+    exit 1
+    ;;
+esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/product_config.sh
@@ -137,6 +157,7 @@ check_info_plist() {
   require_plist_value "$plist" CFBundleIdentifier "$BUNDLE_ID"
   require_plist_value "$plist" CFBundleExecutable "$GUI_EXECUTABLE"
   require_plist_value "$plist" CFBundleIconFile "$(product_config icon_file)"
+  require_plist_value "$plist" FermixResourceBundleName "$RESOURCE_BUNDLE_NAME"
   require_plist_value "$plist" LSMinimumSystemVersion "$MIN_SYSTEM_VERSION"
   require_plist_value "$plist" NSMicrophoneUsageDescription "$MICROPHONE_USAGE"
   # LSUIElement must be ABSENT: the code sets the accessory policy at launch
@@ -191,15 +212,20 @@ check_staged_assets() {
     [ -f "$marks/$record" ] || fail "vendor mark record $record is not staged at $marks"
   done
   source_marks="$SOURCE_RESOURCES/VendorMarks"
+  # Every mark file, whatever it is drawn in. Enumerating `*.svg` alone left the
+  # seven PNG marks and the one WEBP the tree ships unasserted, so a mark that
+  # never reached the bundle shipped as a blank tile. The records themselves are
+  # excluded: they are checked by name above.
+  #
   # Fed through a here-document rather than a pipe: a pipeline would run the
   # loop in a subshell, where fail() could not stop this script.
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     [ -f "$marks/$name" ] || fail "vendor mark $name is not staged"
   done <<MARKS
-$(cd "$source_marks" && find . -name '*.svg' | sed 's|^\./||')
+$(cd "$source_marks" && find . -type f ! -name '*.json' | sed 's|^\./||')
 MARKS
-  for asset in "Product.json" "en.lproj/Localizable.strings" "FermixBoltTemplate.png"; do
+  for asset in "Product.json" "en.lproj/Localizable.strings" "FermixMarkTemplate.png"; do
     [ -f "$resources/$asset" ] || fail "$asset is not staged in the resource bundle"
   done
   [ -f "$APP/Contents/Resources/$ICON_NAME" ] || fail "app icon is not staged at Contents/Resources/$ICON_NAME"
@@ -285,6 +311,145 @@ check_engine_trees() {
   ENGINE_STATE="${found# }"
 }
 
+# The three promises a release bundle makes and a development one does not.
+#
+# Section 15.0's engine-first rule is procedural, and nothing in the repo gated
+# it: an app built against the draft contract would launch a v1 engine while
+# speaking v2, so every v2 read refuses, the assistant cannot finish, every pane
+# says "Restart to finish updating", and the restart it asks for changes nothing
+# because the build ids already match.
+check_release_promises() {
+  [ "$AUDIENCE" = "release" ] || return 0
+
+  local resources contracts drafts unpublished speaks entry manifest window status
+  resources="$(resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
+  contracts="$resources/Contracts"
+
+  drafts="$(python3 "$ROOT_DIR/scripts/contract_release_facts.py" drafts "$contracts/SOURCE.json")"
+  [ -z "$drafts" ] || fail "a release bundle speaks a draft contract: $drafts"
+
+  # A contract vendored from an upstream WORKING TREE is not a published one.
+  # The bytes may be perfect and still name a commit that does not carry them,
+  # so nothing downstream can ever re-take the pin or prove what shipped. The
+  # pin has to be re-taken from the commit that publishes the protocol before a
+  # release is cut; until then this refuses, which is the truth about the tree
+  # and not a defect in the gate.
+  unpublished="$(python3 "$ROOT_DIR/scripts/contract_release_facts.py" unpublished "$contracts/SOURCE.json")"
+  [ -z "$unpublished" ] ||
+    fail "a release bundle speaks a contract vendored from an uncommitted upstream tree: $unpublished"
+
+  # The version the app speaks, read from the staged record rather than from a
+  # number written here: one fact, in the checksum-pinned artifact.
+  speaks="$(python3 "$ROOT_DIR/scripts/contract_release_facts.py" speaks "$contracts/SOURCE.json")"
+
+  for entry in "$ENGINE_DIR"/*; do
+    [ -d "$entry" ] || continue
+    manifest="$entry/engine-manifest.json"
+    window="$(python3 "$ROOT_DIR/scripts/contract_release_facts.py" serves "$manifest" "$speaks")"
+    [ "$window" = "ok" ] ||
+      fail "the engine in $(basename "$entry") does not serve management protocol $speaks"
+  done
+
+  check_debug_only_configurations
+}
+
+# The sentence a release build refuses a debug-only flag with, and the status it
+# exits on. Both are asserted rather than "any non-zero exit": a binary that
+# crashed, or that a headless runner signalled, exits non-zero too, and reading
+# that as a refusal is how a build carrying the configuration passes the one
+# gate that exists to catch it.
+LAUNCH_REFUSAL_SENTENCE="compiled into debug builds only"
+LAUNCH_REFUSAL_STATUS=2
+
+# The app's debug-only configurations, and the two ways a release binary is
+# asked whether it carries one: it must refuse the launch flag with the release
+# build's own sentence and status, and it must carry none of that
+# configuration's own symbols.
+#
+# Each symbol is measured rather than guessed, and each needle names ONE
+# declaration rather than a word. `FixtureConfiguration` matched nothing in a
+# debug build either, because it is a file name and not a type; a bare
+# `developmentEngine` matched the two launch-request helpers that are compiled
+# into EVERY build, so the row passed only because the optimiser inlined them.
+# The mangled fragments below are `FermixAppCore.FixtureMachine` (the class the
+# fixture configuration is built around) and
+# `FermixAppCore.AppEnvironment.developmentEngine()` (the one entry point into
+# the development configuration), neither of which a release build compiles.
+#
+# Fed through a here-document rather than a pipe: a pipeline would run the loop
+# in a subshell, where fail() could not stop this script.
+check_debug_only_configurations() {
+  local flag symbol binary
+  binary="$APP/Contents/MacOS/$GUI_EXECUTABLE"
+  while read -r flag symbol; do
+    [ -n "$flag" ] || continue
+    refuses_flag "$binary" "$flag"
+    ! nm -U "$binary" 2>/dev/null | grep -q "$symbol" ||
+      fail "the staged binary carries $symbol symbols, so $flag is compiled into it"
+  done <<CONFIGURATIONS
+--fixture 14FixtureMachineC
+--development-engine EnvironmentV17developmentEngine
+CONFIGURATIONS
+}
+
+# How long a refusal is given to arrive. A release build prints one sentence and
+# exits immediately; this is a bound, not a wait to tune.
+LAUNCH_REFUSAL_DEADLINE=10
+
+# Asserts the binary refuses this flag the way a release build refuses it,
+# inside that bound. Fails with the reason it did not.
+#
+# A build that CARRIES the configuration does not exit at all: it opens the
+# application and stays up, so an unbounded launch turns this gate into a hang
+# rather than a refusal, which is what a debug bundle handed to the release
+# audience did for the whole life of the check. Anything still running at the
+# deadline has accepted the flag, and is killed rather than left behind.
+refuses_flag() {
+  local binary="$1" flag="$2" pid watchdog killed output status=0
+  killed="$(mktemp -u)"
+  output="$(mktemp)"
+  "$binary" "$flag" >/dev/null 2>"$output" &
+  pid=$!
+  (
+    sleep "$LAUNCH_REFUSAL_DEADLINE"
+    kill -0 "$pid" 2>/dev/null || exit 0
+    : >"$killed"
+    kill -KILL "$pid" 2>/dev/null || true
+  ) &
+  watchdog=$!
+
+  wait "$pid" || status=$?
+  kill -KILL "$watchdog" 2>/dev/null || true
+  wait "$watchdog" 2>/dev/null || true
+
+  # Two shapes of acceptance: the binary opened the application and stayed up
+  # until the watchdog killed it, or it ran the configuration and exited
+  # cleanly. Both mean the flag named something this binary can do.
+  if [ -f "$killed" ] || [ "$status" = "0" ]; then
+    rm -f "$killed" "$output"
+    fail "the staged binary accepted $flag; a release build has no such configuration"
+  fi
+
+  # A signal is not a refusal. Reported separately because the two have
+  # different fixes: one is a bundle carrying a debug configuration, the other is
+  # a binary this machine could not run at all.
+  if [ "$status" -ge 128 ]; then
+    rm -f "$output"
+    fail "the staged binary died of signal $((status - 128)) on $flag rather than refusing it"
+  fi
+
+  if [ "$status" != "$LAUNCH_REFUSAL_STATUS" ]; then
+    rm -f "$output"
+    fail "the staged binary exited $status on $flag; a release refusal exits $LAUNCH_REFUSAL_STATUS"
+  fi
+
+  grep -qF -- "$LAUNCH_REFUSAL_SENTENCE" "$output" || {
+    rm -f "$output"
+    fail "the staged binary exited $status on $flag without saying it is a debug-only build"
+  }
+  rm -f "$output"
+}
+
 check_signature() {
   case "$SIGNATURE" in
     unsigned)
@@ -344,6 +509,7 @@ check_launch_agent
 check_vendored_contracts
 check_staged_assets
 check_engine_slot
+check_release_promises
 check_signature
 print_inventory
 echo "verify_staged_app: ok"

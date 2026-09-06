@@ -10,6 +10,101 @@ TCC prompts.
 Record everything in the M34 Stage 0 evidence table as you go
 (`~/projects/fermix/docs/design/MILESTONE_34_UNIFIED_MACOS_APP_IMPLEMENTATION.md`).
 
+**Just want the dev loop?** That is one command, not this document:
+`scripts/dev_e2e.sh up` builds the engine from your own worktree at
+`~/.cache/fermix-engine-m34` exactly as it stands (uncommitted work included —
+it neither syncs nor resets it, and refuses if it is not there), stages the app
+as a debug build, signs it with the one Developer ID Application identity in
+your login keychain, points it at the `~/.fermix-macos` dev home, then opens the
+app through Launch Services with `--development-engine
+--register-background-service`. The opened GUI registers the bundled background
+agent on port 4530 through its normal lifecycle; a separate maintenance process
+is not used for startup. Manual launches with only `--development-engine` do not
+enable the background service. Once the engine passes its health check, the
+script reopens the existing GUI to refresh Home.
+The port is written into the development agent's plist before signing, so
+Restart in the app returns on the same port. `down`
+unregisters that agent before stopping the engine and restoring the original
+bootstrap record. `up` refuses services belonging to another app bundle before
+building or changing anything; it unregisters its own old agent before replacing
+the bundle. `status` tells the truth,
+including which branch the engine is built from, which identity signs, and
+whether the running app actually carries the flag. This runbook is for the
+Stage 0 acceptance session below.
+
+**Why the dev loop signs with your Developer ID and never ad hoc.** The
+background agent is registered through SMAppService, and macOS keys that
+registration on the Team ID of the code it registered: the launch constraint
+launchd keeps for the agent and the bundle the agent is looked up in both derive
+from it. An ad-hoc signature carries no Team ID, so its only identity is the
+cdhash of one build; every rebuild is a different program to the constraint
+launchd kept (AMFI "Launch Constraint Violation", the agent dies at spawn), and
+once the bundle directory has been replaced the retained item cannot find its
+bundle at all (exit 78, "The specified path is not a bundle"). Both were
+observed on every rebuild on 2026-09-05; the analysis is
+`docs/design/M34_MACOS_APP_RCA_2026-09-05.md`. `up` therefore refuses without
+exactly one Developer ID Application identity (import it as STAGE0_RUNBOOK §0
+says; no notarization is needed for a local launch). One-time step after the
+ad-hoc era on a Mac that ran the old loop: reset Background Task Management
+once so no item derived from an ad-hoc build is reused, `sudo sfltool resetbtm`
+followed by a restart of the Mac, then `up`.
+
+**Importing your Developer ID on this Mac, once.** The release workflow imports
+the same certificate into a throwaway keychain from its secrets
+(`scripts/keychain.sh`); locally it lives in your login keychain. You need the
+`.p12` that bundles the Developer ID Application certificate with its private
+key (the file the `MACOS_CERT_P12_BASE64` secret was made from) and its
+password. Keep the folder you made it in; on this Mac that is `~/apple_cert`.
+
+1. Install Apple's Developer ID intermediate certificate. Xcode installs it;
+   Command Line Tools never do, and without it the identity imports but
+   `find-identity -v` calls it invalid and reports zero identities:
+
+   ```sh
+   curl -O https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+   security import DeveloperIDG2CA.cer -k ~/Library/Keychains/login.keychain-db
+   ```
+
+2. Import the identity and let `codesign` use its key:
+
+   ```sh
+   security import cert.p12 -f pkcs12 -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign
+   ```
+
+   It asks for the `.p12` password. If you only have the certificate and the
+   key as separate PEM files, make the `.p12` first:
+   `openssl pkcs12 -export -inkey developer_id.key -in developer_id.pem -out cert.p12`.
+
+3. Check:
+
+   ```sh
+   security find-identity -v -p codesigning
+   ```
+
+   must print `1 valid identities found` with one
+   `Developer ID Application: <Name> (<TEAMID>)` line. If it prints zero but
+   the same command without `-v` lists the identity, step 1 is missing. Two
+   identities make the dev loop refuse; delete the one you do not release with
+   in Keychain Access.
+
+4. The first signature may show a dialog asking whether `codesign` may use the
+   key; choose Always Allow. Signing with a real identity also requests a
+   secure timestamp from Apple, so the Mac must be online for `up`.
+
+5. If this Mac ever ran the ad-hoc loop, reset Background Task Management once
+   as described above (`sudo sfltool resetbtm`, restart).
+
+6. `scripts/dev_e2e.sh up`. Its last lines print `signed  Developer ID
+   Application: …`, and
+   `codesign -dvv Apps/Fermix/dist-e2e/FermixPet.app/Contents/MacOS/FermixAgent`
+   shows `TeamIdentifier=<TEAMID>`. From now on every rebuild keeps the same
+   identity, so registrations, restarts and the microphone grant survive it.
+
+Each development rebuild also gets a new `CFBundleVersion`, calculated before
+the old bundle is replaced: the greater of its previous build number plus one
+and the current UTC epoch seconds. Rebuilds within the same second still advance;
+an invalid previous build number is refused. Production versioning is unchanged.
+
 ## 0. Decide before starting
 
 1. **Bundle file name** — STAGE0_RUNBOOK §0.1. The staged bundle still ships as
@@ -128,10 +223,49 @@ tomorrow is for evidence, fixes come after.
 - The signed `/Applications` copy can stay for N→N+1 update testing later —
   that is the next session's artifact, not garbage.
 
+## Custom dev home (no code, one record)
+
+For dev testing you can point the whole app — GUI, agent, and engine — at a
+separate home. The production bootstrap record IS the configuration surface;
+there is no env var or flag to maintain:
+
+```bash
+printf '{"fermix_home":"/Users/sujshe/.fermix-macos","schema_version":1}' \
+  > ~/Library/Application\ Support/Fermix/launcher.json
+```
+
+Activation confirms a recorded home rather than replacing it (`~/.fermix` is
+only the fresh-account default), and the engine's first boot creates the
+folder. Delete the record to return to defaults. The production agent still
+binds port 4030; the dev loop alone stages a `PORT=4530` environment value in
+its bundled agent plist.
+
+On an account with a Homebrew install the SHIPPED activation still refuses by
+design — the app is not in `/Applications`, a legacy launch agent is
+registered, and a second copy exists — which is why the dev loop opens the app
+in its **development configuration**: `open …/FermixPet.app --args
+--development-engine`, a debug-only launch that skips those three refusals and
+uses its own bundled background agent. It still
+probes the recorded home's daemon identity, waits for the socket, negotiates
+`hello` and reads what is set up, so activation proves everything it can
+prove here. A release build refuses the flag and exits 2, and
+`scripts/verify_staged_app.sh <app> <arch> <sig> release` asserts a shipped
+binary carries none of that configuration. The dev home and port are validated
+before registration; the GUI login item is not registered by this dev loop.
+Restarting and disabling the background service from the app exercise the same
+agent lifecycle as production, while the Homebrew daemon on 4030 stays separate.
+
+The host-safe script regression suite is `bash scripts/dev_e2e_test.sh`. It uses
+command doubles and temporary Unix socket files; it never registers a real
+service, launches an app, or touches the account's bootstrap record.
+
 ## Known-open items this session does not cover
 
 Sparkle updates and the update journal (M34 §6, unbuilt), `migrate-to-app`
 live-fire (Path B, deliberately second), diagnostics export UI, and the
 clean-second-Mac acceptance pass that GA requires. The management contract is
-still uncommitted upstream — committing the M34 trees remains the release
-prerequisite for everything pinned.
+vendored from the engine's own export on `feat/m34-management-v2` — protocol 2,
+all 42 methods — and the app no longer authors a draft of it. That branch is
+still uncommitted upstream, so the pin records its base commit with a dirty
+working tree: committing the M34 trees and re-taking the pin from the commit
+that publishes them remains the release prerequisite for everything pinned.

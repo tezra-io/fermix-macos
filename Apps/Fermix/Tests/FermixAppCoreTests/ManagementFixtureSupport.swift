@@ -43,9 +43,16 @@ enum ManagementFixtureFile: String, CaseIterable {
 }
 
 enum ManagementFixtures {
-    /// Every record in one vendored fixture file, in file order.
-    static func load(_ file: ManagementFixtureFile) throws -> [ManagementFixture] {
-        let data = try VendoredContracts.data(.management, file.rawValue)
+    /// Every record in one fixture file of one shipped contract, in file order.
+    ///
+    /// The contract is explicit rather than defaulted: the management tree and
+    /// the realtime tree are two published wires, and a test that read the wrong
+    /// one would still pass on the shapes they share.
+    static func load(
+        _ file: ManagementFixtureFile,
+        from contract: VendoredContract = .management
+    ) throws -> [ManagementFixture] {
+        let data = try VendoredContracts.data(contract, file.rawValue)
         let lines = String(decoding: data, as: UTF8.self)
             .split(separator: "\n", omittingEmptySubsequences: true)
         guard !lines.isEmpty else {
@@ -66,10 +73,19 @@ enum ManagementFixtures {
 
     /// The success envelope published for each method, keyed by wire method
     /// name. Used to answer a request with the contract's own result shape.
-    static func successEnvelopesByMethod() throws -> [String: [String: Any]] {
+    static func successEnvelopesByMethod(
+        from contract: VendoredContract = .management
+    ) throws -> [String: [String: Any]] {
+        // The first record a method publishes, not the last: several methods
+        // publish more than one golden (a fresh home, a configured one), and a
+        // helper whose answer moved with file order would make an unrelated
+        // fixture addition change what a negotiation case is asserting.
         var envelopes: [String: [String: Any]] = [:]
-        for fixture in try load(.success) {
-            envelopes[try fixture.string("method")] = try fixture.object("response")
+        for fixture in try load(.success, from: contract) {
+            let method = try fixture.string("method")
+            guard envelopes[method] == nil else { continue }
+
+            envelopes[method] = try fixture.object("response")
         }
         return envelopes
     }
@@ -174,16 +190,17 @@ struct FixedManagementClock: ManagementClock {
 }
 
 enum ManagementTestClient {
-    /// A client wired to the vendored contract with a deterministic id and
-    /// clock, already past `hello` when `negotiated` is requested.
+    /// A client wired to one shipped contract, with a deterministic id and
+    /// clock.
     static func make(
         transport: ManagementTransport,
+        contract: ManagementContract? = nil,
         requestIdentifier: String = "req-test-1",
         clock: Date = Date(timeIntervalSince1970: 1_755_561_000)
     ) throws -> ManagementClient {
         ManagementClient(
             transport: transport,
-            contract: try ManagementContract.vendored(),
+            contract: try contract ?? ManagementContract.vendored(),
             clock: FixedManagementClock(instant: clock),
             identifiers: FixedRequestIdentifierGenerator(identifier: requestIdentifier)
         )

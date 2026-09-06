@@ -1,0 +1,22 @@
+{
+  "created_at": "2026-08-21T18:04:11.201304Z",
+  "fermix_home": "__FERMIX_HOME__",
+  "phase": "handoff_written",
+  "schema_version": 1,
+  "source": {
+    "cli_targets": [
+      "/opt/homebrew/bin/fermix"
+    ],
+    "daemon_pid": 47119,
+    "formula_versions": [
+      "0.9.0"
+    ],
+    "product_version": "0.9.0",
+    "socket_path": "__FERMIX_HOME__/daemon.sock",
+    "unit_path": "/Users/example/Library/LaunchAgents/io.tezra.fermix.plist",
+    "unit_program": "/opt/homebrew/Cellar/fermix/0.9.0/bin/fermix",
+    "unit_sha256": "8f2a1d1c5b0e4f6a9c3d2e1b0a9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d"
+  },
+  "transaction_id": "aG9tZS1oYW5kb2Zm",
+  "updated_at": "2026-08-21T18:04:11.201304Z"
+}

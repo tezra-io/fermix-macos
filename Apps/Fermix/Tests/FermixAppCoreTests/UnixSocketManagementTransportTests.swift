@@ -129,7 +129,7 @@ struct UnixSocketManagementTransportTests {
         let hello = try await client.hello()
 
         #expect(hello.engine.engineId == "fermix-core")
-        #expect(hello.protocolRange.maximum == 1)
+        #expect(hello.protocolRange.maximum == 2)
         let sent = try ManagementFixtures.decode(try #require(peer.requestPayload(timeout: 2)))
         #expect(sent["request_id"] as? String == identifier)
         #expect(sent["protocol_version"] as? Int == 1)

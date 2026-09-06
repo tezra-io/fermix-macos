@@ -1,28 +1,38 @@
+import AppKit
 import Foundation
 
 @testable import FermixAppCore
 
-/// The one daemon double the five surfaces run against.
+/// The one daemon double the surfaces run against.
 ///
-/// It answers each method from a script the test sets and records what was
+/// It answers each v1 method from a script the test sets and records what was
 /// asked, in order, so a surface's traffic is an assertion rather than a
 /// side effect nobody can see. A method with no scripted answer raises: a
 /// surface that calls something the scenario never prepared is a test defect,
 /// never a silent empty result.
+///
+/// The protocol v2 methods are served from the vendored contract's own golden
+/// fixtures (see `SurfaceTestDoublesV2.swift`), so every surface renders against
+/// the shapes the engine actually sends. Their version gate is
+/// the scripted `hello`'s window, run through the client's own rule: a test that
+/// sets `hello` to a `{1, 1}` daemon gets an N-1 daemon here, with the same
+/// refusal the real client would raise.
 final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     enum Call: Equatable {
         case negotiate
         case overview
-        case setupSession
         case doctorStart(ManagementDoctorScope)
         case doctorGet(String)
         case doctorCancel(String)
         case logs(ManagementLogsQuery)
         case diagnostics
+        /// Any protocol v2 method, by the wire name it was asked under.
+        case v2(ManagementMethod)
     }
 
     enum Defect: Error, Equatable {
         case notScripted(String)
+        case fixtureMissing(method: String)
     }
 
     private let lock = NSLock()
@@ -30,7 +40,10 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
 
     var hello: ManagementHello?
     var overviewResult: ManagementOverview?
-    var setupSession: ManagementSetupSession?
+    /// Overview answers consumed in order, for a case that watches a fact move.
+    /// An exhausted script keeps answering with the last one, which is what a
+    /// settled daemon actually does.
+    var overviewScript: [ManagementOverview] = []
     /// Doctor answers, consumed in order: start takes the first, each get the
     /// next. An exhausted script keeps answering with the last one, which is
     /// what a finished session actually does.
@@ -42,18 +55,78 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// the surface declaring a run and the daemon issuing its session id.
     var startGate: (@Sendable () async -> Void)?
 
+    /// Runs inside `settings.get`, before the answer, so a test can observe what
+    /// the window is showing while a section is being re-read.
+    var settingsGate: (@Sendable () async -> Void)?
+
     var negotiateFailure: (any Error)?
     var overviewFailure: (any Error)?
-    var setupFailure: (any Error)?
     var doctorFailure: (any Error)?
     var logsFailure: (any Error)?
+    /// Applied to every protocol v2 method, so a scenario can drive the refusal
+    /// path without scripting thirty-one answers.
+    var v2Failure: (any Error)?
+    /// A refusal for one method only, which is what a write-path case needs: the
+    /// pane still has to read its rows while its apply refuses.
+    var v2Failures: [ManagementMethod: any Error] = [:]
+
+    /// The answer every `setup.state.get` gives, where a case needs one the
+    /// golden fixture cannot express: it always reports a gating provider
+    /// failure and a pending restart.
+    var setupStateResult: ManagementSetupState?
+    /// Holds a setup reply while the user chooses another destination.
+    var setupStateGate: (@Sendable () async -> Void)?
+
+    /// A daemon whose readiness is DERIVED from its own providers rather than
+    /// flipped by a test.
+    ///
+    /// When this is set, `setup.state.get` reports a gating
+    /// `provider:missing_credentials:<id>` failure exactly while no provider is
+    /// both primary and configured, and a connect promotes the provider it
+    /// connected the way the engine's own first-provider promotion does. That is
+    /// what makes "the block clears" a fact about the daemon's answer rather
+    /// than about a scripted result the test replaced afterwards.
+    var providerReadiness: FakeProviderReadiness?
+
+    /// The answer every `plugins.list` gives, where a case needs one the golden
+    /// fixture cannot express: the golden publishes one posture per plugin, and
+    /// what a switch-on leaves behind is a different one.
+    var pluginsResult: ManagementPluginCatalog?
+
+    /// The answer every `settings.apply` gives, where a case needs one the
+    /// golden fixture cannot express: the golden's write reports no side
+    /// effects, and a daemon that changed something the operator did not type
+    /// is exactly what the side-effect line exists to surface.
+    var settingsAppliedResult: ManagementSettingsApplied?
+    var providerSettings: StatefulProviderSettings?
+
+    /// What the surfaces wrote, in order.
+    var appliedSettings: [SettingsWrite] = []
+    var storedSecrets: [SecretWrite] = []
+    var readSections: [String] = []
+    var polledJobs: [String] = []
+    /// The job views a poll walks through. Empty means the fixture's completed
+    /// job, which is what most cases want.
+    var jobScript: [ManagementJob] = []
+    /// Holds a selected poll response while a test changes the active job.
+    var jobGate: (@Sendable () async -> Void)?
+    /// Holds the first authentication reply so duplicate clicks can be tested.
+    var authStartGate: (@Sendable () async -> Void)?
+    var jobIndex = 0
+
+    /// The window this double has negotiated, cached exactly as the shipping
+    /// gateway caches it. Without the cache a scripted `hello` change would take
+    /// effect on the next call, which is more forgiving than the socket: the
+    /// real gateway keeps the window until something drops it.
+    private var negotiatedWindow: ManagementProtocolRange?
 
     private var doctorIndex = 0
     private var logIndex = 0
+    private var overviewIndex = 0
 
     var calls: [Call] { lock.withLock { recorded } }
 
-    private func record(_ call: Call) {
+    func record(_ call: Call) {
         lock.withLock { recorded.append(call) }
     }
 
@@ -61,21 +134,45 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
         record(.negotiate)
         if let negotiateFailure { throw negotiateFailure }
         guard let hello else { throw Defect.notScripted("hello") }
+
+        lock.withLock { negotiatedWindow = hello.protocolRange }
         return hello
+    }
+
+    func invalidateNegotiation() async {
+        lock.withLock { negotiatedWindow = nil }
+    }
+
+    /// The window every v2 gate reads, learned on first use and kept until it is
+    /// invalidated, which is what the shipping gateway does.
+    func negotiatedRange() throws -> ManagementProtocolRange {
+        guard let hello else { throw Defect.notScripted("hello") }
+
+        return lock.withLock {
+            guard let negotiatedWindow else {
+                let learned = hello.protocolRange
+                negotiatedWindow = learned
+                return learned
+            }
+
+            return negotiatedWindow
+        }
     }
 
     func overview() async throws -> ManagementOverview {
         record(.overview)
         if let overviewFailure { throw overviewFailure }
-        guard let overviewResult else { throw Defect.notScripted("overview.get") }
-        return overviewResult
-    }
 
-    func createSetupSession() async throws -> ManagementSetupSession {
-        record(.setupSession)
-        if let setupFailure { throw setupFailure }
-        guard let setupSession else { throw Defect.notScripted("setup.session.create") }
-        return setupSession
+        return try lock.withLock {
+            guard !overviewScript.isEmpty else {
+                guard let overviewResult else { throw Defect.notScripted("overview.get") }
+                return overviewResult
+            }
+
+            let answer = overviewScript[min(overviewIndex, overviewScript.count - 1)]
+            overviewIndex += 1
+            return answer
+        }
     }
 
     func startDoctor(scope: ManagementDoctorScope) async throws -> ManagementDoctorSession {
@@ -130,22 +227,44 @@ enum ManagementValueFixture {
         try JSONDecoder().decode(Value.self, from: Data(json.utf8))
     }
 
+    static func protocolRange(
+        current: Int = 1,
+        minimum: Int,
+        maximum: Int
+    ) throws -> ManagementProtocolRange {
+        try decode(
+            """
+            {"current_version": \(current), "minimum_version": \(minimum), "maximum_version": \(maximum)}
+            """,
+            as: ManagementProtocolRange.self
+        )
+    }
+
+    /// A daemon that speaks everything this build speaks, unless a test narrows
+    /// the window deliberately. The ceiling comes from the contract the double
+    /// serves rather than from an integer written here, so the fixture
+    /// gateway's default posture cannot quietly become an N-1 daemon — which
+    /// would refuse every v2 method while a pane test still passed.
     static func hello(
         version: String = "0.9.0",
         pid: String = "4242",
         origin: String = "http://127.0.0.1:4030",
         minimum: Int = 1,
-        maximum: Int = 1
+        maximum: Int? = nil,
+        buildId: String? = "1"
     ) throws -> ManagementHello {
-        try decode(
+        let ceiling = try maximum ?? ManagementContract.vendored().publishedRange.maximum
+        let build = buildId.map { "\"\($0)\"" } ?? "null"
+
+        return try decode(
             """
             {
-              "protocol": {"current_version": 1, "minimum_version": \(minimum), "maximum_version": \(maximum)},
+              "protocol": {"current_version": \(ceiling), "minimum_version": \(minimum), "maximum_version": \(ceiling)},
               "capabilities": {"methods": ["hello", "overview.get"]},
               "engine": {
                 "engine_id": "fermix_app_engine",
                 "product_version": "\(version)",
-                "build_id": "1",
+                "build_id": \(build),
                 "source_commit": "abc1234",
                 "distribution_identity": "macos_app",
                 "artifact_target": "macos_aarch64",
@@ -169,7 +288,9 @@ enum ManagementValueFixture {
         health: String = "ok",
         restartRequired: Bool = false,
         uptimeMs: Int = 273_600_000,
-        failedJobs: Int = 0
+        failedJobs: Int = 0,
+        activeConversations: Int = 0,
+        pendingConversations: Int = 0
     ) throws -> ManagementOverview {
         let active = provider.map { "\"\($0)\"" } ?? "null"
         return try decode(
@@ -205,8 +326,8 @@ enum ManagementValueFixture {
                   "health": "ok",
                   "activity": "idle",
                   "status": "ok",
-                  "active_conversations": 0,
-                  "pending_conversations": 0
+                  "active_conversations": \(activeConversations),
+                  "pending_conversations": \(pendingConversations)
                 },
                 "skill_workers": 0,
                 "running_skill_workers": 0
@@ -228,12 +349,31 @@ enum ManagementValueFixture {
         )
     }
 
+    /// A Doctor session. `remediation` is the protocol v2 object a check
+    /// carries; absent by default, because a daemon one release behind sends
+    /// none and that is the shape most cases are about.
     static func doctorSession(
         id: String = "doctor:abc123",
         scope: String = "local",
         status: String = "completed",
-        checks: [(String, String)] = [("provider_auth", "passed"), ("codex_login", "warning")]
+        checks: [(String, String)] = [("provider_auth", "passed"), ("codex_login", "warning")],
+        remediation: (title: String, kind: String, target: String?)? = nil
     ) throws -> ManagementDoctorSession {
+        let remedy = remediation.map { entry in
+            // `target` is null on the kinds that name a surface of their own:
+            // the engine publishes `restart` and `reload` with nothing left to
+            // name, and a stand-in that could not send null could not drive
+            // either of them.
+            let target = entry.target.map { "\"\($0)\"" } ?? "null"
+            return """
+            "remediation": {
+                "title": "\(entry.title)",
+                "body": "What to do about it.",
+                "action": {"kind": "\(entry.kind)", "target": \(target)}
+              },
+            """
+        } ?? ""
+
         let rows = checks.map { id, status in
             """
             {
@@ -245,6 +385,7 @@ enum ManagementValueFixture {
               "status": "\(status)",
               "summary": "\(id) reported \(status)",
               "evidence": {},
+              \(remedy)
               "remediation_code": "run_codex_login",
               "duration_ms": 12,
               "finished_at": "2026-08-21T09:00:01Z"
@@ -349,16 +490,125 @@ enum ManagementValueFixture {
         )
     }
 
-    static func setupSession(
-        url: String = "http://127.0.0.1:4030/setup?token=s3cr3t-one-use-token",
-        expiresAtMs: Int = 1_755_561_900_000
-    ) throws -> ManagementSetupSession {
-        try decode(
-            """
-            {"url": "\(url)", "expires_at_ms": \(expiresAtMs)}
-            """,
-            as: ManagementSetupSession.self
-        )
+    /// The daemon's own `setup.state.get` answer.
+    ///
+    /// The default is the vendored contract's golden fixture, so the assistant's
+    /// readiness is read from the shape the engine actually sends. The knobs
+    /// exist for the four cases the fixture cannot carry at once: no failure at
+    /// all, an advisory-only home, a home that needs nothing but a restart, and
+    /// a provider whose only way in is a typed key.
+    static func setupState(
+        gating: Bool = true,
+        failures: Bool = true,
+        restartRequired: Bool = true,
+        primaryConfigured: Bool = true,
+        primaryModel: String? = "gpt-5.6-sol",
+        keyOnlyProvider: Bool = false
+    ) throws -> ManagementSetupState {
+        guard gating, failures, restartRequired, primaryConfigured,
+              primaryModel == "gpt-5.6-sol", !keyOnlyProvider
+        else {
+            return try decode(
+                setupStateJSON(
+                    gating: gating,
+                    failures: failures,
+                    restartRequired: restartRequired,
+                    primaryConfigured: primaryConfigured,
+                    primaryModel: primaryModel,
+                    keyOnlyProvider: keyOnlyProvider
+                ),
+                as: ManagementSetupState.self
+            )
+        }
+
+        return try FakeDaemonGateway.fixtureResult(named: "setup_state_get", as: ManagementSetupState.self)
+    }
+
+    /// The same shape as the golden fixture, with the one field a case varies.
+    private static func setupStateJSON(
+        gating: Bool,
+        failures: Bool,
+        restartRequired: Bool,
+        primaryConfigured: Bool,
+        primaryModel: String?,
+        keyOnlyProvider: Bool
+    ) -> String {
+        let failureList = failures
+            ? """
+              {
+                "component": "personalization",
+                "gating": \(gating),
+                "pane": "personality",
+                "detail_key": "personalization"
+              }
+              """
+            : ""
+        let model = primaryModel.map { "\"\($0)\"" } ?? "null"
+        // A provider whose only way in is a typed key, so its row leads with
+        // `Add key…` and needs the slot its own section names.
+        let keyProvider = keyOnlyProvider
+            ? """
+              ,
+              {
+                "id": "xai",
+                "label": "SpaceXAI",
+                "auth_modes": ["api_key"],
+                "auth_mode": "api_key",
+                "configured": false,
+                "primary": false,
+                "present_key": false,
+                "default_model": null,
+                "reasoning_effort": null,
+                "fast": null,
+                "account_label": null,
+                "token_state": null
+              }
+              """
+            : ""
+
+        return """
+        {
+          "readiness": {"status": "setup_required", "failures": [\(failureList)]},
+          "restart": {"required": \(restartRequired), "reasons": []},
+          "providers": [
+            {
+              "id": "openai_codex",
+              "label": "OpenAI Codex (ChatGPT)",
+              "auth_modes": ["oauth"],
+              "auth_mode": "oauth",
+              "configured": \(primaryConfigured),
+              "primary": true,
+              "present_key": false,
+              "default_model": \(model),
+              "reasoning_effort": null,
+              "fast": null,
+              "account_label": null,
+              "token_state": "valid"
+            }\(keyProvider)
+          ],
+          "channels": [],
+          "personalization": {
+            "present": {"user_name": true, "timezone": true, "communication_style": true}
+          },
+          "features": {
+            "voice": false,
+            "voice_notes": false,
+            "meetings": false,
+            "computer_use": false,
+            "computer_history": {"enabled": false, "installed": false, "ready": false}
+          },
+          "profile": "general",
+          "coexistence": {
+            "legacy_service_unit": {"present": false, "scope": null, "path": null},
+            "config_state": "clear",
+            "secret_acl_restricted": {"present": false, "keys": []}
+          }
+        }
+        """
+    }
+
+    static func detections() throws -> ManagementDetections {
+        try FakeDaemonGateway.fixtureResult(named: "setup_detect", as: ManagementDetections.self)
     }
 }
 
@@ -407,11 +657,17 @@ final class ManualClock: @unchecked Sendable {
 final class ClockAdvancingSleeper: Sleeping, @unchecked Sendable {
     private let clock: ManualClock
 
+    /// Whether every sleep answers as a cancelled one, which is what a task the
+    /// person cancelled does to each bounded wait underneath it.
+    var cancelled = false
+
     init(clock: ManualClock) {
         self.clock = clock
     }
 
     func sleep(seconds: TimeInterval) async throws {
+        guard !cancelled else { throw CancellationError() }
+
         clock.advance(seconds)
     }
 }
@@ -420,11 +676,17 @@ final class ClockAdvancingSleeper: Sleeping, @unchecked Sendable {
 final class RecordingExternalOpener: ExternalOpening, @unchecked Sendable {
     private let lock = NSLock()
     private var opened: [URL] = []
+    private let succeeds: Bool
+
+    init(succeeds: Bool = true) {
+        self.succeeds = succeeds
+    }
 
     var urls: [URL] { lock.withLock { opened } }
 
-    func open(_ url: URL) {
+    func open(_ url: URL) -> Bool {
         lock.withLock { opened.append(url) }
+        return succeeds
     }
 }
 
@@ -439,5 +701,40 @@ struct StubLinkInspector: SymbolicLinkInspecting {
 
     func destinationOfSymbolicLink(atPath path: String) -> String? {
         links[path]
+    }
+}
+
+/// The status item, without a status bar.
+///
+/// `NSStatusBar` is machine-wide: a test that made a real item would put one on
+/// the operator's own menu bar and leave it there. This records what the
+/// controller asked for instead, so the item's configuration, its glyph and its
+/// menu are assertions rather than something only a screenshot could show.
+@MainActor
+final class FakeStatusItem: StatusItemPresenting {
+    /// True to start with, which is what macOS restores for an item nobody has
+    /// removed. Every change reports itself, as the real item's `isVisible`
+    /// does through KVO, whether the app made it or a Command-drag did.
+    var isVisible = true {
+        didSet {
+            guard isVisible != oldValue else { return }
+
+            onVisibilityChanged?()
+        }
+    }
+    var onVisibilityChanged: (() -> Void)?
+    private(set) var image: NSImage?
+    private(set) var label: String?
+    private(set) var identifier: String?
+    private(set) var menu: NSMenu?
+
+    func present(_ image: NSImage, label: String, identifier: String) {
+        self.image = image
+        self.label = label
+        self.identifier = identifier
+    }
+
+    func attach(_ menu: NSMenu) {
+        self.menu = menu
     }
 }

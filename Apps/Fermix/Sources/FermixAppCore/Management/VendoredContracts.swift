@@ -1,6 +1,12 @@
 import Foundation
 
-/// A wire contract vendored from the fermix repository.
+/// A wire contract that ships inside the application bundle.
+///
+/// Both are vendored from the fermix repository, byte for byte, and pinned by
+/// `CHECKSUMS.txt` and `SOURCE.json`. Nothing here is authored in this
+/// repository: management protocol v2 was carried as a draft until the engine
+/// published it, and `VendoredContractTests` now refuses a draft record so the
+/// transition cannot come back.
 public enum VendoredContract: String, CaseIterable, Sendable {
     case management
     case realtime
@@ -33,16 +39,41 @@ public struct ContractProvenance: Decodable, Equatable, Sendable {
 
     public struct File: Decodable, Equatable, Sendable {
         public let path: String
-        public let sourcePath: String
+        /// Where the file came from upstream. Absent only on a draft contract,
+        /// which is authored here and has no upstream operand to compare
+        /// against; no draft ships, so every shipped file records one.
+        public let sourcePath: String?
         public let sha256: String
     }
 
     public struct Contract: Decodable, Equatable, Sendable {
         public let name: String
         public let sourceDirectory: String
+        /// The tree this record pins, which is the `VendoredContract` raw value.
+        /// It is what identifies a record as *this* contract's, rather than the
+        /// display name, which is spelled for a human.
+        public let vendoredDirectory: String
         public let protocolVersion: Int
         public let committedUpstream: Bool
+        /// Authored in this repository from the design rather than vendored.
+        public let draft: Bool
         public let files: [File]
+
+        private enum CodingKeys: String, CodingKey {
+            case name, sourceDirectory, vendoredDirectory, protocolVersion
+            case committedUpstream, draft, files
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decode(String.self, forKey: .name)
+            sourceDirectory = try container.decode(String.self, forKey: .sourceDirectory)
+            vendoredDirectory = try container.decode(String.self, forKey: .vendoredDirectory)
+            protocolVersion = try container.decode(Int.self, forKey: .protocolVersion)
+            committedUpstream = try container.decode(Bool.self, forKey: .committedUpstream)
+            draft = try container.decodeIfPresent(Bool.self, forKey: .draft) ?? false
+            files = try container.decode([File].self, forKey: .files)
+        }
     }
 
     public let schemaVersion: Int
@@ -50,6 +81,15 @@ public struct ContractProvenance: Decodable, Equatable, Sendable {
     public let contracts: [Contract]
 
     public var files: [File] { contracts.flatMap(\.files) }
+
+    /// The contracts copied from upstream, which are the only ones a byte
+    /// comparison against a fermix checkout has an operand for.
+    public var vendoredContracts: [Contract] { contracts.filter { !$0.draft } }
+
+    /// The contracts authored here from the design rather than vendored. It is
+    /// empty, and `VendoredContractTests` fails if it ever is not: a draft was
+    /// a transition with an expiry, and the expiry has passed.
+    public var draftContracts: [Contract] { contracts.filter(\.draft) }
 }
 
 /// Access to the contract tree copied into the application resource bundle.
@@ -127,7 +167,7 @@ public enum VendoredContracts {
     }
 
     private static func root() throws -> URL {
-        guard let resources = Bundle.module.resourceURL else {
+        guard let resources = AppResources.bundle.resourceURL else {
             throw VendoredContractError.resourceBundleUnavailable
         }
         return resources.appendingPathComponent(directoryName)

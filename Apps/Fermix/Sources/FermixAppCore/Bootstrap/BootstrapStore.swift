@@ -44,7 +44,8 @@ public struct BootstrapStore {
         let home = try normalize(document.fermixHome)
         return BootstrapRecord(
             schemaVersion: document.schemaVersion,
-            fermixHome: URL(fileURLWithPath: home, isDirectory: true)
+            fermixHome: URL(fileURLWithPath: home, isDirectory: true),
+            registeredAgentPlistSHA256: document.registeredAgentPlistSHA256
         )
     }
 
@@ -95,8 +96,13 @@ public struct BootstrapStore {
     /// Records `path` as this account's Fermix home. The home itself is not
     /// created: the engine's first-boot path owns that, and a second creation
     /// path would drift from it.
+    ///
+    /// The registration receipt is carried forward from the record on disk
+    /// unless the caller is writing a new one: recording a home is not a
+    /// registration, and dropping the receipt here would make every launch
+    /// re-register the agent (M34 §7.2).
     @discardableResult
-    public func save(path: String) throws -> BootstrapRecord {
+    public func save(path: String, registeredAgentPlistSHA256: String? = nil) throws -> BootstrapRecord {
         let home = try normalize(path)
         do {
             try validator.checkAccess(home)
@@ -104,15 +110,41 @@ public struct BootstrapStore {
             throw BootstrapStoreError.invalidHome(defect)
         }
 
+        let receipt = registeredAgentPlistSHA256 ?? (try? load())?.registeredAgentPlistSHA256
         let document = BootstrapDocument(
             schemaVersion: BootstrapRecord.supportedSchemaVersion,
-            fermixHome: home
+            fermixHome: home,
+            registeredAgentPlistSHA256: receipt
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         try write(try encoder.encode(document))
 
-        return BootstrapRecord(fermixHome: URL(fileURLWithPath: home, isDirectory: true))
+        return BootstrapRecord(
+            fermixHome: URL(fileURLWithPath: home, isDirectory: true),
+            registeredAgentPlistSHA256: receipt
+        )
+    }
+
+    /// Whether this account has ever completed an activation.
+    ///
+    /// The receipt is written only by a registration that reached `enabled`, so
+    /// its presence is the one durable fact that says "this Mac has been through
+    /// setup". A record that cannot be read answers false the way an absent one
+    /// does: the activation that follows refuses on it anyway (M34 §7.2).
+    public func hasRegistrationReceipt() -> Bool {
+        (try? load())?.registeredAgentPlistSHA256 != nil
+    }
+
+    /// Records the plist that was actually registered with `SMAppService`.
+    ///
+    /// Written by the one caller that performs the registration, so the receipt
+    /// and the registration cannot disagree.
+    @discardableResult
+    public func recordAgentRegistration(plistSHA256: String) throws -> BootstrapRecord {
+        precondition(!plistSHA256.isEmpty, "a registration receipt is a digest")
+
+        return try save(path: try resolvedHome().path, registeredAgentPlistSHA256: plistSHA256)
     }
 
     /// Clears the bootstrap, as in-app uninstall does. Removing a record that is

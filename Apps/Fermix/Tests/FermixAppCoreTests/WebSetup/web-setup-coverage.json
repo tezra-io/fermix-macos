@@ -1,0 +1,1029 @@
+[
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[provider] (radio cards)",
+    "control": "radio card grid, one per Descriptor.ids() with Primary/Fallback/Not configured badge + model line",
+    "secret": false,
+    "config_path": "fermix_core.providers.<id>.primary (only via Set primary / first-configured auto-promotion, wizard.ex:1117-1145, 755-789); save_provider writes :edit_provider (block target) without promoting"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[default_model]",
+    "control": "select (static ModelCatalog.models_for) OR text+datalist when ModelListing.live? (ollama installed models, openrouter upstream catalog) OR free text with warning when live fetch fails (components.ex:568-646)",
+    "secret": false,
+    "config_path": "fermix_core.providers.<edit_provider>.default_model"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[subagent_model]",
+    "control": "select: \"\" Same as main model + primary's catalog models; rendered ONLY when editing the primary (components.ex:383-406)",
+    "secret": false,
+    "config_path": "fermix_core.routing.subagent_model"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[auth_mode]",
+    "control": "radio api_key | oauth (\"Subscription (OAuth)\"); only multi-auth providers anthropic, xai (components.ex:862-890)",
+    "secret": false,
+    "config_path": "fermix_core.providers.<p>.auth_mode"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[openai_api_key | anthropic_api_key | xai_api_key | openrouter_api_key | mistral_api_key]",
+    "control": "password, one per descriptor secret setup_field, shown when api_key_mode? (components.ex:715-760); placeholder \"stored - leave blank to keep or paste to replace\"",
+    "secret": true,
+    "config_path": "fermix_core.providers.<p>.api_key = \"@keyring\" (env OPENAI_API_KEY / ANTHROPIC_API_KEY / XAI_API_KEY / OPENROUTER_API_KEY / MISTRAL_API_KEY, secret_paths.ex:17-46; keychain service fermix:<ENV>)"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[ollama_base_url]",
+    "control": "text (plain descriptor field, components.ex:692-710); Ollama status banner from live listing (components.ex:664-686)",
+    "secret": false,
+    "config_path": "fermix_core.providers.ollama.base_url"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[anthropic_setup_token]",
+    "control": "password inside Anthropic OAuth panel (anthropic + auth_mode oauth only, components.ex:979-987)",
+    "secret": true,
+    "config_path": "NOT config.toml \u2014 ~/.fermix/auth.json profile \"anthropic_oauth\" (auth/anthropic_login.ex:41-62)"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[reasoning_effort]",
+    "control": "radio group, levels from ModelCatalog.effort_levels_for(provider, default_model); only providers with effort? (openai, openai_codex, anthropic, xai) (components.ex:1026-1056)",
+    "secret": false,
+    "config_path": "fermix_core.providers.<p>.reasoning_effort"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[fast]",
+    "control": "hidden false + checkbox true toggle \"Fast mode\"; openai_codex only (components.ex:1060-1082)",
+    "secret": false,
+    "config_path": "fermix_core.providers.openai_codex.fast"
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "provider_changed (phx-change)",
+    "effect": "Rebuilds provider_form; if provider switched, loads that provider's saved block. Calls assign_model_sources \u2192 ModelListing.live_models synchronously (network to Ollama/OpenRouter) on every change (set",
+    "external_flow": null
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "save_provider (submit; __nav=stay|next)",
+    "effect": "maybe_store_anthropic_setup_token \u2192 answers [:edit_provider, :default_model, :reasoning_effort, :fast, descriptor fields, :<p>_auth_mode, :subagent_model] \u2192 Wizard.save_answers \u2192 commit_snapshot (save",
+    "external_flow": null
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "set_primary (phx-click provider)",
+    "effect": "answers [provider: p, subagent_model: \"\"] \u2192 marks exactly one primary, drops legacy agent.provider, clears routing.subagent_model (setup_live.ex:281-301; wizard.ex:1117-1133). Only for configured, non",
+    "external_flow": null
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "codex_login (phx-click, Sign in with ChatGPT / Reconnect ChatGPT)",
+    "effect": "Task.Supervisor.async_nolink \u2192 CodexLogin.login (auth/codex_login.ex:26-36) \u2192 OAuthFlow.start_loopback: PKCE, daemon listens on 127.0.0.1:1455, authorize URL auth.openai.com (oauth_flow.ex:60-85); ope",
+    "external_flow": "System browser OAuth (auth.openai.com) \u2192 loopback http://localhost:1455/auth/callback"
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "xai_login (phx-click, Sign in with Grok)",
+    "effect": "async XAILogin.login (auth/xai_login.ex) loopback PKCE on port 56121 (oauth_provider.ex:129) \u2192 profile \"xai_oauth\"; then Wizard.set_provider_auth_mode(:xai,:oauth) + mark_primary(:xai); sets restart_p",
+    "external_flow": "System browser OAuth (x.ai) \u2192 loopback port 56121"
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "anthropic_import (phx-click, Import Claude Code login)",
+    "effect": "Synchronous AnthropicLogin.import_claude_code: reads macOS keychain service \"Claude Code-credentials\" then ~/.claude/.credentials.json; persists profile \"anthropic_oauth\"; then set_provider_auth_mode(",
+    "external_flow": "None (keychain/file import). No browser flow exists for Anthropic (anthropic_login.ex:15-16)."
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Provider radio card grid with Set primary button (components.ex:469-506)"
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Connection section: auth_mode radio, secret field, plain fields, Ollama status banner"
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "ChatGPT OAuth panel (badge, account email, error line, button, fallback link, embed caption \"Sign-in opens in your browser and returns here\") components.ex:783-"
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Grok OAuth panel components.ex:897-945"
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Anthropic subscription panel (setup token + import button) components.ex:955-998"
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Model behavior side panel (effort radios + Fast mode toggle) components.ex:1002-1082"
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Client-only \"Unsaved changes\" badge via UnsavedHint JS hook (app.js:32-48; components.ex:124-131)"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[enabled]",
+    "control": "select Disabled/Enabled",
+    "secret": false,
+    "config_path": "fermix_core.realtime.enabled"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[model]",
+    "control": "select RealtimeConfig.valid_models: gpt-realtime-2.1-mini, gpt-realtime-2.1, gpt-realtime-2 (realtime/config.ex:13)",
+    "secret": false,
+    "config_path": "fermix_core.realtime.model"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[voice]",
+    "control": "select valid_voices: marin sage verse cedar alloy ash ballad coral echo shimmer (realtime/config.ex:21)",
+    "secret": false,
+    "config_path": "fermix_core.realtime.voice"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[reasoning_effort]",
+    "control": "select minimal low medium high xhigh (realtime/config.ex:28)",
+    "secret": false,
+    "config_path": "fermix_core.realtime.reasoning_effort"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[api_key] (\"OpenAI API key for Realtime\")",
+    "control": "password; blank = reuse current OpenAI key",
+    "secret": true,
+    "config_path": "fermix_core.providers.openai.api_key (SHARED slot with chat, wizard.ex:1063-1071); excluded from primary auto-promotion (wizard.ex:795-801)"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[max_session_minutes]",
+    "control": "number min 1",
+    "secret": false,
+    "config_path": "fermix_core.realtime.max_session_minutes"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[max_cost_cents]",
+    "control": "number min 1",
+    "secret": false,
+    "config_path": "fermix_core.realtime.max_estimated_cost_cents_per_session"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[persist_transcripts]",
+    "control": "select No/Yes",
+    "secret": false,
+    "config_path": "fermix_core.realtime.persist_transcripts"
+  },
+  {
+    "tab": "realtime",
+    "kind": "action",
+    "name": "save_realtime (submit; __nav)",
+    "effect": "answers \u2192 Wizard.save_answers \u2192 put_realtime_config merges + RealtimeConfig.normalize/to_keyword (wizard.ex:1438-1482); put_openai_api_key for the key (setup_live.ex:327-343).",
+    "external_flow": null
+  },
+  {
+    "tab": "realtime",
+    "kind": "sub_surface",
+    "name": "realtime_primary_fields grid, realtime_secret_field, realtime_limit_fields (components.ex:1104-1199)"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[telegram_bot_token]",
+    "control": "password",
+    "secret": true,
+    "config_path": "fermix_channels.telegram.bot_token (@keyring TELEGRAM_BOT_TOKEN)"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[telegram_owner_user_id]",
+    "control": "text",
+    "secret": false,
+    "config_path": "fermix_channels.telegram.owner_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[whatsapp_access_token]",
+    "control": "password",
+    "secret": true,
+    "config_path": "fermix_channels.whatsapp.access_token (@keyring WHATSAPP_ACCESS_TOKEN)"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[whatsapp_phone_number_id]",
+    "control": "text",
+    "secret": false,
+    "config_path": "fermix_channels.whatsapp.phone_number_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[whatsapp_verify_token]",
+    "control": "password",
+    "secret": true,
+    "config_path": "fermix_channels.whatsapp.verify_token (@keyring WHATSAPP_VERIFY_TOKEN)"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[whatsapp_app_secret]",
+    "control": "password",
+    "secret": true,
+    "config_path": "fermix_channels.whatsapp.app_secret (@keyring WHATSAPP_APP_SECRET)"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[whatsapp_owner_user_id]",
+    "control": "text",
+    "secret": false,
+    "config_path": "fermix_channels.whatsapp.owner_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[discord_bot_token]",
+    "control": "password",
+    "secret": true,
+    "config_path": "fermix_channels.discord.bot_token (@keyring DISCORD_BOT_TOKEN)"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[discord_bot_user_id]",
+    "control": "text",
+    "secret": false,
+    "config_path": "fermix_channels.discord.bot_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[discord_owner_user_id]",
+    "control": "text",
+    "secret": false,
+    "config_path": "fermix_channels.discord.owner_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[slack_bot_token]",
+    "control": "password",
+    "secret": true,
+    "config_path": "fermix_channels.slack.bot_token (@keyring SLACK_BOT_TOKEN)"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[slack_signing_secret]",
+    "control": "password",
+    "secret": true,
+    "config_path": "fermix_channels.slack.signing_secret (@keyring SLACK_SIGNING_SECRET)"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[slack_owner_user_id]",
+    "control": "text",
+    "secret": false,
+    "config_path": "fermix_channels.slack.owner_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[signal_account]",
+    "control": "text",
+    "secret": false,
+    "config_path": "fermix_channels.signal.account"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[signal_owner_user_id]",
+    "control": "text",
+    "secret": false,
+    "config_path": "fermix_channels.signal.owner_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[acp_enabled] (\"Accept ACP clients\")",
+    "control": "hidden false + checkbox toggle with hint (components.ex:3974-3983)",
+    "secret": false,
+    "config_path": "fermix_channels.acp.enabled"
+  },
+  {
+    "tab": "channels",
+    "kind": "action",
+    "name": "select_channel (phx-click card)",
+    "effect": "Switches the editing panel (session state only) (setup_live.ex:377-380).",
+    "external_flow": null
+  },
+  {
+    "tab": "channels",
+    "kind": "action",
+    "name": "save_channels (submit; __nav)",
+    "effect": "All 16 answer keys \u2192 Wizard.save_answers; keeps the edited channel selected afterwards (setup_live.ex:345-375).",
+    "external_flow": null
+  },
+  {
+    "tab": "channels",
+    "kind": "sub_surface",
+    "name": "Channel selector card grid with status pills (components.ex:1225-1236)"
+  },
+  {
+    "tab": "channels",
+    "kind": "sub_surface",
+    "name": "integration_panel for the selected channel with 2-column field grid (components.ex:3464-3474)"
+  },
+  {
+    "tab": "transcription",
+    "kind": "field",
+    "name": "transcription_form[backend]",
+    "control": "radio openai | xai | deepgram | local (components.ex:1736-1760)",
+    "secret": false,
+    "config_path": "fermix_core.transcription.backend"
+  },
+  {
+    "tab": "transcription",
+    "kind": "field",
+    "name": "transcription_form[api_key]",
+    "control": "password, ONE field routed to the selected backend's slot; hidden for local",
+    "secret": true,
+    "config_path": "fermix_core.transcription.openai_api_key | xai_api_key | deepgram_api_key (@keyring TRANSCRIPTION_OPENAI_API_KEY / TRANSCRIPTION_XAI_API_KEY / DEEPGRAM_API_KEY)"
+  },
+  {
+    "tab": "transcription",
+    "kind": "field",
+    "name": "transcription_form[model]",
+    "control": "select, only when backend has models (openai default gpt-4o-mini-transcribe; deepgram nova-3; xai and local modelless \u2192 field hidden)",
+    "secret": false,
+    "config_path": "fermix_core.transcription.model"
+  },
+  {
+    "tab": "transcription",
+    "kind": "field",
+    "name": "local backend state line + install banner",
+    "control": "read-only: LocalTranscription.configured? \u2192 :ok | sidecar_not_installed | model_not_installed (components.ex:4019-4028)",
+    "secret": false,
+    "config_path": "n/a (files under FERMIX_HOME)"
+  },
+  {
+    "tab": "transcription",
+    "kind": "action",
+    "name": "transcription_changed (phx-change)",
+    "effect": "Updates selection; selecting \"local\" for the first time STARTS THE INSTALL immediately (start_async :local_install \u2192 LocalTranscription.ensure_installed with progress events: sidecar downloading/done,",
+    "external_flow": "Downloads speech engine + model into FERMIX_HOME"
+  },
+  {
+    "tab": "transcription",
+    "kind": "action",
+    "name": "save_transcription (submit; __nav)",
+    "effect": "answers [:transcription_backend, :transcription_model, :transcription_api_key] \u2192 wizard put_transcription_config (setup_live.ex:442-457). No restart (read per call).",
+    "external_flow": null
+  },
+  {
+    "tab": "transcription",
+    "kind": "sub_surface",
+    "name": "Backend radio cards with descriptions"
+  },
+  {
+    "tab": "transcription",
+    "kind": "sub_surface",
+    "name": "Per-backend key block with \"Already configured\" line"
+  },
+  {
+    "tab": "transcription",
+    "kind": "sub_surface",
+    "name": "On-device block with state + install_banner (spinner/error)"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "oauth_client_form[client_id] (modal)",
+    "control": "text, required",
+    "secret": false,
+    "config_path": "fermix_core.oauth.<google|github|notion|x|slack>.client_id"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "oauth_client_form[client_secret] (modal)",
+    "control": "password, required",
+    "secret": true,
+    "config_path": "fermix_core.oauth.<p>.client_secret (@keyring GOOGLE_OAUTH_CLIENT_SECRET / GITHUB_ / NOTION_ / X_ / SLACK_OAUTH_CLIENT_SECRET, secret_paths.ex:143-167)"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "oauth_client_form[redirect_port] (modal)",
+    "control": "number",
+    "secret": false,
+    "config_path": "fermix_core.oauth.<p>.redirect_port"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "plugin_secret_form[value] (api_key plugin card inline form, shown when enabled && status :needs_secret)",
+    "control": "password with manifest prompt label",
+    "secret": true,
+    "config_path": "fermix_core.plugin_secrets.<discord|agentmail|slack|eden> (@keyring FERMIX_PLUGIN_<NAME>)"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "plugin_config_form[<KEY>] (needs_config card inline form; one text input per missing required manifest config entry, e.g. OBSIDIAN_VAULT_PATH)",
+    "control": "text labelled by manifest prompt",
+    "secret": false,
+    "config_path": "fermix_core.plugins.<name>.<KEY> (UPPER_SNAKE env-injection seam, plugins/config.ex:266-279)"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "computer_history_apps_modal: q (search) + per-app toggles (bundle ids)",
+    "control": "server-driven search (phx-debounce 120) + checklist of InstalledApps.list (walks /Applications, /System/Applications\u2026, plutil per bundle, max 1000) (components.ex:2752-2890)",
+    "secret": false,
+    "config_path": "fermix_core.computer_history.apps (list of bundle ids; comma string \u2192 list wizard.ex:1545-1553) + .enabled"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "resource_picker: access profile buttons + workspace Select buttons",
+    "control": "profile list from plugin manifest tool_profiles (default?/write? flags); workspace list from RemoteSetup.discover_workspaces (components.ex:2894-2995)",
+    "secret": false,
+    "config_path": "fermix_core.plugins.<name>.access_profile / workspace_id / workspace_label"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[enabled] (Meeting Notetaker modal)",
+    "control": "toggle, hint \"Installs the notetaker on first enable \u00b7 restart to apply.\"",
+    "secret": false,
+    "config_path": "fermix_core.meetings.enabled"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[bot_name]",
+    "control": "text",
+    "secret": false,
+    "config_path": "fermix_core.meetings.bot_name"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[announce]",
+    "control": "toggle",
+    "secret": false,
+    "config_path": "fermix_core.meetings.announce"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[announce_message]",
+    "control": "text; blank = built-in consent line",
+    "secret": false,
+    "config_path": "fermix_core.meetings.announce_message"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[zoom_account_id] / [zoom_client_id] / [zoom_ws_subscription_id]",
+    "control": "text inputs inside Zoom <details> (pre-expanded when any present)",
+    "secret": false,
+    "config_path": "fermix_core.meetings.zoom_account_id / zoom_client_id / zoom_ws_subscription_id"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[zoom_client_secret]",
+    "control": "password",
+    "secret": true,
+    "config_path": "fermix_core.meetings.zoom_client_secret (@keyring MEETINGS_ZOOM_CLIENT_SECRET)"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[transcription_backend]",
+    "control": "select \"\" Global default | openai | xai | deepgram | local",
+    "secret": false,
+    "config_path": "fermix_core.meetings.transcription_backend"
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "plugin_enable (name)",
+    "effect": "computer_use_sidecar \u2192 enable_computer_use: if SidecarInstaller.installed? flip flag else async SidecarInstaller.install (compux release download + sha256) then flip (setup_live.ex:510-516, 2513-2534,",
+    "external_flow": "catalog download; OAuth browser hop for oauth2 plugins"
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "plugin_disable (name)",
+    "effect": "computer_use \u2192 computer_use_enabled=false (restart); computer_history \u2192 computer_history_enabled=false (restart); else PluginConfig.disable (hot; stops token refresh if unused) (setup_live.ex:518-524,",
+    "external_flow": null
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "plugin_connect (name) / Enable on oauth2 card",
+    "effect": "Refuses with flash if the provider OAuth client (client_id+secret) is not saved (setup_live.ex:2757-2773, 2845-2851). Else Task PluginAuth.login (plugins/auth.ex:17-34): OAuthFlow.start_loopback(provi",
+    "external_flow": "System browser OAuth (Google/GitHub/Notion/X/Slack) \u2192 loopback http://127.0.0.1:<port>/auth/callback (Notion uses localhost)"
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "set_plugin_secret (name, value)",
+    "effect": "PluginConfig.set_plugin_secret \u2192 keychain via save_snapshot secure path, commit (save+apply+hot reload) \u2192 \"Plugin connected.\" (setup_live.ex:639-651).",
+    "external_flow": null
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "save_plugin_config (name, plugin_config_form)",
+    "effect": "For each key PluginConfig.set_plugin_setting (mcp child restarts with new env) (setup_live.ex:615-627, 1109-1116).",
+    "external_flow": null
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "plugin_disconnect (name)",
+    "effect": "oauth \u2192 PluginAuth.logout (deletes auth profile, stops refresh, reload runtime); api_key \u2192 PluginConfig.forget_plugin_secret (keychain delete FIRST, then drop config ref) \u2192 :needs_secret. Never revoke",
+    "external_flow": null
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "plugin_check (name)",
+    "effect": "PluginHealth.check \u2014 live network call to the provider; flash pass/fail (setup_live.ex:663-671). Hidden for computer use (checkable? false).",
+    "external_flow": null
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "open_oauth_modal / close_oauth_modal (provider)",
+    "effect": "Server-owned modal step :creds; Escape/click-away closes (setup_live.ex:675-682).",
+    "external_flow": null
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "save_oauth_client (provider, oauth_client_form)",
+    "effect": "PluginConfig.set_oauth_provider \u2192 [fermix_core.oauth.<p>] commit (hot) \u2192 modal advances to :signin confirmation (setup_live.ex:480-501, 1080-1088).",
+    "external_flow": null
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "open_resource_picker / close_resource_picker / pick_access_profile / select_workspace (resource_scope plugins, e.g. Eden)",
+    "effect": "Discovery async RemoteSetup.discover_workspaces (one bounded MCP session, signed descriptor check) \u2192 steps pending/choose/error; select_workspace async RemoteSetup.select_workspace (stop client, Plugi",
+    "external_flow": "Network to hosted MCP service"
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "computer_use_grant",
+    "effect": "SYNCHRONOUS in the LiveView process: ComputerUse.request_permissions \u2192 Grant.request (computer_use/grant.ex:40-58): lsregister -f the sidecar's Fermix.app bundle, spawn compux sidecar, action request_",
+    "external_flow": "macOS TCC prompts (Screen Recording, Accessibility) attributed to the compux \"Fermix Computer Use\" sidecar identity"
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "computer_history_grant",
+    "effect": "ComputerHistory.request_permissions \u2192 same compux grant (Accessibility needed; Screen Recording also raised and ignored) (setup_live.ex:535-537, 2622-2636; computer_history.ex:54-56).",
+    "external_flow": "macOS TCC prompts"
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "open_computer_history_apps / computer_history_apps_filter / toggle_computer_history_app / close_computer_history_picker / save_computer_history_apps",
+    "effect": "Opens the app allowlist modal (InstalledApps.list synchronous scan on open). Save: if sidecar installed \u2192 save_answers [computer_history_enabled: true, computer_history_apps: \"a, b\"] restart; if sidec",
+    "external_flow": null
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "enable_meetings / disable_meetings",
+    "effect": "save_meetings([enabled: true|false]): bypasses the wizard \u2014 ConfigStore.save_snapshot + apply_snapshot on [fermix_core.meetings] (setup_live.ex:584-586, 609-611, 1673-1692); restart if enabled/zoom ke",
+    "external_flow": "Two downloads (sidecar + Chromium)"
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "open_meetings_config / close_meetings_config",
+    "effect": "Opens the notetaker modal; if enabled and sidecar/browser missing, resumes the install (setup_live.ex:567-578).",
+    "external_flow": null
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "meetbot_signin",
+    "effect": "async SignIn.run: spawns fermix-meetbot signin via the macOS disclaim exec shim, opens a HEADED Chromium the operator signs the bot's Google account into; up to ~11 min; writes signed-in marker; state",
+    "external_flow": "Headed Chromium window (sidecar-owned) for Google sign-in"
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "save_meetings (modal submit)",
+    "effect": "Writes all text/toggle values (blank is real), secret only when typed; restart when enabled/zoom_* changed (setup_live.ex:463-478).",
+    "external_flow": null
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "next_step / previous_step",
+    "effect": "Tab navigation only.",
+    "external_flow": null
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Native driver features section: core_feature_card \u00d73 (logo, version, status pill, Enable/Edit apps/Disable/Configure/Grant/info-tooltip docs link) components.ex"
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Install banners for local STT / meetbot (components.ex:1262-1268)"
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Google group with oauth_help tooltip link, oauth_client_row (Connect/Edit), auth_fallback_link, plugin_card list (components.ex:2498-2535)"
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Per-provider OAuth groups (github/notion/x/slack): single card folds client Connect/Edit in; multi-card gets titled section (components.ex:2549-2610)"
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Ungrouped installed plugin cards and ungrouped catalog cards with consent line + remote_runtime_disclosure <details> (components.ex:3159-3458)"
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "oauth_client_modal (steps :creds \u2192 :signin) components.ex:3013-3118"
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "resource_picker_modal (access profile + workspace list, pending/choose/selecting/error) components.ex:2705-2995"
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "computer_history_apps_modal (search + checklist + counter + Save/Cancel) components.ex:2752-2890"
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "meetings_config_modal (enabled/name/announce, Google Meet details with readiness pill + sign-in, Zoom details, transcription backend) components.ex:1840-2026"
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Status pill vocabulary of 25 atoms (components.ex:4126-4185) and action verbs (components.ex:4210-4220)"
+  },
+  {
+    "tab": "search",
+    "kind": "field",
+    "name": "search_form[backend]",
+    "control": "radio duckduckgo | tavily | exa | parallel | brave | perplexity | firecrawl (components.ex:1489-1530)",
+    "secret": false,
+    "config_path": "fermix_core.tools.web_search.backend"
+  },
+  {
+    "tab": "search",
+    "kind": "field",
+    "name": "search_form[tavily_api_key | exa_api_key | parallel_api_key | perplexity_api_key | firecrawl_api_key]",
+    "control": "password, only the selected backend's field is rendered",
+    "secret": true,
+    "config_path": "fermix_core.tools.web_search.<key> (@keyring TAVILY_API_KEY / EXA_API_KEY / PARALLEL_API_KEY / PERPLEXITY_API_KEY / FIRECRAWL_API_KEY, secret_paths.ex:47-96)"
+  },
+  {
+    "tab": "search",
+    "kind": "field",
+    "name": "search_form[brave_api_key] (\"Brave Search API key (web and place search)\")",
+    "control": "password, ALWAYS rendered",
+    "secret": true,
+    "config_path": "fermix_core.tools.web_search.brave_api_key (@keyring BRAVE_API_KEY)"
+  },
+  {
+    "tab": "search",
+    "kind": "action",
+    "name": "search_changed (phx-change)",
+    "effect": "Updates selected backend in session only (setup_live.ex:382-385).",
+    "external_flow": null
+  },
+  {
+    "tab": "search",
+    "kind": "action",
+    "name": "save_search (submit; __nav)",
+    "effect": "answers \u2192 wizard put_web_search_config (wizard.ex:1633-1699) (setup_live.ex:387-399).",
+    "external_flow": null
+  },
+  {
+    "tab": "search",
+    "kind": "sub_surface",
+    "name": "place_search_note panel with data-place-search ready|unconfigured and Brave docs link (components.ex:1593-1625)"
+  },
+  {
+    "tab": "media",
+    "kind": "field",
+    "name": "image_form[backend]",
+    "control": "radio openai | xai (SpaceXAI) | google | openai_codex (components.ex:1639-1663)",
+    "secret": false,
+    "config_path": "fermix_core.tools.generate_image.backend"
+  },
+  {
+    "tab": "media",
+    "kind": "field",
+    "name": "image_form[openai_api_key] / image_form[xai_api_key]",
+    "control": "password shown for openai/xai backends",
+    "secret": true,
+    "config_path": "fermix_core.providers.openai.api_key / providers.xai.api_key (@keyring)"
+  },
+  {
+    "tab": "media",
+    "kind": "field",
+    "name": "image_form[google_api_key] (\"Gemini API key\")",
+    "control": "password for google backend",
+    "secret": true,
+    "config_path": "fermix_core.tools.generate_image.google_api_key (@keyring GEMINI_API_KEY)"
+  },
+  {
+    "tab": "media",
+    "kind": "field",
+    "name": "image_form[model]",
+    "control": "select from MediaRegistry.supported_models(:image, backend): openai [gpt-image default, gpt-image-1.5]; xai [grok-imagine-image-2.0, grok-imagine-image-quality]; google [default, gemini-3-pro-image, gemini-2.5-flash-image]; openai_codex [one]",
+    "secret": false,
+    "config_path": "fermix_core.tools.generate_image.model"
+  },
+  {
+    "tab": "media",
+    "kind": "field",
+    "name": "openai_codex warning",
+    "control": "read-only \"Connect OpenAI Codex on the Providers tab first.\" when codex not connected (components.ex:1698-1705)",
+    "secret": false,
+    "config_path": "n/a"
+  },
+  {
+    "tab": "media",
+    "kind": "action",
+    "name": "image_changed (phx-change)",
+    "effect": "Backend/model selection only (setup_live.ex:401-405).",
+    "external_flow": null
+  },
+  {
+    "tab": "media",
+    "kind": "action",
+    "name": "save_image (submit; __nav)",
+    "effect": "answers [:image_backend, :image_model, :google_api_key + provider keys] \u2192 wizard (setup_live.ex:407-423). restart_required only when openai/xai key answered (provider restart keys).",
+    "external_flow": null
+  },
+  {
+    "tab": "media",
+    "kind": "sub_surface",
+    "name": "Backend radio cards; per-backend key block; model select"
+  },
+  {
+    "tab": "sandbox",
+    "kind": "field",
+    "name": "sandbox_form[mode]",
+    "control": "select strict | standard | open",
+    "secret": false,
+    "config_path": "sandbox.mode"
+  },
+  {
+    "tab": "sandbox",
+    "kind": "field",
+    "name": "sandbox_form[profile] (\"Command profile\")",
+    "control": "select bare | assistant | extended",
+    "secret": false,
+    "config_path": "sandbox.commands.profile"
+  },
+  {
+    "tab": "sandbox",
+    "kind": "field",
+    "name": "sandbox_form[env_allow] (\"Allowed env names\")",
+    "control": "textarea, comma or newline separated; values never shown",
+    "secret": false,
+    "config_path": "sandbox.env.allow (list)"
+  },
+  {
+    "tab": "sandbox",
+    "kind": "action",
+    "name": "save_sandbox (submit; __nav)",
+    "effect": "Wizard.set_sandbox_overrides(mode, profile, allow) \u2192 commit_snapshot; strips env-only secrets (wizard.ex:675-696) (setup_live.ex:720-732).",
+    "external_flow": null
+  },
+  {
+    "tab": "coding",
+    "kind": "field",
+    "name": "coding_form[harness_approved] (\"Allow coding agents to run on this machine\")",
+    "control": "hidden false + checkbox toggle; rendered enabled only when \u22651 vendor CLI detected, else a disabled toggle with install prompt (components.ex:2267-2340)",
+    "secret": false,
+    "config_path": "fermix_core.harness.approved"
+  },
+  {
+    "tab": "coding",
+    "kind": "field",
+    "name": "coding_form[harness_default_vendor] (\"Coding CLI\")",
+    "control": "select \"\" No preference | codex | claude; options show \"<version> \u00b7 authenticated|installed; auth unverified|not authenticated\", uninstalled disabled",
+    "secret": false,
+    "config_path": "fermix_core.harness.default_vendor"
+  },
+  {
+    "tab": "coding",
+    "kind": "action",
+    "name": "save_coding (submit; __nav)",
+    "effect": "answers \u2192 wizard put_harness_default_vendor / put_harness_approved (setup_live.ex:752-762).",
+    "external_flow": null
+  },
+  {
+    "tab": "coding",
+    "kind": "sub_surface",
+    "name": "harness_card with consent status line and notes \"Cloud runs (Codex cloud) are off in this release\" / \"Each CLI keeps its own login\""
+  },
+  {
+    "tab": "memory",
+    "kind": "field",
+    "name": "memory_form[compaction_threshold]",
+    "control": "number min 0.1 max 1.0 step 0.01",
+    "secret": false,
+    "config_path": "fermix_core.compaction.threshold"
+  },
+  {
+    "tab": "memory",
+    "kind": "field",
+    "name": "memory_form[review_interval_hours]",
+    "control": "number min 0 step 1",
+    "secret": false,
+    "config_path": "fermix_core.memory.review_interval_hours"
+  },
+  {
+    "tab": "memory",
+    "kind": "action",
+    "name": "save_memory (submit; __nav)",
+    "effect": "answers \u2192 wizard put_compaction_config / put_memory_config (setup_live.ex:711-718).",
+    "external_flow": null
+  },
+  {
+    "tab": "personalization",
+    "kind": "field",
+    "name": "personalization_form[bot_name] (\"Assistant name\")",
+    "control": "text; blank keeps current",
+    "secret": false,
+    "config_path": "fermix_core.agent.name (identity, wizard.ex:2099-2110)"
+  },
+  {
+    "tab": "personalization",
+    "kind": "field",
+    "name": "personalization_form[user_name]",
+    "control": "text",
+    "secret": false,
+    "config_path": "fermix_core.personalization.user_name"
+  },
+  {
+    "tab": "personalization",
+    "kind": "field",
+    "name": "personalization_form[timezone]",
+    "control": "free text (no picker/validation)",
+    "secret": false,
+    "config_path": "fermix_core.personalization.timezone"
+  },
+  {
+    "tab": "personalization",
+    "kind": "field",
+    "name": "personalization_form[communication_style]",
+    "control": "text",
+    "secret": false,
+    "config_path": "fermix_core.personalization.communication_style"
+  },
+  {
+    "tab": "personalization",
+    "kind": "field",
+    "name": "personalization_form[skill_curation_enabled] (\"Suggest new skills from tasks you repeat\")",
+    "control": "hidden false + checkbox toggle; helper text names delivery destination via SkillCurationDelivery.resolve_target",
+    "secret": false,
+    "config_path": "fermix_core.skill_curation.enabled"
+  },
+  {
+    "tab": "personalization",
+    "kind": "action",
+    "name": "save_personalization (submit; __nav)",
+    "effect": "answers \u2192 wizard put_personalization/put_bot_name/put_skill_curation_enabled; commit seeds prompt files (IDENTITY/SOUL/etc.) via SetupSeeder once readiness is :ready (wizard.ex:2112-2131) (setup_live.",
+    "external_flow": null
+  },
+  {
+    "tab": "doctor",
+    "kind": "field",
+    "name": "validation_list",
+    "control": "read-only: report.status badge (Ready/Setup required) + failures (component, action)",
+    "secret": false,
+    "config_path": "n/a"
+  },
+  {
+    "tab": "doctor",
+    "kind": "field",
+    "name": "skill_summary_panel",
+    "control": "read-only counts from SkillRegistry.list_detailed (count, operator, guest)",
+    "secret": false,
+    "config_path": "n/a"
+  },
+  {
+    "tab": "doctor",
+    "kind": "field",
+    "name": "tool_summary_panel",
+    "control": "read-only counts from CapabilityRegistry.list (registered, hidden, policy groups, web_search registered?)",
+    "secret": false,
+    "config_path": "n/a"
+  },
+  {
+    "tab": "doctor",
+    "kind": "field",
+    "name": "doctor_result",
+    "control": "read-only: Provider probe ({:ok provider/model/latency} | errors misconfigured/auth_scope_mismatch/server_error/network), Channel probes list (running/ok/warn/error), Auth tokens (stale profile names), Computer use (status + detail + Grant button when macOS grant missing)",
+    "secret": false,
+    "config_path": "n/a"
+  },
+  {
+    "tab": "doctor",
+    "kind": "action",
+    "name": "run_doctor",
+    "effect": "start_async :doctor_provider_probe \u2192 Doctor.probe_active (LIVE metered LLM call to the primary provider) plus one start_async per enabled channel \u2192 Doctor.probe_channel (adapter health_check, network)",
+    "external_flow": "Network to provider + channel APIs; sidecar spawn"
+  },
+  {
+    "tab": "doctor",
+    "kind": "action",
+    "name": "computer_use_grant (from probe result)",
+    "effect": "Same TCC grant flow as the Plugins tab (components.ex:3897-3904).",
+    "external_flow": "macOS TCC prompts"
+  },
+  {
+    "tab": "doctor",
+    "kind": "action",
+    "name": "apply_restart (also in every restart flash banner)",
+    "effect": "Only when Fermix.CLI.Service.supervised? (Burrito standalone + launchd/systemd unit installed, cli/service.ex:111-114): push_patch /setup?tab=<active>&embed=1, then after 600 ms System.stop(1) so the ",
+    "external_flow": "Daemon exit + OS relaunch"
+  },
+  {
+    "tab": "doctor",
+    "kind": "action",
+    "name": "previous_step",
+    "effect": "Back only (no Next on last tab).",
+    "external_flow": null
+  },
+  {
+    "tab": "doctor",
+    "kind": "sub_surface",
+    "name": "Restart overlay \"Restarting Fermix\u2026 This page reconnects automatically.\" (components.ex:74-87)"
+  },
+  {
+    "tab": "doctor",
+    "kind": "sub_surface",
+    "name": "Doctor result section with four sub-blocks (components.ex:3817-3908)"
+  }
+]

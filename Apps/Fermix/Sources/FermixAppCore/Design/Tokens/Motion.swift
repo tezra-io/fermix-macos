@@ -1,28 +1,21 @@
 import SwiftUI
 
-/// Every animation in the product. Six are named in the design spec; the rest
-/// are the supporting timings the artboards publish
-/// (`M34_DESIGN_SYSTEM_REDLINES.md` §6).
+/// Product motion and its supporting timings (`M34_DESIGN_SYSTEM_REDLINES.md` §6).
 public enum MotionRole: String, CaseIterable, Sendable {
-    case orbBreath
-    case stageAdvance
     case windowEnter
-    case successBloom
     case glyphPulse
     case stepCrossfade
-    case ladderSpinner
-    case sheenSweep
     case mascotEntrance
     case riseIn
-    case blobDriftA
-    case blobDriftB
 
     /// Whether SwiftUI drives this role.
     ///
-    /// One does not: the menu-bar glyph is an `NSStatusItem` template image,
-    /// which SwiftUI cannot animate, so its opacity is computed from elapsed
-    /// time in `MenuBarGlyphPulse` and the status item is redrawn. Every other
-    /// role must reach a view, and the build gate says so.
+    /// One does not, and no longer moves at all: the menu-bar glyph is an
+    /// `NSStatusItem` template image the system draws, so the starting state is
+    /// a lighter raster baked from `MenuBarGlyphInk.startingOpacity` rather
+    /// than an animation. The role stays in the table because the table is the
+    /// redline's record. Every other role must reach a view, and the build gate
+    /// says so.
     public var renderedBySwiftUI: Bool { self != .glyphPulse }
 }
 
@@ -35,8 +28,6 @@ public enum MotionKind: String, CaseIterable, Sendable {
     case entrance
     /// Fires once on a moment. Skipped when suppressed.
     case oneShot
-    /// Marks a state change. Instant when suppressed.
-    case stateChange
     /// Swaps one step for another. Loses its slide when suppressed.
     case crossfade
 }
@@ -48,14 +39,13 @@ public struct MotionSpec: Equatable, Sendable {
         case easeInOut
         case easeOut
         case ease
-        case linear
         case spring(response: Double, dampingFraction: Double)
         case timingCurve(Double, Double, Double, Double)
     }
 
     public let curve: Curve
     /// Seconds, as SwiftUI runs it. An autoreversing loop runs one half-cycle
-    /// per `duration`, which is why the orb's 2800ms redline is 1.4s here.
+    /// per `duration`.
     public let duration: Double
     public let repeatsForever: Bool
     public let autoreverses: Bool
@@ -86,7 +76,6 @@ public struct MotionSpec: Equatable, Sendable {
         case .easeInOut: base = .easeInOut(duration: duration)
         case .easeOut: base = .easeOut(duration: duration)
         case .ease: base = .easeInOut(duration: duration)
-        case .linear: base = .linear(duration: duration)
         case .spring(let response, let dampingFraction):
             base = .spring(response: response, dampingFraction: dampingFraction)
         case .timingCurve(let c0, let c1, let c2, let c3):
@@ -103,9 +92,6 @@ public enum MotionStagger {
     public static let riseIn: [Double] = [0.12, 0.20, 0.30, 0.38]
     /// Ready's ladder (§5.5): its first two blocks arrive slightly later.
     public static let readyRiseIn: [Double] = [0.15, 0.22, 0.30, 0.38]
-    /// Ready's two bloom rings.
-    public static let successBloom: [Double] = [0.20, 0.38]
-
     /// The delay for the nth block of a published ladder.
     ///
     /// A surface asks for the step it is drawing rather than indexing the array,
@@ -162,43 +148,25 @@ public enum MotionEntrance {
 public enum MotionTable {
     public static func spec(_ role: MotionRole) -> MotionSpec {
         switch role {
-        case .orbBreath:
-            return MotionSpec(curve: .easeInOut, duration: 1.4, repeatsForever: true, autoreverses: true, redlineMilliseconds: 2800)
-        case .stageAdvance:
-            return MotionSpec(curve: .spring(response: 0.32, dampingFraction: 0.62), duration: 0.32, redlineMilliseconds: 320)
         case .windowEnter:
             return MotionSpec(curve: .spring(response: 0.28, dampingFraction: 0.85), duration: 0.28, redlineMilliseconds: 280)
-        case .successBloom:
-            return MotionSpec(curve: .easeOut, duration: 0.9, redlineMilliseconds: 900)
         case .glyphPulse:
             return MotionSpec(curve: .easeInOut, duration: 0.8, repeatsForever: true, autoreverses: true, redlineMilliseconds: 1600)
         case .stepCrossfade:
             return MotionSpec(curve: .ease, duration: 0.24, redlineMilliseconds: 240)
-        case .ladderSpinner:
-            return MotionSpec(curve: .linear, duration: 0.9, repeatsForever: true, redlineMilliseconds: 900)
-        case .sheenSweep:
-            return MotionSpec(curve: .easeInOut, duration: 2.2, repeatsForever: true, redlineMilliseconds: 2200)
         case .mascotEntrance:
             return MotionSpec(curve: .timingCurve(0.34, 1.4, 0.64, 1), duration: 0.7, redlineMilliseconds: 700)
         case .riseIn:
             return MotionSpec(curve: .timingCurve(0.32, 0.72, 0, 1), duration: 0.48, redlineMilliseconds: 480)
-        case .blobDriftA:
-            return MotionSpec(curve: .easeInOut, duration: 18, repeatsForever: true, autoreverses: true, redlineMilliseconds: 18000)
-        case .blobDriftB:
-            return MotionSpec(curve: .easeInOut, duration: 22, repeatsForever: true, autoreverses: true, redlineMilliseconds: 22000)
         }
     }
 
     public static func kind(_ role: MotionRole) -> MotionKind {
         switch role {
-        case .orbBreath, .glyphPulse, .ladderSpinner, .sheenSweep, .blobDriftA, .blobDriftB:
+        case .glyphPulse:
             return .loop
         case .windowEnter, .mascotEntrance, .riseIn:
             return .entrance
-        case .successBloom:
-            return .oneShot
-        case .stageAdvance:
-            return .stateChange
         case .stepCrossfade:
             return .crossfade
         }
@@ -224,7 +192,7 @@ public struct Motion: Sendable {
         guard reduceMotion else { return MotionTable.spec(role) }
 
         switch MotionTable.kind(role) {
-        case .loop, .oneShot, .stateChange:
+        case .loop, .oneShot:
             return nil
         case .entrance, .crossfade:
             return Self.reducedEntrance
@@ -239,8 +207,8 @@ public struct Motion: Sendable {
         resolved(role) == nil
     }
 
-    /// Where a suppressed loop parks. 1 is the high value, so the orb keeps its
-    /// full glow and the menu-bar glyph its full opacity.
+    /// Where a suppressed loop parks. 1 is the high value, so the menu-bar
+    /// glyph keeps its full opacity.
     public func restingProgress(_ role: MotionRole) -> Double {
         guard reduceMotion, MotionTable.kind(role) == .loop else { return 0 }
 
@@ -262,24 +230,16 @@ public struct Motion: Sendable {
     static let reducedEntrance = MotionSpec(curve: .easeOut, duration: 0.15, redlineMilliseconds: 150)
 }
 
-/// The menu-bar glyph's starting pulse.
+/// The menu-bar glyph's starting state, as the shipped raster carries it.
 ///
-/// The glyph is an `NSStatusItem` template image, which SwiftUI cannot animate,
-/// so the opacity is computed from elapsed time and the status item redrawn.
-public enum MenuBarGlyphPulse {
-    public static let period: Double = 1.6
-    public static let minimumOpacity: Double = 0.45
-    public static let maximumOpacity: Double = 1
-
-    /// Opacity at `elapsed` seconds into the pulse. Reduce Motion holds the
-    /// maximum, so "starting" still reads as a solid glyph.
-    public static func opacity(atElapsed elapsed: Double, reduceMotion: Bool) -> Double {
-        guard !reduceMotion else { return maximumOpacity }
-
-        let phase = elapsed.truncatingRemainder(dividingBy: period) / period
-        // Autoreversing ease-in-out over the full period: a raised cosine.
-        let eased = (1 - cos(phase * 2 * Double.pi)) / 2
-
-        return minimumOpacity + (maximumOpacity - minimumOpacity) * eased
-    }
+/// The glyph is an `NSStatusItem` template image the system draws, and the
+/// status item does not animate: `scripts/build_menu_bar_template.py` bakes
+/// this fraction into the starting raster, so the redline's opacity floor (§6)
+/// is spent as a static lighter ink rather than as the trough of a pulse. That
+/// is what makes the state readable under Reduce Motion without a second
+/// rendering, and it is why there is no period and no elapsed time anywhere
+/// here: ink is all that is left of that animation.
+public enum MenuBarGlyphInk {
+    /// The starting state's ink, as a fraction of the running state's.
+    public static let startingOpacity: Double = 0.45
 }

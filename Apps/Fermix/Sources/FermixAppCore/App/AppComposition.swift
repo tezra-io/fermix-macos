@@ -6,7 +6,15 @@ import Foundation
 /// The graph is explicit and one-directional: configuration and bootstrap at
 /// the bottom, then the model, then the coordinators that drive it, then the
 /// two surfaces that draw it. Nothing here reads `FERMIX_HOME` or any other
-/// environment value — the bootstrap record is the only macOS source.
+/// environment value — the bootstrap record is the only macOS source, and
+/// everything else outside the process arrives as an `AppEnvironment`.
+///
+/// There are two declared configurations and one graph. `AppComposition()` is
+/// the product. `AppComposition(fixture:)` — DEBUG builds only, in
+/// `FixtureConfiguration.swift` — is the same graph standing on the contract's
+/// own golden answers, so every surface can be seen before the engine publishes
+/// protocol v2. Neither configuration branches inside the other: they differ
+/// only in the environment they are handed.
 @MainActor
 final class AppComposition {
     let configuration: ProductConfiguration
@@ -20,86 +28,114 @@ final class AppComposition {
     let services: ServiceController
     let lifecycle: LifecycleCoordinator
     let coordinator: AppCoordinator
+    let sidebar: SidebarModel
+    let router: CommandRouter
+    let mainMenu: MainMenuController
+    /// The status item. Built before the surfaces because Home's switch and the
+    /// status menu's Hide row both write to it, and one owner is what keeps the
+    /// two from disagreeing.
     let menuBar: MenuBarController
+    let statusMenu: StatusMenuController
     let gateway: ManagementGateway
     let surfaces: MainWindowSurfaces
+    let settings: SettingsModel
+    /// Whether the primary window is showing settings (decision D1). One
+    /// instance, built here, because the coordinator enters it and the window
+    /// view draws it.
+    let settingsPresentation: SettingsPresentation
     let journal: LifecycleJournal
+    let handoff: MigrationHandoffReader
+    /// Asked on every restart whether the registered agent plist is still the
+    /// bundled one (M34 §7.2 step 5).
+    let engineReconciler: EngineReconciler
 
-    init() {
-        // A bundle that cannot answer these two questions is broken, not
-        // degraded: there is no second place to read them from.
-        configuration = Self.loadConfiguration()
-        location = Self.loadLocation()
+    /// The shipped configuration: this Mac, this account, this bundle.
+    convenience init() {
+        self.init(environment: .product())
+    }
+
+    init(environment: AppEnvironment) {
+        configuration = environment.configuration
+        location = environment.location
         store = BootstrapStore(location: location)
         journal = LifecycleJournal(location: location)
+        handoff = MigrationHandoffReader(location: location)
 
         model = AppModel()
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
+        voice = Self.buildVoice(model: model, bootstrap: store)
+        services = ServiceController(loginItems: environment.loginItems, plists: environment.plists)
+        engineReconciler = environment.reconciler
+        menuBar = MenuBarController(model: model)
 
-        let audio = AudioOwner(engine: AudioController())
-        let bootstrap = store
-        let session = VoiceSession(
-            transport: MainActorRealtimeDelivery(wrapping: RealtimeSocketClient()),
-            // Resolved per connect from the bootstrap record, never from the
-            // environment: §4 makes that record the sole macOS source.
-            socketPath: { try bootstrap.realtimeSocketPath() },
-            deadlines: MainQueueDeadlineScheduler()
-        )
-        voice = VoiceCoordinator(model: model, session: session, audio: audio)
+        let management = Self.buildManagement(environment: environment, services: services)
+        gateway = management.gateway
+        settings = management.settings
+        // Entering settings grows the window (decision D3), which the window
+        // coordinator owns; the presentation only says when.
+        settingsPresentation = SettingsPresentation(grow: { [windows] in windows.growForSettings() })
 
-        services = ServiceController(loginItems: SMAppServiceLoginItems(configuration: configuration))
-        lifecycle = LifecycleCoordinator(
+        let plane = Self.buildControlPlane(
+            environment: environment,
             store: store,
             journal: journal,
             services: services,
-            plane: { record in
-                ManagementControlPlane(client: try ManagementClient.connected(to: record))
-            },
-            processes: SystemProcessLiveness(),
-            paths: FileSystemPathPresence(),
-            web: HTTPWebLiveness(),
-            sleeper: TaskSleeper()
-        )
-
-        coordinator = AppCoordinator(
+            reconciler: engineReconciler,
             model: model,
             windows: windows,
             voice: voice,
-            lifecycle: lifecycle,
-            bootstrap: { bootstrap.condition() },
-            termination: ApplicationTermination()
+            settings: settings,
+            presentation: settingsPresentation
         )
-        petModel = PetFeatureModel(model: model, voice: voice, coordinator: coordinator)
+        lifecycle = plane.lifecycle
+        coordinator = plane.coordinator
+        petModel = Self.buildPet(model: model, voice: voice, coordinator: coordinator)
 
-        // One gateway for every surface: `hello` is negotiated once, and the
-        // window it reports is what refuses a call the daemon cannot serve.
-        gateway = ManagementGateway {
-            try ManagementClient.connected(to: BootstrapRecord(fermixHome: try bootstrap.resolvedHome()))
-        }
-        surfaces = Self.buildSurfaces(
-            configuration: configuration,
+        let interface = Self.buildInterface(
+            environment: environment,
+            model: model,
             store: store,
+            handoff: handoff,
+            reconciler: engineReconciler,
             services: services,
             coordinator: coordinator,
             gateway: gateway,
-            petModel: petModel
+            petModel: petModel,
+            settings: settings,
+            menuBar: menuBar
         )
+        surfaces = interface.surfaces
+        sidebar = interface.sidebar
+        router = interface.router
+        mainMenu = interface.mainMenu
+        statusMenu = interface.statusMenu
 
-        // The panel reads the uptime Home already resolved, so the two surfaces
-        // cannot disagree about how much the app knows.
-        let surfaces = self.surfaces
-        menuBar = MenuBarController(
+        finishAssembly()
+    }
+
+    /// The edges that only exist once both ends do — the coordinator's two
+    /// callbacks into surfaces it created, and the window host's view of the
+    /// whole graph — plus the two first reads. Everything else points one way.
+    private func finishAssembly() {
+        // A `fermix://setup` url names an assistant screen, and the assistant's
+        // model is built with this coordinator's own router.
+        coordinator.resumeAssistant = { [surfaces] stage in surfaces.onboarding.resume(at: stage) }
+        coordinator.showUninstallNotice = { [surfaces] shown in surfaces.doctor.uninstallNoticeShown = shown }
+        // A login launch opens nothing, so Home's own refresh never runs and
+        // the menu bar would have no answer to draw.
+        coordinator.readDaemonCondition = { [surfaces] in Task { await surfaces.home.refresh() } }
+
+        windowHost.surfaces = AppSurfaces(
             model: model,
-            source: MenuPanelSource(
-                model: model,
-                version: configuration.marketingVersion,
-                uptimeSeconds: { surfaces.home.snapshot.uptimeSeconds }
-            ),
-            actions: { [coordinator] action in coordinator.perform(action) }
+            surfaces: surfaces,
+            sidebar: sidebar,
+            router: router,
+            settingsPresentation: settingsPresentation,
+            leaveSettings: { [coordinator] in coordinator.leaveSettings() },
+            openRecovery: { [coordinator] in coordinator.enterRecovery() },
+            restart: { [coordinator] in coordinator.restartDaemon() }
         )
-
-        windowHost.surfaces = AppSurfaces(model: model, surfaces: surfaces, coordinator: coordinator)
         // Every report goes through the coordinator, which owns whether a window
         // is on screen; the pet reads that answer rather than the raw signal.
         windowHost.onVisibilityChanged = { [petModel, windows] kind, visible in
@@ -109,13 +145,19 @@ final class AppComposition {
             petModel.setWindowVisible(onScreen)
         }
 
-        model.serviceEnabled = services.backgroundServiceEnabled
+        // Home's Background switch reads through to the status item, so a
+        // Command-drag off the bar while that window is open is a change only
+        // the item can report.
+        menuBar.onMenuBarItemShownChanged = { [surfaces] in surfaces.home.menuBarItemVisibilityChanged() }
+
         PetAssetCache.shared.preload()
     }
 
+    /// The interim mark: the FermixPet mascot in one ink, which is the icon
+    /// everywhere until the owner has a Fermix logo.
     func installApplicationIcon() {
         guard
-            let url = Bundle.module.url(forResource: "FermixPetIcon", withExtension: "png"),
+            let url = AppResources.bundle.url(forResource: "FermixMonochromeIcon", withExtension: "png"),
             let icon = NSImage(contentsOf: url)
         else {
             preconditionFailure("the application icon is missing from the resource bundle")
@@ -124,28 +166,284 @@ final class AppComposition {
         NSApp.applicationIconImage = icon
     }
 
-    /// Builds the five surfaces plus onboarding. Everything they need is passed
-    /// in, so the graph stays one-directional and nothing here reaches back into
-    /// the composition.
-    private static func buildSurfaces(
-        configuration: ProductConfiguration,
+    /// Puts the status item on the menu bar under the menu the command table
+    /// built. The menu is passed in rather than held by the controller, because
+    /// the controller is built before the router the menu's rows come from.
+    func installMenuBar() {
+        menuBar.install(menu: statusMenu.menu())
+    }
+
+    /// The voice stack: one audio owner, one realtime session, one coordinator.
+    private static func buildVoice(model: AppModel, bootstrap: BootstrapStore) -> VoiceCoordinator {
+        let session = VoiceSession(
+            transport: MainActorRealtimeDelivery(wrapping: RealtimeSocketClient()),
+            // Resolved per connect from the bootstrap record, never from the
+            // environment: §4 makes that record the sole macOS source.
+            socketPath: { try bootstrap.realtimeSocketPath() },
+            deadlines: MainQueueDeadlineScheduler()
+        )
+
+        return VoiceCoordinator(
+            model: model,
+            session: session,
+            audio: AudioOwner(engine: AudioController())
+        )
+    }
+
+    /// The one gateway and the one settings model, built as a pair because the
+    /// second is nothing but a reader of the first.
+    private static func buildManagement(
+        environment: AppEnvironment,
+        services: ServiceController
+    ) -> (gateway: ManagementGateway, settings: SettingsModel) {
+        // One gateway for every surface: `hello` is negotiated once, and the
+        // window it reports is what refuses a call the daemon cannot serve.
+        let gateway = ManagementGateway(makeClient: environment.makeClient)
+        // Exactly one `SettingsModel`, built before the coordinator because the
+        // coordinator selects a pane when a `fermix://settings/<pane>` url
+        // arrives. One instance is the invariant M34 §8 names: the Settings
+        // window, Home and onboarding read this one.
+        let settings = SettingsModel(
+            gateway: gateway,
+            store: environment.settingsPanes,
+            sleeper: environment.sleeper,
+            opener: environment.opener,
+            permissions: PermissionLedger(
+                gateway: gateway,
+                services: services,
+                microphone: environment.microphone
+            )
+        )
+
+        return (gateway, settings)
+    }
+
+    /// The lifecycle transaction owner and the one coordinator that drives it.
+    /// Built as a pair because the coordinator is nothing without the plane it
+    /// runs its transactions on.
+    private static func buildControlPlane(
+        environment: AppEnvironment,
         store: BootstrapStore,
+        journal: LifecycleJournal,
+        services: ServiceController,
+        reconciler: EngineReconciler,
+        model: AppModel,
+        windows: WindowCoordinator,
+        voice: VoiceCoordinator,
+        settings: SettingsModel,
+        presentation: SettingsPresentation
+    ) -> (lifecycle: LifecycleCoordinator, coordinator: AppCoordinator) {
+        let lifecycle = buildLifecycle(
+            environment: environment,
+            store: store,
+            journal: journal,
+            services: services,
+            reconciler: reconciler
+        )
+
+        return (
+            lifecycle,
+            buildCoordinator(
+                environment: environment,
+                model: model,
+                windows: windows,
+                voice: voice,
+                lifecycle: lifecycle,
+                store: store,
+                settings: settings,
+                presentation: presentation
+            )
+        )
+    }
+
+    /// The companion's own model, which reads the voice stack and the
+    /// coordinator and owns nothing else.
+    private static func buildPet(
+        model: AppModel,
+        voice: VoiceCoordinator,
+        coordinator: AppCoordinator
+    ) -> PetFeatureModel {
+        PetFeatureModel(
+            model: model,
+            voice: voice,
+            coordinator: coordinator,
+            openFermix: { coordinator.open(.home) }
+        )
+    }
+
+    /// The lifecycle control plane: the transaction owner and the probes it
+    /// proves each transaction against.
+    private static func buildLifecycle(
+        environment: AppEnvironment,
+        store: BootstrapStore,
+        journal: LifecycleJournal,
+        services: ServiceController,
+        reconciler: EngineReconciler
+    ) -> LifecycleCoordinator {
+        LifecycleCoordinator(
+            store: store,
+            journal: journal,
+            services: services,
+            reconciler: reconciler,
+            plane: environment.makePlane,
+            processes: environment.processes,
+            paths: environment.paths,
+            web: environment.web,
+            sleeper: environment.sleeper
+        )
+    }
+
+    /// The one coordinator that owns which window is on screen. It reads the
+    /// bootstrap condition through the store rather than holding a record, so a
+    /// home written after launch is seen.
+    private static func buildCoordinator(
+        environment: AppEnvironment,
+        model: AppModel,
+        windows: WindowCoordinator,
+        voice: VoiceCoordinator,
+        lifecycle: LifecycleCoordinator,
+        store: BootstrapStore,
+        settings: SettingsModel,
+        presentation: SettingsPresentation
+    ) -> AppCoordinator {
+        AppCoordinator(
+            model: model,
+            windows: windows,
+            voice: voice,
+            lifecycle: lifecycle,
+            bootstrap: { store.condition() },
+            termination: environment.termination,
+            settings: settings,
+            presentation: presentation
+        )
+    }
+
+    /// The sidebar's own remembered visibility. The window has one floor now
+    /// (decision D3), so a collapse moves nothing outside this model.
+    private static func buildSidebar(environment: AppEnvironment) -> SidebarModel {
+        SidebarModel(store: environment.sidebarVisibility)
+    }
+
+    /// One router behind the main menu, the status item and every toolbar, so
+    /// the three cannot answer differently.
+    private static func buildCommands(
+        model: AppModel,
+        coordinator: AppCoordinator,
+        surfaces: MainWindowSurfaces,
+        sidebar: SidebarModel,
+        menuBar: MenuBarController,
+        commandLine: @escaping () -> CoexistenceInstructions?
+    ) -> (router: CommandRouter, mainMenu: MainMenuController, statusMenu: StatusMenuController) {
+        let router = CommandRouter(
+            model: model,
+            coordinator: coordinator,
+            surfaces: surfaces,
+            sidebar: sidebar,
+            menuBar: menuBar,
+            commandLine: commandLine
+        )
+        // The status line reads the facts Home already resolved, so the two
+        // surfaces cannot disagree about how much the app knows.
+        let statusMenu = StatusMenuController(
+            router: router,
+            source: StatusMenuSource(
+                model: model,
+                snapshot: { surfaces.home.snapshot },
+                reconcile: { surfaces.home.engineReconcile }
+            ),
+            // With the window closed nothing else ever reads the daemon, so the
+            // menu asks as it opens (M34 §7.2).
+            refresh: { Task { await surfaces.home.refresh() } }
+        )
+
+        return (router, MainMenuController(router: router), statusMenu)
+    }
+
+    /// What the person sees and what they can ask for: the surfaces, the
+    /// sidebar's own state, and the three tables built over them.
+    ///
+    /// One value rather than five out-parameters, and one builder because the
+    /// command tables read the surfaces they command: the router, the main menu
+    /// and the status item are one router seen three ways.
+    private struct UserInterface {
+        let surfaces: MainWindowSurfaces
+        let sidebar: SidebarModel
+        let router: CommandRouter
+        let mainMenu: MainMenuController
+        let statusMenu: StatusMenuController
+    }
+
+    private static func buildInterface(
+        environment: AppEnvironment,
+        model: AppModel,
+        store: BootstrapStore,
+        handoff: MigrationHandoffReader,
+        reconciler: EngineReconciler,
         services: ServiceController,
         coordinator: AppCoordinator,
         gateway: ManagementGateway,
-        petModel: PetFeatureModel
-    ) -> MainWindowSurfaces {
-        let setup = SetupModel(gateway: gateway, opener: WorkspaceExternalOpener())
-        let planner = CLILinkPlanner(launcherPath: bundledLauncherPath(configuration))
-        let activation = ActivationCoordinator(
+        petModel: PetFeatureModel,
+        settings: SettingsModel,
+        menuBar: MenuBarController
+    ) -> UserInterface {
+        // The Terminal link's plan, read once: the surfaces draw its row and the
+        // Help menu names the same command.
+        let planner = CLILinkPlanner(launcherPath: environment.launcherPath)
+        let surfaces = buildSurfaces(
+            environment: environment,
+            planner: planner,
             store: store,
+            handoff: handoff,
+            reconciler: reconciler,
             services: services,
+            coordinator: coordinator,
             gateway: gateway,
-            paths: FileSystemPathPresence(),
-            installation: BundleInstallationProbe(),
-            web: HTTPWebLiveness(),
-            ports: TCPPortProbe(),
-            sleeper: TaskSleeper()
+            petModel: petModel,
+            settings: settings,
+            menuBar: menuBar
+        )
+        let sidebar = buildSidebar(environment: environment)
+        let commands = buildCommands(
+            model: model,
+            coordinator: coordinator,
+            surfaces: surfaces,
+            sidebar: sidebar,
+            menuBar: menuBar,
+            commandLine: { CoexistenceInstructions.commandLine(planner.plan()) }
+        )
+
+        return UserInterface(
+            surfaces: surfaces,
+            sidebar: sidebar,
+            router: commands.router,
+            mainMenu: commands.mainMenu,
+            statusMenu: commands.statusMenu
+        )
+    }
+
+    /// Builds the four surfaces plus onboarding. Everything they need is passed
+    /// in, so the graph stays one-directional and nothing here reaches back into
+    /// the composition.
+    private static func buildSurfaces(
+        environment: AppEnvironment,
+        planner: CLILinkPlanner,
+        store: BootstrapStore,
+        handoff: MigrationHandoffReader,
+        reconciler: EngineReconciler,
+        services: ServiceController,
+        coordinator: AppCoordinator,
+        gateway: ManagementGateway,
+        petModel: PetFeatureModel,
+        settings: SettingsModel,
+        menuBar: any MenuBarItemPresenting
+    ) -> MainWindowSurfaces {
+        let instructions = coexistenceInstructions(settings: settings, planner: planner)
+        let doctor = buildDoctor(
+            store: store,
+            gateway: gateway,
+            coordinator: coordinator,
+            settings: settings,
+            instructions: instructions
         )
 
         return MainWindowSurfaces(
@@ -153,55 +451,136 @@ final class AppComposition {
                 gateway: gateway,
                 services: services,
                 coordinator: coordinator,
-                updates: UnwiredUpdateChecker()
+                updates: environment.updates,
+                settings: settings,
+                reconciler: reconciler,
+                menuBar: menuBar,
+                instructions: instructions,
+                // The reveal seam lives on Doctor, and this is that one rather
+                // than a second implementation of the same gesture.
+                revealSettingsFile: { doctor.revealSettingsFile() }
             ),
-            setup: setup,
-            doctor: DoctorModel(
-                gateway: gateway,
-                // The daemon owns its rotated log set; the app only shows the
-                // operator where it is.
-                logFolder: { try store.resolvedHome().appendingPathComponent("logs", isDirectory: true) }
-            ),
+            doctor: doctor,
             logs: LogsModel(gateway: gateway),
             pet: petModel,
-            onboarding: OnboardingModel(
-                gateway: gateway,
-                activation: activation,
-                setup: SetupModel(gateway: gateway, opener: WorkspaceExternalOpener()),
+            onboarding: buildOnboarding(
+                environment: environment,
                 planner: planner,
-                onRoute: { [coordinator] route in coordinator.open(route) },
-                onRecoveryResolved: { [coordinator] in coordinator.resolveInterruptedTransaction() }
+                store: store,
+                handoff: handoff,
+                services: services,
+                coordinator: coordinator,
+                gateway: gateway,
+                settings: settings,
+                doctor: doctor
             ),
-            version: configuration.marketingVersion
+            settings: settings
         )
     }
 
-    /// The CLI launcher inside this bundle. It is the target the Terminal
-    /// command links to, and it is resolved from the running bundle rather than
-    /// assumed to be in `/Applications`.
-    private static func bundledLauncherPath(_ configuration: ProductConfiguration) -> String {
-        Bundle.main.bundleURL
-            .appendingPathComponent("Contents/MacOS", isDirectory: true)
-            .appendingPathComponent("fermix")
-            .path
-    }
-
-    private static func loadConfiguration() -> ProductConfiguration {
-        do {
-            return try ProductConfiguration.bundled()
-        } catch let failure as ProductConfigurationError {
-            preconditionFailure(failure.message)
-        } catch {
-            preconditionFailure("the product configuration is unreadable: \(error)")
+    /// The removal commands both doors show, read from the daemon's own
+    /// `coexistence.legacy_service_unit` (M34 §15.2).
+    ///
+    /// The scope and the path are the daemon's, not this app's: it is the
+    /// process that owns the home, and a unit it reports under a `HOME` the app
+    /// cannot see is exactly the case the filesystem probe answered with
+    /// "Fermix cannot find that service". The probe stays where it belongs — the
+    /// activation preflight, which runs before a daemon exists to ask.
+    private static func coexistenceInstructions(
+        settings: SettingsModel,
+        planner: CLILinkPlanner
+    ) -> () -> CoexistenceInstructions? {
+        { [settings] in
+            CoexistenceInstructions.legacyServiceUnit(
+                unit: settings.setupState.value?.coexistence.legacyServiceUnit,
+                cli: planner.plan()
+            )
         }
     }
 
-    private static func loadLocation() -> BootstrapLocation {
-        do {
-            return try BootstrapLocation.currentAccount()
-        } catch {
-            preconditionFailure("this macOS account has no home directory the app can read")
-        }
+    /// Doctor: the checks, the two places on disk it can show, and the two
+    /// remediations that leave the surface.
+    private static func buildDoctor(
+        store: BootstrapStore,
+        gateway: ManagementGateway,
+        coordinator: AppCoordinator,
+        settings: SettingsModel,
+        instructions: @escaping () -> CoexistenceInstructions?
+    ) -> DoctorModel {
+        DoctorModel(
+            gateway: gateway,
+            // The daemon owns its rotated log set; the app only shows the
+            // operator where it is.
+            logFolder: { try store.resolvedHome().appendingPathComponent("logs", isDirectory: true) },
+            settingsFile: { try store.resolvedHome().appendingPathComponent("config.toml", isDirectory: false) },
+            // A remediation that names a pane opens the settings presentation of
+            // this window (decision D1).
+            openSettingsPane: { coordinator.open(.settings($0)) },
+            instructions: instructions,
+            showInstructions: { coordinator.showInstructions($0) },
+            // The three remediations that leave Doctor for a surface something
+            // else owns: the one Restart sheet, the one settings reload, and
+            // Recovery.
+            askForRestart: { coordinator.askForRestart() },
+            reloadSettings: { await settings.reloadFromDisk() },
+            openRecovery: { coordinator.enterRecovery() }
+        )
+    }
+
+    /// The Setup Assistant: the activation transaction it drives, the two files
+    /// Recovery states, and the one settings model every surface shares.
+    private static func buildOnboarding(
+        environment: AppEnvironment,
+        planner: CLILinkPlanner,
+        store: BootstrapStore,
+        handoff: MigrationHandoffReader,
+        services: ServiceController,
+        coordinator: AppCoordinator,
+        gateway: ManagementGateway,
+        settings: SettingsModel,
+        doctor: DoctorModel
+    ) -> OnboardingModel {
+        OnboardingModel(
+            gateway: gateway,
+            activation: ActivationCoordinator(
+                store: store,
+                handoff: handoff,
+                services: services,
+                gateway: gateway,
+                paths: environment.paths,
+                installation: environment.installation,
+                identities: environment.identities,
+                web: environment.web,
+                ports: environment.ports,
+                sleeper: environment.sleeper,
+                plan: environment.activationPlan
+            ),
+            store: store,
+            handoff: handoff,
+            chooser: environment.chooser,
+            restarter: coordinator,
+            planner: planner,
+            settingsFiles: { recoveryEvidence(store: store, paths: environment.paths) },
+            revealSettingsFile: { doctor.revealSettingsFile() },
+            onRoute: { coordinator.open($0) },
+            onRecoveryResolved: { coordinator.resolveInterruptedTransaction() },
+            settings: settings,
+            sleeper: environment.sleeper
+        )
+    }
+
+    /// Where the settings file is, and whether the daemon kept the copy from
+    /// before. Recovery states both (M34 §7.5).
+    private static func recoveryEvidence(store: BootstrapStore, paths: any PathPresence) -> RecoveryEvidence {
+        let settings = try? store.resolvedHome()
+            .appendingPathComponent("config.toml", isDirectory: false)
+        let previous = settings.map { $0.path + RecoveryEvidence.previousSuffix }
+
+        return RecoveryEvidence(
+            sentence: nil,
+            settingsFile: settings?.path,
+            previousFile: previous.flatMap { paths.exists(atPath: $0) ? $0 : nil }
+        )
     }
 }
 

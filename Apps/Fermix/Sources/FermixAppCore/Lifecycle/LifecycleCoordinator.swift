@@ -83,6 +83,23 @@ public enum LifecycleFailure: Error, Equatable, Sendable {
     /// resolved. Transactions are serialized, so a second one starting over
     /// that record would destroy the only evidence of what stopped.
     case recoveryPending(kind: LifecycleTransactionKind, phase: LifecyclePhase)
+    /// launchd does not own this daemon, so a restart would drain it and
+    /// nothing would bring it back. Refused before any mutation, which is why
+    /// it carries the registration status that was read rather than a report of
+    /// what a half-run transaction left behind.
+    case daemonNotManaged(ServiceRegistrationStatus)
+
+    /// The one sentence a surface shows for this failure, where this build has
+    /// copy for it.
+    ///
+    /// Only the preflight refusal has one. Every other case is a step that
+    /// stopped part-way, which the journal records and Recovery reads; inventing
+    /// a sentence per case here would put copy on states no screen renders.
+    public var sentence: String? {
+        guard case .daemonNotManaged = self else { return nil }
+
+        return ProductStrings[.lifecycleDaemonNotManaged]
+    }
 }
 
 /// The three lifecycle transactions, as M34 §4 defines them.
@@ -105,6 +122,8 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
     private let store: BootstrapStore
     private let journal: LifecycleJournal
     private let services: ServiceController
+    /// The one owner of the registration-receipt comparison (M34 §7.2 step 5).
+    private let reconciler: EngineReconciler
     private let makePlane: (BootstrapRecord) throws -> any DaemonControlPlane
     private let processes: any ProcessLiveness
     private let paths: any PathPresence
@@ -116,6 +135,7 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
         store: BootstrapStore,
         journal: LifecycleJournal,
         services: ServiceController,
+        reconciler: EngineReconciler,
         plane: @escaping (BootstrapRecord) throws -> any DaemonControlPlane,
         processes: any ProcessLiveness,
         paths: any PathPresence,
@@ -125,6 +145,7 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
         self.store = store
         self.journal = journal
         self.services = services
+        self.reconciler = reconciler
         self.makePlane = plane
         self.processes = processes
         self.paths = paths
@@ -150,8 +171,10 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
             entry = try note(identity, in: entry)
             try await waitForWeb(origin: identity.setupOrigin)
 
+            let pid = try processIdentifier(identity)
             try journal.clear()
-            return .enabled(pid: try processIdentifier(identity))
+            recordRegistrationReceipt()
+            return .enabled(pid: pid)
         } catch {
             log.error("enable failed at \(entry.phase.rawValue, privacy: .public)")
             throw error
@@ -207,11 +230,25 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
 
     // MARK: - Restart
 
-    /// Prepare and commit a shutdown without touching the registration, then
-    /// wait for launchd to bring a *different* daemon back and prove it.
+    /// Refuse unless launchd owns this daemon, then prepare and commit a
+    /// shutdown, renew the agent registration where this bundle ships a
+    /// different plist than the one that was registered, and wait for launchd to
+    /// bring a *different* daemon back and prove it.
     public func restartDaemon() async throws -> LifecycleOutcome {
+        // Before anything is journaled or drained. launchd relaunches only a
+        // daemon it owns, so on an unregistered agent the drain succeeds, the
+        // daemon exits, and nothing starts it again: the operator's Fermix was
+        // gone until the next login (owner report of 2026-09-04).
+        let registration = services.status(.agent)
+        guard registration == .enabled else {
+            log.error(
+                "refusing the restart: the agent registration is \(registration.rawValue, privacy: .public)"
+            )
+            throw LifecycleFailure.daemonNotManaged(registration)
+        }
+
         let record = try loadBootstrap()
-        var entry = try begin(.restart, registration: services.status(.agent))
+        var entry = try begin(.restart, registration: registration)
 
         let plane = try makePlane(record)
         let previous = try await plane.hello()
@@ -228,11 +265,49 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
 
         try advance(&entry, to: .verify)
         try await waitForExit(pid: previousPid)
+        try renewRegistration(recordedIn: record)
         let current = try await waitForRelaunch(plane, replacing: previous.pid)
         try await waitForWeb(origin: current.setupOrigin)
 
         try journal.clear()
         return .restarted(previousPid: previousPid, currentPid: try processIdentifier(current))
+    }
+
+    /// Unregisters and registers the agent when the bundled plist differs from
+    /// the receipt the last registration wrote, or when no receipt exists
+    /// (M34 §7.2 step 5), so a changed `ProgramArguments` or label is applied
+    /// rather than silently ignored.
+    ///
+    /// It runs after the old daemon has exited and before launchd is waited on,
+    /// which is the one moment where the registration can be replaced without
+    /// interrupting the turn the drain exists to protect, and still governs the
+    /// process that comes back.
+    private func renewRegistration(recordedIn record: BootstrapRecord) throws {
+        guard reconciler.registration(recordedIn: record) == .renew else { return }
+
+        log.log("the bundled agent plist differs from the registered one")
+        try unregister()
+        try register()
+        recordRegistrationReceipt()
+    }
+
+    /// Records which plist is now registered.
+    ///
+    /// Never fatal, and for the same reason activation's own receipt write is
+    /// not: the reconciler reads an absent or unwritten receipt as a difference,
+    /// so the next restart renews again rather than skipping. A bundle that
+    /// ships no plist has no digest to record at all.
+    private func recordRegistrationReceipt() {
+        guard let digest = services.bundledAgentPlistDigest() else {
+            log.error("this bundle ships no agent plist, so no receipt was recorded")
+            return
+        }
+
+        do {
+            try store.recordAgentRegistration(plistSHA256: digest)
+        } catch {
+            log.error("the registration receipt could not be written: \(String(describing: error), privacy: .public)")
+        }
     }
 
     // MARK: - Steps

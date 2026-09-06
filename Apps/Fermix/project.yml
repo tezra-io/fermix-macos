@@ -38,10 +38,10 @@ targets:
         excludes:
           - Resources/Contracts
           - Resources/VendorMarks
-          # The bolt master is a generator input, not a runtime resource. Its
-          # rasters ship beside it and scripts/check_brand_images.sh keeps
-          # them in step with it.
-          - Resources/MenuBarTemplate/FermixBoltTemplate.svg
+          # The mark master is a generator input, not a runtime resource.
+          # Its three state rasters ship beside it and
+          # scripts/check_brand_images.sh keeps them in step with it.
+          - Resources/MenuBarTemplate/FermixMarkMaster.png
       # A folder reference, so the vendored contracts keep their
       # `<protocol>/…` layout inside the bundle. Added as ordinary resources
       # they would flatten, and both contracts publish a PROTOCOL.md and a

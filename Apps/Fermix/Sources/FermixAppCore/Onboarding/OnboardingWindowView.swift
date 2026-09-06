@@ -1,11 +1,7 @@
 import SwiftUI
 
-/// The onboarding window: the backdrop, the fixed 800 by 520 glass card, the
-/// step that is showing, and the progress dots.
-///
-/// The window never moves between steps. Each surface crossfades in place,
-/// which is what the redline's step-crossfade rule means and what keeps the
-/// journey from feeling like five separate windows.
+/// The Setup Assistant presentation inside the primary window. Existing screens
+/// crossfade above the same 64-point bottom bar.
 struct OnboardingWindowView: View {
     @ObservedObject var model: OnboardingModel
 
@@ -14,86 +10,177 @@ struct OnboardingWindowView: View {
     var body: some View {
         let motion = Motion(reduceMotion: reduceMotion)
 
-        return ZStack {
-            BackdropView(model.stage == .welcome ? .welcome : .onboarding)
+        return VStack(spacing: 0) {
+            surface
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(motion.stepTransition())
+                .id(model.stage)
 
-            GlassChrome(.required(for: .onboarding)) {
-                VStack(spacing: 0) {
-                    titlebar
-
-                    surface
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(motion.stepTransition())
-                        .id(model.stage)
-
-                    dots
-                }
-            }
-            .frame(
-                width: WindowMetrics.onboardingSize.width,
-                height: WindowMetrics.onboardingSize.height
-            )
-            .clipShape(RoundedRectangle(cornerRadius: Radius.window, style: .continuous))
-            .fermixWindowEntrance()
+            AssistantBottomBar(model: model)
         }
-        .frame(
-            width: WindowMetrics.onboardingSize.width,
-            height: WindowMetrics.onboardingSize.height
-        )
+        // The primary window owns its size; the assistant fills its safe area.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The primary window paints the same system color for every page.
+        .fermixWindowEntrance()
         .animation(motion.animation(.stepCrossfade), value: model.stage)
+        .toolbar {
+            if model.stage != .applying {
+                SettingsBackControl(back: leaveAssistant)
+            }
+        }
     }
 
-    /// Traffic lights only. The chip is Activate's alone.
-    private var titlebar: some View {
-        HStack {
-            Spacer(minLength: 0)
-
-            if model.stage == .activate {
-                ActivationMirrorChip().padding(.trailing, Spacing.m)
-            }
+    private func leaveAssistant() {
+        if model.stage == .starting {
+            model.cancelStarting()
+            return
         }
-        .frame(height: WindowMetrics.titlebarHeight)
+
+        model.finish()
     }
 
     @ViewBuilder
     private var surface: some View {
         switch model.stage {
         case .welcome:
-            WelcomeSurface(begin: model.begin)
-        case .activate:
-            ActivateSurface(ladder: model.ladder)
-        case .bootFailed:
-            BootFailedSurface(model: model)
-        case .configureAI:
+            WelcomeSurface(model: model)
+        case .starting:
+            StartingSurface(model: model)
+        case .connectAI:
             ConnectAISurface(model: model)
-        case .configureChannel:
-            ConnectChannelSurface(model: model)
-        case .configureSetup:
-            SetupSurfaceView(model: model.setup)
+        case .aboutYou:
+            AboutYouSurface(model: model)
+        case .applying:
+            ApplyingSurface(model: model)
         case .ready:
             ReadySurface(model: model)
+        case .bootFailed:
+            BootFailedSurface(model: model)
         case .recovery:
             RecoverySurface(model: model)
         }
     }
+}
 
+extension View {
+    /// The chrome every assistant form carries.
+    ///
+    /// One row grammar across Connect your AI, About you and Ready: a grouped
+    /// `Form`, one section, the system's own row and separator material, and
+    /// no container the app draws. Three consecutive screens used to be three
+    /// grammars — hand-drawn cards, a form, and bare rows — which read as three
+    /// designs rather than one journey.
+    ///
+    /// `.formStyle(.grouped)` stays at each call site rather than moving in
+    /// here: the container gate counts one against every `Form` in the file it
+    /// is written in, and a rule that can be satisfied from another file is not
+    /// the rule.
+    ///
+    /// - Parameter width: the column the screen measures against. Connect your
+    ///   AI and About you take the assistant's one text column; Ready takes
+    ///   redline §5.5's slightly wider one, because the `fermix` command row
+    ///   inside it is wider than a sentence.
+    func assistantFormChrome(width: Double = OnboardingMetrics.contentWidth) -> some View {
+        frame(maxWidth: width)
+            // The assistant's minimum fit accommodates each form without an
+            // inner scrollbar.
+            .scrollDisabled(true)
+            // The section card is the container. A grouped form paints a ground
+            // of its own too, which is invisible in a Settings pane that fills
+            // its column and reads as a second box here, where the form is a
+            // fixed column on the window's own ground.
+            .scrollContentBackground(.hidden)
+            // A grouped `Form` is a scroll view, so it takes every point the
+            // stack offers and paints its container over the empty ones: four
+            // rows sat at the top of a box twice their height. Fixed to its
+            // content it is exactly as tall as the rows it has.
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The bottom bar (redlines §5.8): Back, the progress dots, and exactly one
+/// default continue action. There is no skip: connecting an AI is the one
+/// required decision, and a link that could only leave setup added nothing
+/// Home's `Continue setup` does not already say (owner decision of 2026-09-05).
+///
+/// A mechanical stage and the two failure screens carry no actions: the ladder
+/// runs on its own, and the failure card owns its own buttons.
+struct AssistantBottomBar: View {
+    @ObservedObject var model: OnboardingModel
+
+    /// The redline's 64-point bar.
+    static let height: Double = 64
+
+    var body: some View {
+        HStack(spacing: Spacing.s) {
+            leading
+
+            Spacer(minLength: 0)
+
+            if let progress = model.progress {
+                ProgressDots(model: progress)
+            }
+
+            Spacer(minLength: 0)
+
+            primary
+        }
+        .padding(.horizontal, WindowMetrics.contentPadding)
+        .frame(height: Self.height)
+    }
+
+    /// The bar's leading control: Back where a screen has somewhere to go, and
+    /// Cancel on the ladder, which is the one screen whose way out is stopping
+    /// what is running rather than stepping back over it.
     @ViewBuilder
-    private var dots: some View {
-        if let progress = model.progress {
-            ProgressDots(model: progress)
-        } else {
-            Color.clear.frame(height: WindowMetrics.progressDotZoneHeight)
+    private var leading: some View {
+        if model.machine.canGoBack {
+            barControl(ProductStrings[.assistantBack], action: model.back)
+        } else if model.machine.canCancel {
+            barControl(ProductStrings[.assistantCancel], action: model.cancelStarting)
+        }
+    }
+
+    /// The bar's own secondary control, drawn the same way whichever of the two
+    /// it is. Named without the word the container gate scans for: a helper
+    /// whose declaration carries that word reads to the scan as a button with
+    /// no title.
+    private func barControl(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .foregroundStyle(Palette.secondary.color)
+    }
+
+    /// One default action per screen, and none at all while a ladder is running:
+    /// a continue button over a stage that has not finished would be a promise
+    /// the app cannot keep.
+    @ViewBuilder
+    private var primary: some View {
+        switch model.stage {
+        case .welcome:
+            PrimaryAction(ProductStrings[.welcomeCTA], size: .inWindow, action: model.begin)
+        case .connectAI, .aboutYou:
+            PrimaryAction(ProductStrings[.assistantContinue], size: .inWindow, action: model.advance)
+        // While the gate is unmet `finish()` refuses and re-routes, so the
+        // button must not claim it opens Fermix (M34 §4).
+        case .ready:
+            PrimaryAction(ProductStrings[.readyOpen], size: .inWindow) { model.finish() }
+                .disabled(model.readiness.block != nil)
+        case .starting, .applying, .bootFailed, .recovery:
+            EmptyView()
         }
     }
 }
 
-/// Welcome: the mascot, the wordmark, one sentence, and one call to action.
+/// Welcome: the wordmark, one sentence, and the one secondary link that adopts
+/// a home this Mac already has.
 ///
-/// §5.1 brings the blocks in on a ladder rather than together: the mascot lands
-/// first on its own curve, then the wordmark, the sentence, and the action
-/// block at 120, 200, and 300 milliseconds.
+/// The caption tier under the sentence is gone (owner directive of 2026-09-03:
+/// "Too many subtexts/headings throws off"). One title and one line is the rule
+/// every assistant screen now keeps; how long setup takes is a promise the
+/// four-row ladder on the next screen shows rather than states.
 struct WelcomeSurface: View {
-    let begin: () -> Void
+    @ObservedObject var model: OnboardingModel
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -105,36 +192,32 @@ struct WelcomeSurface: View {
         return VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            MascotArtwork(size: 108)
-                .padding(.bottom, 18)
+            FermixWordmark(height: 40)
+                .padding(.bottom, 22)
                 .scaleEffect(entered ? 1 : 0.92)
                 .opacity(entered ? 1 : 0)
-
-            FermixWordmark(height: 30)
-                .padding(.bottom, 22)
                 .fermixRiseIn(step: 0)
+
+            Text(ProductStrings[.welcomeTitle])
+                .fermixType(Typography.style(.titleLarge))
+                .foregroundStyle(Palette.ink.color)
+                .padding(.bottom, 8)
+                .fermixRiseIn(step: 1)
 
             Text(ProductStrings[.welcomeValue])
                 .fermixType(Typography.style(.body))
                 .foregroundStyle(Palette.secondary.color)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 460)
+                .frame(maxWidth: OnboardingMetrics.contentWidth)
                 .fermixRiseIn(step: 1)
 
-            VStack(spacing: 0) {
-                PrimaryAction(ProductStrings[.welcomeCTA], size: .onboarding, action: begin)
-
-                Text(ProductStrings[.welcomeCaption])
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.faint.color)
-                    .padding(.top, 14)
-            }
-            .padding(.top, Spacing.xl)
-            .fermixRiseIn(step: 2)
+            existingHome
+                .padding(.top, Spacing.l)
+                .fermixRiseIn(step: 2)
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 96)
+        .padding(.horizontal, OnboardingMetrics.horizontalPadding)
         .onAppear {
             guard let animation = motion.animation(.mascotEntrance) else {
                 entered = true
@@ -144,34 +227,25 @@ struct WelcomeSurface: View {
             withAnimation(animation) { entered = true }
         }
     }
-}
 
-/// Activate: the orb, the headline that tracks the active row, and the ladder.
-struct ActivateSurface: View {
-    let ladder: ProgressLadderModel
+    /// Offered only when no migration handoff exists: the journal already names
+    /// the home the picker would ask about (M34 §15.2).
+    @ViewBuilder
+    private var existingHome: some View {
+        VStack(spacing: Spacing.xs) {
+            if model.offersExistingHomePicker {
+                LinkButton(title: ProductStrings[.welcomeUseExistingHome]) { model.chooseExistingHome() }
+            }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
-
-            ActivationOrb().padding(.bottom, 26)
-
-            Text(ladder.headline)
-                .fermixType(Typography.style(.title))
-                .foregroundStyle(Palette.ink.color)
-                .padding(.bottom, 6)
-                .accessibilityAddTraits(.updatesFrequently)
-
-            Text(ProductStrings[.activateCaption])
-                .fermixType(Typography.style(.callout).weight(.regular))
-                .foregroundStyle(Palette.faint.color)
-                .padding(.bottom, 30)
-
-            ProgressLadder(model: ladder)
-
-            Spacer(minLength: 0)
+            if let refusal = model.homeRefusal {
+                Text(refusal)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.warning.color)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: OnboardingMetrics.contentWidth)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
         }
-        .padding(.horizontal, 120)
     }
 }
 
@@ -185,17 +259,18 @@ struct BootFailedSurface: View {
             Spacer(minLength: 0)
 
             if let panel = model.failurePanel {
-                ErrorPanel(
-                    model: panel,
-                    primaryAction: { model.openDoctor() },
-                    secondaryAction: { model.openLogs() },
-                    ghostAction: { model.retry() }
-                )
+                ErrorPanel(model: panel) { intent in
+                    switch intent {
+                    case .runDoctor: model.openDoctor()
+                    case .viewLog: model.openLogs()
+                    case .tryAgain: model.retry()
+                    }
+                }
             }
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 120)
+        .padding(.horizontal, OnboardingMetrics.horizontalPadding)
         .padding(.top, 26)
     }
 }
@@ -213,11 +288,14 @@ struct RecoverySurface: View {
                 .fermixType(Typography.style(.title))
                 .foregroundStyle(Palette.ink.color)
 
-            Text(ProductStrings[.recoveryBody])
+            Text(evidence.sentence ?? ProductStrings[.recoveryBody])
                 .fermixType(Typography.style(.bodyCompact))
                 .foregroundStyle(Palette.secondary.color)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 440)
+                .frame(maxWidth: OnboardingMetrics.contentWidth)
+                .textSelection(.enabled)
+
+            files
 
             HStack(spacing: 14) {
                 PrimaryAction(ProductStrings[.recoveryTryAgain], size: .onboarding) { model.retry() }
@@ -228,44 +306,36 @@ struct RecoverySurface: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 120)
+        .padding(.horizontal, OnboardingMetrics.horizontalPadding)
     }
-}
 
-/// The mascot, at whatever size a warm moment calls for.
-struct MascotArtwork: View {
-    let size: Double
+    private var evidence: RecoveryEvidence { model.recoveryEvidence }
 
-    var body: some View {
-        Group {
-            if let image = PetAssetCache.shared.image(PetExpression.idle.layerAssetName(.body)) {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-            } else {
-                FermixBoltShape().fill(Palette.accent.color)
+    /// The file the daemon refused, and the copy it kept from before where
+    /// there is one. Both are paths, so both are selectable and the first one
+    /// can be opened in the Finder (M34 §7.5).
+    @ViewBuilder
+    private var files: some View {
+        if let path = evidence.settingsFile {
+            VStack(spacing: Spacing.xs) {
+                Text(path)
+                    .fermixType(Typography.style(.mono))
+                    .foregroundStyle(Palette.faint.color)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: OnboardingMetrics.contentWidth)
+
+                if let previous = evidence.previousFile {
+                    Text(String(format: ProductStrings[.recoveryPreviousFormat], previous))
+                        .fermixType(Typography.style(.calloutSmall))
+                        .foregroundStyle(Palette.faint.color)
+                        .textSelection(.enabled)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: OnboardingMetrics.contentWidth)
+                }
+
+                Button(ProductStrings[.uninstallReveal]) { model.revealSettingsFile() }
+                    .buttonStyle(SecondaryButtonStyle(.inWindow))
             }
         }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
-
-/// The wordmark.
-///
-/// The redline's inline SVG letterforms with their two accent eye-dots are an
-/// approved asset this build does not have, and drawing an approximation of a
-/// brand mark is the same mistake as fabricating a vendor monogram. The product
-/// name is set in the ramp's own semibold instead, at the published height.
-struct FermixWordmark: View {
-    let height: Double
-
-    var body: some View {
-        Text(ProductStrings[.menuTitle])
-            .font(.system(size: height * 0.86, weight: .semibold))
-            .foregroundStyle(Palette.ink.color)
-            .frame(height: height)
-            .accessibilityLabel(ProductStrings[.menuTitle])
     }
 }

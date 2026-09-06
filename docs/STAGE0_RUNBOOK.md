@@ -96,7 +96,9 @@ from being confused for one another. It is proven by `scripts/sign_app_test.sh`.
 - A Developer ID Application certificate in the login keychain. It must be the
   **same team** that signed the shipped FermixPet, or gate 5 cannot pass: TCC
   keys the microphone grant to the designated requirement, which contains the
-  team identifier.
+  team identifier. The import steps for a Command Line Tools-only Mac (Apple's
+  intermediate first, then the `.p12`) are in E2E_RUNBOOK.md under "Importing
+  your Developer ID on this Mac".
 - Notary credentials: `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`.
 - An existing FermixPet install with a granted microphone permission, for gate 5.
   If the machine has never run FermixPet, install the released cask first, grant

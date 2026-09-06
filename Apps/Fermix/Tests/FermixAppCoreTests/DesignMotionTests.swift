@@ -3,29 +3,15 @@ import Testing
 
 @testable import FermixAppCore
 
-/// The six named animations plus their supporting timings, and the one rule
+/// The named animations plus their supporting timings, and the one rule
 /// that resolves them under Reduce Motion
 /// (`M34_DESIGN_SYSTEM_REDLINES.md` §6).
 @Suite("Design motion")
 struct DesignMotionTests {
-    @Test("the six named animations carry their published redline durations")
+    @Test("the named animations carry their published redline durations")
     func namedAnimations() {
-        #expect(MotionTable.spec(.orbBreath).redlineMilliseconds == 2800)
-        #expect(MotionTable.spec(.orbBreath).curve == .easeInOut)
-        #expect(MotionTable.spec(.orbBreath).duration == 1.4)
-        #expect(MotionTable.spec(.orbBreath).repeatsForever)
-        #expect(MotionTable.spec(.orbBreath).autoreverses)
-
-        #expect(MotionTable.spec(.stageAdvance).redlineMilliseconds == 320)
-        #expect(MotionTable.spec(.stageAdvance).curve == .spring(response: 0.32, dampingFraction: 0.62))
-
         #expect(MotionTable.spec(.windowEnter).redlineMilliseconds == 280)
         #expect(MotionTable.spec(.windowEnter).curve == .spring(response: 0.28, dampingFraction: 0.85))
-
-        #expect(MotionTable.spec(.successBloom).redlineMilliseconds == 900)
-        #expect(MotionTable.spec(.successBloom).curve == .easeOut)
-        #expect(MotionTable.spec(.successBloom).duration == 0.9)
-        #expect(!MotionTable.spec(.successBloom).repeatsForever)
 
         #expect(MotionTable.spec(.glyphPulse).redlineMilliseconds == 1600)
         #expect(MotionTable.spec(.glyphPulse).repeatsForever)
@@ -36,23 +22,19 @@ struct DesignMotionTests {
 
     @Test("the supporting timings carry their published redline durations")
     func supportingTimings() {
-        #expect(MotionTable.spec(.ladderSpinner).redlineMilliseconds == 900)
-        #expect(MotionTable.spec(.ladderSpinner).curve == .linear)
-        #expect(!MotionTable.spec(.ladderSpinner).autoreverses)
-
-        #expect(MotionTable.spec(.sheenSweep).redlineMilliseconds == 2200)
         #expect(MotionTable.spec(.mascotEntrance).redlineMilliseconds == 700)
         #expect(MotionTable.spec(.mascotEntrance).curve == .timingCurve(0.34, 1.4, 0.64, 1))
         #expect(MotionTable.spec(.riseIn).redlineMilliseconds == 480)
         #expect(MotionTable.spec(.riseIn).curve == .timingCurve(0.32, 0.72, 0, 1))
-        #expect(MotionTable.spec(.blobDriftA).redlineMilliseconds == 18000)
-        #expect(MotionTable.spec(.blobDriftB).redlineMilliseconds == 22000)
     }
 
-    @Test("the rise-in and bloom staggers match the redline")
+    /// The success bloom died with the Ready mascot, so its binding is gone
+    /// from the role table entirely: the remaining roles are the whole set.
+    @Test("the rise-in staggers match the redline, and the bloom is gone")
     func staggers() {
         #expect(MotionStagger.riseIn == [0.12, 0.20, 0.30, 0.38])
-        #expect(MotionStagger.successBloom == [0.20, 0.38])
+        #expect(MotionStagger.readyRiseIn == [0.15, 0.22, 0.30, 0.38])
+        #expect(!MotionRole.allCases.map(\.rawValue).contains("successBloom"))
     }
 
     @Test("every role is classified, so a role added later must pick a kind")
@@ -97,30 +79,14 @@ struct DesignMotionTests {
         }
     }
 
-    @Test("reduce motion makes a state change instant rather than springy")
-    func reduceMotionMakesStateChangesInstant() {
-        #expect(Motion(reduceMotion: true).resolved(.stageAdvance) == nil)
-    }
-
-    /// The menu-bar glyph is an `NSStatusItem` image, so its pulse is computed
-    /// from elapsed time rather than driven by a SwiftUI animation.
-    @Test("the glyph pulse sweeps the published opacity range on its period")
-    func glyphPulseOpacity() {
-        #expect(MenuBarGlyphPulse.period == 1.6)
-        #expect(MenuBarGlyphPulse.minimumOpacity == 0.45)
-        #expect(MenuBarGlyphPulse.maximumOpacity == 1)
-
-        #expect(MenuBarGlyphPulse.opacity(atElapsed: 0, reduceMotion: false) == 0.45)
-        #expect(abs(MenuBarGlyphPulse.opacity(atElapsed: 0.8, reduceMotion: false) - 1) < 0.0001)
-        #expect(abs(MenuBarGlyphPulse.opacity(atElapsed: 1.6, reduceMotion: false) - 0.45) < 0.0001)
-        #expect(abs(MenuBarGlyphPulse.opacity(atElapsed: 4.0, reduceMotion: false) - 1) < 0.0001)
-    }
-
-    @Test("reduce motion holds the glyph at full opacity")
-    func glyphPulseHoldsUnderReduceMotion() {
-        for elapsed in [0.0, 0.4, 0.8, 1.2, 1.6] {
-            #expect(MenuBarGlyphPulse.opacity(atElapsed: elapsed, reduceMotion: true) == 1)
-        }
+    /// The menu-bar glyph is an `NSStatusItem` image the system draws, and it
+    /// does not animate: the redline's opacity floor is baked into the starting
+    /// raster instead, which is what makes the state readable under Reduce
+    /// Motion without a second rendering. One constant survives that, because
+    /// it is the ink the shipped raster is asserted against.
+    @Test("the glyph publishes one ink and nothing that moves")
+    func glyphInk() {
+        #expect(MenuBarGlyphInk.startingOpacity == 0.45)
     }
 
     /// No state may be conveyed by motion alone: every role that reports a
@@ -129,9 +95,8 @@ struct DesignMotionTests {
     func loopsHoldAtRest() {
         let motion = Motion(reduceMotion: true)
 
-        #expect(motion.restingProgress(.orbBreath) == 1)
         #expect(motion.restingProgress(.glyphPulse) == 1)
-        #expect(Motion(reduceMotion: false).restingProgress(.orbBreath) == 0)
+        #expect(Motion(reduceMotion: false).restingProgress(.glyphPulse) == 0)
     }
 
     /// The `rise-in` keyframe the artboards publish:
@@ -183,14 +148,17 @@ struct MotionApplicationTests {
         }
     }
 
-    /// The one role SwiftUI cannot drive: an `NSStatusItem` image is redrawn
-    /// from elapsed time, so its constants live in `MenuBarGlyphPulse`.
-    @Test("the timer-driven role is the glyph pulse and nothing else")
-    func timerDrivenRoles() {
-        let timerDriven = MotionRole.allCases.filter { !$0.renderedBySwiftUI }
+    /// The one role no view renders: an `NSStatusItem` image is drawn by the
+    /// system, so the glyph's states are rasters and the ink the starting one
+    /// is baked at lives in `MenuBarGlyphInk`. The row stays in the table
+    /// because the table is the redline's record, and this is what keeps the
+    /// exemption to exactly one and the row itself honest.
+    @Test("the glyph is the one role outside SwiftUI, and nothing else is")
+    func rolesOutsideSwiftUI() {
+        let outside = MotionRole.allCases.filter { !$0.renderedBySwiftUI }
 
-        #expect(timerDriven == [.glyphPulse])
-        #expect(MenuBarGlyphPulse.period == MotionTable.spec(.glyphPulse).redlineMilliseconds / 1000)
+        #expect(outside == [.glyphPulse])
+        #expect(MotionTable.spec(.glyphPulse).redlineMilliseconds == 1600)
     }
 
     /// A role reaching one shared modifier is only half the invariant: the

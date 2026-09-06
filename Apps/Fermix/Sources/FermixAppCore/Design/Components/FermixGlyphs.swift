@@ -34,67 +34,55 @@ public struct FermixBoltShape: Shape {
     }
 }
 
-/// The tick inside a completed ladder row's disc. Stroked, round caps, on the
-/// same 24-point grid.
-public struct FermixCheckShape: Shape {
-    public init() {}
-
-    public func path(in rect: CGRect) -> Path {
-        let unit = min(rect.width, rect.height) / 24
-        let origin = CGPoint(x: rect.midX - 12 * unit, y: rect.midY - 12 * unit)
-
-        func point(_ x: Double, _ y: Double) -> CGPoint {
-            CGPoint(x: origin.x + x * unit, y: origin.y + y * unit)
-        }
-
-        var path = Path()
-        path.move(to: point(5, 13))
-        path.addLine(to: point(10, 18))
-        path.addLine(to: point(19, 7))
-
-        return path
-    }
-}
-
-/// The 90-degree arc of the ladder's active spinner.
-public struct FermixArcShape: Shape {
-    public init() {}
-
-    public func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.addArc(
-            center: CGPoint(x: rect.midX, y: rect.midY),
-            radius: min(rect.width, rect.height) / 2,
-            startAngle: .degrees(-90),
-            endAngle: .degrees(0),
-            clockwise: false
-        )
-
-        return path
-    }
-}
-
-/// The shipped menu-bar template image.
+/// The shipped menu-bar template images, one per state.
 ///
-/// The status item and every preview of it draw the same approved monochrome
-/// master, which macOS tints for the current menu-bar appearance because the
-/// file is named `…Template`. `FermixBoltShape` is not an alternative to this:
-/// the shape is for in-window chrome drawn at an arbitrary size in the accent,
-/// which a tinted 16-point raster cannot be.
+/// Each is the interim Fermix mark — the FermixPet mascot in one ink —
+/// rasterized from a single master by `scripts/build_menu_bar_template.py`, and
+/// each carries alpha only, so macOS tints it for the current menu-bar
+/// appearance and sizes it the way it sizes every other status item.
 ///
-/// A missing master is a packaging defect, not a runtime condition, so it
-/// traps rather than returning nil for a caller to quietly draw around.
+/// The state is IN the image because an `NSStatusItem` draws an image: a view
+/// layered over the status button is what clipped the old badge, and it is what
+/// kept the system from owning the item's sizing, hover and glass.
+/// `FermixBoltShape` is not an alternative to these: the shape is for in-window
+/// chrome drawn at an arbitrary size in the accent, which a tinted 18-point
+/// raster cannot be.
+///
+/// A missing raster is a packaging defect, not a runtime condition, so it traps
+/// rather than returning nil for a caller to quietly draw around.
 public enum MenuBarGlyphImage {
-    public static let resourceName = "FermixBoltTemplate"
+    /// The raster a state draws. The names are the build script's own, so a
+    /// state whose raster was never generated fails at the bundle read rather
+    /// than falling back to a neighbouring state's shape.
+    public static func resourceName(for state: MenuBarGlyphState) -> String {
+        switch state {
+        case .running: return "FermixMarkTemplate"
+        case .starting: return "FermixMarkStartingTemplate"
+        case .attention: return "FermixMarkAttentionTemplate"
+        }
+    }
 
-    public static func template() -> NSImage {
-        guard let image = Bundle.module.image(forResource: resourceName) else {
-            preconditionFailure("Missing \(resourceName) in the application resource bundle")
+    /// The template for one state, loaded once.
+    ///
+    /// The status item is redrawn on every model change, and an `NSImage`
+    /// rebuilt from the bundle each time is a file read on the main thread for
+    /// no gain.
+    @MainActor
+    public static func template(for state: MenuBarGlyphState) -> NSImage {
+        if let loaded = cache[state] { return loaded }
+
+        let name = resourceName(for: state)
+        guard let image = AppResources.bundle.image(forResource: name) else {
+            preconditionFailure("Missing \(name) in the application resource bundle")
         }
 
         image.isTemplate = true
-        image.size = NSSize(width: MenuBarGlyphMetrics.glyphSize, height: MenuBarGlyphMetrics.glyphSize)
+        image.size = NSSize(width: MenuBarGlyphMetrics.imageSize, height: MenuBarGlyphMetrics.imageSize)
+        cache[state] = image
 
         return image
     }
+
+    @MainActor
+    private static var cache: [MenuBarGlyphState: NSImage] = [:]
 }

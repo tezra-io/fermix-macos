@@ -48,10 +48,23 @@ public struct ManagementOverview: Decodable, Equatable, Sendable {
         public let status: String?
         public let restartRequired: Bool
         public let providers: [ProviderHealth]
+        /// Which configuration sections a restart would apply, added by
+        /// protocol v2 on a method whose own minimum is 1.
+        ///
+        /// Absent on a daemon one release behind, which is exactly the state
+        /// `pendingEngineRestart` polls through, so it is optional and its
+        /// absent rendering is an empty list: the plain restart sentence with
+        /// no reason list (M34 §7.1).
+        public let restartReasons: [String]?
+
+        /// The sections a restart would apply, or none where the daemon
+        /// publishes none.
+        public var restartReasonSections: [String] { restartReasons ?? [] }
 
         private enum CodingKeys: String, CodingKey {
             case status, providers
             case restartRequired = "restart_required"
+            case restartReasons = "restart_reasons"
         }
     }
 

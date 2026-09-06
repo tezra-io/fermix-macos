@@ -16,16 +16,24 @@
 # product is restated here.
 #
 # Usage: stage_app.sh <version> <build_number> <out_app_path> <architectures>
-#          [--engine <release-tree>]... [--cosign <binary>]
+#          [--configuration <debug|release>] [--engine <release-tree>]...
+#          [--cosign <binary>]
 #   <architectures>  universal  arm64 + x86_64, what a release and CI build
 #                    native     this machine's slice only, for the dev loop
+#   --configuration  release (the default) or debug. The DEVELOPMENT audience
+#              only: the app's fixture and development-engine configurations
+#              compile into debug builds alone, so `scripts/dev_e2e.sh` needs a
+#              debug bundle to open with `--development-engine`.
+#              package_release.sh never passes it, and
+#              `verify_staged_app.sh <app> <arch> <sig> release` asserts a
+#              shipped binary carries neither configuration.
 #   --engine   a daemon app-engine release tree (carries engine-manifest.json);
 #              repeat once per architecture. Without it the slot stages empty,
 #              which remains the pre-Stage-0 declared state.
 #   --cosign   the bundled plugin-verification tool for the Tools slot.
 set -euo pipefail
 
-USAGE="usage: stage_app.sh <version> <build_number> <out_app_path> <architectures> [--engine <tree>]... [--cosign <binary>]"
+USAGE="usage: stage_app.sh <version> <build_number> <out_app_path> <architectures> [--configuration <debug|release>] [--engine <tree>]... [--cosign <binary>]"
 VERSION="${1:?$USAGE}"
 BUILD_NUMBER="${2:?$USAGE}"
 OUT_APP="${3:?$USAGE}"
@@ -41,8 +49,20 @@ esac
 
 ENGINE_TREES=()
 COSIGN_BIN=""
+CONFIGURATION="release"
 while [ $# -gt 0 ]; do
   case "$1" in
+    --configuration)
+      CONFIGURATION="${2:?--configuration needs debug or release}"
+      case "$CONFIGURATION" in
+        debug | release) ;;
+        *)
+          echo "stage_app: unknown configuration '$CONFIGURATION' (expected debug or release)" >&2
+          exit 2
+          ;;
+      esac
+      shift 2
+      ;;
     --engine) ENGINE_TREES+=("${2:?--engine needs a release tree path}"); shift 2 ;;
     --cosign) COSIGN_BIN="${2:?--cosign needs a binary path}"; shift 2 ;;
     *) echo "stage_app: unknown argument '$1'" >&2; echo "$USAGE" >&2; exit 2 ;;
@@ -62,7 +82,7 @@ ENGINE_RELATIVE_PATH="$(product_config engine_relative_path)"
 TOOLS_RELATIVE_PATH="$(product_config tools_relative_path)"
 
 APP_DIR="$ROOT_DIR/Apps/Fermix"
-BUILD_PATH="$APP_DIR/.build-release"
+BUILD_PATH="$APP_DIR/.build-$CONFIGURATION"
 
 fail() {
   echo "stage_app: $*" >&2
@@ -80,9 +100,9 @@ esac
 
 build() {
   cd "$APP_DIR"
-  swift build -c release "${BUILD_FLAGS[@]}" --build-path "$BUILD_PATH"
+  swift build -c "$CONFIGURATION" "${BUILD_FLAGS[@]}" --build-path "$BUILD_PATH"
 
-  BIN_DIR="$(swift build -c release "${BUILD_FLAGS[@]}" --build-path "$BUILD_PATH" --show-bin-path)"
+  BIN_DIR="$(swift build -c "$CONFIGURATION" "${BUILD_FLAGS[@]}" --build-path "$BUILD_PATH" --show-bin-path)"
   GUI_BIN="$BIN_DIR/$GUI_EXECUTABLE"
   AGENT_BIN="$BIN_DIR/$AGENT_EXECUTABLE"
   RESOURCE_BUNDLE="$BIN_DIR/$RESOURCE_BUNDLE_NAME"
@@ -161,4 +181,4 @@ build
 stage
 stage_engine_and_tools
 "$ROOT_DIR/scripts/verify_staged_app.sh" "$OUT_APP" "$ARCHITECTURES" unsigned
-echo "stage_app: staged $OUT_APP"
+echo "stage_app: staged $OUT_APP ($CONFIGURATION)"

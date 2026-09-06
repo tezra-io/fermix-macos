@@ -6,20 +6,14 @@ import Foundation
 /// the whole library instead of component by component: a component added
 /// later either joins this enum or has no identifier to render with.
 public enum DesignComponent: String, CaseIterable, Sendable {
-    case glassChrome
-    case card
-    case sidebarRow
-    case statusRow
     case statusPill
-    case letterPill
-    case chip
     case primaryButton
     case secondaryButton
     case linkButton
-    case menuRow
     case progressLadder
     case progressDots
     case emptyState
+    case surfaceEmptyState
     case errorPanel
     case menuBarGlyph
 
@@ -37,10 +31,11 @@ public enum DesignComponent: String, CaseIterable, Sendable {
     /// focus order and carry a label rather than an action.
     public var isInteractive: Bool {
         switch self {
-        case .sidebarRow, .primaryButton, .secondaryButton, .linkButton, .menuRow:
+        case .primaryButton, .secondaryButton, .linkButton:
             return true
-        case .glassChrome, .card, .statusRow, .statusPill, .letterPill, .chip,
-             .progressLadder, .progressDots, .emptyState, .errorPanel, .menuBarGlyph:
+        case .statusPill,
+             .progressLadder, .progressDots, .emptyState, .surfaceEmptyState,
+             .errorPanel, .menuBarGlyph:
             return false
         }
     }

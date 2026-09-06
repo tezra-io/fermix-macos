@@ -1,0 +1,26 @@
+[
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Client-only \"Unsaved changes\" badge via UnsavedHint JS hook (app.js:32-48; components.ex:124-131)",
+    "reason": "Web-only mechanic. The LiveView batches a form and badges it dirty through a JS hook; every native control applies as it is changed and the daemon confirms it, so there is no unsaved state for a badge to report."
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "next_step / previous_step",
+    "reason": "Web-only mechanic. The browser door is a twelve-tab wizard with next and previous; the native panes are a list in a fixed order, and there is nothing to step through."
+  },
+  {
+    "tab": "doctor",
+    "kind": "action",
+    "name": "previous_step",
+    "reason": "Web-only mechanic. The same wizard navigation as the plugins tab's next and previous, on the last tab, where it can only go back."
+  },
+  {
+    "tab": "doctor",
+    "kind": "sub_surface",
+    "name": "Restart overlay \"Restarting Fermix\u2026 This page reconnects automatically.\" (components.ex:74-87)",
+    "reason": "Web-only mechanic. The overlay exists because the page's own socket drops when the daemon restarts and has to reconnect itself; the native restart is a sheet whose ladder reports the transaction the app is running."
+  }
+]

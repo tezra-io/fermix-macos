@@ -1,9 +1,18 @@
 # Swift / SwiftPM
 .build/
 .build-ci/
-.build-release/
+# No trailing slash: a directory pattern matches only directories, and this one
+# is a symbolic link into the build cache on a machine that has one. With the
+# slash `git add -A` staged the link itself.
+.build-release
+# The development audience's build path (stage_app.sh --configuration debug).
+.build-debug
 .swiftpm/
 *.xcodeproj
+
+# Python bytecode. The brand generators import a shared module, so every
+# check_brand_images.sh run leaves one of these beside the scripts.
+__pycache__/
 
 # Release output
 dist/
@@ -20,3 +29,8 @@ dist-e2e/
 
 # BEAM crash dumps from local engine smokes
 erl_crash.dump
+
+# Machine-local analysis, handoff and task output. The runbooks and the copy
+# deck under docs/ are tracked; a new document there needs an explicit add.
+docs/
+output/

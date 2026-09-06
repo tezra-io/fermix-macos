@@ -42,7 +42,7 @@ public struct ProductConfiguration: Decodable, Equatable, Sendable {
 
     /// Read the copy embedded in this module's resource bundle.
     public static func bundled() throws -> ProductConfiguration {
-        guard let url = Bundle.module.url(forResource: "Product", withExtension: "json") else {
+        guard let url = AppResources.bundle.url(forResource: "Product", withExtension: "json") else {
             throw ProductConfigurationError.resourceMissing
         }
         return try decode(from: Data(contentsOf: url))

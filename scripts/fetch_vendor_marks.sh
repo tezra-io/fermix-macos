@@ -11,6 +11,11 @@
 # published a new mark, which is a design review, not a silent overwrite. Pass
 # --write once the new file has been looked at.
 #
+# Marks whose bytes come from fermix itself are printed as pinned and are never
+# downloaded: a plugin logo lives in fermix's checked-in catalog and a driver
+# mark in its setup surface, so both are re-vendored there rather than fetched
+# from a third party. Their records carry origin catalog or first_party.
+#
 # Vendors whose official asset could not be retrieved are printed at the end
 # with their official page. Those render as the vendor text name beside a
 # neutral SF Symbol until an owner retrieves the file interactively; nothing

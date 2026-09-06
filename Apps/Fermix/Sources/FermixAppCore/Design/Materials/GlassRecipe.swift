@@ -3,6 +3,10 @@ import SwiftUI
 /// A drop shadow, carrying both the artboard's CSS blur and the SwiftUI radius
 /// it converts to. CSS blur is twice SwiftUI's radius; keeping both means a
 /// reviewer can check the value against either document.
+///
+/// The two window recipes that used to live beside this went with the
+/// assistant's glass card (owner decision 1): no window draws a container of
+/// its own, so the primary button's own shadow is the only one left.
 public struct GlassShadow: Equatable, Sendable {
     public let cssBlur: Double
     public let yOffset: Double
@@ -17,72 +21,6 @@ public struct GlassShadow: Equatable, Sendable {
     }
 
     public var radius: Double { cssBlur / 2 }
-}
-
-/// The two glass recipes (`M34_DESIGN_SYSTEM_REDLINES.md` §4).
-///
-/// Glass is the window, never the content: cards inside a window are flat, and
-/// the embedded Setup web surface is opaque on purpose.
-public enum GlassRecipe: String, CaseIterable, Sendable {
-    /// The onboarding window, Home, Doctor, and hosted Setup.
-    case window
-    /// The menu-bar panel.
-    case popover
-
-    public var cornerRadius: Double {
-        switch self {
-        case .window: return Radius.window
-        case .popover: return Radius.popover
-        }
-    }
-
-    /// The fill the artboards publish. On macOS 26 it rides as a tint over the
-    /// system material; on macOS 15 it is the tint overlay above
-    /// `.ultraThinMaterial`.
-    public var tint: ThemedColor {
-        switch self {
-        case .window:
-            return ThemedColor(light: .rgba(255, 255, 255, 0.66), dark: .rgba(26, 26, 29, 0.58))
-        case .popover:
-            return ThemedColor(light: .rgba(255, 255, 255, 0.72), dark: .rgba(26, 26, 29, 0.62))
-        }
-    }
-
-    public var border: ThemedColor {
-        Palette.hairline(.standard)
-    }
-
-    /// The one-point top edge highlight that makes glass read as a lit surface.
-    public var innerHighlight: ThemedColor {
-        switch self {
-        case .window:
-            return ThemedColor(light: .rgba(255, 255, 255, 0.75), dark: .rgba(255, 255, 255, 0.12))
-        case .popover:
-            return ThemedColor(light: .rgba(255, 255, 255, 0.80), dark: .rgba(255, 255, 255, 0.12))
-        }
-    }
-
-    public var shadow: GlassShadow {
-        switch self {
-        case .window:
-            return GlassShadow(
-                cssBlur: 80,
-                yOffset: 32,
-                color: ThemedColor(light: .rgba(20, 24, 40, 0.16), dark: .rgba(0, 0, 0, 0.55))
-            )
-        case .popover:
-            return GlassShadow(
-                cssBlur: 60,
-                yOffset: 22,
-                color: ThemedColor(light: .rgba(20, 24, 40, 0.20), dark: .rgba(0, 0, 0, 0.60))
-            )
-        }
-    }
-
-    /// Recorded from the artboards. The OS material owns the actual blur on
-    /// both supported paths; these are the numbers the design was drawn at.
-    public var cssBlurRadius: Double { 30 }
-    public var saturation: Double { 1.5 }
 }
 
 /// How much room a control has: an onboarding call to action or an in-window
@@ -106,6 +44,9 @@ public struct ButtonGeometry: Equatable, Sendable {
 /// shadow; depth 0 is the rule for everything else.
 public enum ButtonRecipe {
     public static let primaryFill = Palette.accent
+    /// The pointer-over fill. Pressed wins over hover, because the pointer is
+    /// necessarily over the button while it is down.
+    public static let primaryHoverFill = Palette.accentHover
     public static let primaryPressedFill = Palette.accentPressed
     public static let primaryLabel = ThemedColor(uniform: SRGBColor(hex: "#ffffff"))
     public static let primaryInnerHighlight = SRGBColor.rgba(255, 255, 255, 0.25)
@@ -124,6 +65,12 @@ public enum ButtonRecipe {
     public static let secondaryFill = Palette.buttonFill
     public static let secondaryBorder = Palette.buttonBorder
     public static let secondaryLabel = Palette.ink
+
+    /// What an unavailable button is drawn at. A `ButtonStyle` is handed no
+    /// disabled treatment, so without this both styles below draw a control
+    /// that cannot be pressed exactly like one that can: Pet's `Mute
+    /// microphone` looked live with no call running.
+    public static let disabledOpacity: Double = 0.4
 
     public static func primary(_ size: ControlSize) -> ButtonGeometry {
         switch size {

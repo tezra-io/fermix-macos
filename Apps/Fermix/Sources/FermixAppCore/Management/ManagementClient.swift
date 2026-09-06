@@ -2,14 +2,20 @@ import Foundation
 
 /// The typed client for the daemon's management socket.
 ///
-/// It speaks protocol v1 only and never retries through the historical
-/// unversioned protocol: every frame carries both a request id and a declared
-/// version, which is exactly what makes it unclassifiable as v0.
+/// It never retries through the historical unversioned protocol: every frame
+/// carries both a request id and a declared version, which is exactly what
+/// makes it unclassifiable as v0.
 ///
-/// `hello` is how the daemon's window is learned, so it is the one call allowed
-/// before negotiation. Every later call is refused while the recorded window
-/// excludes the version this app speaks, rather than being sent to a daemon
-/// that has already said it cannot serve it.
+/// **The version is a window on both sides** (M34 §7.1). The app speaks the set
+/// its contract publishes; `hello` reports the daemon's; the negotiated version
+/// is the highest the two share and is stamped on every later request. Two
+/// distinct refusals follow, and they mean opposite things: an empty
+/// intersection is `incompatibleProtocol` and there is nothing to be done, while
+/// a method whose minimum exceeds the negotiated version is
+/// `methodRequiresNewerEngine` and the restart onto the bundled engine is
+/// exactly what fixes it. That second case is why the client does not refuse
+/// wholesale: against a daemon one release behind, `lifecycle.prepare` — the
+/// call that performs the restart — must still go through.
 public actor ManagementClient {
     private let transport: ManagementTransport
     private let contract: ManagementContract
@@ -54,11 +60,23 @@ public actor ManagementClient {
     /// The window `hello` reported, once it has been negotiated.
     public var negotiatedRange: ManagementProtocolRange? { window }
 
-    /// The version this app declares on every request.
-    public var declaredVersion: Int { contract.protocolVersion }
+    /// Every version this app can speak, ascending.
+    public var speakableVersions: [Int] { contract.speakableVersions }
+
+    /// The version stamped on requests: the highest both sides speak, once
+    /// `hello` has answered, and the floor of the speakable set before that.
+    public var declaredVersion: Int { negotiatedVersion ?? speakableFloor }
 
     // MARK: - Methods
 
+    /// Learns the daemon's window and fixes the version every later request is
+    /// stamped with.
+    ///
+    /// `hello` itself is stamped with the floor of the speakable set, because it
+    /// is the one call made before the window is known and the floor is the
+    /// version every daemon inside the supported window serves: a daemon
+    /// publishing protocol `v` publishes the window `{max(1, v - 1), v}`, so a
+    /// v1 and a v2 daemon both contain 1.
     public func hello() async throws -> ManagementHello {
         let hello: ManagementHello = try await send(
             .hello,
@@ -69,16 +87,29 @@ public actor ManagementClient {
         return hello
     }
 
-    public func overview() async throws -> ManagementOverview {
-        try await send(.overviewGet, params: ManagementEmptyParams(), as: ManagementOverview.self)
+    /// The highest version both sides speak, derived from the window `hello`
+    /// reported rather than stored beside it, so the window is the one fact.
+    private var negotiatedVersion: Int? {
+        guard let window else { return nil }
+        return ManagementNegotiation.highestShared(
+            speakable: contract.speakableVersions,
+            daemon: window
+        )
     }
 
-    public func createSetupSession() async throws -> ManagementSetupSession {
-        try await send(
-            .setupSessionCreate,
-            params: ManagementEmptyParams(),
-            as: ManagementSetupSession.self
-        )
+    private var speakableFloor: Int { contract.publishedRange.minimum }
+
+    /// The version a request declares. `hello` always declares the floor, even
+    /// after a window is known: it is the call that *learns* the window, and a
+    /// client that stamped a negotiated version on it could not re-learn a
+    /// window that changed underneath it — which is exactly what a daemon
+    /// restarted onto a different engine does.
+    private func protocolVersion(for method: ManagementMethod) -> Int {
+        method == .hello ? speakableFloor : declaredVersion
+    }
+
+    public func overview() async throws -> ManagementOverview {
+        try await send(.overviewGet, params: ManagementEmptyParams(), as: ManagementOverview.self)
     }
 
     /// Starts a Doctor run. An omitted scope takes the daemon's published
@@ -156,7 +187,7 @@ public actor ManagementClient {
 
     // MARK: - One exchange
 
-    private func send<Result: Decodable>(
+    func send<Result: Decodable>(
         _ method: ManagementMethod,
         params: some Encodable,
         as type: Result.Type
@@ -203,7 +234,7 @@ public actor ManagementClient {
         let payload = try encoder.encode(
             ManagementRequestEnvelope(
                 requestId: identifier,
-                protocolVersion: contract.protocolVersion,
+                protocolVersion: protocolVersion(for: method),
                 method: method.rawValue,
                 params: params
             )
@@ -217,19 +248,21 @@ public actor ManagementClient {
         return payload
     }
 
+    /// The M34 §7.1 ladder, applied to a live session. The two refusals live in
+    /// `ManagementNegotiation` so the fixture gateway applies the same rule; what
+    /// belongs to the client alone is that a window has to have been learned.
     private func checkNegotiation(for method: ManagementMethod) throws {
         guard method != .hello else { return }
         guard let window else { throw ManagementError.notNegotiated(method: method) }
-        guard window.window.contains(contract.protocolVersion) else {
-            throw ManagementError.unsupportedProtocolVersion(
-                declared: contract.protocolVersion,
-                minimum: window.minimum,
-                maximum: window.maximum
-            )
-        }
+
+        _ = try ManagementNegotiation.negotiate(
+            method: method,
+            contract: contract,
+            daemon: window
+        )
     }
 
-    private func requireText(_ value: String, field: String) throws -> String {
+    func requireText(_ value: String, field: String) throws -> String {
         guard !value.isEmpty else {
             throw ManagementError.invalidParameter(.empty(field: field))
         }

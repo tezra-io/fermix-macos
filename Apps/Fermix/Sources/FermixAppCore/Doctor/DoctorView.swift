@@ -1,124 +1,97 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Doctor: the summary banner, the check list, and the right rail.
+/// Doctor: the summary banner and one grouped list of checks (M34 §3.2).
 ///
-/// Every answer comes from the running daemon, and the banner says so. The
-/// network scope is behind an explicit button that states what it costs.
+/// The right rail is gone: the network run and the two support actions live in
+/// the toolbar, and each failed row carries the daemon's remediation title with
+/// its one action. Every answer comes from the running daemon, and the banner
+/// says so.
 struct DoctorView: View {
     @ObservedObject var model: DoctorModel
-
-    @State private var bundle: Data?
+    let router: any CommandPerforming
 
     var body: some View {
-        VStack(spacing: 0) {
-            SurfaceTitlebar(title: ProductStrings[.doctorTitle])
-
-            HStack(alignment: .top, spacing: Spacing.s) {
-                VStack(spacing: 14) {
-                    banner
-                    checkList
-                }
-
-                rail
-            }
-            .padding(.horizontal, 26)
-            .padding(.bottom, 22)
-            .padding(.top, 6)
+        Form {
+            banner
+            checkList
+        }
+        .formStyle(.grouped)
+        .navigationTitle(ProductStrings[.doctorTitle])
+        .toolbar {
+            SurfaceToolbar(
+                spec: CommandTable.toolbar(for: .doctor),
+                router: router,
+                statusText: model.isRunning ? ProductStrings[.doctorRunning] : nil
+            )
         }
         .task { await model.runLocal() }
         .fileExporter(
-            isPresented: Binding(get: { bundle != nil }, set: { if !$0 { bundle = nil } }),
-            document: DiagnosticsDocument(data: bundle ?? Data()),
+            isPresented: Binding(
+                get: { model.pendingBundle != nil },
+                set: { if !$0 { model.clearPendingBundle() } }
+            ),
+            document: DiagnosticsDocument(data: model.pendingBundle ?? Data()),
             contentType: .json,
             defaultFilename: ProductStrings[.doctorSupportExportFilename]
-        ) { _ in bundle = nil }
+        ) { _ in model.clearPendingBundle() }
     }
 
     @ViewBuilder
     private var banner: some View {
+        if model.uninstallNoticeShown {
+            Section {
+                LabeledContent(ProductStrings[.uninstallTitle]) {
+                    Button(ProductStrings[.uninstallReveal]) { model.revealSettingsFile() }
+                }
+
+                Text(ProductStrings[.uninstallBody])
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+
         if let banner = model.banner {
-            DoctorBannerView(banner: banner, running: model.isRunning, cancel: { Task { await model.cancel() } })
+            Section {
+                DoctorBannerView(banner: banner, running: model.isRunning, cancel: { Task { await model.cancel() } })
+            }
         } else if case .failed(let message) = model.phase {
-            SurfaceFailure(
-                message: message,
-                actionTitle: ProductStrings[.doctorRetry],
-                action: { Task { await model.runLocal() } }
-            )
-            .frame(height: 120)
+            Section {
+                SurfaceFailure(
+                    message: message,
+                    actionTitle: ProductStrings[.doctorRetry],
+                    action: { Task { await model.runLocal() } }
+                )
+                .frame(height: 100)
+            }
+        }
+
+        if let message = model.supportMessage {
+            Section {
+                Text(message)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.warning.color)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
         }
     }
 
     @ViewBuilder
     private var checkList: some View {
-        if model.rows.isEmpty {
-            Card {
-                if model.isRunning {
-                    LoadingSurface(message: ProductStrings[.doctorRunning]).frame(height: 200)
-                } else {
-                    EmptyState(model: EmptyStateModel(message: ProductStrings[.doctorNoChecks]))
-                }
-            }
-        } else {
-            Card {
-                VStack(spacing: 0) {
-                    ForEach(Array(model.rows.enumerated()), id: \.element.id) { index, row in
-                        if index > 0 {
-                            Divider().overlay(Palette.hairline(.faint).color)
-                        }
-
-                        DoctorCheckRow(row: row)
-                    }
+        Section(ProductStrings[.sectionHeaderChecks]) {
+            if model.rows.isEmpty {
+                EmptyState(
+                    model: EmptyStateModel(
+                        message: ProductStrings[model.isRunning ? .doctorRunning : .doctorNoChecks]
+                    )
+                )
+            } else {
+                ForEach(model.rows) { row in
+                    DoctorCheckRow(row: row) { model.perform($0) }
                 }
             }
         }
-    }
-
-    private var rail: some View {
-        VStack(spacing: Spacing.s) {
-            SectionCard(label: ProductStrings[.doctorNetworkLabel]) {
-                VStack(alignment: .leading, spacing: Spacing.s) {
-                    Text(ProductStrings[.doctorNetworkBody])
-                        .fermixType(Typography.style(.calloutSmall))
-                        .foregroundStyle(Palette.secondary.color)
-
-                    Button(model.networkActionTitle) {
-                        Task { await model.runNetwork() }
-                    }
-                    .buttonStyle(SecondaryButtonStyle(.inWindow))
-                    .disabled(model.isRunning)
-                }
-                .padding(Spacing.m)
-            }
-
-            SectionCard(label: ProductStrings[.doctorSupportLabel]) {
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text(ProductStrings[.doctorSupportExportHint])
-                        .fermixType(Typography.style(.calloutSmall))
-                        .foregroundStyle(Palette.secondary.color)
-
-                    LinkButton(title: ProductStrings[.doctorSupportExport]) {
-                        Task { bundle = await model.exportSupportBundle() }
-                    }
-                    .disabled(model.exporting)
-
-                    LinkButton(title: ProductStrings[.doctorSupportOpenLogFolder]) {
-                        model.openLogFolder()
-                    }
-
-                    if let message = model.supportMessage {
-                        Text(message)
-                            .fermixType(Typography.style(.calloutSmall))
-                            .foregroundStyle(Palette.warning.color)
-                            .accessibilityAddTraits(.updatesFrequently)
-                    }
-                }
-                .padding(Spacing.m)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .frame(width: 250)
     }
 }
 
@@ -141,47 +114,41 @@ struct DiagnosticsDocument: FileDocument {
     }
 }
 
-/// The state-tinted summary banner, and Cancel while a run is live.
+/// The summary banner: what the run found, where the answers came from, and
+/// Cancel while a run is live.
 struct DoctorBannerView: View {
     let banner: DoctorBanner
     let running: Bool
     let cancel: () -> Void
 
     var body: some View {
-        HStack(spacing: Spacing.s) {
-            Image(systemName: symbol)
-                .font(.system(size: 20))
-                .foregroundStyle(banner.tone.textColor.color)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(banner.title)
-                    .fermixType(Typography.style(.bodyCompact).weight(.semibold))
-                    .foregroundStyle(Palette.ink.color)
-
-                Text(banner.explainer)
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.secondary.color)
-            }
-
-            Spacer(minLength: Spacing.s)
-
+        LabeledContent {
             if running {
                 Button(ProductStrings[.doctorCancel], action: cancel)
-                    .buttonStyle(SecondaryButtonStyle(.inWindow))
             } else {
                 Text(banner.checkedLabel)
-                    .fermixType(Typography.style(.monoLog))
+                    .fermixType(Typography.style(.caption))
                     .foregroundStyle(Palette.faint.color)
             }
+        } label: {
+            HStack(spacing: Spacing.s) {
+                Image(systemName: symbol)
+                    .font(.system(size: 20))
+                    .foregroundStyle(banner.tone.textColor.color)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(banner.title)
+                        .fermixType(Typography.style(.bodyCompact).weight(.semibold))
+                        .foregroundStyle(Palette.ink.color)
+
+                    Text(banner.explainer)
+                        .fermixType(Typography.style(.calloutSmall))
+                        .foregroundStyle(Palette.secondary.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(fill.color))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .strokeBorder(border.color, lineWidth: Stroke.hairline)
-        )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(banner.title)
     }
@@ -194,69 +161,96 @@ struct DoctorBannerView: View {
         case .neutral: return "info.circle"
         }
     }
-
-    private var fill: ThemedColor {
-        switch banner.tone {
-        case .pass: return Palette.successPillFill
-        case .warn: return Palette.warnPillFill
-        case .fail: return Palette.errorDiscFill
-        case .neutral: return Palette.chipFill
-        }
-    }
-
-    private var border: ThemedColor {
-        switch banner.tone {
-        case .pass: return Palette.successPillBorder
-        case .warn: return Palette.warnPillBorder
-        case .fail: return Palette.errorDiscBorder
-        case .neutral: return Palette.hairline(.standard)
-        }
-    }
 }
 
-/// One 46-point check row: the status disc, the label, the fix hint, and the
-/// letter pill. The pill is text only, so the status never depends on colour.
+/// One check row: the status disc, the check's name over the daemon's summary,
+/// the remediation where there is something to fix, and the one action.
+///
+/// The disc is the row's one visual status indicator; the state itself is
+/// words, carried by the accessibility value, so it never depends on colour.
 struct DoctorCheckRow: View {
     let row: DoctorRowModel
+    let perform: (DoctorRowAction) -> Void
 
     var body: some View {
-        HStack(spacing: Spacing.s) {
-            statusDisc
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(row.title)
-                    .fermixType(Typography.style(.callout).weight(.medium))
-                    .foregroundStyle(Palette.ink.color)
-                    .lineLimit(1)
-
-                if let fixHint = row.fixHint {
-                    Text(fixHint)
-                        .fermixType(Typography.style(.monoLog))
-                        .foregroundStyle(Palette.secondary.color)
-                        .lineLimit(1)
-                }
+        LabeledContent {
+            // The title comes from the action itself, so the button cannot be
+            // drawn without one.
+            if let action = row.action {
+                Button(action.title) { perform(action) }
             }
+        } label: {
+            HStack(alignment: .top, spacing: Spacing.s) {
+                statusDisc
 
-            Spacer(minLength: Spacing.s)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.title)
+                        .fermixType(Typography.style(.callout).weight(.medium))
+                        .foregroundStyle(Palette.ink.color)
+                        .lineLimit(1)
 
-            LetterPill(badge: row.badge)
+                    // The summary wraps rather than losing its tail: it is the
+                    // finding, and an ellipsis hides the part that names what
+                    // to do.
+                    if !row.detail.isEmpty {
+                        Text(row.detail)
+                            .fermixType(Typography.style(.calloutSmall))
+                            .foregroundStyle(Palette.secondary.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    // Remediation is what to do about it, and a healthy row has
+                    // nothing to remediate. It reads under the finding rather
+                    // than over it: drawn the brighter of the two, the hint
+                    // looked like the check's own result and the result read as
+                    // an aside. A remediation code is never drawn: `Remedy:
+                    // daemon_socket.warning` is a wire token under a
+                    // user-facing label (M34 §5.8).
+                    if row.badge.tone != .pass, let title = row.remediationTitle {
+                        Text(title)
+                            .fermixType(Typography.style(.calloutSmall))
+                            .foregroundStyle(Palette.faint.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if row.badge.tone != .pass, let body = row.remediationBody, !body.isEmpty {
+                        Text(body)
+                            .fermixType(Typography.style(.calloutSmall))
+                            .foregroundStyle(Palette.faint.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Spacer(minLength: Spacing.s)
+
+                statusPill
+            }
         }
-        .padding(.horizontal, 18)
-        .frame(height: 46)
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(row.accessibilityLabel)
         .accessibilityValue(row.accessibilityValue)
     }
 
+    /// The status disc: one glyph per tone, so a failed row is never drawn like
+    /// a warning under a banner that says a check failed (redlines §5.9).
     private var statusDisc: some View {
         Circle()
-            .fill(row.badge.tone == .pass ? Palette.successPillFill.color : Palette.warnIconFill.color)
+            .fill(row.badge.tone.pillFill.color)
             .frame(width: 20, height: 20)
             .overlay(
-                Image(systemName: row.badge.tone == .pass ? "checkmark" : "exclamationmark")
+                Image(systemName: row.badge.tone.symbol)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(row.badge.tone.textColor.color)
             )
+            .accessibilityHidden(true)
+    }
+
+    /// The trailing letter pill of redlines §5.9: text only, no flood fill, so
+    /// the state is words on every row and never colour alone.
+    private var statusPill: some View {
+        Text(row.badge.letters)
+            .fermixType(Typography.style(.caption).weight(.semibold).uppercased())
+            .foregroundStyle(row.badge.tone.textColor.color)
             .accessibilityHidden(true)
     }
 }

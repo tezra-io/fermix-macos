@@ -138,32 +138,91 @@ struct ReadySurfaceTests {
         }
     }
 
-    // MARK: - Telegram pairing
+    // MARK: - The brand mark
 
-    /// M34 §7 and planned deviation 5: never a mock QR. A code is rendered only
-    /// from a real daemon-supplied payload; without one the user is routed to
-    /// the truthful Setup instructions.
-    @Test("with no pairing payload the tile routes to Setup instead of drawing a code")
-    func pairingWithoutAPayload() {
-        let tile = ChannelPairingTile(payload: nil)
+    /// Ready's hero is the mascot, which is what redline §5.5 always asked for.
+    /// The wordmark that stood in its place said `Fermix` directly above a line
+    /// that already says `Fermix is live`, and the blooming rings stay gone:
+    /// the success is carried by the pill's words.
+    ///
+    /// There is still exactly one mascot component, and it still lives with the
+    /// Pet surface, because the Pet surface is where the mascot is content
+    /// rather than an illustration.
+    @Test("ready draws the mascot through the one component that owns it")
+    func mascotIsReadysHero() throws {
+        let ready = try SourceTree.swiftFiles(matching: "Onboarding/ReadySurface.swift")
 
-        #expect(tile.rendersCode == false)
-        #expect(tile.title == ProductStrings[.connectChannelPairing])
-        #expect(tile.instruction == ProductStrings[.connectChannelPairingHint])
+        #expect(ready.count == 1)
+        #expect(ready.first?.text.contains("MascotArtwork(") == true)
+        #expect(ready.first?.text.contains("FermixWordmark(") == false)
+        #expect(ready.first?.text.contains("BloomingMascot") == false)
+
+        let mascotOwners = try SourceTree
+            .swiftFiles(under: "", excluding: false)
+            .filter { $0.text.contains("struct MascotArtwork") }
+
+        #expect(mascotOwners.map(\.path).allSatisfy { $0.contains("/Pet/") }, "\(mascotOwners.map(\.path))")
+        #expect(mascotOwners.count == 1)
+
+        // Every still mascot in the product is that one component: Ready and
+        // the Pet tab. A surface that hand-composed the layers again
+        // is how the Pet tab ended up drawing a different frame from the app's
+        // own icon, so the drawing is asserted to happen in exactly one file.
+        let composers = try SourceTree
+            .swiftFiles(under: "", excluding: false)
+            .filter { $0.text.contains("layerAssetName(") }
+            .map(\.path)
+
+        #expect(composers.allSatisfy { $0.contains("/Pet/") }, "\(composers)")
+
+        let users = try SourceTree
+            .swiftFiles(under: "", excluding: false)
+            .filter { $0.text.contains("MascotArtwork(") }
+            .map { URL(fileURLWithPath: $0.path).lastPathComponent }
+            .sorted()
+
+        #expect(users == ["PetSurfaceView.swift", "ReadySurface.swift"], "\(users)")
     }
 
-    @Test("a real daemon payload is what makes a code render")
-    func pairingWithAPayload() {
-        let tile = ChannelPairingTile(payload: "https://t.me/fermixbot?start=abc123")
+    /// Ready asks the daemon whether the install is live.
+    ///
+    /// The screen's whole claim is the daemon's, and readiness used to arrive
+    /// only from the activation that walked here. Every other way in — a route
+    /// that resumes at Ready (§3.4), and every fixture launch of this surface —
+    /// therefore drew the "not answering yet" block against a daemon that was
+    /// up, which is why the redesigned screen could not be looked at at all.
+    /// Connect your AI already reads readiness on appear for the same reason.
+    @Test("ready reads readiness from the daemon when it appears")
+    func readyRefreshesReadiness() throws {
+        let ready = try #require(
+            try SourceTree.swiftFiles(matching: "Onboarding/ReadySurface.swift").first?.text
+        )
 
-        #expect(tile.rendersCode)
-        #expect(tile.payload == "https://t.me/fermixbot?start=abc123")
+        #expect(ready.contains(".task { await model.refreshReadiness() }"))
     }
 
-    /// The tile keeps its 92-point geometry for the real code, which is what the
-    /// redline asked for when it said to remove the mock and keep the frame.
-    @Test("the tile keeps the redline geometry for the real code")
-    func pairingTileGeometry() {
-        #expect(ChannelPairingTile.size == 92)
+    /// The same block, reached the way a fixture and a resumed route reach it:
+    /// the stage is applied with no activation behind it, so readiness has to
+    /// come from the daemon rather than from the walk that never happened.
+    @MainActor
+    @Test("a resumed Ready is live once readiness is read")
+    func resumedReadyGoesLive() async throws {
+        let harness = try OnboardingHarness()
+        // A configured install: no gating failure and nothing waiting on a
+        // restart, which is the only state Ready renders on.
+        harness.gateway.setupStateResult = try ManagementValueFixture.setupState(
+            failures: false,
+            restartRequired: false
+        )
+
+        harness.model.resume(at: .ready)
+        #expect(
+            harness.model.readiness.block == .daemonNotLive,
+            "a resumed Ready starts on the notice that the daemon is not answering"
+        )
+
+        await harness.model.refreshReadiness()
+
+        #expect(harness.model.readiness.block == nil, "the daemon reports a live install")
     }
 }

@@ -117,4 +117,12 @@ extension ManagementScalarMap {
     public var maximumVersion: Int? { integer("maximum_version") }
     /// The bound that was exceeded, on an oversized `invalid_params`.
     public var maximumBytes: Int? { integer("maximum_bytes") }
+    /// The daemon's own operator sentence.
+    ///
+    /// `message` is fixed per code, so on `invalid_params` and
+    /// `config_unreadable` — the two families where one code covers dozens of
+    /// distinct refusals — the sentence that says what actually happened lives
+    /// here. Rendering `message` alone shows `Request parameters are invalid.`
+    /// for every one of them.
+    public var sentence: String? { string("sentence") }
 }

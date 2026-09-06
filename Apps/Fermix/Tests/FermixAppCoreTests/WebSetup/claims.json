@@ -1,0 +1,1329 @@
+[
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[provider] (radio cards)",
+    "symbols": [
+      "Settings/Panes/ProvidersPane.swift#ProvidersPane",
+      "Settings/Panes/ProvidersPane.swift#ProviderRow"
+    ]
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[default_model]",
+    "symbols": [
+      "Settings/Panes/ProvidersPane.swift#ModelChoiceRow",
+      "Settings/Panes/ProviderSheets.swift#ModelPickerSheet"
+    ],
+    "section": "providers.openai_codex",
+    "row_key": "default_model"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[subagent_model]",
+    "symbols": [
+      "Settings/DescriptorForm.swift#DescriptorSection"
+    ],
+    "section": "routing",
+    "row_key": "subagent_model"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[auth_mode]",
+    "symbols": [
+      "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet"
+    ],
+    "section": "providers.anthropic",
+    "row_key": "auth_mode"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[openai_api_key | anthropic_api_key | xai_api_key | openrouter_api_key | mistral_api_key]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow"
+    ],
+    "section": "providers.anthropic",
+    "row_key": "anthropic_api_key"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[ollama_base_url]",
+    "symbols": [
+      "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet"
+    ],
+    "section": "providers.ollama",
+    "row_key": "ollama_base_url"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[anthropic_setup_token]",
+    "symbols": [
+      "Settings/Panes/ProviderSheets.swift#AddKeySheet",
+      "Settings/Panes/ProviderProjection.swift#anthropicSetupTokenID"
+    ],
+    "note": "The one secret id no descriptor row carries, so the contract names it."
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[reasoning_effort]",
+    "symbols": [
+      "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet"
+    ],
+    "section": "providers.openai_codex",
+    "row_key": "reasoning_effort"
+  },
+  {
+    "tab": "provider",
+    "kind": "field",
+    "name": "provider_form[fast]",
+    "symbols": [
+      "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet"
+    ],
+    "section": "providers.openai_codex",
+    "row_key": "fast"
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "provider_changed (phx-change)",
+    "symbols": [
+      "Settings/SettingsModel.swift#loadProviderSections",
+      "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet"
+    ],
+    "note": "Choosing a provider opens its sub-page, which reads that provider's own section."
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "save_provider (submit; __nav=stay|next)",
+    "symbols": [
+      "Management/DaemonGateway.swift#applySettings"
+    ],
+    "note": "Every row applies as it is changed; no control is labelled Save."
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "set_primary (phx-click provider)",
+    "symbols": [
+      "Settings/SettingsProviders.swift#setPrimary"
+    ]
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "codex_login (phx-click, Sign in with ChatGPT / Reconnect ChatGPT)",
+    "symbols": [
+      "Settings/SettingsProviders.swift#startSignIn",
+      "Settings/Panes/ProviderSheets.swift#SignInSheet"
+    ]
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "xai_login (phx-click, Sign in with Grok)",
+    "symbols": [
+      "Settings/SettingsProviders.swift#startSignIn",
+      "Settings/Panes/ProviderSheets.swift#SignInSheet"
+    ]
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "anthropic_import (phx-click, Import Claude Code login)",
+    "symbols": [
+      "Settings/SettingsProviders.swift#startAuthImport"
+    ]
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Provider radio card grid with Set primary button (components.ex:469-506)",
+    "symbols": [
+      "Settings/Panes/ProvidersPane.swift#ProvidersPane",
+      "Design/Strings/ProductStrings.swift#providerUsePrimary"
+    ]
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Connection section: auth_mode radio, secret field, plain fields, Ollama status banner",
+    "symbols": [
+      "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet",
+      "Settings/DescriptorForm.swift#DescriptorRows"
+    ]
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "ChatGPT OAuth panel (badge, account email, error line, button, fallback link, embed caption \"Sign-in opens in your browser and returns here\") components.ex:783-",
+    "symbols": [
+      "Settings/Panes/ProviderSheets.swift#SignInSheet"
+    ]
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Grok OAuth panel components.ex:897-945",
+    "symbols": [
+      "Settings/Panes/ProviderSheets.swift#SignInSheet"
+    ]
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Anthropic subscription panel (setup token + import button) components.ex:955-998",
+    "symbols": [
+      "Settings/Panes/ProviderSheets.swift#AddKeySheet",
+      "Settings/Panes/ProviderProjection.swift#importClaudeCode"
+    ]
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "Model behavior side panel (effort radios + Fast mode toggle) components.ex:1002-1082",
+    "symbols": [
+      "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet"
+    ],
+    "section": "providers.openai_codex",
+    "row_key": "fast"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[enabled]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "realtime",
+    "row_key": "realtime_enabled"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[model]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "realtime",
+    "row_key": "realtime_model"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[voice]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "realtime",
+    "row_key": "realtime_voice"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[reasoning_effort]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "realtime",
+    "row_key": "realtime_reasoning_effort"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[api_key] (\"OpenAI API key for Realtime\")",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow"
+    ],
+    "section": "realtime",
+    "row_key": "openai_api_key"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[max_session_minutes]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "realtime",
+    "row_key": "realtime_max_session_minutes"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[max_cost_cents]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "realtime",
+    "row_key": "realtime_max_cost_cents"
+  },
+  {
+    "tab": "realtime",
+    "kind": "field",
+    "name": "realtime_form[persist_transcripts]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "realtime",
+    "row_key": "realtime_persist_transcripts"
+  },
+  {
+    "tab": "realtime",
+    "kind": "action",
+    "name": "save_realtime (submit; __nav)",
+    "symbols": [
+      "Management/DaemonGateway.swift#applySettings"
+    ]
+  },
+  {
+    "tab": "realtime",
+    "kind": "sub_surface",
+    "name": "realtime_primary_fields grid, realtime_secret_field, realtime_limit_fields (components.ex:1104-1199)",
+    "symbols": [
+      "Settings/Panes/SettingsPaneView.swift#VoicePane",
+      "Settings/Panes/SettingsPaneView.swift#DescriptorPane"
+    ]
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[telegram_bot_token]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow",
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.telegram",
+    "row_key": "telegram_bot_token"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[telegram_owner_user_id]",
+    "symbols": [
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.telegram",
+    "row_key": "telegram_owner_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[whatsapp_access_token]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow",
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.whatsapp",
+    "row_key": "whatsapp_access_token"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[whatsapp_phone_number_id]",
+    "symbols": [
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.whatsapp",
+    "row_key": "whatsapp_phone_number_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[whatsapp_verify_token]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow",
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.whatsapp",
+    "row_key": "whatsapp_verify_token"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[whatsapp_app_secret]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow",
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.whatsapp",
+    "row_key": "whatsapp_app_secret"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[whatsapp_owner_user_id]",
+    "symbols": [
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.whatsapp",
+    "row_key": "whatsapp_owner_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[discord_bot_token]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow",
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.discord",
+    "row_key": "discord_bot_token"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[discord_bot_user_id]",
+    "symbols": [
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.discord",
+    "row_key": "discord_bot_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[discord_owner_user_id]",
+    "symbols": [
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.discord",
+    "row_key": "discord_owner_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[slack_bot_token]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow",
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.slack",
+    "row_key": "slack_bot_token"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[slack_signing_secret]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow",
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.slack",
+    "row_key": "slack_signing_secret"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[slack_owner_user_id]",
+    "symbols": [
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.slack",
+    "row_key": "slack_owner_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[signal_account]",
+    "symbols": [
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.signal",
+    "row_key": "signal_account"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[signal_owner_user_id]",
+    "symbols": [
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet"
+    ],
+    "section": "channels.signal",
+    "row_key": "signal_owner_user_id"
+  },
+  {
+    "tab": "channels",
+    "kind": "field",
+    "name": "channels_form[acp_enabled] (\"Accept ACP clients\")",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "editors",
+    "row_key": "acp_enabled"
+  },
+  {
+    "tab": "channels",
+    "kind": "action",
+    "name": "select_channel (phx-click card)",
+    "symbols": [
+      "Settings/Panes/ChannelsPane.swift#ChannelRow",
+      "Settings/Panes/ChannelsPane.swift#ChannelRowProjection"
+    ]
+  },
+  {
+    "tab": "channels",
+    "kind": "action",
+    "name": "save_channels (submit; __nav)",
+    "symbols": [
+      "Management/DaemonGateway.swift#applySettings"
+    ]
+  },
+  {
+    "tab": "channels",
+    "kind": "sub_surface",
+    "name": "Channel selector card grid with status pills (components.ex:1225-1236)",
+    "symbols": [
+      "Settings/Panes/ChannelsPane.swift#ChannelsPane",
+      "Settings/Panes/ChannelsPane.swift#ChannelRow"
+    ]
+  },
+  {
+    "tab": "channels",
+    "kind": "sub_surface",
+    "name": "integration_panel for the selected channel with 2-column field grid (components.ex:3464-3474)",
+    "symbols": [
+      "Settings/Panes/ChannelsPane.swift#ChannelSheet",
+      "Settings/DescriptorForm.swift#DescriptorRows"
+    ]
+  },
+  {
+    "tab": "transcription",
+    "kind": "field",
+    "name": "transcription_form[backend]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "transcription",
+    "row_key": "transcription_backend"
+  },
+  {
+    "tab": "transcription",
+    "kind": "field",
+    "name": "transcription_form[api_key]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow"
+    ],
+    "section": "transcription",
+    "row_key": "transcription_openai_api_key"
+  },
+  {
+    "tab": "transcription",
+    "kind": "field",
+    "name": "transcription_form[model]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "transcription",
+    "row_key": "transcription_model"
+  },
+  {
+    "tab": "transcription",
+    "kind": "field",
+    "name": "local backend state line + install banner",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "transcription",
+    "row_key": "transcription_backend"
+  },
+  {
+    "tab": "transcription",
+    "kind": "action",
+    "name": "transcription_changed (phx-change)",
+    "symbols": [
+      "Settings/Panes/SettingsPaneView.swift#VoicePane",
+      "Settings/SettingsJobs.swift#startCapabilityInstall"
+    ],
+    "note": "Choosing On this Mac no longer starts a download: Install is its own row."
+  },
+  {
+    "tab": "transcription",
+    "kind": "action",
+    "name": "save_transcription (submit; __nav)",
+    "symbols": [
+      "Management/DaemonGateway.swift#applySettings"
+    ]
+  },
+  {
+    "tab": "transcription",
+    "kind": "sub_surface",
+    "name": "Backend radio cards with descriptions",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "transcription",
+    "row_key": "transcription_backend"
+  },
+  {
+    "tab": "transcription",
+    "kind": "sub_surface",
+    "name": "Per-backend key block with \"Already configured\" line",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow"
+    ],
+    "section": "transcription",
+    "row_key": "transcription_openai_api_key"
+  },
+  {
+    "tab": "transcription",
+    "kind": "sub_surface",
+    "name": "On-device block with state + install_banner (spinner/error)",
+    "symbols": [
+      "Settings/Rows/JobRow.swift#JobRow",
+      "Settings/JobRunner.swift#JobRunner"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "oauth_client_form[client_id] (modal)",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#OAuthClientSheet"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "oauth_client_form[client_secret] (modal)",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#OAuthClientSheet",
+      "Settings/Rows/SecretRow.swift#SecretRow"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "oauth_client_form[redirect_port] (modal)",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#OAuthClientSheet"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "plugin_secret_form[value] (api_key plugin card inline form, shown when enabled && status :needs_secret)",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#IntegrationDetailSheet",
+      "Settings/SettingsPlugins.swift#pluginSecretId"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "plugin_config_form[<KEY>] (needs_config card inline form; one text input per missing required manifest config entry, e.g. OBSIDIAN_VAULT_PATH)",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#IntegrationSettingRow",
+      "Settings/SettingsPlugins.swift#setPluginSetting"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "computer_history_apps_modal: q (search) + per-app toggles (bundle ids)",
+    "symbols": [
+      "Settings/Panes/ComputerPane.swift#InstalledAppsSheet",
+      "Settings/Panes/ComputerPane.swift#InstalledAppsRow"
+    ],
+    "section": "computer_history",
+    "row_key": "computer_history_apps"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "resource_picker: access profile buttons + workspace Select buttons",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#WorkspaceSheet",
+      "Management/ManagementPlugins.swift#ManagementPluginAccessProfile"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[enabled] (Meeting Notetaker modal)",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow",
+      "Settings/Panes/SettingsPaneView.swift#MeetingsPane"
+    ],
+    "section": "meetings",
+    "row_key": "meetings_enabled"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[bot_name]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "meetings",
+    "row_key": "meetings_bot_name"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[announce]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "meetings",
+    "row_key": "meetings_announce"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[announce_message]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "meetings",
+    "row_key": "meetings_announce_message"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[zoom_account_id] / [zoom_client_id] / [zoom_ws_subscription_id]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "meetings",
+    "row_key": "meetings_zoom_account_id"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[zoom_client_secret]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow"
+    ],
+    "section": "meetings",
+    "row_key": "meetings_zoom_client_secret"
+  },
+  {
+    "tab": "plugins",
+    "kind": "field",
+    "name": "meetings_form[transcription_backend]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "meetings",
+    "row_key": "meetings_transcription_backend"
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "plugin_enable (name)",
+    "symbols": [
+      "Settings/Panes/IntegrationsPane.swift#IntegrationRow",
+      "Management/DaemonGateway.swift#enablePlugin"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "plugin_disable (name)",
+    "symbols": [
+      "Settings/Panes/IntegrationsPane.swift#IntegrationRow",
+      "Management/DaemonGateway.swift#disablePlugin"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "plugin_connect (name) / Enable on oauth2 card",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#IntegrationDetailSheet",
+      "Settings/SettingsProviders.swift#startSignIn"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "set_plugin_secret (name, value)",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow",
+      "Settings/SettingsPlugins.swift#pluginSecretId"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "save_plugin_config (name, plugin_config_form)",
+    "symbols": [
+      "Settings/SettingsPlugins.swift#setPluginSetting"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "plugin_disconnect (name)",
+    "symbols": [
+      "Management/DaemonGateway.swift#disconnectPlugin"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "plugin_check (name)",
+    "symbols": [
+      "Settings/SettingsJobs.swift#startPluginCheck"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "open_oauth_modal / close_oauth_modal (provider)",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#OAuthClientRow"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "save_oauth_client (provider, oauth_client_form)",
+    "symbols": [
+      "Settings/SettingsPlugins.swift#setOAuthClient"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "open_resource_picker / close_resource_picker / pick_access_profile / select_workspace (resource_scope plugins, e.g. Eden)",
+    "symbols": [
+      "Settings/SettingsPlugins.swift#startWorkspaceDiscovery",
+      "Settings/SettingsPlugins.swift#startWorkspaceSelection",
+      "Settings/Panes/IntegrationSheets.swift#WorkspaceSheet"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "computer_use_grant",
+    "symbols": [
+      "Settings/SettingsJobs.swift#startComputerUseGrant",
+      "Settings/Panes/ComputerPane.swift#ComputerPane"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "computer_history_grant",
+    "symbols": [
+      "Settings/SettingsJobs.swift#startComputerUseGrant",
+      "Settings/Panes/PermissionsPane.swift#PermissionRow"
+    ],
+    "note": "One grant raises both rights; the ledger's rows say which are held."
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "open_computer_history_apps / computer_history_apps_filter / toggle_computer_history_app / close_computer_history_picker / save_computer_history_apps",
+    "symbols": [
+      "Settings/Panes/ComputerPane.swift#InstalledAppsSheet",
+      "Settings/Panes/InstalledAppsPicker.swift#InstalledAppsSelection"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "enable_meetings / disable_meetings",
+    "symbols": [
+      "Settings/Panes/SettingsPaneView.swift#MeetingsPane"
+    ],
+    "section": "meetings",
+    "row_key": "meetings_enabled"
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "open_meetings_config / close_meetings_config",
+    "symbols": [
+      "Settings/Panes/SettingsPaneView.swift#MeetingsPane"
+    ],
+    "note": "Opening the pane never downloads: the install is its own job row."
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "meetbot_signin",
+    "symbols": [
+      "Settings/SettingsJobs.swift#startMeetingsSignIn"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "action",
+    "name": "save_meetings (modal submit)",
+    "symbols": [
+      "Management/DaemonGateway.swift#applySettings"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Native driver features section: core_feature_card \u00d73 (logo, version, status pill, Enable/Edit apps/Disable/Configure/Grant/info-tooltip docs link) components.ex",
+    "symbols": [
+      "Settings/Panes/IntegrationFeatures.swift#IntegrationFeature",
+      "Settings/Panes/IntegrationFeatures.swift#IntegrationFeatureRow"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Install banners for local STT / meetbot (components.ex:1262-1268)",
+    "symbols": [
+      "Settings/Rows/JobRow.swift#JobRow"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Google group with oauth_help tooltip link, oauth_client_row (Connect/Edit), auth_fallback_link, plugin_card list (components.ex:2498-2535)",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#OAuthClientRow",
+      "Settings/Panes/IntegrationSheets.swift#OAuthClientSheet"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Per-provider OAuth groups (github/notion/x/slack): single card folds client Connect/Edit in; multi-card gets titled section (components.ex:2549-2610)",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#OAuthClientRow"
+    ],
+    "note": "Clients are one section at the foot of the list, never a group per provider."
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Ungrouped installed plugin cards and ungrouped catalog cards with consent line + remote_runtime_disclosure <details> (components.ex:3159-3458)",
+    "symbols": [
+      "Settings/Panes/IntegrationsPane.swift#IntegrationRow",
+      "Settings/Panes/IntegrationSheets.swift#IntegrationConsentSheet"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "oauth_client_modal (steps :creds \u2192 :signin) components.ex:3013-3118",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#OAuthClientSheet"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "resource_picker_modal (access profile + workspace list, pending/choose/selecting/error) components.ex:2705-2995",
+    "symbols": [
+      "Settings/Panes/IntegrationSheets.swift#WorkspaceSheet"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "computer_history_apps_modal (search + checklist + counter + Save/Cancel) components.ex:2752-2890",
+    "symbols": [
+      "Settings/Panes/ComputerPane.swift#InstalledAppsSheet"
+    ]
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "meetings_config_modal (enabled/name/announce, Google Meet details with readiness pill + sign-in, Zoom details, transcription backend) components.ex:1840-2026",
+    "symbols": [
+      "Settings/Panes/SettingsPaneView.swift#MeetingsPane",
+      "Settings/Panes/SettingsPaneView.swift#DescriptorPane"
+    ],
+    "section": "meetings",
+    "row_key": "meetings_zoom_client_id"
+  },
+  {
+    "tab": "plugins",
+    "kind": "sub_surface",
+    "name": "Status pill vocabulary of 25 atoms (components.ex:4126-4185) and action verbs (components.ex:4210-4220)",
+    "symbols": [
+      "Settings/Panes/IntegrationsPane.swift#IntegrationRowModel"
+    ],
+    "note": "The status sentence and the verbs are the daemon's; none is reproduced in Swift."
+  },
+  {
+    "tab": "search",
+    "kind": "field",
+    "name": "search_form[backend]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "web_search",
+    "row_key": "web_search_backend"
+  },
+  {
+    "tab": "search",
+    "kind": "field",
+    "name": "search_form[tavily_api_key | exa_api_key | parallel_api_key | perplexity_api_key | firecrawl_api_key]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow"
+    ],
+    "section": "web_search",
+    "row_key": "brave_api_key"
+  },
+  {
+    "tab": "search",
+    "kind": "field",
+    "name": "search_form[brave_api_key] (\"Brave Search API key (web and place search)\")",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow"
+    ],
+    "section": "web_search",
+    "row_key": "brave_api_key"
+  },
+  {
+    "tab": "search",
+    "kind": "action",
+    "name": "search_changed (phx-change)",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "web_search",
+    "row_key": "web_search_backend"
+  },
+  {
+    "tab": "search",
+    "kind": "action",
+    "name": "save_search (submit; __nav)",
+    "symbols": [
+      "Management/DaemonGateway.swift#applySettings"
+    ]
+  },
+  {
+    "tab": "search",
+    "kind": "sub_surface",
+    "name": "place_search_note panel with data-place-search ready|unconfigured and Brave docs link (components.ex:1593-1625)",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "web_search",
+    "row_key": "brave_api_key"
+  },
+  {
+    "tab": "media",
+    "kind": "field",
+    "name": "image_form[backend]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "generate_image",
+    "row_key": "image_backend"
+  },
+  {
+    "tab": "media",
+    "kind": "field",
+    "name": "image_form[openai_api_key] / image_form[xai_api_key]",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow"
+    ],
+    "section": "generate_image",
+    "row_key": "openai_api_key"
+  },
+  {
+    "tab": "media",
+    "kind": "field",
+    "name": "image_form[google_api_key] (\"Gemini API key\")",
+    "symbols": [
+      "Settings/Rows/SecretRow.swift#SecretRow"
+    ],
+    "section": "generate_image",
+    "row_key": "openai_api_key"
+  },
+  {
+    "tab": "media",
+    "kind": "field",
+    "name": "image_form[model]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "generate_image",
+    "row_key": "image_model"
+  },
+  {
+    "tab": "media",
+    "kind": "field",
+    "name": "openai_codex warning",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "generate_image",
+    "row_key": "image_backend"
+  },
+  {
+    "tab": "media",
+    "kind": "action",
+    "name": "image_changed (phx-change)",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "generate_image",
+    "row_key": "image_backend"
+  },
+  {
+    "tab": "media",
+    "kind": "action",
+    "name": "save_image (submit; __nav)",
+    "symbols": [
+      "Management/DaemonGateway.swift#applySettings"
+    ]
+  },
+  {
+    "tab": "media",
+    "kind": "sub_surface",
+    "name": "Backend radio cards; per-backend key block; model select",
+    "symbols": [
+      "Settings/Panes/SettingsPaneView.swift#DescriptorPane"
+    ],
+    "section": "generate_image",
+    "row_key": "image_model"
+  },
+  {
+    "tab": "sandbox",
+    "kind": "field",
+    "name": "sandbox_form[mode]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "sandbox",
+    "row_key": "sandbox_mode"
+  },
+  {
+    "tab": "sandbox",
+    "kind": "field",
+    "name": "sandbox_form[profile] (\"Command profile\")",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "sandbox",
+    "row_key": "sandbox_profile"
+  },
+  {
+    "tab": "sandbox",
+    "kind": "field",
+    "name": "sandbox_form[env_allow] (\"Allowed env names\")",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "sandbox",
+    "row_key": "sandbox_env_allow"
+  },
+  {
+    "tab": "sandbox",
+    "kind": "action",
+    "name": "save_sandbox (submit; __nav)",
+    "symbols": [
+      "Management/DaemonGateway.swift#applySettings"
+    ]
+  },
+  {
+    "tab": "coding",
+    "kind": "field",
+    "name": "coding_form[harness_approved] (\"Allow coding agents to run on this machine\")",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "harness",
+    "row_key": "harness_approved"
+  },
+  {
+    "tab": "coding",
+    "kind": "field",
+    "name": "coding_form[harness_default_vendor] (\"Coding CLI\")",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "harness",
+    "row_key": "harness_default_vendor"
+  },
+  {
+    "tab": "coding",
+    "kind": "action",
+    "name": "save_coding (submit; __nav)",
+    "symbols": [
+      "Management/DaemonGateway.swift#applySettings"
+    ]
+  },
+  {
+    "tab": "coding",
+    "kind": "sub_surface",
+    "name": "harness_card with consent status line and notes \"Cloud runs (Codex cloud) are off in this release\" / \"Each CLI keeps its own login\"",
+    "symbols": [
+      "Settings/Panes/SettingsPaneView.swift#DescriptorPane"
+    ],
+    "section": "harness",
+    "row_key": "harness_approved"
+  },
+  {
+    "tab": "memory",
+    "kind": "field",
+    "name": "memory_form[compaction_threshold]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "memory",
+    "row_key": "compaction_threshold"
+  },
+  {
+    "tab": "memory",
+    "kind": "field",
+    "name": "memory_form[review_interval_hours]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "memory",
+    "row_key": "review_interval_hours"
+  },
+  {
+    "tab": "memory",
+    "kind": "action",
+    "name": "save_memory (submit; __nav)",
+    "symbols": [
+      "Management/DaemonGateway.swift#applySettings"
+    ]
+  },
+  {
+    "tab": "personalization",
+    "kind": "field",
+    "name": "personalization_form[bot_name] (\"Assistant name\")",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "personalization",
+    "row_key": "bot_name"
+  },
+  {
+    "tab": "personalization",
+    "kind": "field",
+    "name": "personalization_form[user_name]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "personalization",
+    "row_key": "user_name"
+  },
+  {
+    "tab": "personalization",
+    "kind": "field",
+    "name": "personalization_form[timezone]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "personalization",
+    "row_key": "timezone"
+  },
+  {
+    "tab": "personalization",
+    "kind": "field",
+    "name": "personalization_form[communication_style]",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "personalization",
+    "row_key": "communication_style"
+  },
+  {
+    "tab": "personalization",
+    "kind": "field",
+    "name": "personalization_form[skill_curation_enabled] (\"Suggest new skills from tasks you repeat\")",
+    "symbols": [
+      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
+    ],
+    "section": "personalization",
+    "row_key": "skill_curation_enabled"
+  },
+  {
+    "tab": "personalization",
+    "kind": "action",
+    "name": "save_personalization (submit; __nav)",
+    "symbols": [
+      "Management/DaemonGateway.swift#applySettings"
+    ]
+  },
+  {
+    "tab": "doctor",
+    "kind": "field",
+    "name": "validation_list",
+    "symbols": [
+      "Home/HomeProjection.swift#AttentionProjection",
+      "Home/HomeView.swift#AttentionRowView"
+    ],
+    "note": "Readiness failures are Home's Attention section, each with its pane deep link."
+  },
+  {
+    "tab": "doctor",
+    "kind": "field",
+    "name": "skill_summary_panel",
+    "symbols": [
+      "Home/HomeProjection.swift#HomeSnapshot"
+    ],
+    "partial": true,
+    "note": "Partial. Home draws the skill count. The operator and guest split the web panel also shows is not drawn anywhere in the app: no surface reads those two sub-counts yet."
+  },
+  {
+    "tab": "doctor",
+    "kind": "field",
+    "name": "tool_summary_panel",
+    "symbols": [
+      "Home/HomeProjection.swift#HomeSnapshot"
+    ],
+    "partial": true,
+    "note": "Partial. Home draws the tool count. The hidden-capability count and the policy groups the web panel also shows are not drawn anywhere in the app yet."
+  },
+  {
+    "tab": "doctor",
+    "kind": "field",
+    "name": "doctor_result",
+    "symbols": [
+      "Doctor/DoctorProjection.swift#DoctorProjection",
+      "Doctor/DoctorView.swift#DoctorCheckRow"
+    ]
+  },
+  {
+    "tab": "doctor",
+    "kind": "action",
+    "name": "run_doctor",
+    "symbols": [
+      "Doctor/DoctorModel.swift#DoctorModel",
+      "Doctor/DoctorModel.swift#runNetwork"
+    ]
+  },
+  {
+    "tab": "doctor",
+    "kind": "action",
+    "name": "computer_use_grant (from probe result)",
+    "symbols": [
+      "Doctor/DoctorProjection.swift#openSettings",
+      "Settings/Panes/ComputerPane.swift#ComputerPane",
+      "Settings/SettingsJobs.swift#startComputerUseGrant"
+    ],
+    "note": "Doctor does not raise the grant itself. Its settings_pane remediation opens the Computer pane, whose Grant button starts the job; the browser door performs it inline on the tab."
+  },
+  {
+    "tab": "doctor",
+    "kind": "action",
+    "name": "apply_restart (also in every restart flash banner)",
+    "symbols": [
+      "Settings/RestartSheet.swift#RestartSheet",
+      "Settings/SettingsWrites.swift#beginRestart"
+    ]
+  },
+  {
+    "tab": "doctor",
+    "kind": "sub_surface",
+    "name": "Doctor result section with four sub-blocks (components.ex:3817-3908)",
+    "symbols": [
+      "Doctor/DoctorView.swift#DoctorView"
+    ]
+  }
+]

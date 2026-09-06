@@ -11,6 +11,8 @@ public struct PrimaryAction: View {
     private let size: ControlSize
     private let action: () -> Void
 
+    @State private var isHovering = false
+
     public init(_ title: String, size: ControlSize, action: @escaping () -> Void) {
         precondition(!title.isEmpty, "a primary action needs a title")
 
@@ -19,20 +21,33 @@ public struct PrimaryAction: View {
         self.action = action
     }
 
+    /// The focus ring is the system's, here as everywhere else (redlines §9).
+    /// The product suppresses it nowhere: a ring the app draws itself is one
+    /// more thing that has to track every macOS change to focus, and a person
+    /// who has turned the system ring up gets the app's instead.
     public var body: some View {
         Button(title, action: action)
-            .buttonStyle(PrimaryButtonStyle(size))
+            .buttonStyle(PrimaryButtonStyle(size, isHovering: isHovering))
             .keyboardShortcut(.defaultAction)
+            .onHover { isHovering = $0 }
     }
 }
 
 /// The primary button's drawing: accent fill, white label, and the only shadow
-/// a control carries. Private to this file — `PrimaryAction` is the component.
+/// a control carries. Private to this file — `PrimaryAction` is the component,
+/// which is also why hover arrives as a parameter: a `ButtonStyle` cannot
+/// observe the pointer.
 private struct PrimaryButtonStyle: ButtonStyle {
     private let size: ControlSize
+    private let isHovering: Bool
 
-    init(_ size: ControlSize) {
+    /// A style is not given the disabled state; it has to read it. Without
+    /// this, `.disabled(true)` stops the action and changes nothing on screen.
+    @Environment(\.isEnabled) private var isEnabled
+
+    init(_ size: ControlSize, isHovering: Bool) {
         self.size = size
+        self.isHovering = isHovering
     }
 
     func makeBody(configuration: Configuration) -> some View {
@@ -45,11 +60,7 @@ private struct PrimaryButtonStyle: ButtonStyle {
             .foregroundStyle(ButtonRecipe.primaryLabel.color)
             .padding(.horizontal, geometry.horizontalPadding)
             .frame(minHeight: geometry.height)
-            .background(
-                shape.fill(
-                    (configuration.isPressed ? ButtonRecipe.primaryPressedFill : ButtonRecipe.primaryFill).color
-                )
-            )
+            .background(shape.fill(fill(pressed: configuration.isPressed).color))
             .overlay(
                 shape.strokeBorder(
                     LinearGradient(
@@ -62,7 +73,17 @@ private struct PrimaryButtonStyle: ButtonStyle {
             )
             .clipShape(shape)
             .shadow(color: shadow.color.color, radius: shadow.radius, y: shadow.yOffset)
+            .opacity(isEnabled ? 1 : ButtonRecipe.disabledOpacity)
             .accessibilityIdentifier(DesignComponent.primaryButton.accessibilityIdentifier)
+    }
+
+    /// Pressed wins over hover: the pointer is necessarily over the button
+    /// while it is down.
+    private func fill(pressed: Bool) -> ThemedColor {
+        if pressed { return ButtonRecipe.primaryPressedFill }
+        if isHovering { return ButtonRecipe.primaryHoverFill }
+
+        return ButtonRecipe.primaryFill
     }
 }
 
@@ -71,6 +92,8 @@ public struct SecondaryButtonStyle: ButtonStyle {
     private let size: ControlSize
 
     @Environment(\.colorSchemeContrast) private var contrast
+    /// See `PrimaryButtonStyle`: the disabled state reaches a style only here.
+    @Environment(\.isEnabled) private var isEnabled
 
     public init(_ size: ControlSize) {
         self.size = size
@@ -95,6 +118,7 @@ public struct SecondaryButtonStyle: ButtonStyle {
                 )
             )
             .clipShape(shape)
+            .opacity(isEnabled ? 1 : ButtonRecipe.disabledOpacity)
             .accessibilityIdentifier(DesignComponent.secondaryButton.accessibilityIdentifier)
     }
 }

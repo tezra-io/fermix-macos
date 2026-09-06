@@ -20,7 +20,18 @@ final class LifecycleHarness {
 
     var socketPath: String { location.defaultFermixHome.appendingPathComponent("daemon.sock").path }
 
-    init(registered: Bool, daemonRunning: Bool) throws {
+    /// The digest the fake bundle reports for its agent plist.
+    nonisolated static let bundledPlistDigest =
+        "3d1f0a7c9b2e4d6f8a0c1e3b5d7f9a1c3e5b7d9f1a3c5e7b9d1f3a5c7e9b1d3f"
+
+    /// - Parameter registrationReceipt: what the record says was registered.
+    ///   The bundled digest is a healthy install and renews nothing; anything
+    ///   else is the changed-plist case of M34 §7.2 step 5.
+    init(
+        registered: Bool,
+        daemonRunning: Bool,
+        registrationReceipt: String? = LifecycleHarness.bundledPlistDigest
+    ) throws {
         root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("fermix-lifecycle-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -31,6 +42,9 @@ final class LifecycleHarness {
 
         store = BootstrapStore(location: location)
         try store.save(fermixHome: home)
+        if let registrationReceipt {
+            try store.recordAgentRegistration(plistSHA256: registrationReceipt)
+        }
 
         journal = LifecycleJournal(location: location)
         loginItems = FakeLoginItemService()
@@ -44,16 +58,26 @@ final class LifecycleHarness {
         web = FakeWebLiveness()
         sleeper = RecordingSleeper()
 
+        let services = ServiceController(
+            loginItems: loginItems,
+            plists: StubAgentPlistDigest(digest: Self.bundledPlistDigest)
+        )
         coordinator = LifecycleCoordinator(
             store: store,
             journal: journal,
-            services: ServiceController(loginItems: loginItems),
+            services: services,
+            reconciler: EngineReconciler(bundled: nil, bundledPlistDigest: Self.bundledPlistDigest),
             plane: { [plane] _ in plane },
             processes: process,
             paths: socket,
             web: web,
             sleeper: sleeper
         )
+    }
+
+    /// What the record says was registered, right now.
+    func registrationReceipt() throws -> String? {
+        try store.load().registeredAgentPlistSHA256
     }
 
     deinit {

@@ -26,6 +26,14 @@
 # byte-compares every vendored file against the path SOURCE.json records. This
 # is the only check that can see upstream moving ahead of the vendored copy, and
 # it is what a re-vendor must be verified with.
+#
+# Every contract in the tree is vendored, and check 3 refuses a record that
+# declares itself a DRAFT authored in this repository. The management protocol v2
+# artifact was one until the engine published it; nothing is now, and this is the
+# third gate saying so, beside `VendoredContractTests` and the release audience
+# of `verify_staged_app.sh`. A draft has no `source_path` to compare against, so
+# tolerating one here would have left check 4 with nothing to check on the one
+# contract the app is built against.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -101,6 +109,17 @@ for path in sorted(set(pinned) | set(recorded)):
 if problems:
     for problem in problems:
         print(f"verify_protocol_contract: {problem}", file=sys.stderr)
+    sys.exit(1)
+
+drafts = [c["name"] for c in provenance["contracts"] if c.get("draft", False)]
+if drafts:
+    for name in drafts:
+        print(
+            f"verify_protocol_contract: the {name} contract declares itself a draft "
+            f"authored from the design; a draft has no upstream to compare against, "
+            f"so it is not shippable. Re-vendor it from the engine.",
+            file=sys.stderr,
+        )
     sys.exit(1)
 
 for contract in provenance["contracts"]:

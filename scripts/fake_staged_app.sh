@@ -41,8 +41,12 @@ fake_app_build_stub() {
 # the manifest at the root, the shell-script launcher at bin/fermix_app_engine
 # (a mix release's bin entry is a script, sealed as a resource, never signable
 # code), and a real single-arch Mach-O VM so file/codesign answer truthfully.
+# The protocol block is the shape the daemon's release writes and the shape the
+# release audience reads: `minimum_version` / `maximum_version` /
+# `current_version`, never `minimum` / `maximum`. It is a parameter so a case can
+# stage an engine whose window excludes the version the app speaks.
 fake_app_build_engine_tree() {
-  local tree="$1" arch="$2"
+  local tree="$1" arch="$2" management_minimum="${3:-1}" management_maximum="${4:-2}"
   mkdir -p "$tree/bin" "$tree/lib" "$tree/erts-0.0/bin"
   printf '#!/bin/sh\nexit 0\n' >"$tree/bin/fermix_app_engine"
   chmod 0755 "$tree/bin/fermix_app_engine"
@@ -54,6 +58,18 @@ fake_app_build_engine_tree() {
     "architecture": "$arch",
     "distribution_identity": "macos_app",
     "engine_id": "fermix-core"
+  },
+  "protocols": {
+    "management": {
+      "current_version": $management_maximum,
+      "minimum_version": $management_minimum,
+      "maximum_version": $management_maximum
+    },
+    "realtime": {
+      "current_version": 1,
+      "minimum_version": 1,
+      "maximum_version": 1
+    }
   }
 }
 MANIFEST
@@ -81,7 +97,7 @@ fake_app_build_bundle() {
   cp -R "$FAKE_APP_RESOURCES/VendorMarks" "$resources/VendorMarks"
   cp "$FAKE_APP_RESOURCES/Product.json" "$resources/Product.json"
   cp "$FAKE_APP_RESOURCES/en.lproj/Localizable.strings" "$resources/en.lproj/Localizable.strings"
-  cp "$FAKE_APP_RESOURCES/MenuBarTemplate/FermixBoltTemplate.png" "$resources/FermixBoltTemplate.png"
+  cp "$FAKE_APP_RESOURCES/MenuBarTemplate/FermixMarkTemplate.png" "$resources/FermixMarkTemplate.png"
   cp "$FAKE_APP_RESOURCES/$(product_config icon_file).icns" \
     "$app/Contents/Resources/$(product_config icon_file).icns"
 

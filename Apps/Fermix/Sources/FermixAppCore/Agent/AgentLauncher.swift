@@ -104,6 +104,9 @@ public enum AgentLauncher {
         let manifest = try EngineManifest.load(
             from: engineTree.appendingPathComponent(EngineManifest.fileName, isDirectory: false)
         )
+        // The vendored contract, not the current one: this asserts the engine in
+        // the bundle is the engine the vendored artifact was taken from. What
+        // the app can *speak* is a wider set while the draft v2 contract ships.
         try manifest.validate(
             architecture: architecture,
             managementVersion: try ManagementContract.vendored().protocolVersion,

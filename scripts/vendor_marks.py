@@ -33,14 +33,37 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-SCHEMA_VERSION = 1
-ROSTER_SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+ROSTER_SCHEMA_VERSION = 2
 ROSTER_FILE = "ROSTER.json"
 # The two records, which describe the tree rather than living in it.
 RECORD_FILES = ("PROVENANCE.json", ROSTER_FILE)
-KINDS = ("provider", "channel")
+KINDS = ("provider", "channel", "plugin", "feature", "oauth_client")
 TREATMENTS = ("vendor_mark", "vendor_text_with_symbol")
 ASSET_ROLES = ("color", "light", "dark", "monochrome")
+# The plate a shipped mark is drawn on. The app reads this field rather than
+# guessing from the pixels, so the two cannot disagree about a mark that would
+# be invisible on one of the two appearances. There are two, deliberately: a
+# third plate that painted a light ground under a single dark ink shipped on
+# 2026-09-03 and failed both ways, matching the light list ground exactly and
+# glaring on the dark one. A vendor with two published inks resolves by
+# appearance instead.
+PLATES = ("neutral", "bleed")
+
+# The first bytes of each format a mark may ship in, so a record cannot claim a
+# format the file does not have. whatsapp-color.png shipped WebP bytes under a
+# PNG name for a day: the hash matched, the record was false, and ImageIO
+# decoded it anyway, which is exactly why nothing else caught it.
+MAGIC = {
+    "png": ((b"\x89PNG\r\n\x1a\n", 0),),
+    "webp": ((b"RIFF", 0), (b"WEBP", 8)),
+    "svg": ((b"<svg", None), (b"<?xml", 0)),
+}
+# Where a record's bytes came from, which is what decides whether the network
+# refresh may re-download them. `catalog` and `first_party` marks are pinned to
+# fermix's own repository and are re-vendored there, never fetched.
+ORIGINS = ("vendor", "catalog", "first_party")
+FERMIX_REPOSITORY = "https://github.com/tezra-io/fermix"
 FALLBACK_REASONS = ("unretrievable_official_asset", "no_published_brand_kit")
 
 # One neutral symbol per roster kind. A per-vendor symbol would be an invented
@@ -48,6 +71,9 @@ FALLBACK_REASONS = ("unretrievable_official_asset", "no_published_brand_kit")
 NEUTRAL_SYMBOL = {
     "provider": "cpu",
     "channel": "bubble.left.and.bubble.right",
+    "plugin": "puzzlepiece.extension",
+    "feature": "puzzlepiece.extension",
+    "oauth_client": "puzzlepiece.extension",
 }
 
 REQUIRED_TEXT_FIELDS = (
@@ -56,6 +82,7 @@ REQUIRED_TEXT_FIELDS = (
     "display_name",
     "accessibility_label",
     "treatment",
+    "origin",
     "source_url",
     "source_retrieved_on",
     "usage_terms",
@@ -115,8 +142,21 @@ def check_mark_fields(mark: dict) -> None:
             raise Failure(f"{key}: field {field} is missing or empty")
     if mark["kind"] not in KINDS:
         raise Failure(f"{key}: kind {mark['kind']!r} is not one of {KINDS}")
+    if mark["origin"] not in ORIGINS:
+        raise Failure(f"{key}: origin {mark['origin']!r} is not one of {ORIGINS}")
+    if mark["origin"] != "vendor" and not mark["source_url"].startswith(FERMIX_REPOSITORY):
+        raise Failure(
+            f"{key}: origin {mark['origin']!r} but source_url {mark['source_url']!r} "
+            f"is not under {FERMIX_REPOSITORY}"
+        )
+    if mark["origin"] != "vendor" and mark["treatment"] != "vendor_mark":
+        raise Failure(f"{key}: a {mark['origin']!r} mark has its bytes and must ship them")
     if mark["treatment"] not in TREATMENTS:
         raise Failure(f"{key}: treatment {mark['treatment']!r} is not one of {TREATMENTS}")
+    if mark["treatment"] == "vendor_mark" and mark.get("plate") not in PLATES:
+        raise Failure(f"{key}: plate {mark.get('plate')!r} is not one of {PLATES}")
+    if mark["treatment"] != "vendor_mark" and "plate" in mark:
+        raise Failure(f"{key}: renders as vendor text and must not record a plate")
     if not DATE.match(mark["source_retrieved_on"]):
         raise Failure(f"{key}: source_retrieved_on {mark['source_retrieved_on']!r} is not YYYY-MM-DD")
     if not mark["source_url"].startswith("https://"):
@@ -150,18 +190,46 @@ def check_assets(mark: dict, marks_dir: Path, claimed: set[str]) -> None:
         path = marks_dir / relative
         if not path.is_file():
             raise Failure(f"{key}: asset {role} is recorded at {relative} but no such file exists")
-        actual = sha256_of(path.read_bytes())
+        payload = path.read_bytes()
+        actual = sha256_of(payload)
         if actual != asset.get("sha256"):
             raise Failure(
                 f"{key}: asset {relative} hashes to {actual} "
                 f"but the record pins {asset.get('sha256')}"
             )
+        check_magic(key, relative, payload)
         url = asset.get("asset_url", "")
         if not isinstance(url, str) or not url.startswith("https://"):
             raise Failure(f"{key}: asset {role} has no https asset_url")
         if not DATE.match(asset.get("retrieved_on", "")):
             raise Failure(f"{key}: asset {role} has no YYYY-MM-DD retrieved_on")
         claimed.add(relative)
+
+
+def check_magic(key: str, relative: str, payload: bytes) -> None:
+    """The file's bytes are the format its name claims.
+
+    A hash pins *which* bytes ship, never *what* they are, so a mark renamed by
+    hand or downloaded from a URL whose content type lies passes every other
+    check in this file.
+    """
+    extension = relative.rsplit(".", 1)[-1].lower()
+    if extension == "svg" and b"<foreignObject" in payload:
+        raise Failure(
+            f"{key}: {relative} uses HTML drawing that AppKit cannot render; "
+            "use the vendor's raster asset"
+        )
+    signatures = MAGIC.get(extension)
+    if signatures is None:
+        raise Failure(f"{key}: asset {relative} has extension {extension!r}, which is not a mark format")
+    for marker, offset in signatures:
+        found = payload[:512].find(marker) if offset is None else payload[offset:offset + len(marker)] == marker
+        if (found >= 0) if offset is None else found:
+            return
+    raise Failure(
+        f"{key}: asset {relative} is named {extension} but its bytes are not "
+        f"{extension}; name the file for the format it actually is"
+    )
 
 
 def check_fallback(mark: dict) -> None:
@@ -247,7 +315,8 @@ def check_roster(record: dict, roster: dict) -> None:
     """
     source = record.get("roster_source") or {}
     marks = record["marks"]
-    for kind, declared_count in (("provider", "provider_count"), ("channel", "channel_count")):
+    for kind in KINDS:
+        declared_count = f"{kind}_count"
         keys = sorted(m["key"] for m in marks if m["kind"] == kind)
         expected = sorted(roster[f"{kind}s"])
         if keys != expected:
@@ -281,7 +350,8 @@ def check_upstream(roster: dict, fermix_repo: Path | None) -> None:
     source = roster["source"]
     descriptor = fermix_repo / source["providers"]["path"]
     setup_live = fermix_repo / source["channels"]["path"]
-    for path in (descriptor, setup_live):
+    catalog_path = fermix_repo / source["plugins"]["path"]
+    for path in (descriptor, setup_live, catalog_path):
         if not path.is_file():
             raise Failure(f"roster source is missing at {path}")
 
@@ -300,7 +370,61 @@ def check_upstream(roster: dict, fermix_repo: Path | None) -> None:
             f"{sorted(upstream_channels)} and {ROSTER_FILE} carries {sorted(roster['channels'])}"
         )
 
-    for kind in KINDS:
+    # The plugin roster is the union of two upstream sets. index.json is the
+    # catalog a machine installs FROM; catalog.json names the plugins the engine
+    # ships INSIDE itself, and Registry.list unions those into every
+    # plugins.list answer, so they are installed on a machine that added
+    # nothing. Comparing against index.json alone is how google_calendar, gmail
+    # and google_drive drew the generic tile on every install.
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    published = {entry["name"] for entry in catalog.get("plugins", [])}
+
+    bundled_source = source["plugins"]["bundled"]
+    bundled_path = fermix_repo / bundled_source["path"]
+    if not bundled_path.is_file():
+        raise Failure(f"the bundled plugin set is missing at {bundled_path}")
+    bundled_payload = bundled_path.read_bytes()
+    actual = sha256_of(bundled_payload)
+    if actual != bundled_source["sha256"]:
+        raise Failure(
+            f"{bundled_path} hashes to {actual} but {ROSTER_FILE} pins "
+            f"{bundled_source['sha256']}; re-vendor the roster"
+        )
+    bundled = set(json.loads(bundled_payload.decode("utf-8")).get("plugins", []))
+
+    upstream_plugins = sorted(published | bundled)
+    if upstream_plugins != sorted(roster["plugins"]):
+        raise Failure(
+            "plugin roster drifted: fermix publishes and bundles "
+            f"{upstream_plugins} and {ROSTER_FILE} carries {sorted(roster['plugins'])}"
+        )
+
+    manifest_root = bundled_path.parent
+    for name, pinned in bundled_source["manifests"].items():
+        path = manifest_root / name
+        if not path.is_file():
+            raise Failure(f"bundled plugin manifest is missing at {path}")
+        actual = sha256_of(path.read_bytes())
+        if actual != pinned:
+            raise Failure(
+                f"{path} hashes to {actual} but {ROSTER_FILE} pins {pinned}; re-vendor the mark"
+            )
+
+    # The three feature keys are the app's own, so there is no upstream list to
+    # compare them against. What upstream owns is their artwork, and that is
+    # pinned file by file.
+    feature_dir = fermix_repo / source["features"]["path"]
+    for name, pinned in source["features"]["files"].items():
+        path = feature_dir / name
+        if not path.is_file():
+            raise Failure(f"feature mark source is missing at {path}")
+        actual = sha256_of(path.read_bytes())
+        if actual != pinned:
+            raise Failure(
+                f"{path} hashes to {actual} but {ROSTER_FILE} pins {pinned}; re-vendor the mark"
+            )
+
+    for kind in ("provider", "channel", "plugin"):
         path = fermix_repo / source[f"{kind}s"]["path"]
         actual = sha256_of(path.read_bytes())
         if actual != source[f"{kind}s"]["sha256"]:
@@ -327,17 +451,24 @@ def run_check(marks_dir: Path, fermix_repo_override: str | None) -> None:
     if not isinstance(marks, list) or not marks:
         raise Failure("provenance record carries no marks")
 
-    keys: set[str] = set()
-    labels: set[str] = set()
+    # Identity is (kind, key), not key alone: Discord and Slack are each both a
+    # channel and a plugin, and a label is only ever spoken beside its own kind
+    # of row, so uniqueness is per kind for both.
+    seen: set[tuple[str, str]] = set()
+    labels: set[tuple[str, str]] = set()
     claimed: set[str] = set()
     for mark in marks:
         check_mark_fields(mark)
-        if mark["key"] in keys:
-            raise Failure(f"{mark['key']}: recorded twice")
-        keys.add(mark["key"])
-        label = mark["accessibility_label"]
+        identity = (mark["kind"], mark["key"])
+        if identity in seen:
+            raise Failure(f"{mark['kind']} {mark['key']}: recorded twice")
+        seen.add(identity)
+        label = (mark["kind"], mark["accessibility_label"])
         if label in labels:
-            raise Failure(f"{mark['key']}: accessibility label {label!r} is not unique")
+            raise Failure(
+                f"{mark['kind']} {mark['key']}: accessibility label "
+                f"{mark['accessibility_label']!r} is not unique among {mark['kind']} marks"
+            )
         labels.add(label)
         check_assets(mark, marks_dir, claimed)
         check_fallback(mark)
@@ -396,9 +527,17 @@ def run_fetch(marks_dir: Path, write: bool) -> int:
     record = load(marks_dir)
     changed = 0
     blocked = []
+    pinned = []
     for mark in record["marks"]:
         if mark["treatment"] != "vendor_mark":
             blocked.append(mark)
+            continue
+        # A mark whose bytes come from fermix itself is re-vendored in fermix,
+        # never re-downloaded: its asset_url names a file in a repository, not a
+        # published asset, and fetching it would compare an HTML page with a
+        # logo and report every one of them as changed.
+        if mark["origin"] != "vendor":
+            pinned.append(mark)
             continue
         for asset in mark["assets"]:
             url = asset["asset_url"]
@@ -426,10 +565,16 @@ def run_fetch(marks_dir: Path, write: bool) -> int:
                 temporary.replace(target)
                 print(f"           wrote {target}")
 
+    for mark in pinned:
+        print(
+            f"pinned     {mark['key']:<22} {mark['origin']}\n"
+            f"           re-vendored from {mark['source_url']}"
+        )
+
     for mark in blocked:
         fallback = mark["fallback"]
         print(
-            f"no asset   {mark['key']:<10} {fallback['reason']}\n"
+            f"no asset   {mark['key']:<22} {fallback['reason']}\n"
             f"           official page: {mark['source_url']}"
         )
 

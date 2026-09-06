@@ -25,10 +25,10 @@ let package = Package(
         // configuration. Both executables are thin mains over this library.
         .target(
             name: "FermixAppCore",
-            // The bolt master is a generator input, not a runtime resource:
-            // its rasters sit beside it and shipping both would put two
+            // The mark master is a generator input, not a runtime resource: the
+            // three state rasters sit beside it and shipping both would put two
             // representations of one image in the bundle.
-            exclude: ["Resources/MenuBarTemplate/FermixBoltTemplate.svg"],
+            exclude: ["Resources/MenuBarTemplate/FermixMarkMaster.png"],
             resources: [
                 // The vendored wire contracts keep their directory layout: the
                 // management and realtime trees each carry a PROTOCOL.md and a
@@ -45,14 +45,19 @@ let package = Package(
                 // the bundle root.
                 .copy("Resources/VendorMarks"),
                 .process("Resources/AppIcon"),
-                // The bolt template is processed, not copied: `.process` is
-                // what pairs FermixBoltTemplate.png with its @2x sibling for
-                // NSImage, and the trailing "Template" in the name is what
-                // makes macOS tint it for the current menu bar appearance.
+                // The templates are processed, not copied: `.process` is what
+                // pairs each state's raster with its @2x sibling for NSImage,
+                // and the trailing "Template" in the name is what makes macOS
+                // tint it for the current menu bar appearance.
                 .process("Resources/MenuBarTemplate"),
                 .process("Resources/PetExpressions"),
                 .process("Resources/FermixPet.icns"),
                 .process("Resources/Product.json"),
+                // The canonical wordmark SVG. `FermixWordmark` draws a 1:1
+                // path port of it rather than loading it (NSImage cannot tint
+                // a currentColor SVG); the file ships as the reference asset
+                // the port is reviewed against.
+                .copy("Resources/Wordmark"),
                 // The whole copy deck. `.process` on the `.lproj` is what puts
                 // it where `Bundle.module.localizedString` looks.
                 .process("Resources/en.lproj")
@@ -84,7 +89,16 @@ let package = Package(
         ),
         .testTarget(
             name: "FermixAppCoreTests",
-            dependencies: ["FermixAppCore"]
+            dependencies: ["FermixAppCore"],
+            // The web-setup coverage table, its claims and its exemptions are
+            // test *inputs*, read off disk beside the test that reads them,
+            // exactly as the source-scan gates read the tree. They must never
+            // ship inside a bundle, so they are excluded rather than declared
+            // as resources.
+            // The cross-repo golden the migration handoff is pinned against is
+            // a test input too: it is the engine's own record, read off disk
+            // beside the test that replays it.
+            exclude: ["WebSetup", "Fixtures"]
         )
     ],
     swiftLanguageModes: [.v5]

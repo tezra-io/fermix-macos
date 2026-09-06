@@ -13,7 +13,7 @@ public enum BootstrapHomeDefect: Error, Equatable, Sendable {
 
 /// Locations a Fermix home may not be, each named so the refusal can say what
 /// was inspected rather than "invalid path".
-public enum ForbiddenHomeReason: Equatable, Sendable {
+public enum ForbiddenHomeReason: String, CaseIterable, Equatable, Sendable {
     case filesystemRoot
     /// The account home itself, which would scatter the daemon's files across it.
     case accountHome
@@ -40,18 +40,33 @@ public enum BootstrapStoreError: Error, Equatable, Sendable {
     case directoryCreationFailed(path: String, code: Int)
 }
 
-/// The sole pre-daemon bootstrap record: a schema version and one normalized
-/// absolute Fermix home. It is not a configuration overlay, and nothing else is
-/// ever added to it.
+/// The sole pre-daemon bootstrap record: a schema version, one normalized
+/// absolute Fermix home, and one registration receipt. It is not a
+/// configuration overlay, and nothing else is ever added to it.
 public struct BootstrapRecord: Equatable, Sendable {
     public static let supportedSchemaVersion = 1
 
     public let schemaVersion: Int
     public let fermixHome: URL
+    /// The sha256 of the agent plist that was actually registered with
+    /// `SMAppService`.
+    ///
+    /// The one exception to the sentence above, and recorded as such (M34 §7.2
+    /// step 5): `SMAppService` publishes a status and never the plist it
+    /// registered, so without a receipt a changed `ProgramArguments` or label is
+    /// applied silently to nothing. It is a registration receipt, not a
+    /// configuration overlay. Absent on a record written before the field
+    /// existed, which the reconciler treats as a difference.
+    public let registeredAgentPlistSHA256: String?
 
-    public init(schemaVersion: Int = BootstrapRecord.supportedSchemaVersion, fermixHome: URL) {
+    public init(
+        schemaVersion: Int = BootstrapRecord.supportedSchemaVersion,
+        fermixHome: URL,
+        registeredAgentPlistSHA256: String? = nil
+    ) {
         self.schemaVersion = schemaVersion
         self.fermixHome = fermixHome
+        self.registeredAgentPlistSHA256 = registeredAgentPlistSHA256
     }
 
     /// The management socket for this home.
@@ -80,9 +95,13 @@ public enum BootstrapCondition: Equatable, Sendable {
 struct BootstrapDocument: Codable, Equatable {
     let schemaVersion: Int
     let fermixHome: String
+    /// Absent on every record written before the receipt existed, which is a
+    /// difference rather than a match (M34 §7.2).
+    let registeredAgentPlistSHA256: String?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
         case fermixHome = "fermix_home"
+        case registeredAgentPlistSHA256 = "registered_agent_plist_sha256"
     }
 }

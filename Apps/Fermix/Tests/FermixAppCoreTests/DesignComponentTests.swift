@@ -25,7 +25,21 @@ struct DesignComponentTests {
     func interactiveComponentsAreClassified() {
         let interactive = Set(DesignComponent.allCases.filter(\.isInteractive))
 
-        #expect(interactive == [.sidebarRow, .primaryButton, .secondaryButton, .linkButton, .menuRow])
+        #expect(interactive == [.primaryButton, .secondaryButton, .linkButton])
+    }
+
+    /// M34 §6 deleted the containers the app drew for itself, so the inventory
+    /// no longer carries them.
+    @Test("the deleted containers are out of the inventory")
+    func deletedComponentsAreGone() {
+        let names = Set(DesignComponent.allCases.map(\.rawValue))
+
+        // `chip` and `statusRow` join the list here: the container rule left the
+        // primary window's rows to the system, which removed the last call site
+        // of both views.
+        for deleted in ["card", "sidebarRow", "menuRow", "chip", "statusRow"] {
+            #expect(!names.contains(deleted), "\(deleted) is still in the inventory")
+        }
     }
 
     @Test("a ladder row reads its state in words, not by its spinner")
@@ -40,23 +54,29 @@ struct DesignComponentTests {
         #expect(row.accessibilityValue == "done")
     }
 
-    @Test("the activation ladder ships the three provable rows in order")
+    @Test("the Starting ladder ships the four provable rows in order")
     func ladderRows() {
-        let ladder = ProgressLadderModel.activation(activeIndex: 1)
+        let ladder = ProgressLadderModel.starting(activeIndex: 1, includesRegistration: true)
 
         #expect(ladder.rows.map(\.title) == [
-            "Background service registered",
-            "Starting the Fermix daemon",
-            "Preparing your setup"
+            "Registering the background service",
+            "Starting the daemon",
+            "Checking it answers",
+            "Reading what is already set up"
         ])
-        #expect(ladder.rows.map(\.state) == [.done, .active, .pending])
-        #expect(ladder.headline == "Starting the daemon")
+        #expect(ladder.rows.map(\.state) == [.done, .active, .pending, .pending])
+        #expect(ladder.headline == "Starting Fermix")
     }
 
-    @Test("each activation stage has its own headline")
+    /// The headline is the screen's, not the row's: a mechanical stage says what
+    /// it is doing once, and the rows carry the detail.
+    @Test("each ladder carries the headline of the screen it runs inside")
     func ladderHeadlines() {
-        #expect(ProgressLadderModel.activation(activeIndex: 0).headline == "Registering the service")
-        #expect(ProgressLadderModel.activation(activeIndex: 2).headline == "Almost ready")
+        #expect(ProgressLadderModel.starting(activeIndex: 0, includesRegistration: true).headline == "Starting Fermix")
+        #expect(ProgressLadderModel.applying(activeIndex: 0, includesRestart: true).headline == "Applying your setup")
+        #expect(
+            ProgressLadderModel.applying(activeIndex: 1, includesRestart: true).rows.map(\.state) == [.done, .active]
+        )
     }
 
     @Test("progress dots mark one active, the earlier ones done, the rest pending")
@@ -67,14 +87,19 @@ struct DesignComponentTests {
         #expect(dots.accessibilityLabel == "Step 3 of 5")
     }
 
-    @Test("the menu-bar glyph never conveys its state by animation alone")
+    /// The state has to be in the raster, because the status item draws an
+    /// image: two states sharing one would leave the difference carried by
+    /// nothing but the words in the menu it opens.
+    @Test("every menu-bar state draws its own template and says which it is")
     func menuBarGlyphStates() {
-        #expect(MenuBarGlyphState.running.pulses == false)
-        #expect(MenuBarGlyphState.running.showsBadge == false)
-        #expect(MenuBarGlyphState.starting.pulses)
-        #expect(MenuBarGlyphState.starting.showsBadge == false)
-        #expect(MenuBarGlyphState.attention.pulses == false)
-        #expect(MenuBarGlyphState.attention.showsBadge)
+        let names = MenuBarGlyphState.allCases.map(MenuBarGlyphImage.resourceName(for:))
+
+        #expect(Set(names).count == names.count)
+        for name in names {
+            // Load-bearing: macOS only tints an image whose name ends in
+            // "Template", and an untinted raster is a black shape on a dark bar.
+            #expect(name.hasSuffix("Template"), "\(name)")
+        }
 
         for state in MenuBarGlyphState.allCases {
             #expect(!state.accessibilityLabel.isEmpty, "\(state)")
@@ -82,12 +107,18 @@ struct DesignComponentTests {
         #expect(MenuBarGlyphState.attention.accessibilityLabel == "Fermix needs attention")
     }
 
-    @Test("the attention badge is a shape with a ring, at the redline offset")
+    /// The geometry the build script draws with. The badge is cut INTO the
+    /// image box rather than overhanging it, because a status button clips its
+    /// own contents and an overhanging badge is what lost its top edge.
+    @Test("the template box holds the mark and its badge with nothing outside it")
     func menuBarBadgeGeometry() {
-        #expect(MenuBarGlyphMetrics.glyphSize == 16)
-        #expect(MenuBarGlyphMetrics.badgeDiameter == 7)
-        #expect(MenuBarGlyphMetrics.badgeRingWidth == 1.5)
-        #expect(MenuBarGlyphMetrics.badgeOffset == CGSize(width: 3, height: -2))
+        #expect(MenuBarGlyphMetrics.imageSize == 18)
+        #expect(MenuBarGlyphMetrics.markInset == 1)
+        #expect(MenuBarGlyphMetrics.badgeDiameter == 5)
+        #expect(MenuBarGlyphMetrics.badgeRingWidth == 1)
+
+        let badgeReach = MenuBarGlyphMetrics.badgeDiameter + 2 * MenuBarGlyphMetrics.badgeRingWidth
+        #expect(badgeReach <= MenuBarGlyphMetrics.imageSize)
     }
 
     /// Doctor pills are text, so a status this app version has never seen is
@@ -115,14 +146,16 @@ struct DesignComponentTests {
         #expect(StatusTone.neutral.textColor == Palette.faint)
     }
 
-    @Test("a sidebar row announces selection as a trait, not as a colour")
+    /// The sidebar rows are system labels now, so what is left to assert here
+    /// is that each row names a real route.
+    @Test("every sidebar row names the route it selects")
     func sidebarRows() {
-        let items = SidebarItem.mainWindow
-
-        #expect(items.map(\.title) == ["Home", "Setup", "Doctor", "Pet", "Logs"])
-        for item in items {
-            #expect(!item.systemImage.isEmpty, "\(item.title)")
+        for item in SidebarItem.mainWindow {
+            #expect(item.route.sidebarItemIdentifier == item.id, "\(item.title)")
+            #expect(SidebarItem.item(for: item.route)?.id == item.id, "\(item.title)")
         }
+
+        #expect(SidebarItem.item(for: .update) == nil, "a route with no row selects none")
     }
 
     @Test("a status row carries a title, a detail, and an optional trailing fact")
@@ -138,6 +171,18 @@ struct DesignComponentTests {
 
         #expect(row.accessibilityLabel == "Engine")
         #expect(row.accessibilityValue == "Running the pinned app engine, 0.9.0")
+    }
+
+    /// A fact inside a grouped `Form` is a `LabeledContent` with no tile of its
+    /// own, so the icon is optional rather than a symbol every caller invents.
+    @Test("a labelled fact needs no icon, no meta, and no tone")
+    func statusRowWithoutDecoration() {
+        let row = StatusRowModel(id: "skills", title: "Skills", detail: "12")
+
+        #expect(row.systemImage == nil)
+        #expect(row.meta == nil)
+        #expect(row.tone == .neutral)
+        #expect(row.accessibilityValue == "12")
     }
 
     @Test("a status row without a trailing fact reads only its detail")
@@ -166,12 +211,13 @@ struct DesignComponentTests {
     func errorPanel() {
         let panel = ErrorPanelModel.bootFailure(.timedOut, logLines: ["boot: waiting", "boot: gave up"])
 
-        #expect(panel.title == "Fermix couldn't start")
+        #expect(panel.title == "Fermix could not start")
         #expect(panel.body.contains("90 seconds"))
-        #expect(panel.body.contains("hasn't been touched"))
-        #expect(panel.primaryAction == "Run Doctor")
-        #expect(panel.secondaryAction == "View full log")
-        #expect(panel.ghostAction == "Try again")
+        #expect(panel.body.contains("hasn’t been touched"))
+        #expect(panel.primary == .runDoctor)
+        #expect(panel.secondary == .viewLog)
+        #expect(panel.ghost == .tryAgain)
+        #expect(panel.commands.isEmpty)
         #expect(panel.logHeader == "LAST LOG LINES")
         #expect(panel.logLines.count == 2)
     }
@@ -190,7 +236,7 @@ struct DesignComponentTests {
 
     /// The in-window bolt is a vector, drawn at whatever size and colour the
     /// chrome needs. Its extents are the artboard's own 24-point path.
-    @Test("the bolt and check vectors keep the artboard's extents")
+    @Test("the bolt vector keeps the artboard's extents")
     func glyphVectors() {
         let box = CGRect(x: 0, y: 0, width: 24, height: 24)
         let bolt = FermixBoltShape().path(in: box).boundingRect
@@ -200,27 +246,6 @@ struct DesignComponentTests {
         #expect(bolt.maxX == 19.5)
         #expect(bolt.maxY == 22)
 
-        let check = FermixCheckShape().path(in: box).boundingRect
-
-        #expect(check.minX == 5)
-        #expect(check.minY == 7)
-        #expect(check.maxX == 19)
-        #expect(check.maxY == 18)
-    }
-
-    /// A status item with no image is invisible, which is the failure this
-    /// gate exists to make loud. The name is also load-bearing: macOS only
-    /// tints an image whose name ends in "Template".
-    @Test("the shipped menu-bar master loads as a template image at the redline size")
-    func menuBarTemplateShips() {
-        let image = MenuBarGlyphImage.template()
-
-        #expect(MenuBarGlyphImage.resourceName.hasSuffix("Template"))
-        #expect(image.isTemplate)
-        // Converted explicitly: `#expect` does not apply the implicit
-        // CGFloat-to-Double conversion, and 16 compared against 16 fails.
-        #expect(Double(image.size.width) == MenuBarGlyphMetrics.glyphSize)
-        #expect(Double(image.size.height) == MenuBarGlyphMetrics.glyphSize)
     }
 
     @Test("humane times read as words and never as a duration format")
@@ -246,28 +271,28 @@ struct DesignComponentTests {
     @Test("a ladder advance announces every row whose state changed")
     func ladderAnnouncesTransitions() {
         let sentences = LadderAnnouncement.sentences(
-            from: ProgressLadderModel.activation(activeIndex: 0),
-            to: ProgressLadderModel.activation(activeIndex: 1)
+            from: ProgressLadderModel.starting(activeIndex: 0, includesRegistration: true),
+            to: ProgressLadderModel.starting(activeIndex: 1, includesRegistration: true)
         )
 
         #expect(sentences == [
-            "Background service registered, done",
-            "Starting the Fermix daemon, in progress"
+            "Registering the background service, done",
+            "Starting the daemon, in progress"
         ])
     }
 
     /// The first draw is not a transition: the rows are already readable, and
-    /// reading all three aloud would bury the one that is live.
+    /// reading all four aloud would bury the one that is live.
     @Test("the first ladder announces only the row that is running")
     func ladderAnnouncesTheActiveRowFirst() {
-        let sentences = LadderAnnouncement.sentences(from: nil, to: .activation(activeIndex: 0))
+        let sentences = LadderAnnouncement.sentences(from: nil, to: .starting(activeIndex: 0, includesRegistration: true))
 
-        #expect(sentences == ["Background service registered, in progress"])
+        #expect(sentences == ["Registering the background service, in progress"])
     }
 
     @Test("an unchanged ladder announces nothing")
     func ladderIsQuietWhenNothingChanged() {
-        let ladder = ProgressLadderModel.activation(activeIndex: 1)
+        let ladder = ProgressLadderModel.starting(activeIndex: 1, includesRegistration: true)
 
         #expect(LadderAnnouncement.sentences(from: ladder, to: ladder).isEmpty)
     }
@@ -310,36 +335,178 @@ struct DesignKeyboardTests {
     }
 }
 
-/// §4.1 and §5.7–§5.9: the window surfaces are glass, and the recipe is a
-/// property of the window rather than something each view decides.
+/// §4.1 and M34 §6: the glass a window draws is a property of the window, and
+/// the primary window draws none.
 @Suite("Window chrome")
+@MainActor
 struct WindowChromeTests {
-    @Test("both real windows draw the window glass and the pet draws none")
-    func recipePerWindow() {
-        #expect(GlassRecipe.forWindow(.main) == .window)
-        #expect(GlassRecipe.forWindow(.onboarding) == .window)
-        #expect(GlassRecipe.forWindow(.pet) == nil)
+    /// The container rule in one value: owner decision 1 took the assistant's
+    /// glass card and its backdrop with it, so no window draws a container of
+    /// its own and the two primitives that did are gone from the tree.
+    @Test("no window draws glass of its own")
+    func noWindowDrawsGlass() throws {
+        let files = try SourceTree.swiftFiles(under: "", excluding: false)
+
+        for name in ["struct GlassChrome", "struct BackdropView"] {
+            #expect(files.allSatisfy { !$0.text.contains(name) }, "\(name) survives")
+        }
     }
 
-    @Test("the main window applies its glass rather than an opaque ground")
-    func mainWindowIsGlass() throws {
-        let view = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
-
-        #expect(view.count == 1)
-        #expect(view.first?.text.contains("GlassChrome(") == true, "the main window paints no glass")
+    /// The primary window shows the system's unified titlebar, which is what
+    /// draws the sidebar toggle and the inline title. Every other window keeps
+    /// the hidden-title treatment the app already had.
+    @Test("the primary window is the one window that shows its title")
+    func titledWindows() {
+        #expect(WindowCoordinator.descriptor(for: .main).showsTitle)
+        #expect(WindowCoordinator.descriptor(for: .pet).showsTitle == false)
     }
 
-    /// Applying glass to the window is only half of it: a surface inside that
-    /// window painting the window ground over the top flattens the material for
-    /// the whole detail pane, which is how the material went missing in the
-    /// first place. `base100` is the window's own ground and belongs to the
-    /// glass; the recessed `base200` is still a surface's to use.
-    @Test("no surface repaints the window ground over its glass")
-    func nothingRepaintsTheWindowGround() throws {
-        let painters = try SourceTree
-            .swiftFiles(under: "", excluding: false)
-            .filter { $0.text.contains("background(Palette.base100") }
+    /// The toolbar and the title only reach the window because the hosting view
+    /// bridges them out to the scene.
+    @Test("the primary window bridges its toolbar and title to the scene")
+    func sceneBridging() throws {
+        let host = try SourceTree.swiftFiles(matching: "App/AppKitWindowHost.swift")
 
-        #expect(painters.isEmpty, "the window ground is repainted in: \(painters.map(\.path))")
+        #expect(host.count == 1)
+        #expect(host.first?.text.contains("sceneBridgingOptions = [.toolbars, .title]") == true)
+    }
+}
+
+/// The wordmark: a 1:1 path port of the approved SVG, pinned to the published
+/// glyph geometry so a redrawn approximation fails here.
+@Suite("Wordmark")
+struct FermixWordmarkTests {
+    @Test("the wordmark keeps the published aspect ratio and dot centres")
+    func geometry() {
+        #expect(FermixWordmark.aspectRatio == 3.84)
+        #expect(FermixWordmarkLetters.glyphSize == CGSize(width: 384, height: 100))
+        // One ulp of slack: 384 / 100 and the literal 3.84 round differently.
+        let derived = FermixWordmarkLetters.glyphSize.width / FermixWordmarkLetters.glyphSize.height
+        #expect(abs(FermixWordmark.aspectRatio - derived) < 0.000001)
+
+        // translate(294 0) plus cx 2 / cx 15 at cy 21, r 4.7 — the two accent
+        // eye-dots of the published asset.
+        #expect(FermixWordmark.dotCenters == [CGPoint(x: 296, y: 21), CGPoint(x: 309, y: 21)])
+        #expect(FermixWordmark.dotRadius == 4.7)
+    }
+
+    /// The letter paths span the full glyph space: x from 0 (the F stem) to
+    /// 384 (the X's trailing wedge), y from 0 to 100. A port that dropped or
+    /// displaced a letter group moves this box.
+    @Test("the letter paths fill the 384 by 100 glyph space")
+    func letterExtents() {
+        let box = FermixWordmarkLetters()
+            .path(in: CGRect(x: 0, y: 0, width: 384, height: 100))
+            .boundingRect
+
+        #expect(box.minX == 0)
+        #expect(box.minY == 0)
+        #expect(box.maxX == 384)
+        #expect(box.maxY == 100)
+    }
+
+    /// A `Toggle` is a switch only while it is a row of a grouped `Form`. Put
+    /// inside another row's trailing content it arrives as a checkbox, which is
+    /// how Channels drew a checkbox for `Telegram` and a switch for `Accept
+    /// editor connections` in the same pane.
+    ///
+    /// A hidden label is what says the toggle is not the row, because a form
+    /// row's own toggle carries it. So every toggle with a hidden label states
+    /// the style it wants, whichever style that is, and the case set comes from
+    /// the tree rather than from the ones somebody remembered.
+    @Test("a toggle drawn outside a form row states its own style")
+    func hiddenLabelTogglesStateTheirStyle() throws {
+        var checked = 0
+
+        for file in try SourceTree.swiftFiles(under: "", excluding: false) {
+            for chunk in file.text.components(separatedBy: "Toggle(").dropFirst() {
+                let declaration = chunk.split(separator: "\n").prefix(8).joined(separator: "\n")
+                guard declaration.contains(".labelsHidden()") else { continue }
+
+                checked += 1
+                #expect(
+                    declaration.contains(".toggleStyle("),
+                    "a label-hidden toggle in \(file.path) takes whatever style it is handed"
+                )
+            }
+        }
+
+        // Three today: the two channel-style switches and the Ready checklist's
+        // checkbox. A scan that matched nothing would pass every assertion it
+        // was written to make.
+        #expect(checked >= 3, "the toggle scan found \(checked) label-hidden toggles")
+    }
+
+    /// A `ButtonStyle` is handed no disabled treatment: `.disabled(true)` stops
+    /// the action and leaves the drawing alone. Both styles read the state, so
+    /// Pet's `Mute microphone` stops looking pressable with no call running.
+    @Test("both button styles draw an unavailable control as unavailable")
+    func buttonStylesDrawTheDisabledState() throws {
+        let source = try SourceTree.swiftFiles(matching: "Design/Components/FermixButtons.swift")
+        let text = try #require(source.first?.text)
+
+        #expect(text.components(separatedBy: "@Environment(\\.isEnabled)").count == 3)
+        #expect(text.components(separatedBy: "ButtonRecipe.disabledOpacity)").count == 3)
+        #expect(ButtonRecipe.disabledOpacity > 0)
+        #expect(ButtonRecipe.disabledOpacity < 1)
+    }
+
+    /// The product accent is applied once, at every window's root, and nowhere
+    /// else.
+    ///
+    /// Untinted, a prominent button takes the macOS accent, which is a
+    /// different blue from `#2b5cff` and a markedly lighter one in dark
+    /// appearance: measured off the shipped Home captures at rgb(5,124,254) on
+    /// dark and rgb(0,112,237) on light, against the accent every other primary
+    /// action in the product draws. §1.1 calls one surface showing two blues
+    /// that are not selection plus primary action a defect.
+    ///
+    /// Tinting the one control that showed it would have swapped one mismatch
+    /// for another: the switches, the list selection and the sheets' default
+    /// buttons on the same page would have kept the user's macOS accent while
+    /// the toolbar action turned product blue. So the invariant is "one tint,
+    /// at the root", and the toolbar button asserting it carries none of its
+    /// own is the half that keeps it true.
+    @Test("the product accent is set once, at the window root")
+    func productAccentIsSetAtTheRoot() throws {
+        let host = try #require(
+            try SourceTree.swiftFiles(matching: "App/AppKitWindowHost.swift").first?.text
+        )
+
+        #expect(host.contains("struct ProductTinted"))
+        #expect(host.contains("content.tint(Palette.accent.color)"))
+        #expect(host.contains("NSHostingView(rootView: ProductTinted(content: root))"))
+
+        // Every window's content view is built by that one function, so nothing
+        // reaches a window untinted.
+        let surfaces = try #require(
+            try SourceTree.swiftFiles(matching: "App/AppKitWindowHost.swift").first?.text
+        )
+        #expect(surfaces.components(separatedBy: "NSHostingView(rootView:").count == 2)
+
+        // No second tint anywhere in the product.
+        let tinting = try SourceTree.swiftFiles(under: "", excluding: false)
+            .filter { $0.text.contains(".tint(") }
+            .map(\.path)
+
+        #expect(tinting.count == 1, "tinted in: \(tinting)")
+        #expect(tinting.first?.hasSuffix("App/AppKitWindowHost.swift") == true, "tinted in: \(tinting)")
+    }
+
+    /// The toolbar's prominent action states the style and nothing else.
+    @Test("the toolbar's prominent button takes the root tint")
+    func toolbarPrimaryTakesTheRootTint() throws {
+        let source = try SourceTree.swiftFiles(matching: "Design/Components/SurfaceToolbar.swift")
+        let text = try #require(source.first?.text)
+
+        #expect(!text.contains(".tint("), "the button sets a tint of its own")
+        #expect(text.contains(".glassProminent"))
+        #expect(text.contains(".borderedProminent"))
+
+        // The accent stays scheme independent, because lightening it is what
+        // would break the label: white on #2b5cff clears the 4.5:1 floor and
+        // white on the only lighter accent in the ramp does not.
+        #expect(Palette.accent.light == Palette.accent.dark)
+        #expect(Palette.accent.light == SRGBColor(hex: "#2b5cff"))
     }
 }

@@ -37,6 +37,10 @@ public final class LogsModel: ObservableObject {
     @Published public private(set) var loading = false
     @Published public var minimumLevel: ManagementLogLevel?
     @Published public var search = ""
+    /// Whether an export has been asked for. The model owns the request because
+    /// the export is a toolbar command and a menu command, and a `@State`
+    /// inside the view could not be reached by the menu.
+    @Published public var exportRequested = false
 
     /// The cursor for the next older page, as the daemon issued it. Nil means
     /// the history ends here.
@@ -60,16 +64,20 @@ public final class LogsModel: ObservableObject {
         EmptyStateModel(message: ProductStrings[.logsEmpty])
     }
 
-    public var pauseActionTitle: String {
-        ProductStrings[paused ? .logsResume : .logsPause]
-    }
-
     public func setVisible(_ isVisible: Bool) {
         visible = isVisible
     }
 
     public func togglePause() {
         paused.toggle()
+    }
+
+    /// Asks for the visible entries to be written out. Nothing with no entries:
+    /// an exporter opened over an empty page would write an empty file.
+    public func requestExport() {
+        guard !entries.isEmpty else { return }
+
+        exportRequested = true
     }
 
     /// One poll tick. It answers for itself whether it may run, so a timer that

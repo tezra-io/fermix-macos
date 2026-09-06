@@ -35,10 +35,20 @@ public enum ProductCopyRules {
         "Fermix", "Mac", "Terminal",
         "Setup", "Doctor", "Home", "Logs", "Pet",
         "Telegram", "Slack", "Discord",
-        "ChatGPT", "Claude", "Codex", "OpenAI", "Anthropic", "OpenRouter", "Ollama",
+        "ChatGPT", "Claude", "Codex", "OpenAI", "Anthropic", "OpenRouter", "Ollama", "Realtime",
+        "Google",
         "Login", "Items", "System", "Settings",
-        "Applications", "Homebrew", "Homebrew-managed"
+        "Applications", "Library", "Launchpad", "Spotlight",
+        "Homebrew", "Homebrew-managed"
     ]
+
+    /// Multi-word product names the copy deck spells exactly.
+    ///
+    /// They are matched as phrases and removed before the word scan, so their
+    /// generic halves stay offenders everywhere else. Exempting the bare words
+    /// instead would let every future string capitalise `Code` or `Meet`
+    /// mid-sentence with the gate silent, which is how an allowlist rots.
+    public static let properPhrases: [String] = ["Claude Code", "Google Meet", "Setup Assistant"]
 
     public static func violations(in value: String) -> Set<CopyViolation> {
         let lowered = value.lowercased()
@@ -62,13 +72,14 @@ public enum ProductCopyRules {
     /// Words that are capitalised where sentence case says they should not be.
     ///
     /// A word is exempt when it starts a sentence, when it is entirely
-    /// uppercase (the section labels are drawn that way on purpose), or when it
-    /// is a proper noun.
+    /// uppercase (the section labels are drawn that way on purpose), when it is
+    /// a proper noun, or when it belongs to a proper phrase. Phrases are cut out
+    /// whole first, so their trailing punctuation still ends a sentence.
     public static func titleCaseOffenders(in value: String) -> [String] {
         var offenders: [String] = []
         var startsSentence = true
 
-        for rawWord in value.split(separator: " ", omittingEmptySubsequences: true) {
+        for rawWord in withoutProperPhrases(value).split(separator: " ", omittingEmptySubsequences: true) {
             let word = normalize(String(rawWord))
             defer { startsSentence = endsSentence(String(rawWord)) }
 
@@ -83,17 +94,65 @@ public enum ProductCopyRules {
         return offenders
     }
 
+    /// Replaces each proper phrase with a space, so the words around it keep
+    /// their positions and the phrase's own words are never scanned.
+    private static func withoutProperPhrases(_ value: String) -> String {
+        properPhrases.reduce(value) { text, phrase in
+            text.replacingOccurrences(of: phrase, with: " ")
+        }
+    }
+
     /// Strips the punctuation and possessive that ride on a word, so the
-    /// proper-noun lookup sees `Telegram` in `Telegram,` and `Mac` in `Mac's`.
+    /// proper-noun lookup sees `Telegram` in `Telegram,` and `Mac` in `Mac’s`.
+    ///
+    /// Both apostrophes, because the rule is about the possessive rather than
+    /// about which mark spells it. The catalogue uses the typographic one, and
+    /// a keyed word left with its suffix attached reads as a word nobody
+    /// declared: `Fermix’s` was reported as title case.
     private static func normalize(_ word: String) -> String {
         let trimmed = word.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
 
-        return trimmed.hasSuffix("'s") ? String(trimmed.dropLast(2)) : trimmed
+        for possessive in ["\u{2019}s", "'s"] where trimmed.hasSuffix(possessive) {
+            return String(trimmed.dropLast(possessive.count))
+        }
+
+        return trimmed
     }
 
     private static func endsSentence(_ word: String) -> Bool {
         guard let last = word.last else { return false }
 
         return last == "." || last == "?" || last == ":" || word == "·"
+    }
+
+    /// Whether a sentence names a command line, a config file, or an
+    /// environment variable (M34 §3.2, §5.8).
+    ///
+    /// The engine's own readiness and Doctor sentences say `Run mix
+    /// fermix.setup …`; a native window must never render one. The boundary is
+    /// a word boundary rather than a substring, because "Fermix " ends in
+    /// "mix ", and a gate loosened to allow that would fire on nothing.
+    public static func namesACommandLine(_ text: String) -> Bool {
+        commandLineExpressions.contains { expression in
+            expression.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)) > 0
+        }
+    }
+
+    /// The four patterns, compiled once from literals.
+    ///
+    /// A pattern that does not compile is a mistake in this file, and a gate
+    /// that answered `false` for it would pass by scanning nothing. So it fails
+    /// at first use instead.
+    private static let commandLineExpressions: [NSRegularExpression] = [
+        #"(?<![A-Za-z])mix\s"#,
+        #"config\.toml"#,
+        #"(?<![A-Za-z])FERMIX_[A-Z_]+"#,
+        #"\$[A-Z_]{2,}"#
+    ].map { pattern in
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            preconditionFailure("a copy rule pattern must compile: \(pattern)")
+        }
+
+        return expression
     }
 }

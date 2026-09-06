@@ -52,6 +52,20 @@ public enum CLILinkPlan: Equatable, Sendable {
         }
     }
 
+    /// Whether Ready draws the row at all.
+    ///
+    /// A copy that ships no launcher has nothing to link to, and a Homebrew
+    /// link is already the command: both rows would sit on the last screen of
+    /// setup saying there is nothing to do (M34 §4).
+    public var offersRow: Bool {
+        switch self {
+        case .launcherMissing, .ownedByHomebrew:
+            return false
+        case .linkedByThisApp, .foreignFileInPlace, .available:
+            return true
+        }
+    }
+
     /// Whether there is anything for the user to copy.
     public var offersCommand: Bool {
         if case .available = self { return true }
@@ -77,6 +91,8 @@ public struct CLILinkPlanner: Sendable {
     /// The redline draws the row checked; M34 ships it unchecked, so nothing is
     /// installed unless the user asks.
     public static let startsChecked = false
+    /// The command's own name, which the Ready row sets in the mono face.
+    public static let commandName = "fermix"
 
     private let launcherPath: String
     private let inspector: any SymbolicLinkInspecting
@@ -127,32 +143,5 @@ public struct CLILinkPlanner: Sendable {
 
     private func pointsAtLauncher(_ path: String) -> Bool {
         inspector.destinationOfSymbolicLink(atPath: path) == launcherPath
-    }
-}
-
-/// The Telegram pairing tile.
-///
-/// M34 §7 and planned deviation 5: the artboard's "QR, scan from your phone"
-/// tile is mock art. A code is rendered only from a real daemon-supplied
-/// pairing payload; without one the tile carries the truthful instruction that
-/// pairing happens in Setup. The geometry is kept for the real code.
-public struct ChannelPairingTile: Equatable, Sendable {
-    /// The redline's 92-point tile.
-    public static let size: Double = 92
-
-    public let payload: String?
-
-    public init(payload: String?) {
-        self.payload = payload
-    }
-
-    public var rendersCode: Bool { payload?.isEmpty == false }
-
-    public var title: String {
-        rendersCode ? ProductStrings[.connectChannelPairingReady] : ProductStrings[.connectChannelPairing]
-    }
-
-    public var instruction: String {
-        rendersCode ? ProductStrings[.connectChannelPairingScan] : ProductStrings[.connectChannelPairingHint]
     }
 }

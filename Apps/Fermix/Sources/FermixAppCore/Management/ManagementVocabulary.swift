@@ -41,7 +41,12 @@ extension ManagementVocabulary {
     }
 }
 
-/// The eleven published management methods.
+/// Every published management method.
+///
+/// The eleven the engine serves today have a minimum protocol version of 1; the
+/// thirty-one M34 §7.3 adds have a minimum of 2. The minimum is read from the
+/// contract (`ManagementContract.minimumVersion(for:)`), never restated here:
+/// one fact, in the checksum-pinned artifact.
 public enum ManagementMethod: String, CaseIterable, Sendable {
     case hello = "hello"
     case overviewGet = "overview.get"
@@ -54,6 +59,38 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case lifecycleCommit = "lifecycle.commit"
     case lifecycleCancel = "lifecycle.cancel"
     case diagnosticsBuild = "diagnostics.build"
+
+    case setupStateGet = "setup.state.get"
+    case setupDetect = "setup.detect"
+    case settingsSections = "settings.sections"
+    case settingsGet = "settings.get"
+    case settingsApply = "settings.apply"
+    case settingsReload = "settings.reload"
+    case secretSet = "secret.set"
+    case secretClear = "secret.clear"
+    case providersSetPrimary = "providers.set_primary"
+    case providersModelsList = "providers.models.list"
+    case providersProbeStart = "providers.probe.start"
+    case jobGet = "job.get"
+    case jobCancel = "job.cancel"
+    case jobList = "job.list"
+    case authStart = "auth.start"
+    case authImportStart = "auth.import.start"
+    case authLogout = "auth.logout"
+    case pluginsList = "plugins.list"
+    case pluginsInstallStart = "plugins.install.start"
+    case pluginsCheckStart = "plugins.check.start"
+    case pluginsWorkspacesDiscoverStart = "plugins.workspaces.discover.start"
+    case pluginsWorkspaceSelectStart = "plugins.workspace.select.start"
+    case pluginsEnable = "plugins.enable"
+    case pluginsDisable = "plugins.disable"
+    case pluginsDisconnect = "plugins.disconnect"
+    case pluginsOAuthClientSet = "plugins.oauth_client.set"
+    case pluginsSettingSet = "plugins.setting.set"
+    case capabilitiesInstallStart = "capabilities.install.start"
+    case meetingsSigninStart = "meetings.signin.start"
+    case computerUseGrantStart = "computer_use.grant.start"
+    case computerUsePermissionsGet = "computer_use.permissions.get"
 
     /// The method name in a form the request-id pattern accepts.
     public var identifierSlug: String { rawValue.replacingOccurrences(of: ".", with: "-") }
@@ -72,6 +109,15 @@ public enum ManagementErrorCode: ManagementVocabulary {
     case unknownLease
     case unknownSession
     case cursorExpired
+    /// The operating-system secret store refused the write. Added in v2.
+    case secretStoreFailed
+    /// The job is not retained by this daemon. Added in v2.
+    case unknownJob
+    /// `config.toml` changed outside this daemon, so the write is refused
+    /// rather than merged. Added in v2.
+    case externalChange
+    /// `config.toml` could not be read or parsed. Added in v2.
+    case configUnreadable
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -86,7 +132,11 @@ public enum ManagementErrorCode: ManagementVocabulary {
         "lease_expired": .leaseExpired,
         "unknown_lease": .unknownLease,
         "unknown_session": .unknownSession,
-        "cursor_expired": .cursorExpired
+        "cursor_expired": .cursorExpired,
+        "secret_store_failed": .secretStoreFailed,
+        "unknown_job": .unknownJob,
+        "external_change": .externalChange,
+        "config_unreadable": .configUnreadable
     ]
 
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }

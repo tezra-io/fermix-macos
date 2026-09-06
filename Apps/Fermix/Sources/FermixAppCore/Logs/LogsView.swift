@@ -1,72 +1,104 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Logs: a bounded page of daemon-owned entries, a filter bar, and the four
-/// actions the surface owns.
+/// Logs: a bounded page of daemon-owned entries, running edge to edge, with
+/// search, level, pause and export in the toolbar (M34 §3.2).
 ///
 /// The poll runs only while this view is on screen and not paused, which is
 /// exactly what `pollingActive` says, and the timer asks the model rather than
 /// deciding for itself.
 struct LogsView: View {
     @ObservedObject var model: LogsModel
-
-    @State private var exporting = false
+    let router: any CommandPerforming
 
     var body: some View {
-        VStack(spacing: 0) {
-            SurfaceTitlebar(title: ProductStrings[.logsTitle])
-
-            controls
-
-            statusLine
-
-            entries
-        }
-        .task {
-            model.setVisible(true)
-            await model.refresh()
-        }
-        .onDisappear { model.setVisible(false) }
-        .modifier(LogsPolling(model: model))
-        .fileExporter(
-            isPresented: $exporting,
-            document: LogsDocument(text: model.copyVisible()),
-            contentType: .plainText,
-            defaultFilename: ProductStrings[.logsExportFilename]
-        ) { _ in }
+        entries
+            .navigationTitle(ProductStrings[.logsTitle])
+            .searchable(text: $model.search, prompt: ProductStrings[.logsSearchPlaceholder])
+            .onSubmit(of: .search) { Task { await model.applyFilters() } }
+            .toolbar { LogsToolbar(model: model, router: router) }
+            .task {
+                model.setVisible(true)
+                await model.refresh()
+            }
+            .onDisappear { model.setVisible(false) }
+            .modifier(LogsPolling(model: model))
+            .fileExporter(
+                isPresented: $model.exportRequested,
+                document: LogsDocument(text: model.copyVisible()),
+                contentType: .plainText,
+                defaultFilename: ProductStrings[.logsExportFilename]
+            ) { _ in }
     }
 
-    private var controls: some View {
-        HStack(spacing: Spacing.xs) {
-            TextField(ProductStrings[.logsSearchPlaceholder], text: $model.search)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 220)
-                .onSubmit { Task { await model.applyFilters() } }
+    @ViewBuilder
+    private var entries: some View {
+        if model.entries.isEmpty {
+            SurfaceEmptyState(
+                model: EmptyStateModel(message: statusMessage ?? model.emptyState.message),
+                symbol: "text.append"
+            )
+        } else {
+            List {
+                if let message = statusMessage {
+                    Text(message)
+                        .fermixType(Typography.style(.calloutSmall))
+                        .foregroundStyle(Palette.warning.color)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
 
+                ForEach(Array(model.entries.enumerated()), id: \.offset) { _, entry in
+                    LogRow(entry: entry)
+                }
+
+                if model.canLoadOlder {
+                    Button(ProductStrings[.logsLoadOlder]) { Task { await model.loadOlder() } }
+                }
+            }
+            // M34 §3.2 and redlines §5.7: the log list runs edge to edge, which
+            // is the plain style. The inset style is the shape they replaced.
+            .listStyle(.plain)
+        }
+    }
+
+    private var statusMessage: String? {
+        LogsView.message(for: model.status)
+    }
+
+    /// The levels worth filtering on. `emergency` and `alert` exist on the
+    /// wire but the engine does not emit them, so offering them would be a
+    /// filter that always returns nothing.
+    static let filterableLevels: [ManagementLogLevel] = [.error, .warning, .notice, .info, .debug]
+
+    static func message(for status: LogsStatus) -> String? {
+        switch status {
+        case .idle: return nil
+        case .truncated(let message), .reset(let message), .refused(let message), .failed(let message):
+            return message
+        }
+    }
+}
+
+/// The level picker plus the command groups. The picker is a control rather
+/// than a command, so it is declared here and the rest comes from the table.
+struct LogsToolbar: ToolbarContent {
+    @ObservedObject var model: LogsModel
+    let router: any CommandPerforming
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
             Picker(ProductStrings[.logsLevelLabel], selection: levelBinding) {
                 Text(ProductStrings[.logsLevelAll]).tag("")
-                ForEach(LogsView.filterableLevels, id: \.self) { level in
-                    Text(level).tag(level)
+                ForEach(LogsView.filterableLevels, id: \.wireValue) { level in
+                    Text(LogLine.level(level)).tag(level.wireValue)
                 }
             }
             .labelsHidden()
             .frame(width: 130)
-
-            Button(model.pauseActionTitle) { model.togglePause() }
-                .buttonStyle(SecondaryButtonStyle(.inWindow))
-
-            Button(ProductStrings[.logsCopy]) { Clipboard.write(model.copyVisible()) }
-                .buttonStyle(SecondaryButtonStyle(.inWindow))
-                .disabled(model.entries.isEmpty)
-
-            Button(ProductStrings[.logsExport]) { exporting = true }
-                .buttonStyle(SecondaryButtonStyle(.inWindow))
-                .disabled(model.entries.isEmpty)
-
-            Spacer(minLength: 0)
+            .accessibilityLabel(ProductStrings[.logsLevelLabel])
         }
-        .padding(.horizontal, 26)
-        .padding(.bottom, Spacing.s)
+
+        SurfaceToolbar(spec: CommandTable.toolbar(for: .logs), router: router)
     }
 
     /// The picker selects on the wire value, because the level vocabulary is a
@@ -81,64 +113,51 @@ struct LogsView: View {
             }
         )
     }
+}
 
-    @ViewBuilder
-    private var statusLine: some View {
-        if let message = LogsView.message(for: model.status) {
-            Text(message)
-                .fermixType(Typography.style(.calloutSmall))
-                .foregroundStyle(Palette.warning.color)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 26)
-                .padding(.bottom, Spacing.xs)
-                .accessibilityAddTraits(.updatesFrequently)
+/// How a log line reads, as against how it arrives on the wire.
+///
+/// Both halves are the surface's, not the protocol's: `ManagementLogLevel` is a
+/// contract type, and giving it a display title would put a window's
+/// vocabulary on the wire layer.
+enum LogLine {
+    /// The daemon's ISO timestamp, in this Mac's own zone and format.
+    ///
+    /// The wire carries UTC with microseconds (`2026-08-19T12:00:00.512431+00:00`),
+    /// which is the engine's format and not a time anybody reads. Console shows
+    /// a localised time to the millisecond and so does this. A string the
+    /// parser refuses is shown exactly as the daemon sent it: it is the only
+    /// thing known about that row's time, and dropping it would lose it.
+    static func time(_ wire: String) -> String {
+        guard let moment = try? Self.wireTime.parse(wire) else { return wire }
+
+        return moment.formatted(.dateTime.hour().minute().second().secondFraction(.fractional(3)))
+    }
+
+    /// The level word, from the catalogue. The wire value is the key that
+    /// selects it and is never the label.
+    static func level(_ level: ManagementLogLevel) -> String {
+        switch level {
+        case .emergency: return ProductStrings[.logsLevelEmergency]
+        case .alert: return ProductStrings[.logsLevelAlert]
+        case .critical: return ProductStrings[.logsLevelCritical]
+        case .error: return ProductStrings[.logsLevelError]
+        case .warning: return ProductStrings[.logsLevelWarning]
+        case .notice: return ProductStrings[.logsLevelNotice]
+        case .info: return ProductStrings[.logsLevelInfo]
+        case .debug: return ProductStrings[.logsLevelDebug]
+        // A level this build has no word for. The daemon's own value is what
+        // the operator can search the engine for.
+        case .unrecognized(let value): return value
         }
     }
 
-    @ViewBuilder
-    private var entries: some View {
-        if model.entries.isEmpty {
-            Card { EmptyState(model: model.emptyState) }
-                .padding(.horizontal, 26)
-                .padding(.bottom, 22)
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(model.entries.enumerated()), id: \.offset) { _, entry in
-                        LogRow(entry: entry)
-                    }
-
-                    if model.canLoadOlder {
-                        Button(ProductStrings[.logsLoadOlder]) { Task { await model.loadOlder() } }
-                            .buttonStyle(SecondaryButtonStyle(.inWindow))
-                            .padding(.top, Spacing.xs)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 26)
-                .padding(.bottom, 22)
-            }
-        }
-    }
-
-    /// The levels worth filtering on, by wire value. `emergency` and `alert`
-    /// exist on the wire but the engine does not emit them, so offering them
-    /// would be a filter that always returns nothing.
-    static let filterableLevels: [String] = [
-        ManagementLogLevel.error,
-        .warning,
-        .notice,
-        .info,
-        .debug
-    ].map(\.wireValue)
-
-    static func message(for status: LogsStatus) -> String? {
-        switch status {
-        case .idle: return nil
-        case .truncated(let message), .reset(let message), .refused(let message), .failed(let message):
-            return message
-        }
-    }
+    /// The engine's own timestamp format, with the offset colon it writes and
+    /// tolerant of a row that carries no fractional seconds.
+    private static let wireTime = Date.ISO8601FormatStyle(
+        timeZoneSeparator: .colon,
+        includingFractionalSeconds: true
+    )
 }
 
 /// One log line, in the mono ramp, with the level tinted.
@@ -147,10 +166,10 @@ struct LogRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-            Text(entry.time)
+            Text(LogLine.time(entry.time))
                 .foregroundStyle(Palette.faint.color)
 
-            Text(entry.level.wireValue)
+            Text(LogLine.level(entry.level))
                 .foregroundStyle(tone.color)
                 .frame(width: 56, alignment: .leading)
 
@@ -163,7 +182,7 @@ struct LogRow: View {
         .fermixType(Typography.style(.monoLog))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.message)
-        .accessibilityValue(entry.level.wireValue)
+        .accessibilityValue(LogLine.level(entry.level))
     }
 
     private var tone: ThemedColor {

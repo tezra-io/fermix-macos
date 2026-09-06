@@ -8,7 +8,7 @@ import Foundation
 ///
 /// The app is AppKit-first rather than a SwiftUI `App`: the activation policy
 /// has to be accessory *before* anything is presented, and the windows are
-/// coordinated (exactly one onboarding window, one main window, an optional
+/// coordinated (one primary window for setup and settings, and an optional
 /// floating pet) rather than spawned by an unrestricted `WindowGroup`.
 public enum FermixApp {
     @MainActor
@@ -30,9 +30,101 @@ public enum FermixApp {
         // Dock app for exactly as long as a real window is open.
         application.setActivationPolicy(.accessory)
 
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(plan: launchPlan())
         application.delegate = delegate
         application.run()
+    }
+
+    /// Which of the app's declared configurations this launch asked for.
+    ///
+    /// The selection happens once, here, before any window exists. No
+    /// configuration is reachable from inside another, and a launch that names
+    /// two is refused rather than resolved to one of them: silently running the
+    /// other would report the argument as having worked.
+    @MainActor
+    private static func launchPlan() -> AppLaunchPlan {
+        let arguments = CommandLine.arguments
+        let fixture = fixtureRequest(arguments)
+        let development = developmentEngineRequest(arguments)
+
+        if fixture != nil, development { refuse(.combinedWithFixture) }
+        if let fixture { return fixturePlan(named: fixture) }
+        if development {
+            return developmentEnginePlan(
+                registerBackground: arguments.contains(DevelopmentEngineLaunchRequest.registrationFlag)
+            )
+        }
+
+        return .product()
+    }
+
+    /// The surface a fixture launch named, or nil where it asked for none.
+    @MainActor
+    private static func fixtureRequest(_ arguments: [String]) -> String? {
+        do {
+            return try FixtureLaunchRequest.parse(arguments)
+        } catch let refusal as FixtureLaunchRequest.Refusal {
+            refuse(refusal)
+        } catch {
+            preconditionFailure("FixtureLaunchRequest.parse throws only Refusal, got \(error)")
+        }
+    }
+
+    /// Whether this launch asked for the development configuration.
+    @MainActor
+    private static func developmentEngineRequest(_ arguments: [String]) -> Bool {
+        do {
+            return try DevelopmentEngineLaunchRequest.parse(arguments)
+        } catch let refusal as DevelopmentEngineLaunchRequest.Refusal {
+            refuse(refusal)
+        } catch {
+            preconditionFailure("DevelopmentEngineLaunchRequest.parse throws only Refusal, got \(error)")
+        }
+    }
+
+    #if DEBUG
+    @MainActor
+    private static func fixturePlan(named name: String) -> AppLaunchPlan {
+        guard let start = FixtureStart(name: name) else {
+            FileHandle.standardError.write(
+                Data("surfaces: \(FixtureStart.publishedNames.joined(separator: ", "))\n".utf8)
+            )
+            refuse(.unknownStart(name))
+        }
+
+        return .fixture(FixtureLaunch(start: start))
+    }
+    @MainActor
+    private static func developmentEnginePlan(registerBackground: Bool) -> AppLaunchPlan {
+        .developmentEngine(registerBackground: registerBackground)
+    }
+    #else
+    /// A release build has no fixture configuration compiled into it, so the
+    /// flag names nothing this binary can do.
+    @MainActor
+    private static func fixturePlan(named _: String) -> AppLaunchPlan {
+        refuse(FixtureLaunchRequest.Refusal.notAvailableInThisBuild)
+    }
+
+    /// Nor a development configuration: the engine a shipped app runs is the one
+    /// in its own bundle, started by launchd.
+    @MainActor
+    private static func developmentEnginePlan(registerBackground: Bool) -> AppLaunchPlan {
+        refuse(DevelopmentEngineLaunchRequest.Refusal.notAvailableInThisBuild)
+    }
+    #endif
+
+    private static func refuse(_ refusal: FixtureLaunchRequest.Refusal) -> Never {
+        refuse(sentence: refusal.sentence)
+    }
+
+    private static func refuse(_ refusal: DevelopmentEngineLaunchRequest.Refusal) -> Never {
+        refuse(sentence: refusal.sentence)
+    }
+
+    private static func refuse(sentence: String) -> Never {
+        FileHandle.standardError.write(Data("fermix: \(sentence)\n".utf8))
+        exit(2)
     }
 
     @MainActor
@@ -65,11 +157,91 @@ public enum FermixApp {
     }
 }
 
+/// How this process brings the app up: which configuration it composes, and
+/// what that configuration puts on screen.
+///
+/// Two values of one type rather than a flag the delegate reads, so the delegate
+/// has nothing to decide and the two configurations cannot reach into each
+/// other.
+@MainActor
+struct AppLaunchPlan {
+    let compose: () -> AppComposition
+    let present: (AppComposition) -> Void
+
+    /// The shipped launch: the product graph, opened at whatever the launch
+    /// reason resolves to.
+    static func product() -> AppLaunchPlan {
+        AppLaunchPlan(compose: { AppComposition() }, present: openLaunchReason)
+    }
+
+    /// What a real launch opens: whatever the launch reason resolves to.
+    static func openLaunchReason(_ composition: AppComposition) {
+        composition.coordinator.start(
+            reason: LaunchClassifier.classify(
+                isLoginLaunch: LoginLaunchProbe.isLoginLaunch(),
+                destination: nil
+            )
+        )
+    }
+
+    #if DEBUG
+    /// The fixture launch: the same graph over the contract's golden answers,
+    /// opened at the surface the argument named.
+    static func fixture(_ launch: FixtureLaunch) -> AppLaunchPlan {
+        AppLaunchPlan(
+            compose: {
+                do {
+                    return try AppComposition(fixture: launch)
+                } catch {
+                    // A bundle whose own golden fixtures cannot be read is
+                    // broken, exactly as an unreadable product configuration is.
+                    preconditionFailure("the fixture configuration is unreadable: \(error)")
+                }
+            },
+            present: { $0.present(fixture: launch) }
+        )
+    }
+
+    static func openDevelopmentLaunch(
+        coordinator: AppCoordinator,
+        reason: LaunchReason,
+        registerBackground: Bool
+    ) {
+        coordinator.start(reason: reason)
+        if registerBackground { coordinator.setBackgroundService(enabled: true) }
+    }
+
+    /// The development launch: the product graph on this Mac, activated against
+    /// the staged background agent. It opens the same surfaces as an installed
+    /// launch, with development installation preflights.
+    static func developmentEngine(registerBackground: Bool = false) -> AppLaunchPlan {
+        AppLaunchPlan(
+            compose: { AppComposition(environment: .developmentEngine()) },
+            present: { composition in
+                openDevelopmentLaunch(
+                    coordinator: composition.coordinator,
+                    reason: LaunchClassifier.classify(
+                        isLoginLaunch: LoginLaunchProbe.isLoginLaunch(), destination: nil
+                    ),
+                    registerBackground: registerBackground
+                )
+            }
+        )
+    }
+    #endif
+}
+
 /// Brings the composition up, wires the two AppKit-only signals it needs (url
 /// events and window occlusion), and tears voice down on quit.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let plan: AppLaunchPlan
     private var composition: AppComposition?
     private let log = AppLog.logger(.app)
+
+    @MainActor
+    init(plan: AppLaunchPlan) {
+        self.plan = plan
+    }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Delivered before the first window can be presented, which is where
@@ -84,22 +256,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let composition = AppComposition()
+        let composition = plan.compose()
         self.composition = composition
 
         composition.installApplicationIcon()
-        composition.menuBar.install()
+        composition.mainMenu.install(into: NSApplication.shared)
+        composition.installMenuBar()
         observeWindowOcclusion(composition)
 
-        composition.coordinator.start(
-            reason: LaunchClassifier.classify(isLoginLaunch: LoginLaunchProbe.isLoginLaunch(), route: nil)
-        )
+        plan.present(composition)
     }
 
     /// Closing every window leaves the menu bar app running: the daemon is
-    /// still there, and the panel is how it is reached.
+    /// still there, and the status item is how it is reached.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// The Dock tile, Launchpad or Spotlight, on an app that is already
+    /// running.
+    ///
+    /// The status item is the user's to remove, so this is the path that keeps
+    /// Fermix reachable without it: with nothing on screen, reopening opens the
+    /// window a user launch would. True either way, so macOS still does its own
+    /// unminiaturizing when there is a window to bring back.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        MainActor.assumeIsolated {
+            composition?.coordinator.reopen()
+        }
+
+        return true
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

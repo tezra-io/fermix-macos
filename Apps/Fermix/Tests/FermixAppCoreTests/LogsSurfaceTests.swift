@@ -222,6 +222,64 @@ struct LogsSurfaceTests {
 
         #expect(harness.model.status == .truncated(ProductStrings[.logsTruncated]))
     }
+
+    /// The wire carries UTC to the microsecond, which is the engine's format
+    /// and not a time anybody reads. The row shows that instant in this Mac's
+    /// own zone, to the millisecond, the way Console does.
+    @Test("a log row shows the daemon's instant as a local time")
+    func timeIsLocalised() throws {
+        let wire = "2026-08-19T12:00:00.512431+00:00"
+        let shown = LogLine.time(wire)
+
+        #expect(shown != wire)
+        #expect(!shown.contains("2026"), "the row still prints the date")
+        #expect(shown.contains("512"), "the fractional second was dropped")
+
+        // The same instant, rendered here rather than by a second formatter, so
+        // the expectation cannot drift with the machine's locale or zone.
+        let moment = try Date.ISO8601FormatStyle(timeZoneSeparator: .colon, includingFractionalSeconds: true)
+            .parse(wire)
+        #expect(shown == moment.formatted(.dateTime.hour().minute().second().secondFraction(.fractional(3))))
+    }
+
+    /// A row with no fractional seconds is the same format with one field
+    /// missing, not a string the parser refuses.
+    @Test("a timestamp without fractional seconds is still read")
+    func timeWithoutFractionalSeconds() {
+        #expect(LogLine.time("2026-08-19T12:00:00+00:00") != "2026-08-19T12:00:00+00:00")
+    }
+
+    /// A string this app cannot parse is shown exactly as the daemon sent it:
+    /// it is the only thing known about that row's time.
+    @Test("an unreadable timestamp is shown as the daemon wrote it")
+    func unreadableTimeIsKept() {
+        #expect(LogLine.time("not a time") == "not a time")
+    }
+
+    /// Console capitalises its levels and so does this. The wire value is the
+    /// key that selects a word and is never the word.
+    @Test("every level the wire publishes has a capitalised word")
+    func levelsAreWords() {
+        for wire in ManagementLogLevel.publishedValues.keys {
+            let level = ManagementLogLevel(wireValue: wire)
+            let word = LogLine.level(level)
+
+            #expect(word != wire, "\(wire) is rendered as its wire value")
+            #expect(word.first?.isUppercase == true, "\(wire) is not capitalised")
+        }
+
+        #expect(LogLine.level(.error) == "Error")
+        #expect(LogLine.level(.warning) == "Warning")
+        // A level this build has no word for: the daemon's own value is what
+        // the operator can search the engine for.
+        #expect(LogLine.level(.unrecognized("panic")) == "panic")
+    }
+
+    /// The picker offers the five levels the engine actually emits, by word.
+    @Test("the level filter lists the emitted levels as words")
+    func levelFilterIsWords() {
+        #expect(LogsView.filterableLevels.map(LogLine.level) == ["Error", "Warning", "Notice", "Info", "Debug"])
+    }
 }
 
 @MainActor

@@ -88,7 +88,8 @@ struct AgentLaunchTests {
             "USER": "tester",
             "TMPDIR": "/var/folders/xx/T/",
             "CLAUDE_CONFIG_DIR": "/Users/tester/.claude",
-            "LANG": "en_US.UTF-8"
+            "LANG": "en_US.UTF-8",
+            "PORT": "4530"
         ]
 
         let plan = try plan(bundle, environment: inherited)
@@ -186,14 +187,14 @@ struct AgentLaunchTests {
 
     @Test("an engine whose management window excludes this app is refused")
     func refusesAnIncompatibleManagementWindow() throws {
-        let bundle = try stage(manifest: EngineManifestFixture.document(managementRange: (2, 2, 3)))
+        let bundle = try stage(manifest: EngineManifestFixture.document(managementRange: (3, 3, 4)))
 
         #expect(
             throws: EngineManifestDefect.protocolUnsupported(
                 name: "management",
-                declared: 1,
-                minimum: 2,
-                maximum: 3
+                declared: 2,
+                minimum: 3,
+                maximum: 4
             )
         ) {
             _ = try plan(bundle)
@@ -411,7 +412,7 @@ enum EngineManifestFixture {
         architecture: String = "arm64",
         manifestArchitecture: String? = nil,
         distribution: String = "macos_app",
-        managementRange: (Int, Int, Int) = (1, 1, 1),
+        managementRange: (Int, Int, Int) = (2, 1, 2),
         realtimeRange: (Int, Int, Int) = (1, 1, 1)
     ) -> [String: Any] {
         let declared = manifestArchitecture ?? architecture

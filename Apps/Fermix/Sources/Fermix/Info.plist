@@ -8,6 +8,7 @@
   <key>CFBundleIdentifier</key><string>io.tezra.FermixPet</string>
   <key>CFBundleName</key><string>Fermix</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>FermixResourceBundleName</key><string>Fermix_FermixAppCore.bundle</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
@@ -22,7 +23,10 @@
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
-  <key>LSUIElement</key><true/>
+  <!-- No LSUIElement: FermixApp.main() sets the accessory policy as its first
+       AppKit act, and the window host promotes to a Dock app while a real
+       window is open. The plist key would pin UIElement and (observed live on
+       macOS 26.5) defeat that runtime promotion. -->
   <key>NSMicrophoneUsageDescription</key><string>Fermix uses microphone input only while you explicitly start a voice call.</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict>

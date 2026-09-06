@@ -34,6 +34,7 @@ ICON_FILE="$(xml_escape "$(product_config icon_file)")"
 MIN_SYSTEM_VERSION="$(xml_escape "$(product_config minimum_system_version)")"
 MICROPHONE_USAGE="$(xml_escape "$(product_config microphone_usage_description)")"
 URL_SCHEME="$(xml_escape "$(product_config url_scheme)")"
+RESOURCE_BUNDLE_NAME="$(xml_escape "$(product_config swift_resource_bundle_name)")"
 VERSION_ESCAPED="$(xml_escape "$VERSION")"
 BUILD_ESCAPED="$(xml_escape "$BUILD_NUMBER")"
 
@@ -48,6 +49,7 @@ cat >"$OUT" <<PLIST
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
   <key>CFBundleName</key><string>$PRODUCT_NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>FermixResourceBundleName</key><string>$RESOURCE_BUNDLE_NAME</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

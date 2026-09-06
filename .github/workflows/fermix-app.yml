@@ -65,6 +65,7 @@ jobs:
         run: |
           scripts/verify_staged_app_test.sh
           scripts/sign_app_test.sh
+          bash scripts/dev_e2e_test.sh
 
       - name: Static runtime-policy + build-harness tests
         working-directory: Apps/Fermix
@@ -100,6 +101,21 @@ jobs:
       # signature, ad-hoc and into a temporary directory, then the composed
       # verification that prints the signing, architecture, entitlement, and
       # artifact inventory into the job log.
+      #
+      # Release audience, which is what `package_release.sh` uses, so the
+      # promises a bundle that leaves this machine makes are asserted on every
+      # pull request rather than only at release time. The engine slot is empty
+      # here, so the engine-serves-the-protocol promise has nothing to check;
+      # `verify_staged_app_test.sh` above proves that one against reference
+      # bundles with a populated slot.
+      #
+      # This step is RED whenever the management contract is vendored from an
+      # engine working tree rather than from a commit: SOURCE.json records
+      # which, and the release audience refuses an unpublished pin. That is the
+      # truth about the tree and not a defect in the gate. Re-take the pin from
+      # the engine commit that publishes the protocol (re-vendor, then
+      # `verify_protocol_contract.sh --source <fermix-checkout>`) before a
+      # release is cut: the daemon ships first.
       - name: Staging dry run (universal2 / layout / signing)
         env:
           RUN_NUMBER: ${{ github.run_number }}
@@ -111,7 +127,7 @@ jobs:
           mkdir -p "$stage"
           scripts/stage_app.sh "0.0.0-ci" "$RUN_NUMBER" "$stage/$bundle" universal
           scripts/sign_app.sh "$stage/$bundle" "-"
-          scripts/verify_staged_app.sh "$stage/$bundle" universal signed
+          scripts/verify_staged_app.sh "$stage/$bundle" universal signed release
 
   # The vendored management + realtime contracts must match both pin records.
   # The fourth check the script offers — a byte-compare against a real fermix

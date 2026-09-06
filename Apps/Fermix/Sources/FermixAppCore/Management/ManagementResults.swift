@@ -45,6 +45,36 @@ public struct ManagementEngineIdentity: Codable, Equatable, Sendable {
 
 public struct ManagementCapabilityCatalog: Decodable, Equatable, Sendable {
     public let methods: [String]
+    /// Each method's `min_protocol_version`, added by protocol v2 on a method
+    /// whose own minimum is 1. Absent on a daemon one release behind.
+    ///
+    /// Advisory, never a second gate: the negotiated version is the single
+    /// decision (M34 §7.1), and the minimum a call is checked against comes from
+    /// the contract. The absent rendering is therefore "nothing changes".
+    public let minimumVersions: [String: Int]?
+
+    private enum CodingKeys: String, CodingKey {
+        case methods
+        case minimumVersions = "minimum_versions"
+    }
+
+    /// The advertised minimums, or none where the daemon publishes none.
+    public var declaredMinimumVersions: [String: Int] { minimumVersions ?? [:] }
+}
+
+/// What to do about a Doctor check, in the daemon's own words. Added by
+/// protocol v2 on a method whose minimum is 1, so it is optional on the check.
+public struct ManagementRemediation: Codable, Equatable, Sendable {
+    public struct Action: Codable, Equatable, Sendable {
+        public let kind: ManagementRemediationActionKind
+        /// What the kind acts on: a pane slug, a System Settings pane, a job
+        /// kind, or a catalogue entry naming a sheet of commands.
+        public let target: String?
+    }
+
+    public let title: String
+    public let body: String
+    public let action: Action
 }
 
 public struct ManagementSetupEndpoint: Decodable, Equatable, Sendable {
@@ -108,11 +138,23 @@ public struct ManagementDoctorCheck: Codable, Equatable, Sendable {
     public let summary: String
     public let evidence: ManagementScalarMap
     public let remediationCode: String?
+    /// The remediation this check offers, added by protocol v2. Absent on a
+    /// daemon one release behind, where the app renders the summary with no
+    /// action button — which is what `remediationActionKind` answers.
+    public let remediation: ManagementRemediation?
     public let durationMs: Int
     public let finishedAt: String
 
+    /// The action this check offers. A check with no remediation offers `none`,
+    /// which is the published kind for exactly that, so a renderer switches on
+    /// one closed set instead of on an optional.
+    public var remediationActionKind: ManagementRemediationActionKind {
+        remediation?.action.kind ?? .none
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id, category, severity, applicability, origin, status, summary, evidence
+        case remediation
         case remediationCode = "remediation_code"
         case durationMs = "duration_ms"
         case finishedAt = "finished_at"

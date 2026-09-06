@@ -414,6 +414,60 @@ struct BootstrapStoreTests {
         }
     }
 
+    // MARK: - The registration receipt
+
+    /// The one field M34 §7.2 adds, and it is a registration receipt rather than
+    /// a configuration overlay: `SMAppService` publishes a status and never the
+    /// plist it registered.
+    @Test("the registration receipt round-trips through the record")
+    func receiptRoundTrips() throws {
+        let temporary = try TemporaryDirectory()
+        defer { temporary.remove() }
+        let store = BootstrapStore(location: BootstrapLocation(homeDirectory: temporary.url))
+        _ = try store.save(fermixHome: BootstrapLocation(homeDirectory: temporary.url).defaultFermixHome)
+
+        #expect(try store.load().registeredAgentPlistSHA256 == nil)
+
+        _ = try store.recordAgentRegistration(plistSHA256: "aa11bb22")
+
+        #expect(try store.load().registeredAgentPlistSHA256 == "aa11bb22")
+    }
+
+    /// Recording a home is not a registration. Dropping the receipt on an
+    /// ordinary save would make every launch unregister and register the agent
+    /// again, which is exactly the loop the receipt exists to avoid.
+    @Test("recording a home carries the existing receipt forward")
+    func receiptSurvivesAnOrdinarySave() throws {
+        let temporary = try TemporaryDirectory()
+        defer { temporary.remove() }
+        let location = BootstrapLocation(homeDirectory: temporary.url)
+        let store = BootstrapStore(location: location)
+        _ = try store.save(fermixHome: location.defaultFermixHome)
+        _ = try store.recordAgentRegistration(plistSHA256: "aa11bb22")
+
+        let saved = try store.save(fermixHome: location.defaultFermixHome)
+
+        #expect(saved.registeredAgentPlistSHA256 == "aa11bb22")
+        #expect(try store.load().registeredAgentPlistSHA256 == "aa11bb22")
+    }
+
+    /// A record written before the field existed reads back with none, which the
+    /// reconciler treats as a difference rather than as a match.
+    @Test("a record written before the receipt existed reads back without one")
+    func recordWithoutAReceipt() throws {
+        let temporary = try TemporaryDirectory()
+        defer { temporary.remove() }
+        let location = BootstrapLocation(homeDirectory: temporary.url)
+        try Self.writeRaw(
+            """
+            {"schema_version": 1, "fermix_home": "\(location.defaultFermixHome.path)"}
+            """,
+            to: location
+        )
+
+        #expect(try BootstrapStore(location: location).load().registeredAgentPlistSHA256 == nil)
+    }
+
     // MARK: - Helpers
 
     private static func permissions(of url: URL) throws -> Int {

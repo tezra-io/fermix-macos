@@ -35,50 +35,47 @@ public struct VoiceState: Equatable, Sendable {
     var activeInputMode: VoiceMode { muted ? .muted : .listening }
 }
 
-/// Which onboarding surface the app is showing.
+/// Which Setup Assistant screen the app is showing.
 ///
-/// The five M34 stages are Welcome, Activate, Configure, Ready, and Recovery.
-/// Configure has three surfaces rather than one — the two connect shells and
-/// the daemon-served Setup they hand off to — and Activate has the boot-failure
-/// surface that replaces it, so the machine's states are finer than the stage
-/// names while the journey is the same one.
+/// The eight screens of M34 §4: Welcome, Starting, Connect your AI, About you,
+/// Applying, Ready, plus the two the journey can be replaced by, Boot failed and
+/// Recovery. There is no hosted-Setup state and no channel step: a channel is
+/// advisory in the readiness split, so it lives in the Channels pane.
 public enum OnboardingStage: String, CaseIterable, Sendable {
     case welcome
-    case activate
-    /// Replaces Activate when activation ends in one of its named causes.
-    case bootFailed
-    /// Configure, the AI shell. The forms themselves stay daemon-owned.
-    case configureAI
-    /// Configure, the channel shell.
-    case configureChannel
-    /// Configure, the daemon-served Setup in the ephemeral web view.
-    case configureSetup
+    /// The masked boot: the four-row ladder of M34 §4.
+    case starting
+    /// The one required decision.
+    case connectAI
+    /// The owner's name, time zone, style, and what to call the assistant.
+    case aboutYou
+    /// The two-row ladder that saves those answers and restarts the daemon.
+    case applying
     case ready
+    /// Replaces Starting when activation ends in one of its named causes.
+    case bootFailed
     case recovery
 
-    /// The five steps the progress dots count. The hosted Setup shares its
-    /// step with the shell it was opened from: it is a surface over that step,
-    /// not a step of its own.
-    public static let progressStepCount = 5
-
-    public var isConfigure: Bool {
-        switch self {
-        case .configureAI, .configureChannel, .configureSetup: return true
-        case .welcome, .activate, .bootFailed, .ready, .recovery: return false
-        }
-    }
+    /// The steps the progress dots count.
+    ///
+    /// Four, not eight: the two mechanical stages inherit the step they run
+    /// inside (redlines §5.8), and the two failure screens carry no dots at all.
+    public static let progressStepCount = 4
 
     /// Which dot is lit, or nil where the design draws none.
     public var progressIndex: Int? {
         switch self {
-        case .welcome: return 0
-        case .activate: return 1
-        case .configureAI: return 2
-        case .configureChannel, .configureSetup: return 3
-        case .ready: return 4
+        case .welcome, .starting: return 0
+        case .connectAI: return 1
+        case .aboutYou, .applying: return 2
+        case .ready: return 3
         case .bootFailed, .recovery: return nil
         }
     }
+
+    /// Whether this stage runs on its own and takes no decision, which is what
+    /// leaves the bottom bar without a continue action while it does.
+    public var isMechanical: Bool { self == .starting || self == .applying }
 }
 
 /// How the daemon is doing, as the menu bar reads it.
@@ -86,6 +83,26 @@ public enum DaemonCondition: String, CaseIterable, Sendable {
     case running
     case starting
     case stopped
+}
+
+/// What one look at the daemon found.
+///
+/// The condition has exactly one writer, `AppCoordinator`, and two sources that
+/// speak through this value: the read Home already makes on every refresh, and
+/// the lifecycle transaction the user runs. Two sources and one shape is what
+/// stops a launch against a daemon that is already up from sitting on
+/// `starting` for the whole session, without giving the menu bar a poll of its
+/// own to disagree with Home's.
+public struct DaemonObservation: Equatable, Sendable {
+    public let condition: DaemonCondition
+    /// Whether the operator has something to look at. It reaches the menu bar
+    /// as a shape cut into the glyph, never as a colour cue alone.
+    public let needsAttention: Bool
+
+    public init(condition: DaemonCondition, needsAttention: Bool) {
+        self.condition = condition
+        self.needsAttention = needsAttention
+    }
 }
 
 /// Application-scoped presentation state, and the routing that drives it.
@@ -98,14 +115,40 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var voice = VoiceState()
     @Published public var route: AppRoute = .home
     @Published public var onboardingStage: OnboardingStage = .welcome
-    @Published public var serviceEnabled = false
     /// Starting, until something authoritative says otherwise. A launch has not
     /// asked the daemon anything yet, and the attention badge is a claim: it
     /// must mean "look at this", not "nobody has looked yet".
+    ///
+    /// Home's first refresh is what answers, through
+    /// `AppCoordinator.daemonObserved`. Nothing else may write this: a second
+    /// writer is how the glyph and the status line come to say different
+    /// things about the same daemon.
     @Published public var daemon: DaemonCondition = .starting
     @Published public var petShown = false
     @Published public var needsAttention = false
     @Published public var transactionInFlight = false
+    /// Whether the Restart sheet is asking, in the one window that can host it.
+    ///
+    /// One owner for the whole app (M34 §5.10): Home's Attention row, the
+    /// Settings banner, the Daemon menu and the status item all ask through
+    /// `AppCoordinator.askForRestart`, so a restart is never taken without the
+    /// sheet naming its reasons and the work it would interrupt.
+    @Published public var restartSheetShown = false
+    /// Why the last lifecycle transaction was refused, in one sentence, or nil
+    /// where it was not.
+    ///
+    /// One writer, `AppCoordinator`, like the daemon condition beside it. It is
+    /// what the Restart sheet reads: a refusal that only reached the log left
+    /// the operator clicking a button that did nothing (owner report of
+    /// 2026-09-04).
+    @Published public var restartRefusal: String?
+    /// The sheet of commands a surface asked to show, where one asked.
+    ///
+    /// One owner, like the Restart sheet: Home's Attention row, a Doctor
+    /// remediation and the Help menu all ask through
+    /// `AppCoordinator.showInstructions`, so the same lines are drawn the same
+    /// way whichever door opened them (M34 §15.2).
+    @Published public var instructionsShown: CoexistenceInstructions?
 
     /// Normalized RMS (0...1) of the model's voice output. A plain property, not
     /// published: the pet's timeline samples it every frame, so a per-chunk

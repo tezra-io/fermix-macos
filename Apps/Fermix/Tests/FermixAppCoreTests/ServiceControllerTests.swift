@@ -115,9 +115,14 @@ final class FakeLoginItemService: LoginItemService, @unchecked Sendable {
 
     /// Establishes a starting state without recording it: the call lists are
     /// about what the code under test did, not how the scenario was set up.
-    func preregister(_ principal: LoginItemPrincipal) {
+    ///
+    /// - Parameter status: the state macOS reports for this principal. It is a
+    ///   parameter because two of the four states no register or unregister call
+    ///   can produce: `requiresApproval` is the operator's Login Items switch,
+    ///   and `notFound` is macOS unable to find the item at all.
+    func preregister(_ principal: LoginItemPrincipal, as status: ServiceRegistrationStatus = .enabled) {
         lock.lock()
-        statuses[principal] = .enabled
+        statuses[principal] = status
         lock.unlock()
     }
 

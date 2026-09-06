@@ -31,6 +31,7 @@ BUNDLE_ID="$(product_config bundle_identifier)"
 RESOURCE_BUNDLE_NAME="$(product_config swift_resource_bundle_name)"
 GUI_EXECUTABLE="$(product_config gui_executable_name)"
 AGENT_EXECUTABLE="$(product_config agent_executable_name)"
+AGENT_LABEL="$(product_config agent_service_label)"
 ENGINE_RELATIVE_PATH="$(product_config engine_relative_path)"
 TOOLS_RELATIVE_PATH="$(product_config tools_relative_path)"
 ENTITLEMENTS="$ROOT_DIR/Apps/Fermix/Sources/Fermix/Fermix.entitlements"
@@ -130,10 +131,12 @@ sign_engine_and_tools
 
 # The agent is nested Mach-O inside Contents/MacOS, so it is signed before the
 # outer bundle too. It carries no entitlements: the GUI is the only microphone
-# principal, and one consent never implies another.
+# principal, and one consent never implies another. Its signing identifier is
+# the configured service label, not a value derived from this build's Mach-O.
 agent="$APP/Contents/MacOS/$AGENT_EXECUTABLE"
 [ -f "$agent" ] || fail "agent executable missing at $agent"
-codesign --force "${timestamp[@]}" --options runtime --sign "$IDENTITY" "$agent"
+codesign --force "${timestamp[@]}" --options runtime \
+  --identifier "$AGENT_LABEL" --sign "$IDENTITY" "$agent"
 
 codesign --force "${timestamp[@]}" --options runtime \
   --entitlements "$ENTITLEMENTS" \
@@ -141,6 +144,10 @@ codesign --force "${timestamp[@]}" --options runtime \
   --sign "$IDENTITY" "$APP"
 
 codesign --verify --deep --strict --verbose=2 "$APP"
+
+agent_signature="$(codesign -dv "$agent" 2>&1)"
+printf '%s\n' "$agent_signature" | grep -qFx "Identifier=$AGENT_LABEL" ||
+  fail "agent signing identifier does not match $AGENT_LABEL"
 
 codesign -d --entitlements - "$APP" 2>&1 | grep -q "com.apple.security.device.audio-input" \
   || fail "microphone entitlement absent after signing"

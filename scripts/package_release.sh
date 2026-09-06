@@ -110,7 +110,7 @@ main() {
   # The composed gate over the signed bundle: layout, configured identity, both
   # property lists, the vendored contracts, the assets, the declared slots, and
   # the signing/architecture/entitlement inventory this release records.
-  "$ROOT_DIR/scripts/verify_staged_app.sh" "$APP" universal signed
+  "$ROOT_DIR/scripts/verify_staged_app.sh" "$APP" universal signed release
 
   # Two-pass staple: notarize + staple the app first (offline-robust first launch),
   # then package it into a DMG and notarize + staple the DMG.

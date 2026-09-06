@@ -13,9 +13,14 @@ import Testing
 struct LifecycleCoordinatorTests {
     private func makeHarness(
         registered: Bool = false,
-        daemonRunning: Bool = false
+        daemonRunning: Bool = false,
+        registrationReceipt: String? = LifecycleHarness.bundledPlistDigest
     ) throws -> LifecycleHarness {
-        try LifecycleHarness(registered: registered, daemonRunning: daemonRunning)
+        try LifecycleHarness(
+            registered: registered,
+            daemonRunning: daemonRunning,
+            registrationReceipt: registrationReceipt
+        )
     }
 
     // MARK: - Enable
@@ -32,6 +37,28 @@ struct LifecycleCoordinatorTests {
         #expect(harness.plane.calls == [.hello])
         #expect(harness.web.probedOrigins == ["http://127.0.0.1:4030"])
         #expect(harness.journal.isEmpty)
+    }
+
+    @Test("a successful enable records the bundled agent registration receipt")
+    func enableRecordsRegistrationReceipt() async throws {
+        let harness = try makeHarness(registrationReceipt: nil)
+
+        let outcome = try await harness.coordinator.enableBackgroundService()
+
+        #expect(outcome == .enabled(pid: 4_242))
+        #expect(try harness.registrationReceipt() == LifecycleHarness.bundledPlistDigest)
+        #expect(harness.journal.isEmpty)
+    }
+
+    @Test("an enable with an invalid daemon PID cannot record a success receipt")
+    func invalidEnableDoesNotRecordReceipt() async throws {
+        let harness = try makeHarness(registrationReceipt: nil)
+        harness.plane.helloPid = "0"
+
+        await #expect(throws: LifecycleFailure.daemonIdentityUnreadable(pid: "0")) {
+            try await harness.coordinator.enableBackgroundService()
+        }
+        #expect(try harness.registrationReceipt() == nil)
     }
 
     @Test("enabling without a bootstrap record refuses before touching the service")
@@ -61,12 +88,13 @@ struct LifecycleCoordinatorTests {
 
     @Test("a daemon whose web surface never answers fails after the bounded wait")
     func enableFailsWhenTheWebSurfaceNeverAnswers() async throws {
-        let harness = try makeHarness()
+        let harness = try makeHarness(registrationReceipt: nil)
         harness.web.isLive = false
 
         await #expect(throws: LifecycleFailure.webNeverAnswered(origin: "http://127.0.0.1:4030")) {
             try await harness.coordinator.enableBackgroundService()
         }
+        #expect(try harness.registrationReceipt() == nil)
     }
 
     // MARK: - Disable
@@ -151,7 +179,44 @@ struct LifecycleCoordinatorTests {
 
     // MARK: - Restart
 
-    @Test("restarting never changes the registration and waits for a different pid")
+    /// The preflight that had to exist (owner report of 2026-09-04). launchd
+    /// relaunches only a daemon it owns, so on any registration but `enabled`
+    /// the drain committed, the daemon exited, and nothing brought it back: the
+    /// operator's Fermix was gone until the next login. It refuses before the
+    /// journal is written, so the next launch is not told a recovery is pending.
+    @Test(
+        "a restart is refused before any mutation while the agent is not registered",
+        arguments: [ServiceRegistrationStatus.notFound, .requiresApproval, .notRegistered]
+    )
+    func restartRefusesAnUnmanagedDaemon(status: ServiceRegistrationStatus) async throws {
+        let harness = try makeHarness(daemonRunning: true)
+        harness.loginItems.preregister(.agent, as: status)
+
+        await #expect(throws: LifecycleFailure.daemonNotManaged(status)) {
+            try await harness.coordinator.restartDaemon()
+        }
+
+        #expect(harness.plane.calls.isEmpty, "nothing was prepared or committed")
+        #expect(harness.loginItems.unregisterCalls.isEmpty)
+        #expect(harness.loginItems.registerCalls.isEmpty)
+        #expect(harness.journal.isEmpty, "a refused preflight leaves no recovery record")
+    }
+
+    /// And the refusal says why, in one sentence the sheet and the assistant
+    /// both render. A refusal that only reached the log left `Restart now`
+    /// looking like a button that does nothing.
+    @Test("the refusal carries the sentence a surface can show")
+    func unmanagedRefusalCarriesItsSentence() {
+        #expect(
+            LifecycleFailure.daemonNotManaged(.notFound).sentence
+                == ProductStrings[.lifecycleDaemonNotManaged]
+        )
+        #expect(LifecycleFailure.daemonNeverReturned.sentence == nil)
+    }
+
+    /// The registration is touched only where the bundled plist has changed
+    /// (M34 §7.2 step 5), which this healthy install's receipt says it has not.
+    @Test("restarting an unchanged install keeps the registration and waits for a different pid")
     func restartKeepsTheRegistration() async throws {
         let harness = try makeHarness(registered: true, daemonRunning: true)
         harness.plane.helloPid = "77"
@@ -166,6 +231,59 @@ struct LifecycleCoordinatorTests {
         #expect(harness.loginItems.unregisterCalls.isEmpty)
         #expect(harness.plane.calls == [.hello, .prepare, .commit("lease-1"), .hello])
         #expect(harness.web.probedOrigins.count == 1)
+    }
+
+    /// M34 §7.2 step 5. A receipt that names the plist this bundle ships means
+    /// launchd is already running what the bundle asks for, so the restart
+    /// leaves the registration alone.
+    @Test("a receipt matching the bundled plist renews no registration")
+    func restartLeavesAMatchingRegistrationAlone() async throws {
+        let harness = try makeHarness(registered: true, daemonRunning: true)
+        harness.plane.helloPid = "77"
+        harness.plane.helloPidAfterRestart = "99"
+        harness.process.exitsAfterPolls = 1
+
+        _ = try await harness.coordinator.restartDaemon()
+
+        #expect(harness.loginItems.unregisterCalls.isEmpty)
+        #expect(harness.loginItems.registerCalls.isEmpty)
+    }
+
+    /// A bundle whose plist differs from the one that was registered has to
+    /// unregister and register before launchd brings the daemon back, or the
+    /// changed `ProgramArguments` is applied to nothing.
+    @Test("a receipt that differs from the bundled plist unregisters and registers")
+    func restartRenewsAChangedRegistration() async throws {
+        let harness = try makeHarness(
+            registered: true,
+            daemonRunning: true,
+            registrationReceipt: "0000000000000000000000000000000000000000000000000000000000000000"
+        )
+        harness.plane.helloPid = "77"
+        harness.plane.helloPidAfterRestart = "99"
+        harness.process.exitsAfterPolls = 1
+
+        _ = try await harness.coordinator.restartDaemon()
+
+        #expect(harness.loginItems.unregisterCalls == [.agent])
+        #expect(harness.loginItems.registerCalls == [.agent])
+        // The new receipt is written, so the next restart renews nothing.
+        #expect(try harness.registrationReceipt() == LifecycleHarness.bundledPlistDigest)
+    }
+
+    /// A record written before the receipt field existed carries no receipt at
+    /// all, and §7.2 reads that as a difference rather than a match.
+    @Test("a record with no receipt renews the registration")
+    func restartRenewsWhenNoReceiptWasEverWritten() async throws {
+        let harness = try makeHarness(registered: true, daemonRunning: true, registrationReceipt: nil)
+        harness.plane.helloPid = "77"
+        harness.plane.helloPidAfterRestart = "99"
+        harness.process.exitsAfterPolls = 1
+
+        _ = try await harness.coordinator.restartDaemon()
+
+        #expect(harness.loginItems.unregisterCalls == [.agent])
+        #expect(harness.loginItems.registerCalls == [.agent])
     }
 
     /// The same pid answering again is not a restart: launchd may not have

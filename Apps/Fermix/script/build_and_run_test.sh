@@ -95,8 +95,14 @@ grep -F "<key>CFBundleExecutable</key><string>Fermix</string>" \
   "$INSTALLED_APP/Contents/Info.plist" >/dev/null
 grep -F "<key>LSMinimumSystemVersion</key><string>15.0</string>" \
   "$INSTALLED_APP/Contents/Info.plist" >/dev/null
-# The menu bar app declares itself an accessory and registers its url scheme.
-grep -F "<key>LSUIElement</key><true/>" "$INSTALLED_APP/Contents/Info.plist" >/dev/null
+# The app registers its url scheme, and carries NO LSUIElement: the accessory
+# policy is set in code as the first AppKit act, and the window host promotes to
+# a Dock app while a window is open, which the plist key would pin against.
+# `verify_staged_app.sh` asserts the same absence for a staged bundle.
+if grep -F "<key>LSUIElement</key>" "$INSTALLED_APP/Contents/Info.plist" >/dev/null; then
+  echo "build_and_run_test: the installed Info.plist carries LSUIElement; the activation policy is code-owned" >&2
+  exit 1
+fi
 grep -F "<string>fermix</string>" "$INSTALLED_APP/Contents/Info.plist" >/dev/null
 # SMAppService.agent reads exactly this path, pointing at exactly this program.
 AGENT_PLIST="$INSTALLED_APP/Contents/Library/LaunchAgents/io.tezra.FermixPet.agent.plist"

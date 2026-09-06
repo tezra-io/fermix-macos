@@ -9,78 +9,9 @@ import Testing
 /// file contains, so an added fixture fails here instead of being ignored.
 @Suite("ManagementClient requests")
 struct ManagementClientRequestTests {
-    /// Each golden request, mapped to the call that must produce it.
-    private static let invocations: [String: @Sendable (ManagementClient) async throws -> Void] = [
-        "hello": { _ = try await $0.hello() },
-        "hello_without_params": { _ = try await $0.hello() },
-        "overview_get": { _ = try await $0.overview() },
-        "setup_session_create": { _ = try await $0.createSetupSession() },
-        "doctor_start_default_scope": { _ = try await $0.startDoctor() },
-        "doctor_start_network_scope": { _ = try await $0.startDoctor(scope: .network) },
-        "doctor_get": { _ = try await $0.doctorSession(id: "doctor:9Fj2mQ7bT1xK") },
-        "doctor_cancel": { _ = try await $0.cancelDoctorSession(id: "doctor:9Fj2mQ7bT1xK") },
-        "logs_query_default_tail": { _ = try await $0.queryLogs(ManagementLogsQuery()) },
-        "logs_query_filtered": {
-            _ = try await $0.queryLogs(
-                ManagementLogsQuery(
-                    limit: 50,
-                    level: .warning,
-                    subsystem: "realtime",
-                    search: "socket",
-                    direction: .backward
-                )
-            )
-        },
-        "logs_query_next_page": {
-            _ = try await $0.queryLogs(
-                ManagementLogsQuery(
-                    limit: 200,
-                    direction: .backward,
-                    cursor: "eyJhbmNob3IiOjIwMCwiZmluZ2VycHJpbnQiOjExODgxMjkxM30"
-                )
-            )
-        },
-        "lifecycle_prepare": { _ = try await $0.prepareLifecycle() },
-        "lifecycle_commit": { _ = try await $0.commitLifecycle(leaseId: "lease_Qm5xR2t7Vd9pLk3A") },
-        "lifecycle_cancel": { _ = try await $0.cancelLifecycle(leaseId: "lease_Qm5xR2t7Vd9pLk3A") },
-        "diagnostics_build": { _ = try await $0.buildDiagnostics() }
-    ]
-
-    @Test("every golden request is exercised")
-    func everyGoldenRequestIsExercised() throws {
-        let published = Set(try ManagementFixtures.load(.requests).map(\.name))
-
-        #expect(Set(Self.invocations.keys) == published)
-    }
-
-    @Test("each call emits the contract's golden frame")
-    func callsEmitGoldenFrames() async throws {
-        let envelopes = try ManagementFixtures.successEnvelopesByMethod()
-
-        for fixture in try ManagementFixtures.load(.requests) {
-            guard let invoke = Self.invocations[fixture.name] else { continue }
-
-            var expected = try fixture.object("frame")
-            let identifier = expected["request_id"] as? String ?? ""
-            // A request-free method may omit `params` entirely; the client
-            // always sends the empty object the schema defaults it to.
-            if expected["params"] == nil { expected["params"] = [String: Any]() }
-
-            let transport = EchoingFixtureTransport(envelopes: envelopes)
-            let client = try ManagementTestClient.make(
-                transport: transport,
-                requestIdentifier: identifier
-            )
-            _ = try await client.hello()
-            try await invoke(client)
-
-            let emitted = try #require(transport.capturedFrames.last)
-            #expect(
-                ManagementFixtures.equal(emitted, expected),
-                "\(fixture.name): emitted \(emitted) expected \(expected)"
-            )
-        }
-    }
+    /// Which call produces which golden frame is `ManagementV2Calls`, and the
+    /// fixture suite replays it. This suite owns what a frame is refused for
+    /// before it is ever sent.
 
     @Test("a bounded parameter over its published limit is refused before sending")
     func outOfRangeParametersAreRefused() async throws {
@@ -143,15 +74,19 @@ struct ManagementClientRequestTests {
 struct ManagementClientResultTests {
     private static let leaseClock = Date(timeIntervalSince1970: 1_755_561_000)
 
-    @Test("every golden success envelope is exercised")
-    func everyGoldenSuccessIsExercised() throws {
+    /// Every field of the answers this suite reads deeply. The whole tree is
+    /// decoded by `ManagementV2FixtureTests`, which owns that coverage; these
+    /// cases go past decoding into the values a surface renders.
+    @Test("the deeply decoded answers are published golden records")
+    func deeplyDecodedAnswersArePublished() throws {
         let published = Set(try ManagementFixtures.load(.success).map(\.name))
 
-        #expect(published == Self.exercisedNames)
+        #expect(Self.exercisedNames.isSubset(of: published))
+        #expect(Self.exercisedNames.count == 10)
     }
 
     private static let exercisedNames: Set<String> = [
-        "hello", "overview_get", "setup_session_create", "doctor_start",
+        "hello", "overview_get", "doctor_start",
         "doctor_get_in_progress", "doctor_cancel_terminal", "logs_query",
         "lifecycle_prepare", "lifecycle_commit", "lifecycle_cancel", "diagnostics_build"
     ]
@@ -160,10 +95,10 @@ struct ManagementClientResultTests {
     func helloDecodes() async throws {
         let hello = try await Self.helloResult()
 
-        #expect(hello.protocolRange.currentVersion == 1)
+        #expect(hello.protocolRange.currentVersion == 2)
         #expect(hello.protocolRange.minimum == 1)
-        #expect(hello.protocolRange.maximum == 1)
-        #expect(hello.capabilities.methods.count == 11)
+        #expect(hello.protocolRange.maximum == 2)
+        #expect(hello.capabilities.methods.count == 42)
         #expect(hello.engine.engineId == "fermix-core")
         #expect(hello.engine.productVersion == "0.9.0")
         #expect(hello.engine.distributionIdentity == "macos_app")
@@ -199,17 +134,6 @@ struct ManagementClientResultTests {
         #expect(overview.capabilities.total == 62)
     }
 
-    @Test("a setup session carries the one-use url and its absolute expiry")
-    func setupSessionDecodes() async throws {
-        let session: ManagementSetupSession = try await Self.decode("setup_session_create") {
-            try await $0.createSetupSession()
-        }
-
-        #expect(session.url.contains("/setup?t="))
-        #expect(session.expiresAtMs == 1_755_561_600_000)
-        #expect(session.expiresAt == Date(timeIntervalSince1970: 1_755_561_600))
-    }
-
     @Test("a started doctor session decodes with an empty check list")
     func doctorStartDecodes() async throws {
         let session: ManagementDoctorSession = try await Self.decode("doctor_start") {
@@ -232,10 +156,10 @@ struct ManagementClientResultTests {
             try await $0.doctorSession(id: "doctor:9Fj2mQ7bT1xK")
         }
 
-        #expect(session.completedCount == 2)
+        #expect(session.completedCount == 3)
         #expect(session.summary.passed == 1)
-        #expect(session.summary.warning == 1)
-        #expect(session.checks.count == 2)
+        #expect(session.summary.warning == 2)
+        #expect(session.checks.count == 3)
         #expect(session.checks[0].id == "readiness")
         #expect(session.checks[0].status == .passed)
         #expect(session.checks[0].category == .runtime)
@@ -384,7 +308,7 @@ struct ManagementClientErrorTests {
     @Test("every published error code surfaces as a typed failure")
     func errorFixturesSurfaceTyped() async throws {
         let fixtures = try ManagementFixtures.load(.errors)
-        #expect(fixtures.count == 14)
+        #expect(fixtures.count == 20)
 
         for fixture in fixtures {
             let envelope = try fixture.object("response")
@@ -461,7 +385,7 @@ struct ManagementClientErrorTests {
                     continue
                 }
                 #expect(failure.details.minimumVersion == 1)
-                #expect(failure.details.maximumVersion == 1)
+                #expect(failure.details.maximumVersion == 2)
             }
         }
     }
@@ -609,9 +533,19 @@ struct ManagementClientNegotiationTests {
                 #expect(frame?["protocol_version"] == nil, "\(fixture.name)")
                 #expect(emitted["request_id"] is String, "\(fixture.name)")
                 #expect(emitted["protocol_version"] as? Int == 1, "\(fixture.name)")
-            case "error":
+                #expect(emitted["protocol_version"] as? Int != 0, "\(fixture.name)")
+            case "error", "refused_by_router":
                 let code = ManagementErrorCode(wireValue: try fixture.string("error_code"))
                 #expect(code.isPublished, "\(fixture.name): \(code.wireValue) is not published")
+            case "response":
+                // A published answer with every optional field absent. It has
+                // to decode into the typed row, because a null is never a state
+                // this client infers something from.
+                let result = try #require(try fixture.object("response")["result"])
+                _ = try JSONDecoder().decode(
+                    ManagementPluginCatalog.self,
+                    from: try JSONSerialization.data(withJSONObject: result)
+                )
             default:
                 Issue.record("\(fixture.name): unhandled expectation \(expectation)")
             }
@@ -621,10 +555,12 @@ struct ManagementClientNegotiationTests {
         #expect(handled == (try ManagementFixtures.load(.compatibility).count))
     }
 
-    /// The app declares v1 and never retries through v0, so both markers are on
-    /// every frame it sends and the declared version is never 0.
-    @Test("every emitted frame declares protocol version 1")
-    func everyEmittedFrameDeclaresVersionOne() async throws {
+    /// The app never retries through v0, so both markers are on every frame it
+    /// sends and the declared version is never 0. `hello` is stamped with the
+    /// floor, which every daemon inside the window serves; everything past it
+    /// is stamped with the version the two sides negotiated.
+    @Test("every emitted frame declares a marker and never version 0")
+    func everyEmittedFrameDeclaresItsVersion() async throws {
         let envelopes = try ManagementFixtures.successEnvelopesByMethod()
         let transport = EchoingFixtureTransport(envelopes: envelopes)
         let client = try ManagementTestClient.make(transport: transport)
@@ -634,8 +570,8 @@ struct ManagementClientNegotiationTests {
         _ = try await client.prepareLifecycle()
 
         #expect(transport.capturedFrames.count == 3)
+        #expect(transport.capturedFrames.map { $0["protocol_version"] as? Int } == [1, 2, 2])
         for frame in transport.capturedFrames {
-            #expect(frame["protocol_version"] as? Int == 1)
             #expect(frame["request_id"] is String)
             #expect(frame["method"] is String)
         }
@@ -655,12 +591,13 @@ struct ManagementClientNegotiationTests {
     }
 
     /// hello is how the window is learned, so it answers; everything past it is
-    /// refused while the daemon's window excludes the version the app speaks.
-    @Test("a window that excludes the declared version refuses every call past hello")
+    /// refused while the two sides share no version at all. This client speaks
+    /// `[1, 2]`, so a `{3, 4}` daemon leaves an empty intersection.
+    @Test("a window that shares no version refuses every call past hello")
     func windowMismatchRefusesPastHello() async throws {
         var hello = try Self.helloEnvelope()
         var result = hello["result"] as? [String: Any] ?? [:]
-        result["protocol"] = ["current_version": 2, "minimum_version": 2, "maximum_version": 3]
+        result["protocol"] = ["current_version": 4, "minimum_version": 3, "maximum_version": 4]
         hello["result"] = result
 
         let transport = ScriptedManagementTransport(responses: [
@@ -672,10 +609,17 @@ struct ManagementClientNegotiationTests {
         )
 
         let negotiated = try await client.hello()
-        #expect(negotiated.protocolRange.minimum == 2)
+        #expect(negotiated.protocolRange.minimum == 3)
 
         await #expect(
-            throws: ManagementError.unsupportedProtocolVersion(declared: 1, minimum: 2, maximum: 3)
+            throws: ManagementError.incompatibleProtocol(
+                app: [1, 2],
+                daemon: try ManagementValueFixture.protocolRange(
+                    current: 4,
+                    minimum: 3,
+                    maximum: 4
+                )
+            )
         ) {
             _ = try await client.overview()
         }

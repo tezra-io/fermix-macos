@@ -23,6 +23,7 @@ source "$ROOT_DIR/scripts/fake_staged_app.sh"
 APP_BUNDLE_NAME="$(product_config app_bundle_name)"
 BUNDLE_ID="$(product_config bundle_identifier)"
 AGENT_EXECUTABLE="$(product_config agent_executable_name)"
+AGENT_LABEL="$(product_config agent_service_label)"
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -83,6 +84,11 @@ signature="$(codesign -dv "$app" 2>&1)"
 printf '%s' "$signature" | grep -q "Identifier=$BUNDLE_ID" ||
   fail "the signed bundle does not carry the configured identifier"
 echo "  ok   the GUI is the only microphone principal, sealed under $BUNDLE_ID"
+
+agent_signature="$(codesign -dv "$app/Contents/MacOS/$AGENT_EXECUTABLE" 2>&1)"
+printf '%s\n' "$agent_signature" | grep -qFx "Identifier=$AGENT_LABEL" ||
+  fail "the signed agent does not carry the configured identifier $AGENT_LABEL"
+echo "  ok   the agent carries the stable configured identifier $AGENT_LABEL"
 
 echo "sign_app_test: refusals"
 

@@ -10,32 +10,41 @@ public enum HairlineWeight: String, CaseIterable, Sendable {
     case strong
 }
 
-/// The semantic palette, verbatim from `M34_DESIGN_SYSTEM_REDLINES.md` §§1.1–1.2.
+/// The semantic palette, from `M34_DESIGN_SYSTEM_REDLINES.md` §§1.1–1.2 with
+/// the palette v2 amendment.
 ///
-/// Every neutral is chroma 0 and every status colour is deliberately
-/// low-chroma; `#2b5cff` is the only accent in the product, and §2 of the
-/// design spec is explicit that a surface showing two blues that are not
-/// selection plus primary action has a defect.
+/// `#2b5cff` is the only accent in the product, and §2 of the design spec is
+/// explicit that a surface showing two blues that are not selection plus
+/// primary action has a defect. Palette v2 amends the "chroma 0 neutrals"
+/// doctrine in exactly one place: GROUND fills may carry a barely-cool cast
+/// (blue-family, at most 3% chroma — the `#101014` family), because that cast
+/// is what separates premium dark from flat black. TEXT neutrals stay
+/// near-neutral.
 public enum Palette {
     // MARK: - Neutrals
 
-    /// Window and content ground.
-    public static let base100 = ThemedColor(lightHex: "#fcfcfc", darkHex: "#020202")
-    /// Recessed ground, the web surface, and the Reduce-Transparency fill.
-    public static let base200 = ThemedColor(lightHex: "#f5f5f5", darkHex: "#060606")
+    /// Window and content ground. Opaque: the detail pane sits on this, not on
+    /// glass.
+    public static let base100 = ThemedColor(lightHex: "#f6f7f9", darkHex: "#101014")
+    /// Recessed ground and the Reduce-Transparency fill.
+    public static let base200 = ThemedColor(lightHex: "#eef0f3", darkHex: "#0b0b0e")
     /// Pressed and hover fills.
-    public static let base300 = ThemedColor(lightHex: "#e4e4e4", darkHex: "#1b1b1b")
+    public static let base300 = ThemedColor(lightHex: "#e3e5e9", darkHex: "#1e1e24")
     /// Primary text.
-    public static let ink = ThemedColor(lightHex: "#161616", darkHex: "#f2f2f2")
+    public static let ink = ThemedColor(lightHex: "#16161a", darkHex: "#f4f5f7")
     /// Body and secondary text.
-    public static let secondary = ThemedColor(lightHex: "#555555", darkHex: "#9e9e9e")
+    public static let secondary = ThemedColor(lightHex: "#52565e", darkHex: "#a6abb4")
     /// Captions, timestamps, and hints. Never load-bearing text.
-    public static let faint = ThemedColor(lightHex: "#808080", darkHex: "#717171")
+    public static let faint = ThemedColor(lightHex: "#7d8087", darkHex: "#75787f")
 
     // MARK: - The one blue
 
     public static let accent = ThemedColor(uniform: SRGBColor(hex: "#2b5cff"))
     public static let accentPressed = ThemedColor(uniform: SRGBColor(hex: "#1e46d6"))
+    /// The primary button's hover fill.
+    public static let accentHover = ThemedColor(uniform: SRGBColor(hex: "#4a73ff"))
+    /// The keyboard focus ring: a 3-point outer stroke of the accent at 45%.
+    public static let focusRing = ThemedColor(uniform: .rgba(43, 92, 255, 0.45))
 
     /// §1.1 gives this token a dark value only.
     public static let linkHoverDark = SRGBColor(hex: "#6b8dff")
@@ -46,26 +55,24 @@ public enum Palette {
 
     // MARK: - Status
 
-    public static let success = ThemedColor(lightHex: "#618374", darkHex: "#8bae9e")
-    public static let warning = ThemedColor(lightHex: "#9c815d", darkHex: "#ceb38d")
-    public static let error = ThemedColor(lightHex: "#a05c57", darkHex: "#ca827c")
+    public static let success = ThemedColor(lightHex: "#1f7a4d", darkHex: "#4cc38a")
+    public static let warning = ThemedColor(lightHex: "#9a6b1f", darkHex: "#e0b35c")
+    public static let error = ThemedColor(lightHex: "#b3423a", darkHex: "#e5766c")
     /// Text inside a success pill, darker than the dot beside it.
-    public static let successText = ThemedColor(lightHex: "#3d5d4f", darkHex: "#adc4b9")
-    /// Doctor PASS letter-pill, text only.
-    public static let pillPass = ThemedColor(lightHex: "#4b6c5d", darkHex: "#8bae9e")
-    /// Doctor WARN letter-pill, text only.
-    public static let pillWarn = ThemedColor(lightHex: "#866d49", darkHex: "#ceb38d")
+    public static let successText = ThemedColor(lightHex: "#176641", darkHex: "#7fd6ac")
+    /// The pass tone's text colour (`StatusTone.pass`).
+    public static let pillPass = ThemedColor(lightHex: "#1f7a4d", darkHex: "#4cc38a")
+    /// The warn tone's text colour (`StatusTone.warn`).
+    public static let pillWarn = ThemedColor(lightHex: "#9a6b1f", darkHex: "#e0b35c")
 
     // MARK: - Alpha tokens
 
-    /// A flat card inside glass.
-    public static let cardFill = ThemedColor(
-        light: .rgba(255, 255, 255, 0.60),
-        dark: .rgba(255, 255, 255, 0.045)
-    )
+    /// A flat card. Opaque on purpose: an alpha card over an opaque ground has
+    /// no elevation, which is why the 4.5% white card read as nothing.
+    public static let cardFill = ThemedColor(lightHex: "#ffffff", darkHex: "#17171c")
     public static let chipFill = ThemedColor(
-        light: .rgba(255, 255, 255, 0.70),
-        dark: .rgba(255, 255, 255, 0.06)
+        light: .rgba(0, 0, 0, 0.04),
+        dark: .rgba(255, 255, 255, 0.07)
     )
     /// The neutral avatar disc behind a provider or channel mark.
     public static let monoDisc = ThemedColor(
@@ -73,17 +80,17 @@ public enum Palette {
         dark: .rgba(255, 255, 255, 0.10)
     )
     public static let buttonFill = ThemedColor(
-        light: .rgba(255, 255, 255, 0.85),
-        dark: .rgba(255, 255, 255, 0.08)
+        light: .rgba(255, 255, 255, 1.0),
+        dark: .rgba(255, 255, 255, 0.09)
     )
     public static let buttonBorder = ThemedColor(
-        light: .rgba(0, 0, 0, 0.12),
-        dark: .rgba(255, 255, 255, 0.16)
+        light: .rgba(0, 0, 0, 0.14),
+        dark: .rgba(255, 255, 255, 0.18)
     )
     /// The selected sidebar row's fill.
     public static let navActive = ThemedColor(
-        light: .rgba(43, 92, 255, 0.10),
-        dark: .rgba(43, 92, 255, 0.16)
+        light: .rgba(43, 92, 255, 0.12),
+        dark: .rgba(43, 92, 255, 0.20)
     )
     /// The sweep across an active ladder row.
     public static let sheen = ThemedColor(
@@ -97,39 +104,39 @@ public enum Palette {
     )
 
     public static let successPillFill = ThemedColor(
-        light: .rgba(40, 160, 110, 0.07),
-        dark: .rgba(120, 220, 180, 0.08)
+        light: .rgba(31, 122, 77, 0.08),
+        dark: .rgba(76, 195, 138, 0.10)
     )
     public static let successPillBorder = ThemedColor(
-        light: .rgba(40, 160, 110, 0.22),
-        dark: .rgba(120, 220, 180, 0.20)
+        light: .rgba(31, 122, 77, 0.25),
+        dark: .rgba(76, 195, 138, 0.28)
     )
     /// The soft halo behind Home's running dot.
     public static let successGlow = ThemedColor(
-        light: .rgba(40, 160, 110, 0.15),
-        dark: .rgba(120, 220, 180, 0.18)
+        light: .rgba(31, 122, 77, 0.16),
+        dark: .rgba(76, 195, 138, 0.20)
     )
 
     public static let warnPillFill = ThemedColor(
-        light: .rgba(200, 150, 50, 0.06),
-        dark: .rgba(235, 200, 120, 0.07)
+        light: .rgba(154, 107, 31, 0.08),
+        dark: .rgba(224, 179, 92, 0.10)
     )
     public static let warnIconFill = ThemedColor(
-        light: .rgba(200, 150, 50, 0.12),
-        dark: .rgba(235, 200, 120, 0.12)
+        light: .rgba(154, 107, 31, 0.14),
+        dark: .rgba(224, 179, 92, 0.14)
     )
     public static let warnPillBorder = ThemedColor(
-        light: .rgba(200, 150, 50, 0.22),
-        dark: .rgba(235, 200, 120, 0.20)
+        light: .rgba(154, 107, 31, 0.25),
+        dark: .rgba(224, 179, 92, 0.26)
     )
 
     public static let errorDiscFill = ThemedColor(
-        light: .rgba(200, 80, 60, 0.06),
-        dark: .rgba(230, 130, 110, 0.08)
+        light: .rgba(179, 66, 58, 0.08),
+        dark: .rgba(229, 118, 108, 0.10)
     )
     public static let errorDiscBorder = ThemedColor(
-        light: .rgba(200, 80, 60, 0.20),
-        dark: .rgba(230, 130, 110, 0.22)
+        light: .rgba(179, 66, 58, 0.25),
+        dark: .rgba(229, 118, 108, 0.28)
     )
 
     /// The accent at low alpha, behind the Telegram hero's own mark.
@@ -137,29 +144,10 @@ public enum Palette {
     /// The one accent-tinted shadow in the product: the Telegram hero card.
     public static let heroGlow = ThemedColor(uniform: .rgba(43, 92, 255, 0.18))
 
-    // MARK: - The activation orb (§5.2)
-
-    public static let orbHalo = ThemedColor(uniform: .rgba(43, 92, 255, 0.35))
-    public static let orbHighlight = ThemedColor(
-        light: .rgba(255, 255, 255, 0.95),
-        dark: .rgba(255, 255, 255, 0.30)
-    )
-    public static let orbLow = ThemedColor(
-        light: .rgba(235, 240, 255, 0.55),
-        dark: .rgba(255, 255, 255, 0.04)
-    )
-    public static let orbRim = ThemedColor(
-        light: .rgba(0, 0, 0, 0.06),
-        dark: .rgba(255, 255, 255, 0.25)
-    )
-    public static let orbShadow = ThemedColor(uniform: .rgba(43, 92, 255, 0.30))
-    public static let orbCoreGlow = ThemedColor(uniform: .rgba(43, 92, 255, 0.80))
-
-    /// The embedded Setup web surface (§5.8). It is deliberately opaque rather
-    /// than glass: crisp content inside glass chrome is the design statement,
-    /// and a translucent web view would put the desktop behind the daemon's own
-    /// page.
-    public static let webBackground = ThemedColor(lightHex: "#fcfcfc", darkHex: "#060606")
+    // The six activation-orb tokens of §5.2 are gone with the orb itself. The
+    // Starting screen draws the mascot in its place (owner directive of
+    // 2026-09-03: the orb "feels like slop"), and the mascot is authored
+    // artwork, so it needs no colour from this table.
 
     // MARK: - Hairlines
 
@@ -172,11 +160,11 @@ public enum Palette {
 
         switch weight {
         case .standard:
-            return ThemedColor(light: .rgba(0, 0, 0, 0.08), dark: .rgba(255, 255, 255, 0.10))
+            return ThemedColor(light: .rgba(0, 0, 0, 0.10), dark: .rgba(255, 255, 255, 0.14))
         case .faint:
-            return ThemedColor(light: .rgba(0, 0, 0, 0.05), dark: .rgba(255, 255, 255, 0.06))
+            return ThemedColor(light: .rgba(0, 0, 0, 0.06), dark: .rgba(255, 255, 255, 0.09))
         case .strong:
-            return ThemedColor(light: .rgba(0, 0, 0, 0.16), dark: .rgba(255, 255, 255, 0.20))
+            return ThemedColor(light: .rgba(0, 0, 0, 0.16), dark: .rgba(255, 255, 255, 0.24))
         }
     }
 }
