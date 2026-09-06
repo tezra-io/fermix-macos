@@ -35,7 +35,7 @@ final class PetAssetCache {
     }
 
     private func load(_ name: String) {
-        guard let url = Bundle.module.url(forResource: name, withExtension: "png"),
+        guard let url = AppResources.bundle.url(forResource: name, withExtension: "png"),
               let img = NSImage(contentsOf: url) else {
             return
         }

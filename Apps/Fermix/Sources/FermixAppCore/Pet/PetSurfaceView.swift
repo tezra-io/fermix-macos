@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The Pet sidebar destination: a live preview, the call controls, and the one
-/// switch that opens the optional floating window.
+/// switch that opens the optional floating window, on a grouped `Form`.
 ///
 /// Nothing here asks macOS for the microphone. Consent belongs to the first
 /// voice start, which is the call button and nothing else.
@@ -9,63 +9,49 @@ struct PetSurfaceView: View {
     @ObservedObject var model: PetFeatureModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            SurfaceTitlebar(title: ProductStrings[.sidebarPet])
+        Form {
+            Section {
+                VStack(spacing: Spacing.m) {
+                    preview
 
-            VStack(spacing: Spacing.m) {
-                preview
+                    Text(model.statusText)
+                        .fermixType(Typography.style(.callout).weight(.regular))
+                        .foregroundStyle(Palette.secondary.color)
+                        .accessibilityAddTraits(.updatesFrequently)
 
-                Text(model.statusText)
-                    .fermixType(Typography.style(.callout).weight(.regular))
-                    .foregroundStyle(Palette.secondary.color)
-                    .accessibilityAddTraits(.updatesFrequently)
-
-                controls
-
-                Card {
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        Toggle(
-                            model.floatingWindowActionTitle,
-                            isOn: Binding(
-                                get: { model.floatingWindowShown },
-                                set: { model.setFloatingWindow($0) }
-                            )
-                        )
-                        .toggleStyle(.switch)
-
-                        Text(ProductStrings[.petWindowHint])
-                            .fermixType(Typography.style(.calloutSmall))
-                            .foregroundStyle(Palette.faint.color)
-                    }
-                    .padding(Spacing.m)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    controls
                 }
-                .frame(width: 420)
-
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Spacing.s)
+            } footer: {
+                // The footer of the section that holds the call button, which
+                // is the control the sentence is about. On a section of its own
+                // it drew a card around one line of explanatory text, which is
+                // the shape a row uses and this is not a row.
                 Text(ProductStrings[.petMicrophoneNotice])
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.faint.color)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 420)
-
-                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 26)
-            .padding(.top, Spacing.s)
+
+            Section {
+                Toggle(
+                    model.floatingWindowActionTitle,
+                    isOn: Binding(
+                        get: { model.floatingWindowShown },
+                        set: { model.setFloatingWindow($0) }
+                    )
+                )
+            } footer: {
+                Text(ProductStrings[.petWindowHint])
+            }
         }
+        .formStyle(.grouped)
+        .navigationTitle(ProductStrings[.sidebarPet])
     }
 
     private var preview: some View {
-        ZStack {
-            Circle()
-                .fill(Palette.chipFill.color)
-                .frame(width: 132, height: 132)
-
-            MascotArtwork(size: 108)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(model.accessibilityLabel)
-        .accessibilityValue(model.accessibilityValue)
+        MascotArtwork(size: 108)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(model.accessibilityLabel)
+            .accessibilityValue(model.accessibilityValue)
     }
 
     private var controls: some View {

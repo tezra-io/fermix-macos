@@ -46,6 +46,8 @@ struct PetView: View {
             }
 
             Button(model.interruptActionTitle) { model.interrupt() }
+
+            Button(model.openFermixActionTitle) { model.open() }
         }
     }
 

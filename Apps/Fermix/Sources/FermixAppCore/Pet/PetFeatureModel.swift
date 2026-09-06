@@ -36,12 +36,21 @@ public final class PetFeatureModel: ObservableObject {
     private let model: AppModel
     private let voice: any VoiceControlling
     private let windows: any PetWindowPresenting
+    /// Opens the primary window. The pet floats without one, and with the menu
+    /// bar item hidden its context menu is the only thing on screen.
+    private let openFermix: () -> Void
     private var modelChanges: AnyCancellable?
 
-    public init(model: AppModel, voice: any VoiceControlling, coordinator: any PetWindowPresenting) {
+    public init(
+        model: AppModel,
+        voice: any VoiceControlling,
+        coordinator: any PetWindowPresenting,
+        openFermix: @escaping () -> Void = {}
+    ) {
         self.model = model
         self.voice = voice
         self.windows = coordinator
+        self.openFermix = openFermix
         self.modelChanges = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -98,6 +107,14 @@ public final class PetFeatureModel: ObservableObject {
     }
 
     // MARK: - What the pet does
+
+    public var openFermixActionTitle: String { ProductStrings[.menuTitleOpenFermix] }
+
+    /// Opens Home, which is the way back when the pet is the only thing on
+    /// screen.
+    public func open() {
+        openFermix()
+    }
 
     public func toggleCall() {
         voice.toggleCall()
