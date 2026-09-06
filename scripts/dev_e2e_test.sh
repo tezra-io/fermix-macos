@@ -288,6 +288,38 @@ case_signed_with_identity() {
   [ "$(status | sed -n 's/^identity //p')" = "$IDENTITY" ] || fail "status did not name the keychain identity"
 }
 
+# The dev home's keychain prefix is its own. A fresh home is created with the
+# profile; a config without the core table gets it appended and keeps its other
+# tables; a config that names another profile is refused before anything else
+# happens, because that home would be writing into the live daemon's items.
+case_profile_fresh_home() {
+  rm -rf "$DEV_HOME"
+  up --fast >/dev/null
+  grep -q '^profile = "fermix-macos"$' "$DEV_HOME/config.toml" || fail "a fresh dev home did not get its secret profile"
+}
+
+case_profile_appended() {
+  owned_service
+  printf '[fermix_channels.telegram]\nenabled = true\n' >"$DEV_HOME/config.toml"
+  up --fast >/dev/null
+  python3 - "$DEV_HOME/config.toml" <<'CHECK' || fail "the profile was not appended beside the existing tables"
+import sys, tomllib
+with open(sys.argv[1], "rb") as source:
+    document = tomllib.load(source)
+assert document["fermix_core"]["profile"] == "fermix-macos", document
+assert document["fermix_channels"]["telegram"]["enabled"] is True, document
+CHECK
+}
+
+case_profile_foreign() {
+  owned_service
+  printf '[fermix_core]\nprofile = "general"\n' >"$DEV_HOME/config.toml"
+  if (up --fast) >"$WORK_DIR/refusal" 2>&1; then fail "accepted a dev home on another secret profile"; fi
+  grep -Fq "live daemon's keychain items" "$WORK_DIR/refusal" || fail "the profile refusal did not say why"
+  [ ! -s "$DEV_E2E_TEST_EVENTS" ] || fail "mutated before refusing the profile"
+  [ "$(cat "$DEV_HOME/config.toml")" = $'[fermix_core]\nprofile = "general"' ] || fail "edited the refused config"
+}
+
 write_escaped_dev_record() {
   python3 -c 'import json,sys;print(json.dumps({"fermix_home":sys.argv[1],"schema_version":1}).replace("/", "\\/"))' \
     "$DEV_HOME" >"$RECORD"
@@ -347,13 +379,16 @@ if [ "${1:-}" = '--case' ]; then
     signed_with_identity) case_signed_with_identity ;;
     version_owner) case_version_owner ;;
     version_foreign) case_version_foreign ;;
+    profile_fresh_home) case_profile_fresh_home ;;
+    profile_appended) case_profile_appended ;;
+    profile_foreign) case_profile_foreign ;;
     *) fail "unknown test case: $2" ;;
   esac
   exit
 fi
 
 failed=0
-for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version escaped_record escaped_down invalid_record no_identity two_identities signed_with_identity version_owner version_foreign; do
+for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version escaped_record escaped_down invalid_record no_identity two_identities signed_with_identity version_owner version_foreign profile_fresh_home profile_appended profile_foreign; do
   if bash "$0" --case "$scenario"; then echo "ok $scenario"; else failed=1; echo "FAILED $scenario" >&2; fi
 done
 exit "$failed"

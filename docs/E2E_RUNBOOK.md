@@ -32,6 +32,17 @@ including which branch the engine is built from, which identity signs, and
 whether the running app actually carries the flag. This runbook is for the
 Stage 0 acceptance session below.
 
+**The dev home has its own secret profile, and the loop makes sure of it.**
+The engine names its keychain items `fermix:<ENV>` under the config's
+`[fermix_core] profile`, never under the home, so a home with no profile of its
+own reads and writes the live daemon's items. That is how, on 2026-09-05, a
+Telegram bot token saved from the app replaced the live daemon's token: the
+live daemon polled the new bot after its next restart and the old bot went
+silent. `up` therefore writes `profile = "fermix-macos"` into a fresh dev home,
+appends the table to a config that has none, and refuses a config that names
+another profile. The dev home's secrets live under `fermix:fermix-macos:` and
+have to be entered once more after the profile appears.
+
 **Why the dev loop signs with your Developer ID and never ad hoc.** The
 background agent is registered through SMAppService, and macOS keys that
 registration on the Team ID of the code it registered: the launch constraint

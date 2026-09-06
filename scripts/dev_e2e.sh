@@ -13,7 +13,9 @@
 #   scripts/dev_e2e.sh status      what is running, and where
 #
 # Fixed dev-loop facts (constants, not knobs): home ~/.fermix-macos, port
-# 4530, engine built from the worktree at ~/.cache/fermix-engine-m34
+# 4530, secret profile fermix-macos (its own keychain prefix, so a secret
+# saved in the app never lands in the live daemon's items), engine built from
+# the worktree at ~/.cache/fermix-engine-m34
 # (FERMIX_REPO names the checkout it is a worktree of, for the refusal that
 # tells you how to create it). The live daemon on ~/.fermix:4030 and the mix
 # dev daemon on ~/.fermix-dev:4031 are untouched.
@@ -66,6 +68,13 @@ FERMIX_REPO="${FERMIX_REPO:-$HOME/projects/fermix}"
 ENGINE_SRC="$HOME/.cache/fermix-engine-m34"
 DEV_HOME="$HOME/.fermix-macos"
 PORT=4530
+# The engine names its keychain items fermix:<ENV> under the config's
+# [fermix_core] profile, never under the home. A home without a profile of its
+# own therefore reads and WRITES production's items: on 2026-09-05 a Telegram
+# bot token saved from the app replaced the live daemon's, and the live daemon
+# polled the new bot after its next restart. The dev home carries this profile
+# before the engine ever boots on it.
+SECRET_PROFILE="fermix-macos"
 APP="$ROOT_DIR/Apps/Fermix/dist-e2e/FermixPet.app"
 GUI_EXECUTABLE="$(product_config gui_executable_name)"
 DEV_FLAG="--development-engine"
@@ -102,6 +111,39 @@ signing_identity() {
     0) fail "no Developer ID Application identity in the login keychain. The background agent is registered through SMAppService, which keys on the Team ID of the signed code; an ad-hoc signature has none, so every rebuild is a new program to launchd and the agent stops launching. Import the certificate this team releases with (docs/E2E_RUNBOOK.md, "Importing your Developer ID on this Mac"), then run up again" ;;
     *) fail "$count Developer ID Application identities in the login keychain; keep exactly one so the choice is not silent" ;;
   esac
+}
+
+# The dev home's secrets live under their own keychain prefix. A missing config
+# is written with the profile alone (the engine's first boot fills in the
+# rest); a config with no [fermix_core] table gets the table appended; a
+# config that names another profile, or none inside an existing table, is
+# refused rather than edited, because that table is the engine's to write.
+ensure_secret_profile() {
+  local config="$DEV_HOME/config.toml"
+  if [ ! -f "$config" ]; then
+    mkdir -p "$DEV_HOME"
+    printf '[fermix_core]\nprofile = "%s"\n' "$SECRET_PROFILE" >"$config"
+    echo "dev_e2e: wrote $config with secret profile $SECRET_PROFILE"
+    return 0
+  fi
+  python3 - "$config" "$SECRET_PROFILE" <<'PROFILE'
+import sys, tomllib
+path, wanted = sys.argv[1], sys.argv[2]
+with open(path, "rb") as source:
+    document = tomllib.load(source)
+core = document.get("fermix_core")
+if core is None:
+    with open(path, "a", encoding="utf-8") as target:
+        target.write(f'\n[fermix_core]\nprofile = "{wanted}"\n')
+    print(f"dev_e2e: added secret profile {wanted} to {path}")
+elif core.get("profile") != wanted:
+    found = core.get("profile")
+    sys.exit(
+        f"dev_e2e: {path} sets [fermix_core] profile = {found!r}, not {wanted!r}. "
+        "Without its own profile this home reads and writes the live daemon's keychain "
+        f"items; set profile = \"{wanted}\" in that table, then run up again"
+    )
+PROFILE
 }
 
 # The engine worktree is the developer's, so this loop only checks that it is
@@ -344,6 +386,7 @@ start_engine() {
 up() {
   local fast="${1:-}" identity
   identity="$(signing_identity)" || return 1
+  ensure_secret_profile || return 1
   unregister_dev_services
   quit_app
   stop_engine
@@ -365,6 +408,7 @@ dev_e2e: up.
   source  $ENGINE_SRC ($(engine_branch))
   engine  http://127.0.0.1:$PORT  (health, setup)
   signed  $identity
+  secrets keychain prefix fermix:$SECRET_PROFILE (never the live daemon's)
   setup   FERMIX_HOME=$DEV_HOME python3 $ENGINE_SRC/scripts/dev/management_request.py setup.session.create
   done?   scripts/dev_e2e.sh down
 DONE
