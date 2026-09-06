@@ -131,16 +131,14 @@ final class AudioController: VoiceAudioEngine {
         // in beginStreaming; this guard only fires when there
         // is literally no mic Core Audio can see.
         let input = engine.inputNode
-        var format = Self.usableInputFormat(from: input)
+        var format = Self.captureFormat(from: input)
 
-        if format.sampleRate <= 0 || format.channelCount == 0 {
+        if format == nil {
             try startEngineIfNeeded()
-            format = Self.usableInputFormat(from: input)
+            format = Self.captureFormat(from: input)
         }
 
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw CaptureError.noInputDevice
-        }
+        guard let format else { throw CaptureError.noInputDevice }
 
         guard let outputFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -235,10 +233,10 @@ final class AudioController: VoiceAudioEngine {
         // backs capture. A valid sample rate + channel count means the
         // engine has a usable input regardless of what AVFoundation reports.
         let input = engine.inputNode
-        let inputFormat = Self.usableInputFormat(from: input)
+        let inputFormat = input.inputFormat(forBus: 0)
         let outputFormat = engine.outputNode.outputFormat(forBus: 0)
         let voiceProcessing = input.isVoiceProcessingEnabled ? "enabled" : "disabled"
-        let engineHasInput = inputFormat.sampleRate > 0 && inputFormat.channelCount > 0
+        let engineHasInput = Self.captureFormat(from: input) != nil
 
         return "auth=\(auth), avfDevice=\(avfDevice), engineHasInput=\(engineHasInput), inputSampleRate=\(inputFormat.sampleRate), inputChannels=\(inputFormat.channelCount), outputSampleRate=\(outputFormat.sampleRate), outputChannels=\(outputFormat.channelCount), voiceProcessing=\(voiceProcessing), engineRunning=\(engine.isRunning)"
     }
@@ -344,13 +342,28 @@ final class AudioController: VoiceAudioEngine {
         return captureMuted
     }
 
-    private static func usableInputFormat(from input: AVAudioInputNode) -> AVAudioFormat {
-        let outputFormat = input.outputFormat(forBus: 0)
-        if outputFormat.sampleRate > 0 && outputFormat.channelCount > 0 {
-            return outputFormat
-        }
+    private static func captureFormat(from input: AVAudioInputNode) -> AVAudioFormat? {
+        captureFormat(hardware: input.inputFormat(forBus: 0), output: input.outputFormat(forBus: 0))
+    }
 
-        return input.inputFormat(forBus: 0)
+    /// The format the capture tap is installed at, or nil when Core Audio has
+    /// no usable input.
+    ///
+    /// The input node's hardware format is the truth about the device: with no
+    /// default input it reports no sample rate and no channels, while the
+    /// node's output format keeps its nominal stereo 44.1 kHz. A tap installed
+    /// at that nominal format on an invalid hardware input raises an
+    /// Objective-C exception inside AVFAudio ("input hw format invalid",
+    /// "Failed to create tap due to format mismatch") that no Swift frame can
+    /// catch; on 2026-09-06 it unwound through the call's async continuation
+    /// and the next button press aborted the process. So the hardware format
+    /// decides whether capture can run at all, and the tap is installed at the
+    /// bus's output format only once the hardware has one.
+    static func captureFormat(hardware: AVAudioFormat, output: AVAudioFormat) -> AVAudioFormat? {
+        guard hardware.sampleRate > 0, hardware.channelCount > 0 else { return nil }
+        guard output.sampleRate > 0, output.channelCount > 0 else { return hardware }
+
+        return output
     }
 
     func stopPlayback() {
