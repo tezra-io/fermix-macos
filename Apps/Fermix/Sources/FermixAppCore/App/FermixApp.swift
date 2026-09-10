@@ -11,8 +11,13 @@ import Foundation
 /// coordinated (one primary window for setup and settings, and an optional
 /// floating pet) rather than spawned by an unrestricted `WindowGroup`.
 public enum FermixApp {
+    /// - Parameter updater: the updater the executable owns. It arrives as an
+    ///   argument because the implementation behind this seam links Sparkle,
+    ///   and only the GUI executable may (M34 §6: the daemon and `FermixAgent`
+    ///   never load Sparkle). This library declares the seam and imports
+    ///   nothing.
     @MainActor
-    public static func main() {
+    public static func main(updater: any UpdaterDriving) {
         // Maintenance entry, before any AppKit UI: the login-item
         // registrations belong to this bundle identity, so only the app
         // itself can withdraw them. This is the primitive the uninstall route
@@ -30,7 +35,7 @@ public enum FermixApp {
         // Dock app for exactly as long as a real window is open.
         application.setActivationPolicy(.accessory)
 
-        let delegate = AppDelegate(plan: launchPlan())
+        let delegate = AppDelegate(plan: launchPlan(updater: updater))
         application.delegate = delegate
         application.run()
     }
@@ -42,7 +47,7 @@ public enum FermixApp {
     /// two is refused rather than resolved to one of them: silently running the
     /// other would report the argument as having worked.
     @MainActor
-    private static func launchPlan() -> AppLaunchPlan {
+    private static func launchPlan(updater: any UpdaterDriving) -> AppLaunchPlan {
         let arguments = CommandLine.arguments
         let fixture = fixtureRequest(arguments)
         let development = developmentEngineRequest(arguments)
@@ -51,11 +56,12 @@ public enum FermixApp {
         if let fixture { return fixturePlan(named: fixture) }
         if development {
             return developmentEnginePlan(
-                registerBackground: arguments.contains(DevelopmentEngineLaunchRequest.registrationFlag)
+                registerBackground: arguments.contains(DevelopmentEngineLaunchRequest.registrationFlag),
+                updater: updater
             )
         }
 
-        return .product()
+        return .product(updater: updater)
     }
 
     /// The surface a fixture launch named, or nil where it asked for none.
@@ -95,8 +101,11 @@ public enum FermixApp {
         return .fixture(FixtureLaunch(start: start))
     }
     @MainActor
-    private static func developmentEnginePlan(registerBackground: Bool) -> AppLaunchPlan {
-        .developmentEngine(registerBackground: registerBackground)
+    private static func developmentEnginePlan(
+        registerBackground: Bool,
+        updater: any UpdaterDriving
+    ) -> AppLaunchPlan {
+        .developmentEngine(registerBackground: registerBackground, updater: updater)
     }
     #else
     /// A release build has no fixture configuration compiled into it, so the
@@ -109,7 +118,10 @@ public enum FermixApp {
     /// Nor a development configuration: the engine a shipped app runs is the one
     /// in its own bundle, started by launchd.
     @MainActor
-    private static func developmentEnginePlan(registerBackground: Bool) -> AppLaunchPlan {
+    private static func developmentEnginePlan(
+        registerBackground: Bool,
+        updater: any UpdaterDriving
+    ) -> AppLaunchPlan {
         refuse(DevelopmentEngineLaunchRequest.Refusal.notAvailableInThisBuild)
     }
     #endif
@@ -170,8 +182,8 @@ struct AppLaunchPlan {
 
     /// The shipped launch: the product graph, opened at whatever the launch
     /// reason resolves to.
-    static func product() -> AppLaunchPlan {
-        AppLaunchPlan(compose: { AppComposition() }, present: openLaunchReason)
+    static func product(updater: any UpdaterDriving) -> AppLaunchPlan {
+        AppLaunchPlan(compose: { AppComposition(updater: updater) }, present: openLaunchReason)
     }
 
     /// What a real launch opens: whatever the launch reason resolves to.
@@ -214,9 +226,12 @@ struct AppLaunchPlan {
     /// The development launch: the product graph on this Mac, activated against
     /// the staged background agent. It opens the same surfaces as an installed
     /// launch, with development installation preflights.
-    static func developmentEngine(registerBackground: Bool = false) -> AppLaunchPlan {
+    static func developmentEngine(
+        registerBackground: Bool = false,
+        updater: any UpdaterDriving
+    ) -> AppLaunchPlan {
         AppLaunchPlan(
-            compose: { AppComposition(environment: .developmentEngine()) },
+            compose: { AppComposition(environment: .developmentEngine(updater: updater)) },
             present: { composition in
                 openDevelopmentLaunch(
                     coordinator: composition.coordinator,
@@ -271,6 +286,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// still there, and the status item is how it is reached.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// The one barrier every exit passes through: the app's own Quit, the Dock
+    /// tile's Quit, an AppleScript quit, and a log out or a restart.
+    ///
+    /// A staged update replaces the bundle on any exit of this process with no
+    /// further call into it, so the exits that never reach the menu bar are
+    /// exactly the ones that would swap it under a live engine (M34 §6, R3).
+    /// The coordinator holds the termination while it finishes that stop and
+    /// answers AppKit itself.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated {
+            guard let composition else { return .terminateNow }
+
+            return composition.coordinator.terminationRequested()
+        }
     }
 
     /// The Dock tile, Launchpad or Spotlight, on an app that is already

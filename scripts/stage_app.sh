@@ -72,6 +72,8 @@ done
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/product_config.sh
 source "$ROOT_DIR/scripts/product_config.sh"
+# shellcheck source=scripts/sparkle.sh
+source "$ROOT_DIR/scripts/sparkle.sh"
 
 GUI_EXECUTABLE="$(product_config gui_executable_name)"
 AGENT_EXECUTABLE="$(product_config agent_executable_name)"
@@ -80,6 +82,7 @@ ICON_NAME="$(product_config icon_file).icns"
 AGENT_LABEL="$(product_config agent_service_label)"
 ENGINE_RELATIVE_PATH="$(product_config engine_relative_path)"
 TOOLS_RELATIVE_PATH="$(product_config tools_relative_path)"
+FRAMEWORKS_RELATIVE_PATH="$(product_config frameworks_relative_path)"
 
 APP_DIR="$ROOT_DIR/Apps/Fermix"
 BUILD_PATH="$APP_DIR/.build-$CONFIGURATION"
@@ -137,6 +140,35 @@ stage() {
   mkdir -p "$OUT_APP/$ENGINE_RELATIVE_PATH" "$OUT_APP/$TOOLS_RELATIVE_PATH"
 }
 
+# The updater framework, embedded where the GUI's runtime search path looks for
+# it. The GUI binary is linked against @rpath/Sparkle.framework/… with an rpath
+# of @executable_path/../Frameworks (Package.swift and project.yml both set it),
+# so an app without this directory launches to a dyld failure.
+#
+# `ditto` rather than `cp -R`: the framework's own signature seals its extended
+# attributes, and one pass that reproduces the tree exactly — links, modes,
+# attributes and resource forks together — is what keeps that seal valid. A copy
+# that dropped an attribute stages and signs and then fails codesign --verify.
+#
+# The framework is not a slot like the engine and tools: it is a build product
+# of the pinned dependency, so an absent one is a broken build rather than a
+# declared empty state.
+stage_sparkle() {
+  local source destination version pinned
+  source="$(sparkle_framework_source "$BUILD_PATH")" ||
+    fail "the pinned updater framework is not in the resolved artifacts"
+
+  pinned="$(product_config sparkle_version)"
+  version="$(sparkle_embedded_version "$source")" ||
+    fail "the resolved updater framework declares no version: $source"
+  [ "$version" = "$pinned" ] ||
+    fail "the resolved updater framework is $version, but Product.json pins $pinned"
+
+  destination="$OUT_APP/$FRAMEWORKS_RELATIVE_PATH"
+  mkdir -p "$destination"
+  ditto "$source" "$destination/$SPARKLE_FRAMEWORK_NAME"
+}
+
 engine_manifest_architecture() {
   python3 - "$1" <<'PY'
 import json, sys
@@ -179,6 +211,7 @@ stage_engine_and_tools() {
 
 build
 stage
+stage_sparkle
 stage_engine_and_tools
 "$ROOT_DIR/scripts/verify_staged_app.sh" "$OUT_APP" "$ARCHITECTURES" unsigned
 echo "stage_app: staged $OUT_APP ($CONFIGURATION)"

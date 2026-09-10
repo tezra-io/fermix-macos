@@ -114,6 +114,9 @@ public struct DaemonObservation: Equatable, Sendable {
 public final class AppModel: ObservableObject {
     @Published public private(set) var voice = VoiceState()
     @Published public var route: AppRoute = .home
+    // Requested navigation can precede presentation while recovery is checked.
+    // Keep it unpublished so List callbacks never publish a speculative route.
+    var pendingNavigation: AppDestination?
     @Published public var onboardingStage: OnboardingStage = .welcome
     /// Starting, until something authoritative says otherwise. A launch has not
     /// asked the daemon anything yet, and the attention badge is a claim: it

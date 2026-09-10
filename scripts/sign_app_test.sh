@@ -19,11 +19,16 @@ SIGN="$ROOT_DIR/scripts/sign_app.sh"
 source "$ROOT_DIR/scripts/product_config.sh"
 # shellcheck source=scripts/fake_staged_app.sh
 source "$ROOT_DIR/scripts/fake_staged_app.sh"
+# The updater's two lists are read directly below, so they are asked for
+# directly rather than inherited through whatever fake_staged_app.sh sources.
+# shellcheck source=scripts/sparkle.sh
+source "$ROOT_DIR/scripts/sparkle.sh"
 
 APP_BUNDLE_NAME="$(product_config app_bundle_name)"
 BUNDLE_ID="$(product_config bundle_identifier)"
 AGENT_EXECUTABLE="$(product_config agent_executable_name)"
 AGENT_LABEL="$(product_config agent_service_label)"
+SPARKLE_FRAMEWORK="$(product_config frameworks_relative_path)/$SPARKLE_FRAMEWORK_NAME"
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -90,6 +95,37 @@ printf '%s\n' "$agent_signature" | grep -qFx "Identifier=$AGENT_LABEL" ||
   fail "the signed agent does not carry the configured identifier $AGENT_LABEL"
 echo "  ok   the agent carries the stable configured identifier $AGENT_LABEL"
 
+# The two updater lists have to agree, and nothing else compares them: one
+# names the Mach-O programs the framework must carry, the other the bundles and
+# executables codesign is handed, deepest first. A Sparkle upgrade that added a
+# helper to the inventory alone would stage and verify and then ship it
+# unsigned, which surfaces as an update that downloads and never installs. So
+# every inventoried program must be, or live inside, something that gets signed.
+for member in "${SPARKLE_MACHO_PATHS[@]}"; do
+  covered=""
+  for signed in "${SPARKLE_SIGNING_ORDER[@]}"; do
+    case "$member" in
+      "$signed" | "$signed"/*)
+        covered=1
+        break
+        ;;
+    esac
+  done
+  [ -n "$covered" ] ||
+    fail "updater program $member is inventoried and under nothing sign_app.sh signs"
+done
+echo "  ok   every inventoried updater program lives under a signed path"
+
+# The updater's four retained helpers are separate code, and each has to carry
+# its own signature: macOS refuses to launch an unsigned helper, which surfaces
+# as an update that downloads and then silently never installs. The framework
+# itself is signed last of the five, so the seal covers them.
+for member in "${SPARKLE_SIGNING_ORDER[@]}"; do
+  codesign --verify --strict "$app/$SPARKLE_FRAMEWORK/$member" ||
+    fail "updater component $member is not validly signed"
+done
+echo "  ok   every retained updater helper carries a valid signature"
+
 echo "sign_app_test: refusals"
 
 app="$(fresh_bundle no-agent)"
@@ -116,6 +152,30 @@ app="$(fresh_bundle stowaway)"
 fake_app_build_stub "$app/Contents/Resources/helper" -arch arm64 -arch x86_64
 expect_refusal "a stowaway Mach-O anywhere in the bundle is refused" \
   "Contents/Resources/helper" \
+  "$SIGN" "$app" -
+
+# The same refusal inside the updater framework, which is the case a directory
+# rule would miss: "anything under Frameworks" would sign this without anyone
+# deciding to. The allowlist names Sparkle's five Mach-O files and nothing
+# else, so a sixth stops the release.
+app="$(fresh_bundle updater-stowaway)"
+fake_app_build_stub "$app/$SPARKLE_FRAMEWORK/Versions/B/Sneak" -arch arm64 -arch x86_64
+expect_refusal "a stowaway Mach-O inside the updater framework is refused" \
+  "$SPARKLE_FRAMEWORK/Versions/B/Sneak" \
+  "$SIGN" "$app" -
+
+# A Sparkle version that moved or dropped a helper fails loudly here rather
+# than shipping an updater with an unsigned program inside it.
+app="$(fresh_bundle updater-missing-helper)"
+rm "$app/$SPARKLE_FRAMEWORK/Versions/B/Autoupdate"
+expect_refusal "an updater framework missing a retained helper is refused" \
+  "carries no Versions/B/Autoupdate" \
+  "$SIGN" "$app" -
+
+app="$(fresh_bundle no-updater)"
+rm -rf "${app:?}/${SPARKLE_FRAMEWORK:?}"
+expect_refusal "a bundle with no updater framework to sign is refused" \
+  "the updater framework is not staged" \
   "$SIGN" "$app" -
 
 expect_refusal "a missing bundle is refused rather than silently signing nothing" \

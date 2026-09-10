@@ -413,9 +413,11 @@ extension AppEnvironment {
             ManagementClient(transport: transport, contract: contract)
         }
         let probes = FixtureProbes(machine: machine)
+        let configuration = try ProductConfiguration.bundled()
 
         return AppEnvironment(
-            configuration: try ProductConfiguration.bundled(),
+            configuration: configuration,
+            appBuild: AppBuild(configuration: configuration),
             location: location,
             makeClient: makeClient,
             makePlane: { _ in ManagementControlPlane(client: try makeClient()) },
@@ -427,7 +429,7 @@ extension AppEnvironment {
             settingsPanes: FixturePaneStore(),
             sidebarVisibility: FixtureSidebarStore(),
             opener: FixtureExternalOpener(),
-            updates: UnwiredUpdateChecker(),
+            updater: UnwiredUpdater(),
             chooser: FixtureDirectoryChooser(),
             processes: probes,
             paths: probes,

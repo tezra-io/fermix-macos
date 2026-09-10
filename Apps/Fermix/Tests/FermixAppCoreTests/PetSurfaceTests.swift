@@ -225,6 +225,8 @@ final class PetHarness {
             windows: WindowCoordinator(host: windows),
             voice: voice,
             lifecycle: FakeLifecycleController(),
+            updates: FakeUpdateReconciler(),
+            gate: ServiceMutationGate(),
             bootstrap: { .present },
             termination: FakeTerminationRequester(),
             settings: SettingsFixture.model(gateway: try SettingsFixture.gateway()),

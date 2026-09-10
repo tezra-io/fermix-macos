@@ -7,11 +7,17 @@ Targets:
 
 - `FermixAppCore` — the library: every view and every behavior, and the typed
   reader for `Sources/FermixAppCore/Resources/Product.json`.
-- `Fermix` — the GUI executable. Its `main.swift` calls `FermixApp.main()` and
-  nothing else. Owns the microphone.
+- `Fermix` — the GUI executable. Its `main.swift` builds the updater and calls
+  `FermixApp.main(updater:)`, and nothing else. Owns the microphone, and is the
+  only target that links Sparkle.
+- `FermixSparkle` — the updater adapter, and the one place that imports Sparkle.
+  Both executables link `FermixAppCore`, so an updater dependency there would
+  put the framework into `FermixAgent`, which M34 section 6 forbids;
+  `FermixAppCore` declares the `UpdateChecking` seam and this target implements
+  it.
 - `FermixAgent` — the daemon launcher registered as `SMAppService.agent`. Its
   `main.swift` calls `AgentEntryPoint.main` and exits with its status. Carries
-  no entitlements.
+  no entitlements, and never loads Sparkle.
 - `FermixAppCoreTests` — swift-testing; run it with `script/swift_test.sh`.
 
 V1 posture:

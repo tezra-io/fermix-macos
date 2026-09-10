@@ -65,4 +65,29 @@ struct ProductConfigurationTests {
             _ = try ProductConfiguration.decode(from: Data())
         }
     }
+
+    /// The build number is the app's release identity to Sparkle: a feed
+    /// compares `CFBundleVersion` numerically, so a value that is not a
+    /// positive integer makes every published update either invisible or
+    /// permanently newer than itself. It is checked in rather than derived
+    /// from the marketing version, and this is where a mistyped one is caught
+    /// on the way into the app.
+    @Test("the shipped build number is a positive integer")
+    func shippedBuildNumberIsAPositiveInteger() throws {
+        let configuration = try ProductConfiguration.bundled()
+
+        let value = try #require(Int(configuration.buildNumber))
+        #expect(value > 0)
+        #expect(String(value) == configuration.buildNumber)
+    }
+
+    @Test(
+        "a build number that is not a positive integer is refused",
+        arguments: ["0", "-3", "1.2", "0x10", " 7", "7 ", "01", "one"]
+    )
+    func nonPositiveIntegerBuildNumberIsRefused(value: String) {
+        #expect(throws: ProductConfigurationError.notAPositiveInteger("build_number")) {
+            _ = try ProductConfiguration.decode(from: ProductFixture.json(buildNumber: value))
+        }
+    }
 }

@@ -162,16 +162,44 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// Home's tinted primary while readiness is not ready (M34 §3.2).
     case homeContinueSetup = "home.continueSetup"
     case homeUpdateUnknown = "home.updateUnknown"
+    case homeUpdateUnconfigured = "home.updateUnconfigured"
+    case homeUpdateChecking = "home.updateChecking"
+    case homeUpdateCheckFailed = "home.updateCheckFailed"
     case homeUpdateAvailableFormat = "home.updateAvailableFormat"
+    case homeUpdateCriticalFormat = "home.updateCriticalFormat"
+    case homeUpdateStagedFormat = "home.updateStagedFormat"
+    case homeUpdateCheckedFormat = "home.updateCheckedFormat"
     case homeUptimeFormat = "home.uptimeFormat"
 
     // Update and uninstall routes
     case updateTitle = "update.title"
     case updateBundled = "update.bundled"
+    case updateCheck = "update.check"
     case updateHow = "update.how"
     case uninstallTitle = "uninstall.title"
     case uninstallBody = "uninstall.body"
     case uninstallReveal = "uninstall.reveal"
+
+    // Recovery from an update that did not finish (M34 §6). One sentence per
+    // reason, because each one sends the operator somewhere different.
+    case updateRecoveryTitle = "updateRecovery.title"
+    case updateRecoveryInterrupted = "updateRecovery.reason.interrupted"
+    case updateRecoveryJournalUnusable = "updateRecovery.reason.journalUnusable"
+    case updateRecoveryUnexpectedApp = "updateRecovery.reason.unexpectedApp"
+    case updateRecoveryUnexpectedEngine = "updateRecovery.reason.unexpectedEngine"
+    case updateRecoveryEngineNotStopped = "updateRecovery.reason.engineNotStopped"
+    case updateRecoverySourceUnverified = "updateRecovery.reason.sourceEngineUnverified"
+    case updateRecoveryTargetUnverified = "updateRecovery.reason.targetEngineUnverified"
+    case updateRecoveryRegistrationNotRestored = "updateRecovery.reason.registrationNotRestored"
+    case updateRecoveryConflictingRegistration = "updateRecovery.reason.conflictingRegistration"
+    case updateRecoveryRegistrationNeedsApproval = "updateRecovery.reason.registrationNeedsApproval"
+    case updateRecoveryNoSharedProtocol = "updateRecovery.reason.noSharedProtocol"
+    case updateRecoveryVersionsFormat = "updateRecovery.versionsFormat"
+    case updateRecoveryInstallerFormat = "updateRecovery.installerFormat"
+    case updateRecoveryReinstall = "updateRecovery.reinstall"
+    case updateRecoveryNeedsNetwork = "updateRecovery.needsNetwork"
+    case updateRecoveryRollbackUnsafe = "updateRecovery.rollbackUnsafe"
+    case updateRecoveryDisableRefused = "updateRecovery.disableRefused"
 
     // Daemon errors, in the app's own words where the daemon has none
     /// The one wording for "the daemon is not answering", shared by Home's
@@ -187,6 +215,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// Why a restart is refused outright: launchd does not own this daemon, so
     /// draining it would stop Fermix with nothing to bring it back.
     case lifecycleDaemonNotManaged = "lifecycle.daemonNotManaged"
+    /// Another owner is already changing the background service, which in
+    /// practice is an update stopping the engine before it replaces the app
+    /// (M34 section 6).
+    case lifecycleServiceBusy = "lifecycle.serviceBusy"
 
     // Background service
 
@@ -222,6 +254,14 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case attentionUnrecognizedBody = "attention.unrecognized.body"
     case attentionActionRestart = "attention.action.restart"
     case attentionActionReload = "attention.action.reload"
+    case attentionActionShowUpdate = "attention.action.showUpdate"
+    // The update rows (M34 section 6). One title per state, because an update
+    // that is offered and an update that is already staged ask for different
+    // things.
+    case attentionUpdateAvailableBody = "attention.update.available.body"
+    case attentionUpdateCriticalBody = "attention.update.critical.body"
+    case attentionUpdateStagedTitle = "attention.update.staged.title"
+    case attentionUpdateStagedBody = "attention.update.staged.body"
 
     // Sidebar
     case sidebarHome = "sidebar.home"

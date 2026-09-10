@@ -7,6 +7,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
 # shellcheck source=../../scripts/product_config.sh
 source "$REPO_ROOT/scripts/product_config.sh"
+# shellcheck source=../../scripts/sparkle.sh
+source "$REPO_ROOT/scripts/sparkle.sh"
 
 APP_BUNDLE_NAME="$(product_config app_bundle_name)"
 GUI_EXECUTABLE="$(product_config gui_executable_name)"
@@ -36,6 +38,7 @@ APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$GUI_EXECUTABLE"
 AGENT_BINARY="$APP_MACOS/$AGENT_EXECUTABLE"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+APP_FRAMEWORKS="$APP_BUNDLE/$(product_config frameworks_relative_path)"
 AGENT_LABEL="$(product_config agent_service_label)"
 APP_LAUNCH_AGENTS="$APP_CONTENTS/Library/LaunchAgents"
 INSTALLED_APP="$INSTALL_DIR/$APP_BUNDLE_NAME"
@@ -120,6 +123,25 @@ EOF
   echo "time codesign uses it - enter it and click \"Always Allow\" (asked once)."
 }
 
+# The updater framework, embedded where the GUI's runtime search path looks.
+#
+# The GUI is linked against @rpath/Sparkle.framework/…, so a dev install
+# without this directory launches to a dyld failure. `ditto` rather than
+# `cp -R`: it reproduces the tree exactly in one pass, extended attributes
+# included, which is what the framework's own signature seals.
+embed_sparkle_framework() {
+  local source version pinned
+  source="$(sparkle_framework_source "$SWIFTPM_BUILD_PATH")" ||
+    fail "the pinned updater framework is not in the resolved artifacts"
+  pinned="$(product_config sparkle_version)"
+  version="$(sparkle_embedded_version "$source")" ||
+    fail "the resolved updater framework declares no version"
+  [[ "$version" == "$pinned" ]] ||
+    fail "the resolved updater framework is $version, but Product.json pins $pinned"
+  mkdir -p "$APP_FRAMEWORKS"
+  ditto "$source" "$APP_FRAMEWORKS/$SPARKLE_FRAMEWORK_NAME"
+}
+
 sign_app_bundle() {
   # macOS TCC keys the microphone grant to the app's designated requirement,
   # which derives from the code signature. An ad-hoc signature has no stable
@@ -129,8 +151,22 @@ sign_app_bundle() {
   # requirement across rebuilds, so the grant survives.
   ensure_signing_identity
 
-  # Inside-out, exactly as scripts/sign_app.sh does: the nested agent binary is
-  # signed before the bundle that seals it.
+  # Inside-out, exactly as scripts/sign_app.sh does: the updater's helpers
+  # before the framework, the framework and the nested agent binary before the
+  # bundle that seals them. codesign refuses to seal an application over
+  # unsigned nested code, so this order is the only one that works.
+  #
+  # Deliberately without `--options runtime`, which is the one way this differs
+  # from sign_app.sh: under the hardened runtime macOS validates every library
+  # against the loading process's team, and this self-signed dev identity has
+  # none, so a hardened dev app cannot load the framework it just embedded. A
+  # release is Developer ID signed and hardened, and verify_staged_app.sh
+  # refuses a release bundle that is not.
+  local member
+  for member in "${SPARKLE_SIGNING_ORDER[@]}"; do
+    codesign --force --sign "$SIGN_IDENTITY" \
+      "$APP_FRAMEWORKS/$SPARKLE_FRAMEWORK_NAME/$member"
+  done
   codesign --force --sign "$SIGN_IDENTITY" "$AGENT_BINARY"
 
   codesign --force \
@@ -151,6 +187,7 @@ stage_app_bundle() {
   cp "$build_resource_bundle/$ICON_NAME" "$APP_RESOURCES/$ICON_NAME"
   cp -R "$build_resource_bundle" "$APP_RESOURCES/$RESOURCE_BUNDLE_NAME"
   chmod +x "$APP_BINARY" "$AGENT_BINARY"
+  embed_sparkle_framework
   write_info_plist
   write_launch_agent_plist
   sign_app_bundle

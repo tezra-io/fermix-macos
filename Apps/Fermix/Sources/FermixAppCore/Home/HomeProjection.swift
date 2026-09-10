@@ -1,26 +1,73 @@
 import Foundation
 
-/// What the app can say about an update.
+/// What the app can say about an update (M34 §6, R2).
 ///
-/// Sparkle is M34 §6 work. Until it is wired, this build reports `unknown`
-/// rather than "up to date": claiming an app is current when nothing has
-/// checked is the kind of quiet untruth the update surface exists to avoid.
+/// Six states rather than three, because the distinctions are the whole point:
+/// a check that has not run, a build that runs no updater, a check in flight,
+/// and a check that *failed* are four different truths, and rendering any of
+/// them as "up to date" is the one untruth this surface exists to avoid.
 public enum UpdateAvailability: Equatable, Sendable {
+    /// No check has run yet in this process.
     case unknown
+    /// This bundle declares an update policy it may not run on, so no updater
+    /// was started. A packaging defect rather than a condition of this Mac.
+    case unconfigured
+    case checking
     case upToDate(lastCheckedAt: Date?)
-    case available(version: String)
+    case available(version: String, releaseClass: UpdateReleaseClass)
+    /// The update is staged: quitting Fermix replaces the bundle, whatever else
+    /// the person does. It is a state of the update rather than of a window, so
+    /// it travels on the same value every surface already reads.
+    case staged(version: String)
+    /// A check ran and did not complete. The date is the last one that did.
+    case checkFailed(lastCheckedAt: Date?)
 }
 
-/// The update seam the update surface is wired to.
-public protocol UpdateChecking: Sendable {
-    func availability() async -> UpdateAvailability
+/// The Attention row an update draws (M34 §6, R2).
+///
+/// A row rather than a surface of its own, so Home's section, the menu bar mark
+/// and the status item all read one answer. The action shows the updater's own
+/// alert, which owns Install, Remind Later and Skip.
+public enum UpdatePresentation {
+    public static func attentionRow(for availability: UpdateAvailability) -> AttentionRow? {
+        switch availability {
+        case .available(let version, let releaseClass):
+            return AttentionRow(
+                id: "update_available",
+                title: String(format: ProductStrings[.homeUpdateAvailableFormat], version),
+                body: ProductStrings[body(for: releaseClass)],
+                action: .showUpdate
+            )
+        case .staged:
+            return AttentionRow(
+                id: "update_staged",
+                title: ProductStrings[.attentionUpdateStagedTitle],
+                body: ProductStrings[.attentionUpdateStagedBody],
+                action: .showUpdate
+            )
+        case .unknown, .unconfigured, .checking, .upToDate, .checkFailed:
+            return nil
+        }
+    }
+
+    private static func body(for releaseClass: UpdateReleaseClass) -> ProductStringKey {
+        releaseClass == .critical ? .attentionUpdateCriticalBody : .attentionUpdateAvailableBody
+    }
 }
 
-/// The v1 checker. It has no updater behind it and says so.
-public struct UnwiredUpdateChecker: UpdateChecking {
-    public init() {}
-
-    public func availability() async -> UpdateAvailability { .unknown }
+/// The update seam every surface reads: what the updater last found, whether it
+/// would take a check, and the one command that asks for one.
+///
+/// `UpdateCoordinator` implements it. The seam stays in this library and
+/// imports nothing, because both executables link this library and M34 §6
+/// forbids `FermixAgent` from loading the updater framework.
+@MainActor
+public protocol UpdateChecking: AnyObject {
+    func availability() -> UpdateAvailability
+    /// The updater's own answer, which the menu row and Home follow rather than
+    /// deciding for themselves.
+    var canCheckForUpdates: Bool { get }
+    func checkForUpdates()
 }
 
 /// Home's Attention section (M34 §3.2).
@@ -177,15 +224,41 @@ public struct HomeSnapshot: Equatable, Sendable {
         EmptyStateModel(message: ProductStrings[.homeAttentionEmpty])
     }
 
+    /// What the update card states (M34 §6, R2): the offered version and its
+    /// release class where there is one, and the last check that actually
+    /// succeeded beside every other answer.
     public var updateSummary: String {
         switch update {
         case .unknown:
             return ProductStrings[.homeUpdateUnknown]
-        case .upToDate:
-            return ProductStrings[.homeUpdateCurrent]
-        case .available(let version):
+        case .unconfigured:
+            return ProductStrings[.homeUpdateUnconfigured]
+        case .checking:
+            return ProductStrings[.homeUpdateChecking]
+        case .upToDate(let checked):
+            return HomeSnapshot.checked(ProductStrings[.homeUpdateCurrent], at: checked)
+        case .available(let version, .normal):
             return String(format: ProductStrings[.homeUpdateAvailableFormat], version)
+        case .available(let version, .critical):
+            return String(format: ProductStrings[.homeUpdateCriticalFormat], version)
+        case .staged(let version):
+            return String(format: ProductStrings[.homeUpdateStagedFormat], version)
+        case .checkFailed(let checked):
+            return HomeSnapshot.checked(ProductStrings[.homeUpdateCheckFailed], at: checked)
         }
+    }
+
+    /// One sentence with the last successful check appended, where there was
+    /// one. The moment is absolute rather than relative: this value is only
+    /// recomputed on a refresh, and "three hours ago" held in it would go stale
+    /// where it stands.
+    private static func checked(_ sentence: String, at moment: Date?) -> String {
+        guard let moment else { return sentence }
+
+        return ProductStrings.middot(
+            sentence,
+            String(format: ProductStrings[.homeUpdateCheckedFormat], HumaneTime.moment(moment))
+        )
     }
 
     // MARK: - Header

@@ -17,13 +17,15 @@
 #         fake_app_build_stub <out> [cc flags...]
 #         fake_app_build_bundle <app-path> <scratch-dir>
 
-if [ -z "${BASH_SOURCE[0]:-}" ]; then
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   echo "fake_staged_app.sh: must be sourced from bash" >&2
-  return 1 2>/dev/null || exit 1
+  exit 1
 fi
 
 FAKE_APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAKE_APP_RESOURCES="$FAKE_APP_ROOT/Apps/Fermix/Sources/FermixAppCore/Resources"
+# shellcheck source=scripts/sparkle.sh
+source "$FAKE_APP_ROOT/scripts/sparkle.sh"
 
 # A real universal Mach-O, so lipo answers truthfully. A shell script with a
 # +x bit would satisfy an executable-bit check and prove nothing about slices.
@@ -75,6 +77,90 @@ fake_app_build_engine_tree() {
 MANIFEST
 }
 
+# A stand-in for the pinned updater framework, in the layout the real one has:
+# a versioned bundle behind Versions/Current, four helper programs beside the
+# library, and the top-level symbolic links the @rpath install name resolves
+# through. The library is a real universal dylib carrying Sparkle's own install
+# name, and the helpers are real universal Mach-O, so file, lipo, otool, and
+# codesign all answer truthfully about them.
+#
+# The version is a parameter so a case can stage a framework the product
+# configuration does not pin.
+fake_app_build_sparkle_framework() {
+  local framework="$1" version="$2" scratch
+  scratch="$(dirname "$framework")"
+  mkdir -p "$framework/Versions/B/Resources" \
+    "$framework/Versions/B/Updater.app/Contents/MacOS" \
+    "$framework/Versions/B/XPCServices/Downloader.xpc/Contents/MacOS" \
+    "$framework/Versions/B/XPCServices/Installer.xpc/Contents/MacOS"
+
+  printf 'int SUFakeUpdater(void) { return 0; }\n' >"$scratch/.sparkle.c"
+  cc -dynamiclib -arch arm64 -arch x86_64 \
+    -install_name "@rpath/$SPARKLE_FRAMEWORK_NAME/Versions/B/Sparkle" \
+    -o "$framework/Versions/B/Sparkle" "$scratch/.sparkle.c"
+  rm -f "$scratch/.sparkle.c"
+
+  fake_app_build_stub "$framework/Versions/B/Autoupdate" -arch arm64 -arch x86_64
+  fake_app_build_stub "$framework/Versions/B/Updater.app/Contents/MacOS/Updater" \
+    -arch arm64 -arch x86_64
+  fake_app_build_stub "$framework/Versions/B/XPCServices/Downloader.xpc/Contents/MacOS/Downloader" \
+    -arch arm64 -arch x86_64
+  fake_app_build_stub "$framework/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/Installer" \
+    -arch arm64 -arch x86_64
+
+  fake_app_write_bundle_plist "$framework/Versions/B/Resources/Info.plist" \
+    Sparkle org.sparkle-project.Sparkle FMWK "$version"
+  fake_app_write_bundle_plist "$framework/Versions/B/Updater.app/Contents/Info.plist" \
+    Updater org.sparkle-project.Sparkle.Updater APPL "$version"
+  fake_app_write_bundle_plist \
+    "$framework/Versions/B/XPCServices/Downloader.xpc/Contents/Info.plist" \
+    Downloader org.sparkle-project.Downloader XPC! "$version"
+  fake_app_write_bundle_plist \
+    "$framework/Versions/B/XPCServices/Installer.xpc/Contents/Info.plist" \
+    Installer org.sparkle-project.InstallerConnection XPC! "$version"
+
+  ln -sfn B "$framework/Versions/Current"
+  ln -sfn Versions/Current/Sparkle "$framework/Sparkle"
+  ln -sfn Versions/Current/Resources "$framework/Resources"
+  ln -sfn Versions/Current/Autoupdate "$framework/Autoupdate"
+  ln -sfn Versions/Current/Updater.app "$framework/Updater.app"
+  ln -sfn Versions/Current/XPCServices "$framework/XPCServices"
+}
+
+fake_app_write_bundle_plist() {
+  local out="$1" executable="$2" identifier="$3" package_type="$4" version="$5"
+  cat >"$out" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>$executable</string>
+  <key>CFBundleIdentifier</key><string>$identifier</string>
+  <key>CFBundleName</key><string>$executable</string>
+  <key>CFBundlePackageType</key><string>$package_type</string>
+  <key>CFBundleShortVersionString</key><string>$version</string>
+  <key>CFBundleVersion</key><string>$version</string>
+</dict>
+</plist>
+PLIST
+}
+
+# The two link arguments that make a GUI stand-in load the staged updater
+# framework the way the built GUI does.
+#
+# verify_staged_app.sh asks the binaries themselves which executable may load
+# Sparkle — M34 section 6 allows the GUI and forbids the agent — so a stand-in
+# that linked nothing would fail that gate for a reason the case under test
+# never touched. They arrive in an array because both are paths, and a string
+# split on spaces breaks the first time a scratch directory has one.
+fake_app_sparkle_link_flags() {
+  local app="${1:?fake_app_sparkle_link_flags: <app-path> is required}"
+  FAKE_APP_SPARKLE_LINK=(
+    "$app/$(product_config frameworks_relative_path)/$SPARKLE_FRAMEWORK_NAME/Versions/B/Sparkle"
+    "-Wl,-rpath,@executable_path/../Frameworks"
+  )
+}
+
 fake_app_build_bundle() {
   local app="$1" resources
   # shellcheck source=scripts/product_config.sh
@@ -84,10 +170,17 @@ fake_app_build_bundle() {
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" \
     "$app/Contents/Library/LaunchAgents" \
     "$app/$(product_config engine_relative_path)" \
-    "$app/$(product_config tools_relative_path)"
+    "$app/$(product_config tools_relative_path)" \
+    "$app/$(product_config frameworks_relative_path)"
 
+  # The framework first: the GUI stand-in links against it, exactly as the
+  # built GUI links the pinned one.
+  fake_app_build_sparkle_framework \
+    "$app/$(product_config frameworks_relative_path)/$SPARKLE_FRAMEWORK_NAME" \
+    "$(product_config sparkle_version)"
+  fake_app_sparkle_link_flags "$app"
   fake_app_build_stub "$app/Contents/MacOS/$(product_config gui_executable_name)" \
-    -arch arm64 -arch x86_64
+    -arch arm64 -arch x86_64 "${FAKE_APP_SPARKLE_LINK[@]}"
   fake_app_build_stub "$app/Contents/MacOS/$(product_config agent_executable_name)" \
     -arch arm64 -arch x86_64
 

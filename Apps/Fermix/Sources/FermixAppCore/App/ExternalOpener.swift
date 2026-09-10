@@ -3,9 +3,10 @@ import Foundation
 
 /// Handing a url to the system browser, behind a seam.
 ///
-/// The one hop the app makes into a browser is a provider sign-in: RFC 8252
-/// requires the external browser, so the credential never crosses this process.
-/// Nothing else in the app opens a url.
+/// Two hops the app makes into a browser, and no others. A provider sign-in,
+/// because RFC 8252 requires the external browser and the credential must never
+/// cross this process. And the prior installer Recovery offers after an update
+/// that did not finish (M34 §6, R4), because this app downloads nothing itself.
 public protocol ExternalOpening: Sendable {
     func open(_ url: URL) -> Bool
 }

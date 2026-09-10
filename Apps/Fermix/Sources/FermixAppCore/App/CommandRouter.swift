@@ -17,6 +17,9 @@ public final class CommandRouter: CommandPerforming {
     /// The one command that puts `fermix` on PATH, where this install has one
     /// to offer. A closure because the answer is `CLILinkPlanner`'s.
     private let commandLine: () -> CoexistenceInstructions?
+    /// The updater, so `Check for Updates` follows what it would actually
+    /// accept rather than a value written here (M34 §6, R2).
+    private let updates: any UpdateChecking
     private let log = AppLog.logger(.app)
 
     public init(
@@ -25,6 +28,7 @@ public final class CommandRouter: CommandPerforming {
         surfaces: MainWindowSurfaces,
         sidebar: SidebarModel,
         menuBar: any MenuBarItemPresenting,
+        updates: any UpdateChecking,
         commandLine: @escaping () -> CoexistenceInstructions? = { nil }
     ) {
         self.model = model
@@ -32,17 +36,19 @@ public final class CommandRouter: CommandPerforming {
         self.surfaces = surfaces
         self.sidebar = sidebar
         self.menuBar = menuBar
+        self.updates = updates
         self.commandLine = commandLine
     }
 
     public func canPerform(_ command: AppCommand) -> Bool {
         switch command {
-        // Sparkle is M34 §6 work. M34 §3.3 publishes the row dimmed rather than
-        // hiding it, because an updater the product will have is not the same as
-        // one it never had. Until it lands, the update surface is entered only
-        // through `fermix://upgrade` (owner decision 12).
+        // The updater's own answer, never a value written here: it stays true
+        // while an update is merely being shown, because asking again is what
+        // brings that alert back into focus (M34 §6, R2). A build that runs no
+        // updater at all answers false, and M34 §3.3 publishes the row dimmed
+        // rather than hiding it.
         case .checkForUpdates:
-            return false
+            return updates.canCheckForUpdates
         case .runLocalChecks, .runNetworkChecks:
             return !surfaces.doctor.isRunning
         case .exportSupportBundle:
@@ -110,9 +116,7 @@ public final class CommandRouter: CommandPerforming {
         case .continueSetup:
             coordinator.open(.setup)
         case .checkForUpdates:
-            // `canPerform` refuses it, so the guard above already returned. The
-            // row exists to be published dimmed, and nothing performs it.
-            preconditionFailure("checkForUpdates is published dimmed and performs nothing")
+            updates.checkForUpdates()
         case .quit:
             coordinator.quit()
         case .toggleSidebar:

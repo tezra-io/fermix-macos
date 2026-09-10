@@ -14,7 +14,7 @@ import Testing
 @MainActor
 struct CommandRouterTests {
     @Test("each surface command opens the route it names")
-    func surfaceCommandsOpenTheirRoutes() throws {
+    func surfaceCommandsOpenTheirRoutes() async throws {
         let harness = try RouterHarness()
 
         let routes: [(AppCommand, AppRoute)] = [
@@ -26,12 +26,14 @@ struct CommandRouterTests {
 
         for (command, route) in routes {
             harness.router.perform(command)
+            try await harness.coordinator.drainPendingWork()
 
             #expect(harness.model.route == route, "\(command.rawValue)")
         }
 
         harness.model.route = .logs
         harness.router.perform(.openFermix)
+        try await harness.coordinator.drainPendingWork()
         #expect(harness.model.route == .home, "the status item's Open Fermix lands on Home")
         #expect(harness.windows.presented == [.main])
     }
@@ -94,20 +96,23 @@ struct CommandRouterTests {
     @Test("a refused command moves nothing")
     func refusedCommandMovesNothing() throws {
         let harness = try RouterHarness()
+        harness.updates.accepts = false
 
         let before = harness.windows.presented
         harness.router.perform(.checkForUpdates)
         #expect(harness.windows.presented == before)
+        #expect(harness.updates.checks == 0)
     }
 
     /// Command-comma and the pinned sidebar row are the same command, and it
     /// enters the presentation rather than opening a window.
     @Test("the settings command enters the presentation of the primary window")
-    func settingsCommandEntersThePresentation() throws {
+    func settingsCommandEntersThePresentation() async throws {
         let harness = try RouterHarness()
         harness.model.route = .logs
 
         harness.router.perform(.openSettings)
+        try await harness.coordinator.drainPendingWork()
 
         #expect(harness.windows.presented == [.main])
         #expect(harness.presentation.isShowing)
@@ -221,10 +226,13 @@ struct CommandRouterTests {
     }
 
     @Test("quitting releases voice and requests termination")
-    func quitRequestsTermination() throws {
+    func quitRequestsTermination() async throws {
         let harness = try RouterHarness()
 
         harness.router.perform(.quit)
+        // Quitting finishes a staged update's stop first (M34 §6, R3), so it
+        // is a task rather than a call.
+        try await harness.coordinator.drainPendingWork()
 
         #expect(harness.termination.requested == 1)
         #expect(harness.lifecycle.calls.isEmpty, "quitting touched the daemon")
@@ -240,6 +248,7 @@ struct CommandRouterTests {
         #expect(harness.router.isOn(.pauseLogs))
 
         harness.router.perform(.exportLogs)
+        try await harness.coordinator.drainPendingWork()
         #expect(harness.surfaces.logs.exportRequested)
         #expect(harness.model.route == .logs, "Export opened the surface it exports from")
     }
@@ -259,13 +268,19 @@ struct CommandRouterTests {
 
     // MARK: - What can run right now
 
-    /// Sparkle is not wired, so M34 §3.3 publishes the row dimmed. The command
-    /// exists to be drawn disabled and performs nothing.
-    @Test("check for updates is always refused")
-    func checkForUpdatesIsRefused() throws {
+    /// The row follows the updater's own answer rather than a value written
+    /// here (M34 §6, R2). A build that runs no updater draws it dimmed, which
+    /// is what M34 §3.3 asks for, and a build that does performs a real check.
+    @Test("check for updates follows the updater", arguments: [false, true])
+    func checkForUpdatesFollowsTheUpdater(accepts: Bool) throws {
         let harness = try RouterHarness()
+        harness.updates.accepts = accepts
 
-        #expect(!harness.router.canPerform(.checkForUpdates))
+        #expect(harness.router.canPerform(.checkForUpdates) == accepts)
+
+        harness.router.perform(.checkForUpdates)
+
+        #expect(harness.updates.checks == (accepts ? 1 : 0))
     }
 
     @Test("exporting and copying logs is refused while there is nothing to export")
@@ -353,6 +368,9 @@ final class RouterHarness {
     /// row's effect is readable.
     let statusItem = FakeStatusItem()
     let menuBar: MenuBarController
+    /// The updater behind the `Check for Updates` row, scripted: the row
+    /// follows what the updater would actually accept (M34 §6, R2).
+    let updates = FakeUpdateChecker()
 
     static let launcherPath = "/Applications/Fermix.app/Contents/MacOS/fermix"
     /// A throwaway account root: the router never writes a record, and a store
@@ -375,6 +393,8 @@ final class RouterHarness {
             windows: WindowCoordinator(host: windows),
             voice: FakeVoiceController(),
             lifecycle: lifecycle,
+            updates: FakeUpdateReconciler(),
+            gate: ServiceMutationGate(),
             bootstrap: { .present },
             termination: termination,
             settings: settings,
@@ -389,7 +409,7 @@ final class RouterHarness {
                 gateway: gateway,
                 services: services,
                 coordinator: coordinator,
-                updates: UnwiredUpdateChecker(),
+                updates: updates,
                 settings: settings,
                 reconciler: EngineReconcilerFixture.aligned(),
                 menuBar: menuBar
@@ -417,6 +437,7 @@ final class RouterHarness {
                 ),
                 onRoute: { _ in },
                 onRecoveryResolved: {},
+                onRetryUpdateRecovery: {},
                 settings: settings,
                 sleeper: NoWaitSleeper()
             ),
@@ -428,7 +449,8 @@ final class RouterHarness {
             coordinator: coordinator,
             surfaces: surfaces,
             sidebar: sidebar,
-            menuBar: menuBar
+            menuBar: menuBar,
+            updates: updates
         )
     }
 

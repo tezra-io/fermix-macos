@@ -337,4 +337,9 @@ public enum LifecyclePolicy {
     public static let relaunchPolling = PollingPolicy(interval: 0.5, attempts: 60)
     /// The web surface comes up after the socket, inside the same 90 seconds.
     public static let webPolling = PollingPolicy(interval: 0.5, attempts: 60)
+    /// The update reconcile proves the engine that came back after an update.
+    /// launchd brings the agent up within seconds of the registration, so 30
+    /// seconds is a failure to start rather than a slow one, and running out is
+    /// what opens Recovery instead of hanging the launch.
+    public static let engineVerification = PollingPolicy(interval: 0.5, attempts: 60)
 }

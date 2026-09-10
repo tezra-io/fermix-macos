@@ -148,6 +148,11 @@ public enum AttentionAction: Equatable, Sendable {
     case showInstructions
     /// Reveals the settings file in the Finder.
     case revealSettingsFile
+    /// Shows the updater's own alert, which owns Install, Remind Later and
+    /// Skip (M34 section 6). Asking for a check again is what brings an alert
+    /// that is already showing back into focus, so the row needs no second way
+    /// to raise it.
+    case showUpdate
 
     public var title: String {
         switch self {
@@ -157,6 +162,7 @@ public enum AttentionAction: Equatable, Sendable {
             return String(format: ProductStrings[.settingsOpenPaneFormat], pane.title)
         case .showInstructions: return ProductStrings[.attentionActionShowInstructions]
         case .revealSettingsFile: return ProductStrings[.uninstallReveal]
+        case .showUpdate: return ProductStrings[.attentionActionShowUpdate]
         }
     }
 }

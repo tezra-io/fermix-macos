@@ -175,11 +175,22 @@ public final class OnboardingModel: ObservableObject {
     /// before. A closure because the answer is a filesystem fact the
     /// composition already knows how to read.
     private let settingsFiles: () -> RecoveryEvidence
+    /// What the launch reconcile found about an update that did not finish
+    /// (M34 §6, R4). A closure because the coordinator owns the reconcile and
+    /// Recovery only states its answer.
+    private let updateRecovery: () -> UpdateRecoveryReport?
+    /// Hands the prior installer to the browser. This app downloads nothing
+    /// itself, which is why the screen says the step needs a connection.
+    private let openInstaller: (URL) -> Void
     /// Shows the settings file in the Finder. The one implementation lives on
     /// `DoctorModel`; this is that one.
     private let revealSettings: () -> Void
     private let route: (AppDestination) -> Void
     private let recoveryResolved: () -> Void
+    /// Runs the launch reconcile again, which is the only thing that resolves
+    /// an update that did not finish (M34 §6, R4). A closure because the
+    /// coordinator owns the reconcile; this screen owns the gesture.
+    private let retryUpdateRecovery: () -> Void
     private let log = AppLog.logger(.app)
     private var activationTask: Task<Void, Never>?
     private var applyTask: Task<Void, Never>?
@@ -199,9 +210,12 @@ public final class OnboardingModel: ObservableObject {
         restarter: any DaemonRestarting,
         planner: CLILinkPlanner,
         settingsFiles: @escaping () -> RecoveryEvidence = { RecoveryEvidence(sentence: nil, settingsFile: nil, previousFile: nil) },
+        updateRecovery: @escaping () -> UpdateRecoveryReport? = { nil },
+        openInstaller: @escaping (URL) -> Void = { _ in },
         revealSettingsFile: @escaping () -> Void = {},
         onRoute: @escaping (AppDestination) -> Void,
         onRecoveryResolved: @escaping () -> Void,
+        onRetryUpdateRecovery: @escaping () -> Void,
         settings: SettingsModel,
         sleeper: any Sleeping
     ) {
@@ -217,9 +231,12 @@ public final class OnboardingModel: ObservableObject {
         self.restarter = restarter
         self.planner = planner
         self.settingsFiles = settingsFiles
+        self.updateRecovery = updateRecovery
+        self.openInstaller = openInstaller
         self.revealSettings = revealSettingsFile
         self.route = onRoute
         self.recoveryResolved = onRecoveryResolved
+        self.retryUpdateRecovery = onRetryUpdateRecovery
         self.settings = settings
         self.signIn = JobRunner(gateway: gateway, sleeper: sleeper)
         self.cliPlan = planner.plan()
@@ -336,7 +353,17 @@ public final class OnboardingModel: ObservableObject {
     /// Try again is the user asking the app to get back to a working state, so
     /// it resolves whatever recovery record is outstanding before running
     /// anything: a transaction refuses to start over an unresolved one.
+    ///
+    /// An update that did not finish is the one recovery activation cannot
+    /// clear: the record is the update's, and registering the agent and
+    /// starting the engine over it would leave the same report standing. That
+    /// one re-runs the launch reconcile instead (M34 §6, R4).
     public func retry() {
+        guard updateRecoveryPresentation == nil else {
+            retryUpdateRecovery()
+            return
+        }
+
         recoveryResolved()
         machine.apply(.retryActivation)
         startActivation()
@@ -369,6 +396,26 @@ public final class OnboardingModel: ObservableObject {
             settingsFile: files.settingsFile,
             previousFile: files.previousFile
         )
+    }
+
+    /// What Recovery states about an update that did not finish, where one did
+    /// (M34 §6, R4). Built from the record on disk, so the screen opens with no
+    /// daemon and no network.
+    public var updateRecoveryPresentation: UpdateRecoveryPresentation? {
+        updateRecovery().map(UpdateRecoveryPresentation.init(report:))
+    }
+
+    /// Opens the exact installer the previous version came from.
+    ///
+    /// The record names one address and this hands it to the browser; nothing
+    /// here downloads, verifies or installs, which is what the screen says.
+    public func reinstallPreviousVersion() {
+        guard let url = updateRecoveryPresentation?.reinstallURL else {
+            log.error("the update record names no installer this app will open")
+            return
+        }
+
+        openInstaller(url)
     }
 
     /// Shows the settings file in the Finder.

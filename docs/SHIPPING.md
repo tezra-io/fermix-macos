@@ -1,6 +1,6 @@
 # Shipping the Fermix macOS app
 
-How a person gets the app from fermix.com onto a Mac, what CI already does, what is missing, and the order it lands in. The order is M34 section 7 of the engine's implementation spec; this document is the operational view of it as of 2026-09-06.
+How a person gets the app from fermix.ai onto a Mac, what CI already does, what is missing, and the order it lands in. The order is M34 section 7 of the engine's implementation spec; this document is the operational view of it as of 2026-09-06.
 
 ## What exists today
 
@@ -50,12 +50,16 @@ Spec step 8 puts this in the first public release, and nothing public depends on
 
 ### 4. Updates
 
-A person who downloads a DMG has no `brew upgrade`. Without an update channel they never learn a newer build exists, so Sparkle belongs in the first public release rather than the second:
+A person who downloads a DMG needs a reliable way to discover future fixes. The first public macOS release accompanying core 0.10.0 must include update discovery and safe, user-initiated installation, with these release gates:
 
 - Generate the EdDSA key pair once; the private key lives in the `release-macos` environment with a backup and a written rotation procedure; the public key is embedded in Info.plist.
-- A fixed HTTPS feed URL under our domain, `https://fermix.com/appcast.xml`, baked into the app from release one, because the feed URL cannot change once a build is in the wild.
-- The release job generates the appcast entry from the notarized DMG and publishes it only after the DMG and the acceptance evidence are live. The appcast is a few kilobytes and is served by the site as a static asset.
-- The spec's update transaction (section 6: the journal, the reconcile after a failed update) is the app-side half. If it is not ready for release one, ship Sparkle's own flow and add the journal in the next release; either way the feed exists from day one.
+- An HTTPS feed at `https://fermix.ai/appcast.xml`, embedded from release one. A future feed migration must keep the old endpoint available so installed clients can reach the release containing the new URL. [Sparkle feed migration](https://sparkle-project.org/documentation/publishing/#upgrading-to-newer-features)
+- Use the checked-in positive integer `Product.json` build number for each distinct candidate. The tag, installed plist and appcast must agree; reject reused or decreasing published build numbers.
+- Sign the final notarized and stapled DMG bytes with Sparkle's EdDSA key, then generate the candidate appcast. Test through an isolated feed before promoting the accepted artifact and metadata to production.
+- The source app must journal the update, safely stop its engine before replacement, and recover interrupted updates before ordinary UI. These protections must ship in release one: a coordinator introduced in the next binary cannot protect its own installation.
+- Prove a failed shutdown prevents replacement on every permitted Sparkle path. The pinned Sparkle delegate has no asynchronous veto before installer arming; the postponed-relaunch callback alone cannot provide this guarantee. The current installation path remains a release blocker until that boundary is resolved. [Sparkle delegate contract](https://sparkle-project.org/documentation/api-reference/Protocols/SPUUpdaterDelegate.html)
+
+If safe installation is not ready, explicitly reduce scope to informational updates linking to the signed DMG, with a tested manual-upgrade procedure, or defer the macOS release. Do not ship unrestricted installation and defer its safety work to release two. Production key custody, feed publication, and signed update acceptance remain release work; passing unit tests does not complete them.
 
 ### 5. Acceptance on a clean Mac
 
@@ -67,19 +71,19 @@ Push the tag. CI produces the DMG, its checksum and signature, the cask and the 
 
 ### 7. The site
 
-- A download page at `fermix.com/download` with one button, "Download for Mac", requirements (macOS 15 or later, Apple silicon and Intel in one file), the sha256 and how to check it, and the two alternatives: `brew install --cask tezra-io/tap/fermix`, and for an existing Homebrew install, that the app adopts it in place.
-- The button points at `https://fermix.com/download/macos`, a route the site's Worker answers with a redirect to the pinned release asset on GitHub. The URL on the page never changes, the release assets stay immutable, and moving people to a new version is a one-line change in the site's config, deployed with the site. The Worker is already the site's runtime, so this is a route, not new infrastructure.
+- A download page at `fermix.ai/download` with one button, "Download for Mac", requirements (macOS 15 or later, Apple silicon and Intel in one file), the sha256 and how to check it, and the two alternatives: `brew install --cask tezra-io/tap/fermix`, and for an existing Homebrew install, that the app adopts it in place.
+- The button points at `https://fermix.ai/download/macos`, a route the site's Worker answers with a redirect to the pinned release asset on GitHub. The URL on the page never changes, the release assets stay immutable, and moving people to a new version is a one-line change in the site's config, deployed with the site. The Worker is already the site's runtime, so this is a route, not new infrastructure.
 - The docs pages that mention FermixPet (installation, distribution and upgrade, realtime voice) change to the app, its cask and the adoption of a brew home; the `fermix-site-docs` skill carries the routing table and the writing rules.
-- The bytes stay on GitHub Releases: free, on a CDN, and already the artifact of record with a cosign signature. If we later want the download to stay on our domain end to end, a Cloudflare R2 bucket behind `download.fermix.com` mirrors the same file at about a cent and a half per gigabyte a month with no egress charge; nothing in the plan above changes except the redirect target.
+- The bytes stay on GitHub Releases: free, on a CDN, and already the artifact of record with a cosign signature. If we later want the download to stay on our domain end to end, a Cloudflare R2 bucket behind `download.fermix.ai` mirrors the same file at about a cent and a half per gigabyte a month with no egress charge; nothing in the plan above changes except the redirect target.
 
 ## Decisions to take
 
 | Decision | Recommendation |
 | --- | --- |
 | Rename to `Fermix.app` in the first public release | Yes. Nothing public depends on the old name except the pet cask, which migrates once. |
-| Sparkle in the first public release | Yes. A DMG user without a feed never learns about updates. The journal can follow. |
+| Sparkle in the first public release | Discovery and safe installation, including the journal and recovery. Discovery-only requires an explicit scope decision. |
 | Pet cask macOS floor policy | Freeze the pet cask as a terminal release for pre-Sequoia Macs; the unified app has a macOS 15 floor. |
-| Where the bytes live | GitHub Releases now, behind a `fermix.com/download/macos` redirect. R2 mirror later if wanted. |
+| Where the bytes live | GitHub Releases now, behind a `fermix.ai/download/macos` redirect. R2 mirror later if wanted. |
 | App version | Its own marketing version, starting at 1.0.0 with the rename. The app shows the engine's build separately. |
 
 ## Effort, roughly
@@ -89,6 +93,6 @@ Push the tag. CI produces the DMG, its checksum and signature, the cask and the 
 | Engine merge and release | A working session for the merge, then the normal release |
 | Engine pin, download and verification in packaging | One slice, with harness rows in `verify_staged_app_test.sh` |
 | Rename, launcher, cask, migration, tag namespace | One to two slices |
-| Sparkle feed, keys, appcast job | One to two slices; the update journal is a third if it ships in release one |
+| Sparkle feed, keys, appcast job, safe installation and recovery | Required before release; estimate after resolving the installer boundary and signed acceptance coverage |
 | Site download page, redirect route, docs | One slice |
 | Clean-Mac acceptance | A day, by hand, with the runbook |

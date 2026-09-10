@@ -24,7 +24,12 @@ public enum EngineReconcileOutcome: Equatable, Sendable {
 }
 
 /// One engine build, as both sides of the comparison publish it.
-public struct EngineBuild: Equatable, Sendable {
+///
+/// `Codable` because the update journal records the engine on each side of a
+/// transaction and the reconcile compares them with this same value. A second
+/// engine-identity type written only for that file would be a second answer to
+/// "which engine is that".
+public struct EngineBuild: Codable, Equatable, Sendable {
     public let buildId: String
     public let productVersion: String
 
@@ -33,6 +38,31 @@ public struct EngineBuild: Equatable, Sendable {
 
         self.buildId = buildId
         self.productVersion = productVersion
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case buildId = "build_id"
+        case productVersion = "product_version"
+    }
+
+    /// Decoding asserts what the memberwise initializer asserts. A record
+    /// naming an engine with no build id names no engine at all, and the update
+    /// journal is read after a crash, when nothing else can vouch for it.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let buildId = try container.decode(String.self, forKey: .buildId)
+        guard !buildId.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .buildId,
+                in: container,
+                debugDescription: "an engine build is identified by its build id"
+            )
+        }
+
+        self.init(
+            buildId: buildId,
+            productVersion: try container.decode(String.self, forKey: .productVersion)
+        )
     }
 
     /// The build the running daemon reported. `build_id` is optional on the wire
@@ -75,6 +105,11 @@ public struct EngineReconciler: Sendable {
     /// The engine version this copy of Fermix ships, where the manifest could be
     /// read. The Update surface states it beside the one that is answering.
     public var bundledVersion: String? { bundled?.productVersion }
+
+    /// The whole build this copy of Fermix ships, which the update reconcile
+    /// compares with the target its journal recorded. Read from the one owner
+    /// of the bundled manifest rather than by opening it a second time.
+    public var bundledBuild: EngineBuild? { bundled }
 
     public init(bundled: EngineBuild?, bundledPlistDigest: String?) {
         self.bundled = bundled

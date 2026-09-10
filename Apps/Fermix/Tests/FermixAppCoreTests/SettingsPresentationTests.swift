@@ -65,10 +65,11 @@ struct SettingsPresentationTests {
     /// A `fermix://settings/<pane>` url selects the pane and enters the
     /// presentation of the primary window. No second window opens.
     @Test("a settings url enters the presentation of the primary window")
-    func routeEntersThePresentation() throws {
+    func routeEntersThePresentation() async throws {
         let harness = try CoordinatorHarness(bootstrap: .present)
 
         try harness.coordinator.open(url: URL(string: "fermix://settings/sandbox")!)
+        try await harness.coordinator.drainPendingWork()
 
         #expect(harness.windows.presented == [.main])
         #expect(harness.settings.selectedPane == .sandbox)
@@ -79,12 +80,13 @@ struct SettingsPresentationTests {
     /// Command-comma opens the pane the presentation was last left on, from
     /// wherever the user is standing.
     @Test("Command-comma enters at the remembered pane and returns to the surface it left")
-    func commandCommaEntersAndReturns() throws {
+    func commandCommaEntersAndReturns() async throws {
         let harness = try CoordinatorHarness(bootstrap: .present)
         harness.model.route = .doctor
         harness.settings.selectedPane = .images
 
         harness.coordinator.openSettings()
+        try await harness.coordinator.drainPendingWork()
 
         #expect(harness.presentation.isShowing)
         #expect(harness.settings.selectedPane == .images)
@@ -107,31 +109,36 @@ struct SettingsPresentationTests {
     /// nobody can see — which the next Back would then overwrite with the
     /// surface the entry recorded.
     @Test("a route performed from inside settings leaves the presentation")
-    func aRouteLeavesTheSettingsPresentation() throws {
+    func aRouteLeavesTheSettingsPresentation() async throws {
         let harness = try CoordinatorHarness(bootstrap: .present)
         harness.model.route = .home
         harness.coordinator.openSettings()
+        try await harness.coordinator.drainPendingWork()
 
         #expect(harness.presentation.isShowing)
 
         harness.coordinator.open(.doctor)
+        try await harness.coordinator.drainPendingWork()
 
         #expect(!harness.presentation.isShowing, "the window is still on the settings pane")
         #expect(harness.model.route == .doctor)
 
         // And the same for a surface url, which is the other door.
         harness.coordinator.openSettings()
+        try await harness.coordinator.drainPendingWork()
         try harness.coordinator.open(url: URL(string: "fermix://logs")!)
+        try await harness.coordinator.drainPendingWork()
 
         #expect(!harness.presentation.isShowing)
         #expect(harness.model.route == .logs)
     }
 
     @Test("opening the assistant replaces settings inside the primary window")
-    func theAssistantReplacesSettings() throws {
+    func theAssistantReplacesSettings() async throws {
         let harness = try CoordinatorHarness(bootstrap: .present)
         harness.model.route = .doctor
         harness.coordinator.openSettings()
+        try await harness.coordinator.drainPendingWork()
 
         harness.coordinator.openAssistant(at: .welcome)
 

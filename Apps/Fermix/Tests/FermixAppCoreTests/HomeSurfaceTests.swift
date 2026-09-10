@@ -572,13 +572,56 @@ struct HomeSurfaceTests {
         #expect(try snapshot(update: .unknown).updateSummary == ProductStrings[.homeUpdateUnknown])
         #expect(try snapshot(update: .upToDate(lastCheckedAt: nil)).updateSummary == ProductStrings[.homeUpdateCurrent])
 
-        let available = try snapshot(update: .available(version: "0.9.1")).updateSummary
+        let available = try snapshot(update: .available(version: "0.9.1", releaseClass: .normal)).updateSummary
         #expect(available.contains("0.9.1"))
+
+        // The one untruth this surface exists to avoid: a check that did not
+        // complete never reads as up to date (M34 §6, R2).
+        let failed = try snapshot(update: .checkFailed(lastCheckedAt: nil)).updateSummary
+        #expect(failed == ProductStrings[.homeUpdateCheckFailed])
+        #expect(failed != ProductStrings[.homeUpdateCurrent])
     }
 
-    @Test("the unwired update checker claims nothing")
-    func unwiredCheckerClaimsNothing() async {
-        #expect(await UnwiredUpdateChecker().availability() == .unknown)
+    @Test("a build with no updater behind it claims nothing")
+    func unwiredUpdaterClaimsNothing() {
+        #expect(!UnwiredUpdater().canCheckForUpdates)
+    }
+
+    /// An offered update reaches the menu bar through the section Home already
+    /// draws, so the glyph and the window cannot disagree about whether
+    /// something is waiting (M34 §6, R2).
+    @Test("an available update badges the menu bar through Home's own section")
+    func availableUpdateBadgesTheMenuBar() async throws {
+        let harness = try HomeHarness()
+        harness.updates.reported = .available(version: "0.2.0", releaseClass: .normal)
+
+        await harness.model.refresh()
+
+        #expect(harness.model.snapshot.attention.displayRows.contains { $0.id == "update_available" })
+        #expect(harness.appModel.needsAttention)
+    }
+
+    /// A staged update says so on the same row: from that point quitting
+    /// replaces the bundle, and nothing else on the screen would tell anyone.
+    @Test("a staged update says the replacement happens on quit")
+    func stagedUpdateSaysWhenItInstalls() async throws {
+        let harness = try HomeHarness()
+        harness.updates.reported = .staged(version: "0.2.0")
+
+        await harness.model.refresh()
+
+        #expect(harness.model.snapshot.attention.displayRows.contains { $0.id == "update_staged" })
+    }
+
+    /// Asking for a check is what raises the updater's own alert, and what
+    /// brings one that is already showing back into focus.
+    @Test("the update row asks the updater rather than drawing a second alert")
+    func updateRowAsksTheUpdater() throws {
+        let harness = try HomeHarness()
+
+        harness.model.perform(.showUpdate)
+
+        #expect(harness.updates.checks == 1)
     }
 
     // MARK: - Actions
@@ -840,6 +883,9 @@ final class HomeHarness {
     let coordinator: AppCoordinator
     let model: HomeModel
     let settings: SettingsModel
+    /// What the update seam answers. The harness owns it so a case can state
+    /// what a check found without a feed behind it.
+    let updates = FakeUpdateChecker()
     /// The status item, without a status bar, so the Background section's third
     /// switch has something real to write to.
     let statusItem = FakeStatusItem()
@@ -855,6 +901,8 @@ final class HomeHarness {
             windows: WindowCoordinator(host: windows),
             voice: FakeVoiceController(),
             lifecycle: lifecycle,
+            updates: FakeUpdateReconciler(),
+            gate: ServiceMutationGate(),
             bootstrap: { .present },
             termination: FakeTerminationRequester(),
             settings: settings,
@@ -865,7 +913,7 @@ final class HomeHarness {
             gateway: gateway,
             services: ServiceController(loginItems: loginItems),
             coordinator: coordinator,
-            updates: UnwiredUpdateChecker(),
+            updates: updates,
             settings: settings,
             reconciler: reconciler,
             menuBar: menuBar

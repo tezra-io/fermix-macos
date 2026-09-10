@@ -15,6 +15,7 @@ import Foundation
 @MainActor
 struct AppEnvironment {
     let configuration: ProductConfiguration
+    let appBuild: AppBuild
     let location: BootstrapLocation
     /// A fresh management client. It is a factory rather than a client because
     /// the gateway makes one lazily and the lifecycle coordinator makes its own
@@ -30,7 +31,10 @@ struct AppEnvironment {
     let settingsPanes: any SettingsPaneStoring
     let sidebarVisibility: any SidebarVisibilityStoring
     let opener: any ExternalOpening
-    let updates: any UpdateChecking
+    /// The updater behind the seam. It arrives from outside because the
+    /// implementation links Sparkle, which only the GUI executable may do
+    /// (M34 §6).
+    let updater: any UpdaterDriving
     let chooser: any DirectoryChoosing
     let processes: any ProcessLiveness
     let paths: any PathPresence
@@ -53,8 +57,8 @@ struct AppEnvironment {
 extension AppEnvironment {
     /// The shipped configuration: this Mac, this account, this bundle, and the
     /// activation that registers the background service launchd runs.
-    static func product() -> AppEnvironment {
-        onThisMac(activation: .installed)
+    static func product(updater: any UpdaterDriving) -> AppEnvironment {
+        onThisMac(activation: .installed, updater: updater)
     }
 
     /// The boundary this Mac provides, under one declared activation plan.
@@ -62,7 +66,14 @@ extension AppEnvironment {
     /// Internal rather than private because the development configuration in
     /// `DevelopmentEngineConfiguration.swift` is the second caller: the two
     /// differ in exactly this one value and in nothing else.
-    static func onThisMac(activation plan: ActivationPlan) -> AppEnvironment {
+    ///
+    /// The updater is the one value this library cannot build: its
+    /// implementation links Sparkle, which only the GUI executable may do
+    /// (M34 §6), so the executable hands it in.
+    static func onThisMac(
+        activation plan: ActivationPlan,
+        updater: any UpdaterDriving
+    ) -> AppEnvironment {
         // A bundle that cannot answer these two questions is broken, not
         // degraded: there is no second place to read them from.
         let configuration = loadConfiguration()
@@ -76,6 +87,7 @@ extension AppEnvironment {
 
         return AppEnvironment(
             configuration: configuration,
+            appBuild: loadAppBuild(),
             location: location,
             makeClient: {
                 try ManagementClient.connected(to: BootstrapRecord(fermixHome: try store.resolvedHome()))
@@ -89,7 +101,7 @@ extension AppEnvironment {
             settingsPanes: UserDefaultsSettingsPaneStore(),
             sidebarVisibility: UserDefaultsSidebarStore(),
             opener: WorkspaceExternalOpener(),
-            updates: UnwiredUpdateChecker(),
+            updater: updater,
             chooser: OpenPanelDirectoryChooser(),
             processes: SystemProcessLiveness(),
             paths: FileSystemPathPresence(),
@@ -133,6 +145,14 @@ extension AppEnvironment {
             preconditionFailure(failure.message)
         } catch {
             preconditionFailure("the product configuration is unreadable: \(error)")
+        }
+    }
+
+    private static func loadAppBuild() -> AppBuild {
+        do {
+            return try AppBuild(infoDictionary: Bundle.main.infoDictionary ?? [:])
+        } catch {
+            preconditionFailure("the installed app identity is unreadable: \(error)")
         }
     }
 

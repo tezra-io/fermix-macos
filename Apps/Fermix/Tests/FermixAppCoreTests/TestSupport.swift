@@ -55,6 +55,18 @@ final class ValueBox<Value>: @unchecked Sendable {
     }
 }
 
+/// Thread-safe counter, for a closure a case wants to prove ran exactly once.
+final class CountingBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+
+    func increment() {
+        lock.withLock { calls += 1 }
+    }
+
+    var count: Int { lock.withLock { calls } }
+}
+
 /// Records what the agent wrote, so its entry point is testable without a
 /// process or a file descriptor.
 final class RecordingAgentOutput: AgentOutput {
@@ -175,7 +187,8 @@ enum ProductFixture {
     static func json(
         schemaVersion: Int = 1,
         productName: String = "Fermix",
-        architectures: [String] = ["arm64", "x86_64"]
+        architectures: [String] = ["arm64", "x86_64"],
+        buildNumber: String = "1"
     ) -> Data {
         let architectureList = architectures
             .map { "\"\($0)\"" }
@@ -194,7 +207,7 @@ enum ProductFixture {
               "minimum_system_version": "15.0",
               "supported_architectures": [\(architectureList)],
               "marketing_version": "0.1.0",
-              "build_number": "1",
+              "build_number": "\(buildNumber)",
               "icon_file": "FermixPet",
               "swift_resource_bundle_name": "Fermix_FermixAppCore.bundle",
               "engine_relative_path": "Contents/Resources/Engine",

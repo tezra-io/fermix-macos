@@ -27,6 +27,16 @@ final class AppComposition {
     let petModel: PetFeatureModel
     let services: ServiceController
     let lifecycle: LifecycleCoordinator
+    /// The one lock over everything that can change the background service
+    /// (M34 §6, R3): the lifecycle transactions, the launch reconcile, and the
+    /// update transaction.
+    let gate: ServiceMutationGate
+    /// The updater behind the seam, held for the life of the process because a
+    /// scheduled check belongs to a live updater (M34 §6, R1).
+    let updater: any UpdaterDriving
+    /// The update transaction and the seam every update surface reads
+    /// (M34 §6, R2 and R3).
+    let updates: UpdateCoordinator
     let coordinator: AppCoordinator
     let sidebar: SidebarModel
     let router: CommandRouter
@@ -44,14 +54,18 @@ final class AppComposition {
     /// view draws it.
     let settingsPresentation: SettingsPresentation
     let journal: LifecycleJournal
+    /// The update transaction's own record, beside the lifecycle one and
+    /// outside the bundle an update replaces (M34 §6, R4).
+    let updateJournal: UpdateJournal
     let handoff: MigrationHandoffReader
     /// Asked on every restart whether the registered agent plist is still the
     /// bundled one (M34 §7.2 step 5).
     let engineReconciler: EngineReconciler
 
-    /// The shipped configuration: this Mac, this account, this bundle.
-    convenience init() {
-        self.init(environment: .product())
+    /// The shipped configuration: this Mac, this account, this bundle, and the
+    /// updater the executable owns.
+    convenience init(updater: any UpdaterDriving) {
+        self.init(environment: .product(updater: updater))
     }
 
     init(environment: AppEnvironment) {
@@ -59,6 +73,7 @@ final class AppComposition {
         location = environment.location
         store = BootstrapStore(location: location)
         journal = LifecycleJournal(location: location)
+        updateJournal = UpdateJournal(location: location)
         handoff = MigrationHandoffReader(location: location)
 
         model = AppModel()
@@ -68,6 +83,8 @@ final class AppComposition {
         services = ServiceController(loginItems: environment.loginItems, plists: environment.plists)
         engineReconciler = environment.reconciler
         menuBar = MenuBarController(model: model)
+        gate = ServiceMutationGate()
+        updater = environment.updater
 
         let management = Self.buildManagement(environment: environment, services: services)
         gateway = management.gateway
@@ -80,8 +97,11 @@ final class AppComposition {
             environment: environment,
             store: store,
             journal: journal,
+            updateJournal: updateJournal,
             services: services,
             reconciler: engineReconciler,
+            gateway: gateway,
+            gate: gate,
             model: model,
             windows: windows,
             voice: voice,
@@ -90,6 +110,16 @@ final class AppComposition {
         )
         lifecycle = plane.lifecycle
         coordinator = plane.coordinator
+        updates = Self.buildUpdateCoordinator(
+            environment: environment,
+            store: store,
+            journal: updateJournal,
+            lifecycle: plane.lifecycle,
+            services: services,
+            reconciler: engineReconciler,
+            gateway: gateway,
+            gate: gate
+        )
         petModel = Self.buildPet(model: model, voice: voice, coordinator: coordinator)
 
         let interface = Self.buildInterface(
@@ -103,7 +133,8 @@ final class AppComposition {
             gateway: gateway,
             petModel: petModel,
             settings: settings,
-            menuBar: menuBar
+            menuBar: menuBar,
+            updates: updates
         )
         surfaces = interface.surfaces
         sidebar = interface.sidebar
@@ -118,6 +149,16 @@ final class AppComposition {
     /// callbacks into surfaces it created, and the window host's view of the
     /// whole graph — plus the two first reads. Everything else points one way.
     private func finishAssembly() {
+        // The updater starts once, with the transaction bound as its delegate.
+        // A bundle whose declared policy is wrong runs none at all, and the
+        // update surface states that rather than the framework's own alert
+        // (M34 §6, R2).
+        updates.start(updater)
+        // A staged update replaces the bundle on any exit of this process, so
+        // the quit path finishes the stop first (M34 §6, R3). The closure is a
+        // backwards edge for the same reason the two below are: the update
+        // transaction is built over the coordinator's own lifecycle owner.
+        coordinator.prepareForQuit = { [updates] in await updates.prepareForQuit() }
         // A `fermix://setup` url names an assistant screen, and the assistant's
         // model is built with this coordinator's own router.
         coordinator.resumeAssistant = { [surfaces] stage in surfaces.onboarding.resume(at: stage) }
@@ -225,8 +266,11 @@ final class AppComposition {
         environment: AppEnvironment,
         store: BootstrapStore,
         journal: LifecycleJournal,
+        updateJournal: UpdateJournal,
         services: ServiceController,
         reconciler: EngineReconciler,
+        gateway: ManagementGateway,
+        gate: ServiceMutationGate,
         model: AppModel,
         windows: WindowCoordinator,
         voice: VoiceCoordinator,
@@ -249,10 +293,75 @@ final class AppComposition {
                 windows: windows,
                 voice: voice,
                 lifecycle: lifecycle,
+                updates: buildUpdateReconciler(
+                    environment: environment,
+                    journal: updateJournal,
+                    lifecycle: lifecycle,
+                    services: services,
+                    reconciler: reconciler,
+                    gateway: gateway
+                ),
+                gate: gate,
                 store: store,
                 settings: settings,
                 presentation: presentation
             )
+        )
+    }
+
+    /// The update transaction (M34 §6, R2 and R3).
+    ///
+    /// It stops the engine through the same `LifecycleCoordinator` every other
+    /// transaction uses, and it takes the same gate, so an update and a restart
+    /// can never mutate the account at once.
+    private static func buildUpdateCoordinator(
+        environment: AppEnvironment,
+        store: BootstrapStore,
+        journal: UpdateJournal,
+        lifecycle: LifecycleCoordinator,
+        services: ServiceController,
+        reconciler: EngineReconciler,
+        gateway: ManagementGateway,
+        gate: ServiceMutationGate
+    ) -> UpdateCoordinator {
+        UpdateCoordinator(
+            journal: journal,
+            lifecycle: lifecycle,
+            services: services,
+            engines: reconciler,
+            probe: ManagementUpdateEngineProbe(gateway: gateway),
+            ownership: ServiceDaemonOwnership(
+                services: services,
+                paths: environment.paths,
+                socketPath: { BootstrapRecord(fermixHome: try store.resolvedHome()).daemonSocketURL.path }
+            ),
+            gate: gate,
+            installedApp: environment.appBuild,
+            sleeper: environment.sleeper
+        )
+    }
+
+    /// The one launch reconcile (M34 §6, R4).
+    ///
+    /// It puts registrations back through the lifecycle coordinator rather than
+    /// through a second registration owner, and it asks the same
+    /// `EngineReconciler` every other surface asks which engine is answering.
+    private static func buildUpdateReconciler(
+        environment: AppEnvironment,
+        journal: UpdateJournal,
+        lifecycle: LifecycleCoordinator,
+        services: ServiceController,
+        reconciler: EngineReconciler,
+        gateway: ManagementGateway
+    ) -> UpdateReconciler {
+        UpdateReconciler(
+            journal: journal,
+            lifecycle: lifecycle,
+            services: services,
+            engines: reconciler,
+            probe: ManagementUpdateEngineProbe(gateway: gateway),
+            installedApp: environment.appBuild,
+            sleeper: environment.sleeper
         )
     }
 
@@ -302,6 +411,8 @@ final class AppComposition {
         windows: WindowCoordinator,
         voice: VoiceCoordinator,
         lifecycle: LifecycleCoordinator,
+        updates: any UpdateReconciling,
+        gate: ServiceMutationGate,
         store: BootstrapStore,
         settings: SettingsModel,
         presentation: SettingsPresentation
@@ -311,6 +422,8 @@ final class AppComposition {
             windows: windows,
             voice: voice,
             lifecycle: lifecycle,
+            updates: updates,
+            gate: gate,
             bootstrap: { store.condition() },
             termination: environment.termination,
             settings: settings,
@@ -332,6 +445,7 @@ final class AppComposition {
         surfaces: MainWindowSurfaces,
         sidebar: SidebarModel,
         menuBar: MenuBarController,
+        updates: any UpdateChecking,
         commandLine: @escaping () -> CoexistenceInstructions?
     ) -> (router: CommandRouter, mainMenu: MainMenuController, statusMenu: StatusMenuController) {
         let router = CommandRouter(
@@ -340,6 +454,7 @@ final class AppComposition {
             surfaces: surfaces,
             sidebar: sidebar,
             menuBar: menuBar,
+            updates: updates,
             commandLine: commandLine
         )
         // The status line reads the facts Home already resolved, so the two
@@ -384,7 +499,8 @@ final class AppComposition {
         gateway: ManagementGateway,
         petModel: PetFeatureModel,
         settings: SettingsModel,
-        menuBar: MenuBarController
+        menuBar: MenuBarController,
+        updates: any UpdateChecking
     ) -> UserInterface {
         // The Terminal link's plan, read once: the surfaces draw its row and the
         // Help menu names the same command.
@@ -400,7 +516,8 @@ final class AppComposition {
             gateway: gateway,
             petModel: petModel,
             settings: settings,
-            menuBar: menuBar
+            menuBar: menuBar,
+            updates: updates
         )
         let sidebar = buildSidebar(environment: environment)
         let commands = buildCommands(
@@ -409,6 +526,7 @@ final class AppComposition {
             surfaces: surfaces,
             sidebar: sidebar,
             menuBar: menuBar,
+            updates: updates,
             commandLine: { CoexistenceInstructions.commandLine(planner.plan()) }
         )
 
@@ -435,7 +553,8 @@ final class AppComposition {
         gateway: ManagementGateway,
         petModel: PetFeatureModel,
         settings: SettingsModel,
-        menuBar: any MenuBarItemPresenting
+        menuBar: any MenuBarItemPresenting,
+        updates: any UpdateChecking
     ) -> MainWindowSurfaces {
         let instructions = coexistenceInstructions(settings: settings, planner: planner)
         let doctor = buildDoctor(
@@ -451,7 +570,7 @@ final class AppComposition {
                 gateway: gateway,
                 services: services,
                 coordinator: coordinator,
-                updates: environment.updates,
+                updates: updates,
                 settings: settings,
                 reconciler: reconciler,
                 menuBar: menuBar,
@@ -561,9 +680,17 @@ final class AppComposition {
             restarter: coordinator,
             planner: planner,
             settingsFiles: { recoveryEvidence(store: store, paths: environment.paths) },
+            // Recovery states what the launch reconcile found, and offers the
+            // exact installer the previous version came from (M34 §6, R4).
+            updateRecovery: { coordinator.updateRecovery },
+            openInstaller: { _ = environment.opener.open($0) },
             revealSettingsFile: { doctor.revealSettingsFile() },
             onRoute: { coordinator.open($0) },
             onRecoveryResolved: { coordinator.resolveInterruptedTransaction() },
+            // Try again on an unfinished update re-runs the launch reconcile:
+            // activation would register the agent over a record only the
+            // reconcile can resolve (M34 §6, R4).
+            onRetryUpdateRecovery: { coordinator.retryUpdateRecovery() },
             settings: settings,
             sleeper: environment.sleeper
         )
@@ -589,5 +716,12 @@ final class AppComposition {
 final class ApplicationTermination: TerminationRequesting {
     func requestTermination() {
         NSApp.terminate(nil)
+    }
+
+    /// Answers the `.terminateLater` the delegate returned. AppKit is holding
+    /// the exit on this reply, so it is sent whether the work it waited for
+    /// finished or spent its whole bound.
+    func completeTermination() {
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 }

@@ -158,8 +158,14 @@
 "home.runtime.none" = "none";
 "home.updateCurrent" = "Up to date";
 "home.continueSetup" = "Continue setup";
-"home.updateUnknown" = "Fermix does not check for updates on its own.";
+"home.updateUnknown" = "Fermix has not checked for updates yet";
+"home.updateUnconfigured" = "This copy of Fermix cannot check for updates";
+"home.updateChecking" = "Checking for updates";
+"home.updateCheckFailed" = "Fermix could not check for updates";
 "home.updateAvailableFormat" = "Version %@ is available";
+"home.updateCriticalFormat" = "Version %@ is available and fixes something important";
+"home.updateStagedFormat" = "Version %@ is ready and installs when Fermix quits";
+"home.updateCheckedFormat" = "last checked %@";
 "home.uptimeFormat" = "for %@";
 
 /* MARK: Attention rows */
@@ -193,14 +199,40 @@
 "attention.unrecognized.body" = "This Fermix build has no description for that gap, so the daemon’s own name for it is shown.";
 "attention.action.restart" = "Restart…";
 "attention.action.reload" = "Reload settings from disk";
+"attention.action.showUpdate" = "Show the update";
+"attention.update.available.body" = "Fermix installs an update only when you ask it to.";
+"attention.update.critical.body" = "This update fixes something important. Fermix still installs it only when you ask it to.";
+"attention.update.staged.title" = "Fermix finishes updating when it quits";
+"attention.update.staged.body" = "The update is ready to install. Fermix replaces itself the next time you quit it.";
 
 /* MARK: Update and uninstall routes */
 "update.title" = "Updates";
 "update.bundled" = "In this copy of Fermix";
-"update.how" = "Fermix updates by replacing the app. Download the new version, or run brew upgrade --cask fermix in Terminal if you installed it with Homebrew.";
+"update.check" = "Check for updates";
+"update.how" = "Fermix updates by replacing the whole app. It checks for a new version and installs one only when you ask it to. You can also download a new version yourself, or run brew upgrade --cask fermix in Terminal if you installed it with Homebrew.";
 "uninstall.title" = "Removing Fermix is not built into this release";
 "uninstall.body" = "Nothing has been changed. Your Fermix home and its data are where they were, and the settings file is the one place to look before you remove anything by hand.";
 "uninstall.reveal" = "Reveal settings file";
+
+/* MARK: Recovery from an update that did not finish */
+"updateRecovery.title" = "Fermix could not finish updating";
+"updateRecovery.reason.interrupted" = "Fermix could not finish checking the last update. Try again, or open Doctor for diagnostics.";
+"updateRecovery.reason.journalUnusable" = "The record of the last update cannot be read or cleared, so Fermix cannot tell what that update left behind. Doctor reports what the daemon can still see.";
+"updateRecovery.reason.unexpectedApp" = "The copy of Fermix that opened is neither the version this update started from nor the one it was installing, so nothing was started.";
+"updateRecovery.reason.unexpectedEngine" = "This copy of Fermix does not carry the engine the update recorded, so nothing was started.";
+"updateRecovery.reason.engineNotStopped" = "The engine this update started from was still running when the new copy of Fermix replaced it, so Fermix stopped rather than start anything over data that may be half written.";
+"updateRecovery.reason.sourceEngineUnverified" = "Fermix put your background service back the way it was, but the engine it had before did not answer.";
+"updateRecovery.reason.targetEngineUnverified" = "The new engine did not answer after the update, and Fermix will not start a different one in its place.";
+"updateRecovery.reason.registrationNotRestored" = "Fermix could not put your background service back the way it was, so it stopped rather than leave the update half applied. Check that Fermix is allowed in Login Items in System Settings, then open Fermix again.";
+"updateRecovery.reason.conflictingRegistration" = "A Fermix daemon is answering that this account did not register, so this copy cannot restart it into the version you installed. That happens when another account on this Mac holds the registration, or when the daemon was started by hand.";
+"updateRecovery.reason.registrationNeedsApproval" = "macOS is waiting for you to allow Fermix to run in the background. Allow it in Login Items in System Settings, then open Fermix again.";
+"updateRecovery.reason.noSharedProtocol" = "The daemon that is answering and this copy of Fermix have no protocol version in common, so no restart or update step can reach it. Quit that daemon, then open Fermix again.";
+"updateRecovery.versionsFormat" = "Was on version %@, updating to version %@";
+"updateRecovery.installerFormat" = "Previous version %@, signed by %@";
+"updateRecovery.reinstall" = "Reinstall the previous version";
+"updateRecovery.needsNetwork" = "Downloading the previous version needs an internet connection. Everything else on this screen was read from this Mac.";
+"updateRecovery.rollbackUnsafe" = "Your data has already been updated for the new version, so going back to the previous one is not safe.";
+"updateRecovery.disableRefused" = "Fermix could not turn the background service off again, so the new engine may keep starting. Turn Fermix off in Login Items in System Settings.";
 
 /* MARK: Daemon errors, where the daemon itself has no sentence */
 "daemon.state.notRunning" = "Fermix isn’t running";
@@ -209,6 +241,7 @@
 "daemon.error.unexpectedShape" = "The daemon answered with something Fermix could not read";
 "daemon.error.requiresNewerEngine" = "Restart to finish updating Fermix";
 "lifecycle.daemonNotManaged" = "Fermix’s background service isn’t registered on this Mac, so a restart would stop Fermix and nothing would start it again. Run the Setup Assistant to register it.";
+"lifecycle.serviceBusy" = "Fermix is already changing the background service, so nothing was changed. Try again once it has finished.";
 
 /* MARK: Background service, one wording everywhere it appears */
 

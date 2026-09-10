@@ -22,6 +22,10 @@ VERIFY="$ROOT_DIR/scripts/verify_staged_app.sh"
 source "$ROOT_DIR/scripts/product_config.sh"
 # shellcheck source=scripts/fake_staged_app.sh
 source "$ROOT_DIR/scripts/fake_staged_app.sh"
+# The updater facts are read directly below, so they are asked for directly
+# rather than inherited through whatever fake_staged_app.sh happens to source.
+# shellcheck source=scripts/sparkle.sh
+source "$ROOT_DIR/scripts/sparkle.sh"
 
 APP_BUNDLE_NAME="$(product_config app_bundle_name)"
 GUI_EXECUTABLE="$(product_config gui_executable_name)"
@@ -30,6 +34,7 @@ AGENT_LABEL="$(product_config agent_service_label)"
 RESOURCE_BUNDLE_NAME="$(product_config swift_resource_bundle_name)"
 
 SOURCE_MARKS="$ROOT_DIR/Apps/Fermix/Sources/FermixAppCore/Resources/VendorMarks"
+FRAMEWORKS_RELATIVE_PATH="$(product_config frameworks_relative_path)"
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -49,11 +54,59 @@ fresh_bundle() {
   printf '%s\n' "$app"
 }
 
+# The framework of a copy, which most updater cases mutate.
+#
+# Both halves are required to be non-empty: cases delete this path, and an empty
+# interpolation is how a test once removed a root directory.
+sparkle_framework() {
+  printf '%s\n' "${1:?sparkle_framework: <app-path> is required}/${FRAMEWORKS_RELATIVE_PATH:?}/$SPARKLE_FRAMEWORK_NAME"
+}
+
+with_release_identity() {
+  plutil -replace CFBundleShortVersionString -string "$(product_config marketing_version)" "$1/Contents/Info.plist"
+  plutil -replace CFBundleVersion -string "$(product_config build_number)" "$1/Contents/Info.plist"
+}
+
+# Ad-hoc sign a copy inside-out, in sign_app.sh's order: the updater's helpers,
+# then the framework, then the agent, then the app.
+#
+# Not a convenience — it is the only order that works. codesign refuses to seal
+# an application over unsigned nested code, so a bundle carrying the updater
+# cannot be signed outer-first at all.
+#
+# Every status is checked. codesign's own noise is suppressed because these
+# cases are about the verifier's output, but a discarded status leaves the copy
+# partly unsigned and the case then refuses for a reason nobody asked about.
+adhoc_sign() {
+  local app="$1" member framework
+  framework="$(sparkle_framework "$app")"
+  for member in "${SPARKLE_SIGNING_ORDER[@]}"; do
+    codesign --force --timestamp=none --options runtime --sign - \
+      "$framework/$member" >/dev/null 2>&1 ||
+      fail "ad-hoc signing the updater's $member failed"
+  done
+  codesign --force --timestamp=none --options runtime --sign - \
+    "$app/Contents/MacOS/$AGENT_EXECUTABLE" >/dev/null 2>&1 ||
+    fail "ad-hoc signing the agent failed"
+  codesign --force --timestamp=none --options runtime --sign - "$app" >/dev/null 2>&1 ||
+    fail "ad-hoc signing the application failed"
+}
+
 expect_pass() {
   local what="$1"
   shift
   "$@" >/dev/null || fail "expected to pass: $what"
   echo "  ok   $what"
+}
+
+# Every GUI stand-in loads the updater the way the built GUI does.
+#
+# verify_staged_app.sh asks the binary itself which executable may load
+# Sparkle, so a stand-in that linked nothing would refuse for that reason
+# instead of the invariant its case is about. The flags land in
+# FAKE_APP_SPARKLE_LINK because both are paths.
+gui_stub_link_flags() {
+  fake_app_sparkle_link_flags "${1%/Contents/MacOS/*}"
 }
 
 # A GUI stand-in that refuses every launch argument except one named here, the
@@ -84,8 +137,9 @@ int main(int argc, char **argv) {
     return 0;
 }
 STUB
+  gui_stub_link_flags "$out"
   cc -DACCEPTED="\"$accepted\"" -DSTATUS="$status" -DSENTENCE="\"$sentence\"" \
-    -arch arm64 -arch x86_64 -o "$out" "$scratch/.argstub.c"
+    -arch arm64 -arch x86_64 "${FAKE_APP_SPARKLE_LINK[@]}" -o "$out" "$scratch/.argstub.c"
   rm -f "$scratch/.argstub.c"
 }
 
@@ -112,7 +166,9 @@ int main(int argc, char **argv) {
     return CARRIED_SYMBOL();
 }
 STUB
-  cc -DCARRIED_SYMBOL="$symbol" -arch arm64 -arch x86_64 -o "$out" "$scratch/.symstub.c"
+  gui_stub_link_flags "$out"
+  cc -DCARRIED_SYMBOL="$symbol" -arch arm64 -arch x86_64 \
+    "${FAKE_APP_SPARKLE_LINK[@]}" -o "$out" "$scratch/.symstub.c"
   rm -f "$scratch/.symstub.c"
 }
 
@@ -133,7 +189,8 @@ int main(void) {
     return 0;
 }
 STUB
-  cc -arch arm64 -arch x86_64 -o "$out" "$scratch/.sigstub.c"
+  gui_stub_link_flags "$out"
+  cc -arch arm64 -arch x86_64 "${FAKE_APP_SPARKLE_LINK[@]}" -o "$out" "$scratch/.sigstub.c"
   rm -f "$scratch/.sigstub.c"
 }
 
@@ -154,7 +211,8 @@ int main(void) {
     return 0;
 }
 STUB
-  cc -arch arm64 -arch x86_64 -o "$out" "$scratch/.hangstub.c"
+  gui_stub_link_flags "$out"
+  cc -arch arm64 -arch x86_64 "${FAKE_APP_SPARKLE_LINK[@]}" -o "$out" "$scratch/.hangstub.c"
   rm -f "$scratch/.hangstub.c"
 }
 
@@ -167,6 +225,7 @@ STUB
 draft_declaring_bundle() {
   local name="$1" app
   app="$(fresh_bundle "$name")"
+  with_release_identity "$app"
   python3 - "$app/Contents/Resources/$RESOURCE_BUNDLE_NAME/Contracts/SOURCE.json" <<'ADD_DRAFT'
 import json
 import sys
@@ -206,6 +265,7 @@ ADD_DRAFT
 provenance_bundle() {
   local name="$1" committed="$2" app
   app="$(fresh_bundle "$name")"
+  with_release_identity "$app"
   python3 - "$app/Contents/Resources/$RESOURCE_BUNDLE_NAME/Contracts/SOURCE.json" "$committed" <<'PROVENANCE'
 import json
 import sys
@@ -303,6 +363,104 @@ app="$(fresh_bundle no-version)"
 plutil -remove CFBundleVersion "$app/Contents/Info.plist"
 expect_refusal "an Info.plist without a build number is refused" \
   "has no CFBundleVersion" \
+  "$VERIFY" "$app" universal unsigned
+
+echo "verify_staged_app_test: the updater framework"
+
+app="$(fresh_bundle no-sparkle)"
+rm -rf "$(sparkle_framework "$app")"
+expect_refusal "a bundle without the updater framework is refused" \
+  "$SPARKLE_FRAMEWORK_NAME is not staged" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle no-frameworks-slot)"
+rm -rf "${app:?}/${FRAMEWORKS_RELATIVE_PATH:?}"
+expect_refusal "a bundle without the framework slot is refused" \
+  "updater framework slot is missing" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle framework-stowaway)"
+touch "$app/$FRAMEWORKS_RELATIVE_PATH/Extra.framework"
+expect_refusal "a second framework beside the updater is refused" \
+  "Contents/Frameworks holds 2 entries" \
+  "$VERIFY" "$app" universal unsigned
+
+# The failure a copy that resolved the framework's symbolic links produces: a
+# tree that stages and signs and then cannot be loaded, because the install
+# name resolves through Versions/Current.
+app="$(fresh_bundle flattened-framework)"
+framework="$(sparkle_framework "$app")"
+rm "$framework/Versions/Current"
+cp -R "$framework/Versions/B" "$framework/Versions/Current"
+expect_refusal "a framework whose version link was flattened is refused" \
+  "the framework was flattened and cannot load" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle no-autoupdate)"
+rm "$(sparkle_framework "$app")/Versions/B/Autoupdate"
+expect_refusal "an updater framework missing a retained helper is refused" \
+  "carries no executable Versions/B/Autoupdate" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle thin-updater)"
+fake_app_build_stub "$(sparkle_framework "$app")/Versions/B/Autoupdate" -arch arm64
+expect_refusal "a single-slice updater helper is refused in universal mode" \
+  "is missing the x86_64 slice" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle unpinned-updater)"
+plutil -replace CFBundleShortVersionString -string "9.9.9" \
+  "$(sparkle_framework "$app")/Versions/B/Resources/Info.plist"
+expect_refusal "an updater framework that is not the pinned version is refused" \
+  "but Product.json pins" \
+  "$VERIFY" "$app" universal unsigned
+
+# Which executable may load the updater, asked of the binaries. M34 section 6
+# allows the GUI and forbids the agent, and both link the same core library,
+# so the whole separation is one dependency edit away from being undone.
+app="$(fresh_bundle gui-without-updater)"
+fake_app_build_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" -arch arm64 -arch x86_64
+expect_refusal "a GUI that does not link the updater is refused" \
+  "the GUI does not link $SPARKLE_FRAMEWORK_NAME" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle agent-with-updater)"
+fake_app_sparkle_link_flags "$app"
+fake_app_build_stub "$app/Contents/MacOS/$AGENT_EXECUTABLE" \
+  -arch arm64 -arch x86_64 "${FAKE_APP_SPARKLE_LINK[@]}"
+expect_refusal "an agent that links the updater is refused" \
+  "the agent links $SPARKLE_FRAMEWORK_NAME; only the GUI may" \
+  "$VERIFY" "$app" universal unsigned
+
+echo "verify_staged_app_test: the update policy in the Info.plist"
+
+app="$(fresh_bundle wrong-feed)"
+plutil -replace SUFeedURL -string "https://example.invalid/appcast.xml" \
+  "$app/Contents/Info.plist"
+expect_refusal "a feed url that drifted from the configuration is refused" \
+  "SUFeedURL is" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle no-public-key)"
+plutil -remove SUPublicEDKey "$app/Contents/Info.plist"
+expect_refusal "a bundle carrying no update public key is refused" \
+  "carries no update public key" \
+  "$VERIFY" "$app" universal unsigned
+
+# Automatic installation is unavailable in this release: a replacement of the
+# bundle has to run inside the update transaction that stops the engine first.
+app="$(fresh_bundle automatic-installation)"
+plutil -replace SUAllowsAutomaticUpdates -bool YES "$app/Contents/Info.plist"
+expect_refusal "a bundle offering automatic installation is refused" \
+  "SUAllowsAutomaticUpdates is 'true'" \
+  "$VERIFY" "$app" universal unsigned
+
+# The check preference belongs to the person: Sparkle asks once when the key
+# is absent, and a pinned value answers for them on every launch.
+app="$(fresh_bundle pinned-check-preference)"
+plutil -insert SUEnableAutomaticChecks -bool YES "$app/Contents/Info.plist"
+expect_refusal "a bundle pinning the automatic-check preference is refused" \
+  "pins SUEnableAutomaticChecks" \
   "$VERIFY" "$app" universal unsigned
 
 echo "verify_staged_app_test: the login agent"
@@ -423,16 +581,12 @@ expect_refusal "an unsigned bundle claimed as signed is refused" \
   "$VERIFY" "$app" universal signed
 
 app="$(fresh_bundle adhoc-signed)"
-codesign --force --timestamp=none --options runtime --sign - \
-  "$app/Contents/MacOS/$AGENT_EXECUTABLE" >/dev/null 2>&1
-codesign --force --timestamp=none --options runtime --sign - "$app" >/dev/null 2>&1
+adhoc_sign "$app"
 expect_pass "an ad-hoc signed bundle verifies" \
   "$VERIFY" "$app" universal signed
 
 app="$(fresh_bundle adhoc-then-modified)"
-codesign --force --timestamp=none --options runtime --sign - \
-  "$app/Contents/MacOS/$AGENT_EXECUTABLE" >/dev/null 2>&1
-codesign --force --timestamp=none --options runtime --sign - "$app" >/dev/null 2>&1
+adhoc_sign "$app"
 printf 'x' >>"$app/Contents/Resources/$RESOURCE_BUNDLE_NAME/Product.json"
 expect_refusal "a bundle modified after signing is refused" \
   "staged bundle does not verify" \
@@ -471,6 +625,7 @@ expect_refusal "a release bundle speaking a draft contract is refused" \
 # that publishes protocol 2, so a bundle built from it is a release bundle; a
 # pin taken from a working tree is refused, on a copy whose record says so.
 app="$(fresh_bundle release-from-a-committed-pin)"
+with_release_identity "$app"
 build_argument_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" none
 expect_pass "a release bundle vendored from a committed upstream pin verifies" \
   "$VERIFY" "$app" universal unsigned release
@@ -573,6 +728,52 @@ fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/arm64" a
 fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/x86_64" x86_64 1 1
 expect_refusal "a release bundle whose engine does not serve the version it speaks is refused" \
   "does not serve management protocol" \
+  "$VERIFY" "$app" universal unsigned release
+
+# A release bundle is Developer ID signed, and the reason is mechanical: under
+# the hardened runtime an ad-hoc signature has no team, so macOS refuses to map
+# the embedded updater framework into the process and the app cannot launch at
+# all. Without this the launch probe reports a binary that died of a signal,
+# which is true and names the wrong cause.
+app="$(published_bundle release-signed-ad-hoc)"
+build_argument_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" none
+adhoc_sign "$app"
+expect_refusal "an ad-hoc signed bundle is refused by the release audience" \
+  "a release bundle is ad-hoc signed" \
+  "$VERIFY" "$app" universal signed release
+
+expect_pass "the same bundle verifies as a signed development bundle" \
+  "$VERIFY" "$app" universal signed development
+
+# The fourth release promise: an update this app is offered can be verified.
+# Product.json carries the production key, so every other case stands on a
+# bundle that already has one and this case writes the tripwire into its own
+# copy. Reading the refusal off the rendered default is what tied this row to
+# whatever Product.json happened to carry: the day the real key landed the row
+# failed, and the cases after it never ran at all.
+app="$(published_bundle release-with-the-placeholder-key)"
+build_argument_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" none
+plutil -replace SUPublicEDKey -string "$SPARKLE_PLACEHOLDER_PUBLIC_ED_KEY" \
+  "$app/Contents/Info.plist"
+expect_refusal "a release bundle carrying the placeholder public key is refused" \
+  "carries the placeholder SUPublicEDKey" \
+  "$VERIFY" "$app" universal unsigned release
+
+expect_pass "the same bundle is a perfectly good development one" \
+  "$VERIFY" "$app" universal unsigned development
+
+app="$(published_bundle release-with-an-invalid-key)"
+build_argument_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" none
+plutil -replace SUPublicEDKey -string "not-base64" "$app/Contents/Info.plist"
+expect_refusal "a malformed production public key is refused" \
+  "32-byte Ed25519 public key" \
+  "$VERIFY" "$app" universal unsigned release
+
+app="$(published_bundle release-with-a-different-build)"
+build_argument_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" none
+plutil -replace CFBundleVersion -string "999" "$app/Contents/Info.plist"
+expect_refusal "a release build must match the product configuration" \
+  "CFBundleVersion is" \
   "$VERIFY" "$app" universal unsigned release
 
 echo "verify_staged_app_test: ok"

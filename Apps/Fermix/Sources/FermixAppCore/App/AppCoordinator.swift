@@ -1,10 +1,16 @@
+import AppKit
 import Foundation
 
 /// Quitting, behind a seam. `NSApp.terminate` is the one thing a test must
 /// never actually do.
 @MainActor
 public protocol TerminationRequesting: AnyObject {
+    /// Asks macOS to quit, which is what routes the app's own Quit through the
+    /// same `applicationShouldTerminate` hook the Dock and a log out reach.
     func requestTermination()
+    /// Answers a termination this app asked AppKit to hold, once the work that
+    /// had to happen first has happened.
+    func completeTermination()
 }
 
 /// What the app puts on screen for a launch.
@@ -22,13 +28,17 @@ public enum AppPresentation: Equatable, Sendable {
     case settings(SettingsPane)
 }
 
-/// What the lifecycle recovery journal says about the last transaction.
+/// What the two recovery journals say about the last transaction.
 public enum RecoveryCondition: Equatable, Sendable {
     case none
-    /// A transaction stopped part-way and left its record behind.
+    /// A lifecycle transaction stopped part-way and left its record behind.
     case interrupted(kind: LifecycleTransactionKind, phase: LifecyclePhase)
     /// The record exists but cannot be read, which is itself a broken install.
     case journalUnreadable
+    /// An update did not finish and the launch reconcile found no safe step
+    /// left to take (M34 §6). It is the same door as the other two, so a launch
+    /// or a route cannot land on ordinary UI while it stands.
+    case updateFailed(UpdateRecoveryReason)
 
     public var needsRecovery: Bool { self != .none }
 }
@@ -45,6 +55,9 @@ public final class AppCoordinator {
     private let windows: WindowCoordinator
     private let voice: any VoiceControlling
     private let lifecycle: any DaemonLifecycleControlling
+    /// The one launch reconcile (M34 §6, R4). Every launch and every route asks
+    /// it, and nothing else compares an update transaction with the machine.
+    private let updates: any UpdateReconciling
     private let bootstrap: () -> BootstrapCondition
     private let termination: any TerminationRequesting
     /// The one settings model, so opening a pane by url and opening it from the
@@ -54,10 +67,26 @@ public final class AppCoordinator {
     /// coordinator owns entering, because every door into settings — a url,
     /// Command-comma, an Attention row, a Doctor row — goes through it.
     private let presentation: SettingsPresentation
+    /// The one lock over everything that can change the background service
+    /// (M34 §6, R3). The lifecycle transactions, the launch reconcile and the
+    /// update transaction all take it, so two of them can never mutate the
+    /// account at once.
+    private let gate: ServiceMutationGate
     private let log = AppLog.logger(.app)
     private var transaction: Task<Void, Never>?
+    /// The quit in flight. Quitting can have work to finish first, so it is a
+    /// task rather than a call, and one quit is enough.
+    private var quitting: Task<Void, Never>?
     /// The read `fermix://setup` makes before it decides where to land.
     private var setupRouting: Task<Void, Never>?
+    /// The launch reconcile in flight. One at a time: it can re-register the
+    /// background service, and two of those racing is the thing the journals
+    /// exist to prevent.
+    private var updateReconcile: Task<Void, Never>?
+    /// What the last reconcile found, where it found no safe step left. It is
+    /// read by the recovery condition, so a later launch or route lands on
+    /// Recovery too rather than on ordinary UI.
+    public private(set) var updateRecovery: UpdateRecoveryReport?
     /// What the last transaction ended as, so a caller that waited can be told
     /// whether it worked rather than inferring it from the model.
     private var lastOutcome: LifecycleOutcome?
@@ -67,6 +96,8 @@ public final class AppCoordinator {
         windows: WindowCoordinator,
         voice: any VoiceControlling,
         lifecycle: any DaemonLifecycleControlling,
+        updates: any UpdateReconciling,
+        gate: ServiceMutationGate,
         bootstrap: @escaping () -> BootstrapCondition,
         termination: any TerminationRequesting,
         settings: SettingsModel,
@@ -76,6 +107,8 @@ public final class AppCoordinator {
         self.windows = windows
         self.voice = voice
         self.lifecycle = lifecycle
+        self.updates = updates
+        self.gate = gate
         self.bootstrap = bootstrap
         self.termination = termination
         self.settings = settings
@@ -86,6 +119,12 @@ public final class AppCoordinator {
     /// cannot be read is itself a reason to open Recovery: it is the one file
     /// that would have said what happened.
     private func recoveryCondition() -> RecoveryCondition {
+        // The update record is read first because it is the one that can be
+        // outstanding while the lifecycle journal is clean: the update's own
+        // registration steps run through lifecycle transactions, which clear
+        // their record on the way out.
+        if let updateRecovery { return .updateFailed(updateRecovery.reason) }
+
         do {
             guard let entry = try lifecycle.interruptedTransaction() else { return .none }
 
@@ -106,6 +145,35 @@ public final class AppCoordinator {
             log.error("recovery journal could not be cleared: \(String(describing: error), privacy: .public)")
             model.needsAttention = true
         }
+    }
+
+    /// Try again on an update that did not finish (M34 §6, R4).
+    ///
+    /// Activation is not the way out of this one: the record belongs to the
+    /// update, and the only thing that resolves it is the reconcile looking at
+    /// the machine again — which is what a restart, a reinstall or a daemon
+    /// quitting in between will have changed. So this re-runs the launch.
+    ///
+    /// A record that cannot be read is the one reason a second look would
+    /// answer identically, so the file goes first. It is the only place the
+    /// unreadable record is discarded: the reconcile keeps it, because it is
+    /// the evidence, until the person on this screen asks for the install back.
+    public func retryUpdateRecovery() {
+        guard updateRecovery?.reason == .journalUnusable else {
+            start(reason: .user)
+            return
+        }
+
+        do {
+            try updates.discardUnusableRecord()
+        } catch {
+            log.error(
+                "the unreadable update record could not be discarded: \(String(describing: error), privacy: .public)"
+            )
+            return
+        }
+
+        start(reason: .user)
     }
 
     // MARK: - Launch
@@ -148,15 +216,25 @@ public final class AppCoordinator {
 
     public func start(reason: LaunchReason) {
         setupRouting?.cancel()
-        noteUninstall(reason)
-        present(
-            Self.presentation(
-                for: reason,
-                bootstrap: bootstrap(),
-                recovery: recoveryCondition(),
-                setupState: settings.setupState.value
-            )
-        )
+        setupRouting = nil
+        let previous = updateReconcile
+        let lifecycle = transaction
+        let requested: AppDestination?
+        if case .route(let destination) = reason { requested = destination } else { requested = nil }
+        model.pendingNavigation = requested
+        updateReconcile = Task { @MainActor [weak self] in
+            await previous?.value
+            await lifecycle?.value
+            guard let self else { return }
+            defer {
+                if self.model.pendingNavigation == requested { self.model.pendingNavigation = nil }
+            }
+
+            self.setupRouting?.cancel()
+            self.setupRouting = nil
+            await self.reconcileUpdate()
+            self.presentLaunch(reason)
+        }
     }
 
     /// The user reopened the app from the Dock, Launchpad or Spotlight.
@@ -203,20 +281,30 @@ public final class AppCoordinator {
 
     /// Opens a parsed destination, which is what a url resolves to.
     public func open(_ destination: AppDestination) {
-        setupRouting?.cancel()
-        noteUninstall(.route(destination))
+        start(reason: .route(destination))
+    }
+
+    private func presentLaunch(_ reason: LaunchReason) {
+        noteUninstall(reason)
+        // Recovery's Doctor button remains usable after the record has been
+        // checked. Other destinations cannot bypass an unfinished update.
+        let recovery = reason == .route(.surface(.doctor)) ? RecoveryCondition.none : recoveryCondition()
+        if updateRecovery != nil, recovery.needsRecovery {
+            enterRecovery()
+            return
+        }
 
         // `fermix://setup` lands on what the daemon reports (M34 §3.4), so it
         // asks. Starting is where the route lands when nothing answers, not
         // where it lands because nothing has been asked yet — which is every
         // cold launch, and is how `fermix setup` on a configured home came to
         // re-run activation.
-        guard destination == .surface(.setup) else {
+        guard reason == .route(.surface(.setup)) else {
             present(
                 Self.presentation(
-                    for: .route(destination),
+                    for: reason,
                     bootstrap: bootstrap(),
-                    recovery: .none,
+                    recovery: recovery,
                     setupState: settings.setupState.value
                 )
             )
@@ -231,9 +319,9 @@ public final class AppCoordinator {
 
             self.present(
                 Self.presentation(
-                    for: .route(destination),
+                    for: reason,
                     bootstrap: self.bootstrap(),
-                    recovery: .none,
+                    recovery: self.recoveryCondition(),
                     setupState: self.settings.setupState.value
                 )
             )
@@ -243,7 +331,7 @@ public final class AppCoordinator {
     /// Command-comma. The pane is whichever one the window last showed, which
     /// is restored from user defaults on the first open.
     public func openSettings() {
-        open(.settings(settings.selectedPane))
+        navigate(to: .settings(settings.selectedPane))
     }
 
     /// Opens a route the app itself asked for, as onboarding does when its
@@ -252,7 +340,21 @@ public final class AppCoordinator {
     /// Logs are exactly what an install in that state needs to reach.
     public func open(_ route: AppRoute) {
         log.log("opening route \(route.rawValue, privacy: .public)")
-        open(.surface(route))
+        navigate(to: .surface(route))
+    }
+
+    /// Moves the window the app already has open to another of its surfaces.
+    ///
+    /// Navigation inside a running app is not a launch, so it runs no reconcile
+    /// (M34 §6, R4): the record has been read, and reading it again per click
+    /// would re-run a restore, a bounded verify and a disable with every
+    /// control on screen disabled while it went. It still goes through
+    /// `presentLaunch`, so a standing recovery condition and the Doctor
+    /// exemption are the same ones a launch honours.
+    private func navigate(to destination: AppDestination) {
+        setupRouting?.cancel()
+        setupRouting = nil
+        presentLaunch(.route(destination))
     }
 
     /// Puts the Setup Assistant on screen at one named screen.
@@ -332,12 +434,44 @@ public final class AppCoordinator {
 
     // MARK: - Commands
 
-    /// Releases the GUI's own resources and quits. No daemon lifecycle command
-    /// is sent: the background service is a registration, and it survives the
-    /// window closing.
+    /// Releases the GUI's own resources and asks macOS to quit. No daemon
+    /// lifecycle command is sent: the background service is a registration, and
+    /// it survives the window closing.
+    ///
+    /// The request goes to AppKit rather than straight to the work, so the app's
+    /// own Quit lands in `applicationShouldTerminate` exactly as the Dock's
+    /// Quit, an AppleScript quit and a log out do. That is the whole point of
+    /// routing it: there is one barrier, and a staged update's stop is spent on
+    /// every exit rather than only on the one the menu bar can reach.
     public func quit() {
         voice.shutdown()
         termination.requestTermination()
+    }
+
+    /// macOS is about to end this process, however it was asked.
+    ///
+    /// From the moment an update is staged, any exit replaces the bundle with no
+    /// call back into this process — so an exit taken while the engine is still
+    /// up is the exact case M34 §6 forbids, and this is the last bounded chance
+    /// to stop it. It cannot be refused into safety, because a force quit
+    /// reaches the same installer without asking, so termination is held rather
+    /// than declined and is answered as soon as the work is done.
+    ///
+    /// - Returns: `.terminateLater` always. A second request arriving while the
+    ///   first is finishing joins it rather than starting a second one: the
+    ///   reply the in-flight work sends is the reply to both.
+    public func terminationRequested() -> NSApplication.TerminateReply {
+        guard quitting == nil else {
+            log.log("a quit is already finishing, so this request waits for the same work")
+            return .terminateLater
+        }
+
+        quitting = Task { @MainActor [weak self] in
+            await self?.prepareForQuit?()
+            self?.termination.completeTermination()
+        }
+
+        return .terminateLater
     }
 
     /// Asks before restarting (M34 §5.10).
@@ -384,6 +518,13 @@ public final class AppCoordinator {
     /// edge of the graph that has to point backwards.
     public var resumeAssistant: ((OnboardingStage) -> Void)?
 
+    /// What a quit has to finish before the process ends, where anything does.
+    ///
+    /// Set by the composition once the update transaction exists, because that
+    /// transaction is built over this coordinator's own lifecycle owner: the
+    /// closure is the backwards edge, exactly as the two below are.
+    public var prepareForQuit: (() async -> Void)?
+
     /// Reads the daemon on a launch that puts no window on screen.
     ///
     /// Home's shared refresh, used by quiet launches, routes and completed
@@ -404,9 +545,15 @@ public final class AppCoordinator {
         }
     }
 
-    /// Whether a lifecycle transaction is running right now, which is what a
-    /// surface disables its own controls on.
-    public var isRunningTransaction: Bool { transaction != nil }
+    /// Whether anything is changing the background service right now, or is
+    /// waiting to, which is what a surface disables its own controls on.
+    ///
+    /// Two facts, one question: the gate says something owns the service, and
+    /// the task says a request of the person's is still in flight behind it. A
+    /// staged update holds the gate until the bundle is replaced, which is
+    /// exactly right — nothing else may register or restart the agent under a
+    /// bundle about to be swapped.
+    public var isRunningTransaction: Bool { gate.isHeld || transaction != nil }
 
     // MARK: - Transactions
 
@@ -421,7 +568,16 @@ public final class AppCoordinator {
 
         model.transactionInFlight = true
         model.restartRefusal = nil
-        transaction = Task { @MainActor [weak self] in
+        // The launch reconcile can re-register the service, and it runs on
+        // every launch and every route. A transaction the person asked for
+        // while it is in flight therefore waits for it rather than racing it or
+        // vanishing. It is the one owner a lifecycle action ever waits behind:
+        // an update transaction is refused instead, because that one ends by
+        // replacing this process.
+        let reconcile = updateReconcile
+        transaction = Task { @MainActor [weak self, gate] in
+            await reconcile?.value
+
             defer {
                 self?.transaction = nil
                 self?.model.transactionInFlight = false
@@ -430,6 +586,12 @@ public final class AppCoordinator {
                 self?.readDaemonCondition?()
             }
 
+            guard gate.acquire(.lifecycle) else {
+                self?.refuseTransaction()
+                return
+            }
+            defer { gate.release(.lifecycle) }
+
             do {
                 let outcome = try await work()
                 self?.apply(outcome)
@@ -437,6 +599,16 @@ public final class AppCoordinator {
                 self?.transactionFailed(error)
             }
         }
+    }
+
+    /// Another owner holds the service, so the transaction never ran and
+    /// nothing was changed. The person asked for it, so the refusal reaches the
+    /// screen rather than only the log.
+    private func refuseTransaction() {
+        log.error("\(self.gate.holder?.rawValue ?? "another owner", privacy: .public) holds the service")
+        lastOutcome = nil
+        model.restartRefusal = ProductStrings[.lifecycleServiceBusy]
+        model.needsAttention = true
     }
 
     private func apply(_ outcome: LifecycleOutcome) {
@@ -467,12 +639,79 @@ public final class AppCoordinator {
         model.needsAttention = true
     }
 
+    // MARK: - The launch reconcile
+
+    /// Reconciles the update record before ordinary UI, on the paths a launch
+    /// arrives through and on no others.
+    ///
+    /// Those paths are `start(reason:)` for a login and a user launch,
+    /// `reopen()`, and `open(_ destination:)` as the AppKit url handler calls
+    /// it, so a login launch, a manual launch, a `fermix://` route and the
+    /// relaunch after a replacement all run this one owner. Navigation the app
+    /// performs for itself — `openSettings()` and `open(_ route:)` — does not:
+    /// it goes through `navigate(to:)` straight to the presentation, because
+    /// the record has already been read this launch and the reconcile is a
+    /// restore, a bounded verify and a disable.
+    ///
+    /// The work is a task rather than a wait because it can re-register the
+    /// background service and prove an engine, which is seconds of bounded
+    /// polling. Launch tasks preserve navigation order and wait for this before
+    /// presenting their destination.
+    private func reconcileUpdate() async {
+        guard gate.acquire(.reconcile) else {
+            noteReconcileWasNotRun()
+            return
+        }
+        defer { gate.release(.reconcile) }
+
+        do {
+            apply(try await updates.reconcile())
+        } catch {
+            log.error("the update reconcile stopped: \(String(describing: error), privacy: .public)")
+            updateRecovery = UpdateRecoveryReport(reason: .reconcileInterrupted, entry: nil)
+        }
+    }
+
+    /// Says why a launch reconciled nothing. It never stops the presentation:
+    /// a launch that puts nothing on screen is the one outcome worse than a
+    /// record read a moment late.
+    ///
+    /// The update transaction holding the gate is the ordinary case rather than
+    /// a fault. It is live in this very process and holds the record it wrote,
+    /// so there is nothing on disk for a second reader to resolve.
+    private func noteReconcileWasNotRun() {
+        guard gate.holder != .update else {
+            log.log("an update transaction is running here, so this launch has no record to reconcile")
+            return
+        }
+
+        log.error(
+            "\(self.gate.holder?.rawValue ?? "another owner", privacy: .public) holds the service, so no record was read"
+        )
+    }
+
+    /// What the reconcile found. Only the recovery outcome puts anything on
+    /// screen: the pending restart is already drawn by the Attention row and
+    /// the status line, which read the same engine comparison.
+    private func apply(_ outcome: UpdateReconcileOutcome) {
+        guard case .recovery(let report) = outcome else {
+            updateRecovery = nil
+            return
+        }
+
+        log.error("an update did not finish: \(report.reason.rawValue, privacy: .public)")
+        updateRecovery = report
+        model.needsAttention = true
+    }
+
     /// Waits for the in-flight transaction, if there is one. The window this
     /// opens is what a test uses to observe a transaction that the UI starts
     /// and forgets.
     public func drainPendingWork() async throws {
+        await updateReconcile?.value
         await setupRouting?.value
         await transaction?.value
+        await quitting?.value
     }
 }
 

@@ -99,6 +99,7 @@ struct SidebarSelectionFeedbackTests {
         #expect(routes.isEmpty, "routing must run outside the List update callback")
         #expect(harness.model.route == .home)
         await drainMainQueue()
+        try await harness.coordinator.drainPendingWork()
         #expect(routes == [.doctor, last])
         #expect(harness.model.route == last)
     }
@@ -148,6 +149,7 @@ struct SidebarSelectionFeedbackTests {
 
         #expect(!harness.presentation.isShowing)
         await drainMainQueue()
+        try await harness.coordinator.drainPendingWork()
         #expect(harness.presentation.isShowing)
         #expect(harness.model.route == .home)
     }

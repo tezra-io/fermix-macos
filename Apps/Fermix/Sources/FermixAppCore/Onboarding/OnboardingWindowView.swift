@@ -284,18 +284,22 @@ struct RecoverySurface: View {
         VStack(spacing: Spacing.m) {
             Spacer(minLength: 0)
 
-            Text(ProductStrings[.recoveryTitle])
+            Text(ProductStrings[update == nil ? .recoveryTitle : .updateRecoveryTitle])
                 .fermixType(Typography.style(.title))
                 .foregroundStyle(Palette.ink.color)
 
-            Text(evidence.sentence ?? ProductStrings[.recoveryBody])
+            Text(update?.sentence ?? evidence.sentence ?? ProductStrings[.recoveryBody])
                 .fermixType(Typography.style(.bodyCompact))
                 .foregroundStyle(Palette.secondary.color)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: OnboardingMetrics.contentWidth)
                 .textSelection(.enabled)
 
-            files
+            if let update {
+                unfinishedUpdate(update)
+            } else {
+                files
+            }
 
             HStack(spacing: 14) {
                 PrimaryAction(ProductStrings[.recoveryTryAgain], size: .onboarding) { model.retry() }
@@ -310,6 +314,48 @@ struct RecoverySurface: View {
     }
 
     private var evidence: RecoveryEvidence { model.recoveryEvidence }
+
+    /// What an update that did not finish left behind (M34 §6, R4): the two
+    /// versions, the installer the previous one came from, and every notice the
+    /// screen owes the operator before they act on it.
+    ///
+    /// Everything here was read from this Mac, which is why the screen can say
+    /// so and why the one action that needs a connection says that too.
+    @ViewBuilder
+    private func unfinishedUpdate(_ update: UpdateRecoveryPresentation) -> some View {
+        VStack(spacing: Spacing.xs) {
+            if let versions = update.versions {
+                Text(versions)
+                    .fermixType(Typography.style(.mono))
+                    .foregroundStyle(Palette.faint.color)
+                    .textSelection(.enabled)
+            }
+
+            if let installer = update.installerSentence {
+                Text(installer)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.faint.color)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+            }
+
+            ForEach(update.notices, id: \.self) { notice in
+                Text(notice)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+            }
+
+            if update.reinstallURL != nil {
+                Button(ProductStrings[.updateRecoveryReinstall]) { model.reinstallPreviousVersion() }
+                    .buttonStyle(SecondaryButtonStyle(.inWindow))
+            }
+        }
+        .frame(maxWidth: OnboardingMetrics.contentWidth)
+    }
+
+    private var update: UpdateRecoveryPresentation? { model.updateRecoveryPresentation }
 
     /// The file the daemon refused, and the copy it kept from before where
     /// there is one. Both are paths, so both are selectable and the first one

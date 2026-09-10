@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// Which transaction a journal entry belongs to.
@@ -74,27 +73,29 @@ public enum LifecycleJournalError: Error, Equatable, Sendable {
 /// update replaces wholesale — and holds at most one transaction: they are
 /// serialized, so a second one starting while another is journaled is a defect
 /// rather than a queue.
+///
+/// The update transaction keeps its own record (`UpdateJournal`), because this
+/// shape carries none of the source and target artifact facts an update
+/// recovery reads. Both write through the same `JournalFile`.
 public struct LifecycleJournal {
     public static let fileName = "lifecycle-journal.json"
 
-    private let location: BootstrapLocation
-    private let fileManager: FileManager
+    private let file: JournalFile
 
     public init(location: BootstrapLocation, fileManager: FileManager = .default) {
-        self.location = location
-        self.fileManager = fileManager
+        self.file = JournalFile(
+            directory: location.directoryURL,
+            name: Self.fileName,
+            fileManager: fileManager
+        )
     }
 
-    public var url: URL {
-        location.directoryURL.appendingPathComponent(Self.fileName, isDirectory: false)
-    }
+    public var url: URL { file.url }
 
-    public var isEmpty: Bool {
-        !fileManager.fileExists(atPath: url.path)
-    }
+    public var isEmpty: Bool { !file.exists }
 
     public func load() throws -> LifecycleJournalEntry? {
-        guard let data = fileManager.contents(atPath: url.path) else { return nil }
+        guard let data = try bytes() else { return nil }
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -112,79 +113,51 @@ public struct LifecycleJournal {
         return entry
     }
 
+    /// The record's bytes, in this journal's own error vocabulary. A record
+    /// that is present and unreadable reaches the caller as `malformed`, which
+    /// is the answer recovery already knows how to act on.
+    private func bytes() throws -> Data? {
+        do {
+            return try file.read()
+        } catch let failure as JournalFileError {
+            throw LifecycleJournalError(failure)
+        }
+    }
+
     public func write(_ entry: LifecycleJournalEntry) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
-        try writeAtomically(try encoder.encode(entry))
+
+        do {
+            try file.write(try encoder.encode(entry))
+        } catch let failure as JournalFileError {
+            throw LifecycleJournalError(failure)
+        }
     }
 
     /// Clears a completed transaction. Clearing an empty journal is the normal
     /// end of a transaction that never had to write one, so it is not an error.
     public func clear() throws {
-        guard fileManager.fileExists(atPath: url.path) else { return }
-        guard unlink(url.path) == 0 else {
-            throw LifecycleJournalError.writeFailed(path: url.path, errno: errno)
-        }
-    }
-
-    /// Create, fill, flush, rename: a reader sees the previous entry or the new
-    /// one, never a half-written file.
-    private func writeAtomically(_ data: Data) throws {
-        try createDirectory()
-
-        let finalPath = url.path
-        let temporaryPath = finalPath + ".tmp-\(UUID().uuidString)"
-        let descriptor = open(temporaryPath, O_WRONLY | O_CREAT | O_EXCL, 0o600)
-        guard descriptor >= 0 else {
-            throw LifecycleJournalError.writeFailed(path: temporaryPath, errno: errno)
-        }
-
         do {
-            try writeAll(data, to: descriptor, path: temporaryPath)
-            guard fsync(descriptor) == 0 else {
-                throw LifecycleJournalError.writeFailed(path: temporaryPath, errno: errno)
-            }
-            Darwin.close(descriptor)
-        } catch {
-            Darwin.close(descriptor)
-            unlink(temporaryPath)
-            throw error
-        }
-
-        guard rename(temporaryPath, finalPath) == 0 else {
-            let code = errno
-            unlink(temporaryPath)
-            throw LifecycleJournalError.writeFailed(path: finalPath, errno: code)
+            try file.remove()
+        } catch let failure as JournalFileError {
+            throw LifecycleJournalError(failure)
         }
     }
+}
 
-    private func writeAll(_ data: Data, to descriptor: Int32, path: String) throws {
-        var offset = 0
-        while offset < data.count {
-            let written = data.withUnsafeBytes { raw -> Int in
-                guard let base = raw.baseAddress else { return -1 }
-                return Darwin.write(descriptor, base.advanced(by: offset), data.count - offset)
-            }
-            guard written > 0 else {
-                throw LifecycleJournalError.writeFailed(path: path, errno: errno)
-            }
-            offset += written
-        }
-    }
-
-    private func createDirectory() throws {
-        do {
-            try fileManager.createDirectory(
-                at: location.directoryURL,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-        } catch {
-            throw LifecycleJournalError.directoryCreationFailed(
-                path: location.directoryURL.path,
-                code: (error as NSError).code
-            )
+private extension LifecycleJournalError {
+    /// The file layer's failure in this journal's own vocabulary, so the
+    /// coordinator and Recovery keep reading one error type.
+    init(_ failure: JournalFileError) {
+        switch failure {
+        case .readFailed(let path, _):
+            self = .malformed(path: path)
+        case .writeFailed(let path, let code):
+            self = .writeFailed(path: path, errno: code)
+        case .directoryCreationFailed(let path, let code):
+            self = .directoryCreationFailed(path: path, code: code)
         }
     }
 }

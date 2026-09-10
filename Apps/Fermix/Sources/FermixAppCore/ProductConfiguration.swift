@@ -55,6 +55,15 @@ public struct ProductConfiguration: Decodable, Equatable, Sendable {
         for (name, value) in requiredValues where value.isEmpty {
             throw ProductConfigurationError.emptyField(name)
         }
+        // The build number is the app's release identity to the update feed,
+        // which orders candidates by it numerically. A value that is not a
+        // plain positive integer — a version triple, a padded digit, anything
+        // with a sign or a space — makes an update either invisible or
+        // permanently newer than itself, so it is refused here rather than
+        // rendered into an Info.plist nobody reads again.
+        guard let number = Int(buildNumber), number > 0, String(number) == buildNumber else {
+            throw ProductConfigurationError.notAPositiveInteger("build_number")
+        }
         guard !supportedArchitectures.isEmpty else {
             throw ProductConfigurationError.emptyField("supported_architectures")
         }
@@ -89,6 +98,7 @@ public enum ProductConfigurationError: Error, Equatable {
     case resourceMissing
     case unsupportedSchemaVersion(Int)
     case emptyField(String)
+    case notAPositiveInteger(String)
 
     public var message: String {
         switch self {
@@ -101,6 +111,8 @@ public enum ProductConfigurationError: Error, Equatable {
                 + "(this build reads \(ProductConfiguration.supportedSchemaVersion))"
         case .emptyField(let name):
             return "product configuration field \(name) is empty"
+        case .notAPositiveInteger(let name):
+            return "product configuration field \(name) is not a positive integer"
         }
     }
 }

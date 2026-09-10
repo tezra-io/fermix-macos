@@ -789,6 +789,26 @@ struct OnboardingModelTests {
         await harness.model.drainPendingWork()
 
         #expect(harness.recoveryResolutions == 1)
+        #expect(harness.updateRetries == 0)
+    }
+
+    /// An update that did not finish is the one recovery activation cannot
+    /// clear: the record is the update's, and registering the agent and
+    /// starting the engine over it leaves the same report standing. Try again
+    /// re-runs the launch reconcile there instead (M34 §6, R4).
+    @Test("try again on an unfinished update re-runs the reconcile rather than activation")
+    func retryOnAnUnfinishedUpdateRunsTheReconcile() async throws {
+        let harness = try OnboardingHarness()
+        harness.updateRecovery.set(
+            UpdateRecoveryReport(reason: .targetEngineUnverified, entry: UpdateFixture.entry(phase: .replacing))
+        )
+
+        harness.model.retry()
+        await harness.model.drainPendingWork()
+
+        #expect(harness.updateRetries == 1)
+        #expect(harness.activation.runs == 0)
+        #expect(harness.recoveryResolutions == 0, "the lifecycle record is not this recovery's to clear")
     }
 
     /// About you is prefilled from macOS, so zero typing is a valid answer.
@@ -828,12 +848,18 @@ final class OnboardingHarness {
     /// The system browser, recorded rather than opened, because the sign-in
     /// hop is the assistant's half of the flow.
     let opener = RecordingExternalOpener()
+    /// What the launch reconcile found, as a case states it. Recovery reads it
+    /// through the same closure the app wires to the coordinator, so a case can
+    /// stand an unfinished update in front of the screen without a record on
+    /// disk or a daemon behind it.
+    let updateRecovery = ValueBox<UpdateRecoveryReport>()
     let model: OnboardingModel
 
     static let launcherPath = "/Applications/Fermix.app/Contents/MacOS/fermix"
 
     var routes: [AppDestination] { recorder.routes }
     var recoveryResolutions: Int { recorder.recoveryResolutions }
+    var updateRetries: Int { recorder.updateRetries }
 
     init(n1: Bool = false) throws {
         root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -867,8 +893,10 @@ final class OnboardingHarness {
                 // launcher there is nothing to offer.
                 inspector: StubLinkInspector(files: [OnboardingHarness.launcherPath])
             ),
+            updateRecovery: { [updateRecovery] in updateRecovery.value },
             onRoute: { destination in recorder.record(destination) },
             onRecoveryResolved: { recorder.recordRecoveryResolved() },
+            onRetryUpdateRecovery: { recorder.recordUpdateRetry() },
             settings: SettingsFixture.model(gateway: gateway, opener: opener),
             sleeper: NoWaitSleeper()
         )
@@ -904,6 +932,7 @@ final class OnboardingHarness {
 final class RouteRecorder {
     private(set) var routes: [AppDestination] = []
     private(set) var recoveryResolutions = 0
+    private(set) var updateRetries = 0
 
     func record(_ destination: AppDestination) {
         routes.append(destination)
@@ -911,6 +940,10 @@ final class RouteRecorder {
 
     func recordRecoveryResolved() {
         recoveryResolutions += 1
+    }
+
+    func recordUpdateRetry() {
+        updateRetries += 1
     }
 }
 

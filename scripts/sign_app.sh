@@ -26,6 +26,8 @@ IDENTITY="${2:?usage: sign_app.sh <app-path> <identity>}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/product_config.sh
 source "$ROOT_DIR/scripts/product_config.sh"
+# shellcheck source=scripts/sparkle.sh
+source "$ROOT_DIR/scripts/sparkle.sh"
 
 BUNDLE_ID="$(product_config bundle_identifier)"
 RESOURCE_BUNDLE_NAME="$(product_config swift_resource_bundle_name)"
@@ -34,6 +36,7 @@ AGENT_EXECUTABLE="$(product_config agent_executable_name)"
 AGENT_LABEL="$(product_config agent_service_label)"
 ENGINE_RELATIVE_PATH="$(product_config engine_relative_path)"
 TOOLS_RELATIVE_PATH="$(product_config tools_relative_path)"
+SPARKLE_FRAMEWORK="$(product_config frameworks_relative_path)/$SPARKLE_FRAMEWORK_NAME"
 ENTITLEMENTS="$ROOT_DIR/Apps/Fermix/Sources/Fermix/Fermix.entitlements"
 ENGINE_ENTITLEMENTS="$ROOT_DIR/scripts/entitlements/engine.entitlements"
 
@@ -45,15 +48,31 @@ fail() {
 # Refuse Mach-O this script has no signing rule for, BEFORE signing anything.
 #
 # M34 section 7 requires a release to fail on unknown executable content rather
-# than ship it unsigned. Three classes are known and every one of their
+# than ship it unsigned. Four classes are known and every one of their
 # members is signed individually below: the two Contents/MacOS executables,
 # the engine trees under the Engine slot (ERTS executables, NIFs, dylibs —
-# signed with the engine entitlement set on executables), and the bundled
-# cosign under the Tools slot. Anything outside those classes stops the
-# release instead of being signed with someone else's rules or skipped.
+# signed with the engine entitlement set on executables), the bundled
+# cosign under the Tools slot, and the updater framework's library with its
+# four retained helpers. Anything outside those classes stops the release
+# instead of being signed with someone else's rules or skipped.
+#
+# The updater's members are named one by one from scripts/sparkle.sh rather
+# than admitted by a directory rule: "anything under Frameworks" would sign
+# whatever a future dependency drops there, which is exactly what this
+# refusal exists to prevent. A Sparkle version that moves a helper fails here
+# and is re-declared deliberately.
 refuse_unknown_nested_code() {
-  local unexpected
+  local unexpected known macho
   [ -d "$APP" ] || fail "no staged bundle at $APP"
+  # One newline-separated allowlist, which is how grep -F reads a set of
+  # fixed patterns. Held in a variable rather than a file so no error path
+  # can leave one behind.
+  known="Contents/MacOS/$GUI_EXECUTABLE"
+  known+=$'\n'"Contents/MacOS/$AGENT_EXECUTABLE"
+  known+=$'\n'"$TOOLS_RELATIVE_PATH/cosign"
+  for macho in "${SPARKLE_MACHO_PATHS[@]}"; do
+    known+=$'\n'"$SPARKLE_FRAMEWORK/$macho"
+  done
   # `file` reports a universal binary once for the fat header and once per
   # slice, the per-slice lines carrying a " (for architecture x)" suffix, so the
   # suffix is stripped and the list deduplicated before anything is compared.
@@ -64,10 +83,8 @@ refuse_unknown_nested_code() {
       grep 'Mach-O' |
       sed -e 's/:.*//' -e 's| (for architecture [^)]*)$||' -e 's|^\./||' |
       sort -u |
-      grep -v -x "Contents/MacOS/$GUI_EXECUTABLE" |
-      grep -v -x "Contents/MacOS/$AGENT_EXECUTABLE" |
       grep -v "^$ENGINE_RELATIVE_PATH/" |
-      grep -v -x "$TOOLS_RELATIVE_PATH/cosign" || true
+      grep -v -x -F "$known" || true
   )"
   [ -z "$unexpected" ] || fail "unknown nested executable content, which only a
 declared signing class can sign:
@@ -129,6 +146,31 @@ sign_engine_and_tools() {
 
 sign_engine_and_tools
 
+# The updater framework, signed inside-out inside itself before the app
+# seals it. Sparkle's four retained helpers are separate code — two XPC
+# services, an updater application, and the Autoupdate tool — and each
+# carries its own signature; signing only the framework would leave four
+# unsigned programs macOS refuses to launch, which surfaces as an update
+# that silently never installs. The order comes from scripts/sparkle.sh,
+# deepest first.
+#
+# No entitlements: the app is not sandboxed, so Sparkle's sandboxed
+# installer-launcher service is not in use, and none of these helpers is a
+# microphone principal. The hardened runtime is required on all of them for
+# notarization.
+sign_sparkle() {
+  local framework="$APP/$SPARKLE_FRAMEWORK" member
+  [ -d "$framework" ] || fail "the updater framework is not staged at $SPARKLE_FRAMEWORK"
+  for member in "${SPARKLE_SIGNING_ORDER[@]}"; do
+    [ -e "$framework/$member" ] ||
+      fail "the updater framework carries no $member; the pinned version moved it"
+    codesign --force "${timestamp[@]}" --options runtime --sign "$IDENTITY" "$framework/$member" ||
+      fail "could not sign updater component $member"
+  done
+}
+
+sign_sparkle
+
 # The agent is nested Mach-O inside Contents/MacOS, so it is signed before the
 # outer bundle too. It carries no entitlements: the GUI is the only microphone
 # principal, and one consent never implies another. Its signing identifier is
@@ -157,5 +199,14 @@ fi
 if codesign -d --entitlements - "$agent" 2>&1 | grep -q "com.apple.security.device.audio-input"; then
   fail "agent carries the microphone entitlement — only the GUI may"
 fi
+
+# Every retained helper is sealed on its own. `--verify --deep` above walks
+# the app's nested code and a helper that failed to sign would surface
+# there; this says so in the updater's own words, per member, so a Sparkle
+# upgrade that quietly stops shipping one is not read as success.
+for member in "${SPARKLE_SIGNING_ORDER[@]}"; do
+  codesign --verify --strict "$APP/$SPARKLE_FRAMEWORK/$member" ||
+    fail "updater component $member is not validly signed"
+done
 
 echo "sign_app: signed $APP (identity: $IDENTITY)"

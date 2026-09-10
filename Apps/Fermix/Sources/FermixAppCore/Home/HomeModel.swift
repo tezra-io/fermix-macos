@@ -99,7 +99,7 @@ public final class HomeModel: ObservableObject {
         loading = true
         defer { loading = false }
 
-        let update = await updates.availability()
+        let update = updates.availability()
         snapshot = await read(update: update)
         // This is the only read of the daemon an ordinary launch makes, so it
         // is also what moves the menu bar glyph and the status line off
@@ -117,7 +117,7 @@ public final class HomeModel: ObservableObject {
             // `attention()` refreshes the shared setup state, so it is read
             // after that call and never before: the provider label the Runtime
             // row shows is the one this poll just saw.
-            let attention = await attention()
+            let attention = await attention(update: update)
 
             return HomeSnapshot(
                 hello: hello,
@@ -143,7 +143,11 @@ public final class HomeModel: ObservableObject {
     ///
     /// The read is the shared model's, so Home's poll is also what keeps the
     /// Settings window current.
-    private func attention() async -> AttentionSection {
+    /// - Parameter update: the answer this refresh already took from the update
+    ///   seam. It is passed rather than asked for again: two reads inside one
+    ///   refresh can disagree, and the card and the row would then say
+    ///   different things about the same check.
+    private func attention(update: UpdateAvailability) async -> AttentionSection {
         await settings.refreshSetupState()
         // The section index names the channels a gap can be about. It is boot
         // bound, so it is read once and then left alone.
@@ -151,7 +155,11 @@ public final class HomeModel: ObservableObject {
 
         // The reconcile's row leads: an engine the operator has already replaced
         // on disk is the reason every other row may be reporting a stale world.
-        let pending = EngineReconcilePresentation.attentionRow(for: engineReconcile).map { [$0] } ?? []
+        // The update row sits with it, so an offered or staged update reaches
+        // the menu bar mark through the same section Home draws (M34 §6, R2).
+        let engine = EngineReconcilePresentation.attentionRow(for: engineReconcile)
+        let offered = UpdatePresentation.attentionRow(for: update)
+        let pending = [engine, offered].compactMap { $0 }
 
         switch settings.setupState {
         case .loaded(let state):
@@ -227,6 +235,11 @@ public final class HomeModel: ObservableObject {
             showInstructions()
         case .revealSettingsFile:
             revealSettingsFile()
+        // The updater's own alert owns Install, Remind Later and Skip
+        // (M34 §6). Asking for a check is what raises it, and what brings one
+        // that is already showing back into focus.
+        case .showUpdate:
+            updates.checkForUpdates()
         }
     }
 

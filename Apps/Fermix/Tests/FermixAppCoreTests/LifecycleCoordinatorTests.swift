@@ -410,4 +410,24 @@ struct LifecycleCoordinatorTests {
 
         #expect(try harness.coordinator.interruptedTransaction() == nil)
     }
+
+    /// A record that is there and cannot be read is not a clean account. Both
+    /// journals answer this the same way, because both read through the same
+    /// file layer: a caller told the record is absent starts a transaction over
+    /// one nothing has resolved. A directory at the path is the cheapest
+    /// unreadable file there is, and it is inside the harness's own temporary
+    /// root.
+    @Test("a record that is present and unreadable is not a clean account")
+    func presentButUnreadableRecord() throws {
+        let harness = try makeHarness()
+        try FileManager.default.createDirectory(
+            at: harness.journal.url,
+            withIntermediateDirectories: true
+        )
+
+        #expect(throws: (any Error).self) {
+            try harness.coordinator.interruptedTransaction()
+        }
+        #expect(!harness.journal.isEmpty)
+    }
 }

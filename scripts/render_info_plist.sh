@@ -23,6 +23,20 @@ OUT="${3:?usage: render_info_plist.sh <version> <build_number> <out_plist_path>}
 # shellcheck source=scripts/product_config.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/product_config.sh"
 
+# CFBundleVersion is the app's identity to the update feed, which orders release
+# candidates by it numerically. Anything but a plain positive integer — a
+# version triple, a padded digit, a tag name — either compares as older than
+# itself or does not compare at all, and the mistake is invisible until an
+# update fails to be offered. Product.json carries the checked-in value and
+# scripts/check_product_config.sh gates it; this refuses the same shape for
+# every caller that stamps one from somewhere else.
+case "$BUILD_NUMBER" in
+  0 | *[!0-9]* | 0*)
+    echo "render_info_plist: build number '$BUILD_NUMBER' is not a positive integer" >&2
+    exit 1
+    ;;
+esac
+
 xml_escape() {
   printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
 }
@@ -34,6 +48,8 @@ ICON_FILE="$(xml_escape "$(product_config icon_file)")"
 MIN_SYSTEM_VERSION="$(xml_escape "$(product_config minimum_system_version)")"
 MICROPHONE_USAGE="$(xml_escape "$(product_config microphone_usage_description)")"
 URL_SCHEME="$(xml_escape "$(product_config url_scheme)")"
+SPARKLE_FEED_URL="$(xml_escape "$(product_config sparkle_feed_url)")"
+SPARKLE_PUBLIC_ED_KEY="$(xml_escape "$(product_config sparkle_public_ed_key)")"
 RESOURCE_BUNDLE_NAME="$(xml_escape "$(product_config swift_resource_bundle_name)")"
 VERSION_ESCAPED="$(xml_escape "$VERSION")"
 BUILD_ESCAPED="$(xml_escape "$BUILD_NUMBER")"
@@ -70,6 +86,24 @@ cat >"$OUT" <<PLIST
        macOS 26.5) defeat that runtime promotion. -->
   <key>NSMicrophoneUsageDescription</key><string>$MICROPHONE_USAGE</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
+  <!-- The update policy (M34 section 6), declared rather than set at runtime:
+       resetting a preference on every launch would overwrite the choice the
+       person made. The feed is fixed and the public key is what verifies its
+       enclosure, so an update that is not signed by the matching private key
+       cannot install.
+
+       SUEnableAutomaticChecks is deliberately ABSENT: with no value Sparkle
+       asks once, and the answer is the person's to give and to change.
+
+       Both automatic-installation keys are off, and the second is what makes
+       the first stick: without SUAllowsAutomaticUpdates Sparkle still offers
+       an opt-in to installing updates by itself, and an installation that
+       replaces this bundle has to run inside the update transaction that stops
+       the engine first. -->
+  <key>SUFeedURL</key><string>$SPARKLE_FEED_URL</string>
+  <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_ED_KEY</string>
+  <key>SUAutomaticallyUpdate</key><false/>
+  <key>SUAllowsAutomaticUpdates</key><false/>
 </dict>
 </plist>
 PLIST

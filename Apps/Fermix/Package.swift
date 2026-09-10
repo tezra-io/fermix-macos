@@ -20,6 +20,15 @@ let package = Package(
         .executable(name: "FermixAgent", targets: ["FermixAgent"]),
         .library(name: "FermixAppCore", targets: ["FermixAppCore"])
     ],
+    dependencies: [
+        // The updater, pinned exactly. Sparkle resolves as a BINARY xcframework
+        // target rather than a source build, so this pin is also the version of
+        // the framework the bundle embeds and signs: `scripts/sparkle.sh` reads
+        // it back out of the resolved artifact and
+        // `scripts/check_product_config.sh` gates it against the one copy in
+        // Product.json, so this manifest and project.yml cannot drift apart.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6")
+    ],
     targets: [
         // Everything the product does: views, voice, and the typed product
         // configuration. Both executables are thin mains over this library.
@@ -68,7 +77,7 @@ let package = Package(
         // that plist is generated from Product.json, never hand-written.
         .executableTarget(
             name: "Fermix",
-            dependencies: ["FermixAppCore"],
+            dependencies: ["FermixAppCore", "FermixSparkle"],
             exclude: ["Info.plist", "Fermix.entitlements"],
             linkerSettings: [
                 .unsafeFlags(
@@ -76,10 +85,32 @@ let package = Package(
                         "-Xlinker", "-sectcreate",
                         "-Xlinker", "__TEXT",
                         "-Xlinker", "__info_plist",
-                        "-Xlinker", "Sources/Fermix/Info.plist"
+                        "-Xlinker", "Sources/Fermix/Info.plist",
+                        // Sparkle.framework is embedded at
+                        // Contents/Frameworks by the staging scripts, and its
+                        // install name is @rpath-relative. This is the search
+                        // path that resolves it from Contents/MacOS; project.yml
+                        // sets the same one through LD_RUNPATH_SEARCH_PATHS.
+                        "-Xlinker", "-rpath",
+                        "-Xlinker", "@executable_path/../Frameworks"
                     ],
                     .when(platforms: [.macOS])
                 )
+            ]
+        ),
+        // The one place in the repository that imports Sparkle.
+        //
+        // Both executables link FermixAppCore, so a Sparkle dependency there
+        // would put the framework into FermixAgent, which M34 §6 forbids: the
+        // daemon and the agent never load Sparkle. FermixAppCore therefore
+        // keeps declaring the `UpdateChecking` seam without importing Sparkle,
+        // and this target — linked by the GUI executable and by nothing else —
+        // is the only implementation behind it.
+        .target(
+            name: "FermixSparkle",
+            dependencies: [
+                "FermixAppCore",
+                .product(name: "Sparkle", package: "Sparkle")
             ]
         ),
         // The daemon launcher that SMAppService.agent registers.

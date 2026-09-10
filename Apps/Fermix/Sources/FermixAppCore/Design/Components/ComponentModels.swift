@@ -455,6 +455,20 @@ public enum HumaneTime {
         return phrase(count: seconds / minute, unit: .minute)
     }
 
+    /// One moment, in this Mac's own date and time conventions.
+    ///
+    /// Absolute rather than relative, because the values that carry it are only
+    /// recomputed on a refresh: a rendered "three hours ago" held in a snapshot
+    /// goes stale where it stands, and the last successful update check is
+    /// exactly the fact nobody may be misled about.
+    public static func moment(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+
+        return formatter.string(from: date)
+    }
+
     /// The largest unit only, for the menu-bar status line.
     public static func coarseUptime(seconds: Int) -> String {
         guard seconds >= minute else { return ProductStrings[.timeJustNow] }

@@ -56,6 +56,8 @@ esac
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/product_config.sh
 source "$ROOT_DIR/scripts/product_config.sh"
+# shellcheck source=scripts/sparkle.sh
+source "$ROOT_DIR/scripts/sparkle.sh"
 
 SOURCE_RESOURCES="$ROOT_DIR/Apps/Fermix/Sources/FermixAppCore/Resources"
 
@@ -72,6 +74,17 @@ ICON_NAME="$(product_config icon_file).icns"
 RESOURCE_BUNDLE_NAME="$(product_config swift_resource_bundle_name)"
 ENGINE_DIR="$APP/$(product_config engine_relative_path)"
 TOOLS_DIR="$APP/$(product_config tools_relative_path)"
+FRAMEWORKS_DIR="$APP/$(product_config frameworks_relative_path)"
+# The runtime search path that resolves the framework's @rpath install name,
+# derived from the slot rather than typed out: the GUI is linked from
+# Contents/MacOS, so the path is the frameworks slot's own directory name one
+# level up. Package.swift and project.yml restate the literal because neither
+# can read JSON at link time, and scripts/check_product_config.sh gates them
+# against this same derivation.
+FRAMEWORKS_RPATH="@executable_path/../$(basename "$(product_config frameworks_relative_path)")"
+SPARKLE_DIR="$FRAMEWORKS_DIR/$SPARKLE_FRAMEWORK_NAME"
+SPARKLE_VERSION="$(product_config sparkle_version)"
+SPARKLE_FEED_URL="$(product_config sparkle_feed_url)"
 
 fail() {
   echo "verify_staged_app: $*" >&2
@@ -167,10 +180,87 @@ check_info_plist() {
     fail "staged Info.plist carries LSUIElement; activation policy is code-owned"
   require_plist_value "$plist" CFBundleURLTypes.0.CFBundleURLSchemes.0 "$URL_SCHEME"
 
+  # The update policy (M34 section 6). The feed and the key are what make an
+  # update discoverable and verifiable; both automatic-installation keys are
+  # off because a replacement of this bundle has to run inside the update
+  # transaction, and SUEnableAutomaticChecks must be ABSENT so Sparkle asks
+  # once instead of the app deciding for the person.
+  require_plist_value "$plist" SUFeedURL "$SPARKLE_FEED_URL"
+  require_plist_value "$plist" SUAutomaticallyUpdate false
+  require_plist_value "$plist" SUAllowsAutomaticUpdates false
+  [ -z "$(plist_value "$plist" SUEnableAutomaticChecks 2>/dev/null)" ] ||
+    fail "staged Info.plist pins SUEnableAutomaticChecks; the check preference is the user's"
+
   [ -n "$(plist_value "$plist" CFBundleShortVersionString)" ] ||
     fail "staged Info.plist carries no marketing version"
   [ -n "$(plist_value "$plist" CFBundleVersion)" ] ||
     fail "staged Info.plist carries no build number"
+
+  # The update public key is the third field whose presence is the product
+  # invariant and whose value is not: Product.json carries the production key
+  # and a release stamps it from there. The value is judged by the release
+  # audience, which refuses the placeholder tripwire, because a bundle that can
+  # verify no update is only a problem once it leaves this machine.
+  [ -n "$(plist_value "$plist" SUPublicEDKey)" ] ||
+    fail "staged Info.plist carries no update public key"
+}
+
+# The updater framework, its retained helpers, and the two facts that decide
+# whether it can be loaded at all.
+#
+# A framework is a tree of symbolic links into Versions/Current, and a copy
+# that resolved them into real directories produces a bundle that stages,
+# signs, and then fails at dyld — so the links are asserted rather than the
+# file count. The version is read out of the framework and compared with the
+# pin, so a bundle carrying a build nobody pinned is refused here rather than
+# discovered from a crash report.
+check_sparkle_framework() {
+  local staged member link version
+  [ -d "$FRAMEWORKS_DIR" ] ||
+    fail "the updater framework slot is missing at $FRAMEWORKS_DIR"
+  [ -d "$SPARKLE_DIR" ] ||
+    fail "$SPARKLE_FRAMEWORK_NAME is not staged at $SPARKLE_DIR"
+  staged="$(find "$FRAMEWORKS_DIR" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+  [ "$staged" = "1" ] ||
+    fail "Contents/Frameworks holds $staged entries; only $SPARKLE_FRAMEWORK_NAME may ship"
+
+  for link in "${SPARKLE_REQUIRED_SYMLINKS[@]}"; do
+    [ -L "$SPARKLE_DIR/$link" ] ||
+      fail "$SPARKLE_FRAMEWORK_NAME/$link is not a symbolic link; the framework was flattened and cannot load"
+  done
+
+  for member in "${SPARKLE_MACHO_PATHS[@]}"; do
+    [ -x "$SPARKLE_DIR/$member" ] ||
+      fail "the updater framework carries no executable $member"
+    require_slices "$SPARKLE_DIR/$member"
+  done
+
+  version="$(sparkle_embedded_version "$SPARKLE_DIR")" ||
+    fail "the staged updater framework declares no version"
+  [ "$version" = "$SPARKLE_VERSION" ] ||
+    fail "the staged updater framework is $version, but Product.json pins $SPARKLE_VERSION"
+}
+
+# Which executable may load the updater, asked of the built binaries rather
+# than of the build files that were supposed to arrange it.
+#
+# M34 section 6: the daemon and the agent never load Sparkle. Both executables
+# link the same core library, so the whole separation rests on the updater
+# living in a target only the GUI links — a one-line dependency edit undoes it
+# silently, and the agent would then carry an updater it must never run.
+check_sparkle_linkage() {
+  local gui agent
+  gui="$APP/Contents/MacOS/$GUI_EXECUTABLE"
+  agent="$APP/Contents/MacOS/$AGENT_EXECUTABLE"
+
+  otool -L "$gui" | grep -q "$SPARKLE_FRAMEWORK_NAME" ||
+    fail "the GUI does not link $SPARKLE_FRAMEWORK_NAME; the staged framework would never load"
+  otool -l "$gui" | grep -q "$FRAMEWORKS_RPATH" ||
+    fail "the GUI carries no $FRAMEWORKS_RPATH runtime search path"
+
+  if otool -L "$agent" | grep -q "$SPARKLE_FRAMEWORK_NAME"; then
+    fail "the agent links $SPARKLE_FRAMEWORK_NAME; only the GUI may"
+  fi
 }
 
 # SMAppService.agent(plistName:) reads exactly this path out of the bundle, and
@@ -311,7 +401,10 @@ check_engine_trees() {
   ENGINE_STATE="${found# }"
 }
 
-# The three promises a release bundle makes and a development one does not.
+# The promises a release bundle makes and a development one does not: it speaks
+# a published, non-draft contract, the engine beside it serves the protocol it
+# speaks, it is Developer ID signed, it has none of the app's debug-only
+# configurations compiled into it, and it can verify an update it is offered.
 #
 # Section 15.0's engine-first rule is procedural, and nothing in the repo gated
 # it: an app built against the draft contract would launch a v1 engine while
@@ -320,6 +413,9 @@ check_engine_trees() {
 # because the build ids already match.
 check_release_promises() {
   [ "$AUDIENCE" = "release" ] || return 0
+
+  require_plist_value "$APP/Contents/Info.plist" CFBundleShortVersionString "$(product_config marketing_version)"
+  require_plist_value "$APP/Contents/Info.plist" CFBundleVersion "$(product_config build_number)"
 
   local resources contracts drafts unpublished speaks entry manifest window status
   resources="$(resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
@@ -350,7 +446,57 @@ check_release_promises() {
       fail "the engine in $(basename "$entry") does not serve management protocol $speaks"
   done
 
+  check_release_signature
   check_debug_only_configurations
+  check_production_update_key
+}
+
+# A release bundle is Developer ID signed.
+#
+# This is not a preference. Under the hardened runtime macOS validates every
+# library a process loads against the process's own team, and an ad-hoc
+# signature has no team at all, so an ad-hoc bundle carrying the updater
+# framework cannot load it and cannot launch: dyld refuses the mapping and the
+# process dies before main. The launch probe below would then report a binary
+# that died of a signal, which is true and names the wrong cause.
+#
+# Only a signed bundle is judged. An unsigned one has no signature to read,
+# and the kernel's own ad-hoc signature carries no hardened-runtime flag, so it
+# loads its framework and launches.
+check_release_signature() {
+  local description
+  [ "$SIGNATURE" = "signed" ] || return 0
+  description="$(codesign -dv "$APP" 2>&1)" ||
+    fail "a release bundle claims to be signed and carries no signature"
+  if printf '%s\n' "$description" | grep -qFx "TeamIdentifier=not set"; then
+    fail "a release bundle is ad-hoc signed; a release is Developer ID signed, and under the hardened runtime an ad-hoc signature cannot load the embedded $SPARKLE_FRAMEWORK_NAME"
+  fi
+}
+
+# The app can verify an update it is offered.
+#
+# SUPublicEDKey is the only thing standing between the feed and arbitrary
+# code. Product.json carries the production key, and sparkle.sh's placeholder
+# is the tripwire this refuses: a bundle carrying it is not a weaker release,
+# it is one whose updates can never install, and the failure would appear
+# months later as a feed nobody can consume. The shape is checked too, so a
+# key that is merely not the placeholder cannot pass for one.
+check_production_update_key() {
+  local staged
+  staged="$(plist_value "$APP/Contents/Info.plist" SUPublicEDKey)"
+  [ "$staged" != "$SPARKLE_PLACEHOLDER_PUBLIC_ED_KEY" ] ||
+    fail "a release bundle carries the placeholder SUPublicEDKey; no update it is offered can be verified"
+  python3 - "$staged" <<'PY' || fail "SUPublicEDKey must be a base64-encoded 32-byte Ed25519 public key"
+import base64
+import binascii
+import sys
+
+try:
+    key = base64.b64decode(sys.argv[1], validate=True)
+except (binascii.Error, ValueError):
+    sys.exit(1)
+sys.exit(0 if len(key) == 32 else 1)
+PY
 }
 
 # The sentence a release build refuses a debug-only flag with, and the status it
@@ -487,6 +633,7 @@ print_inventory() {
     echo "  executable     $name: $(lipo -info "$APP/Contents/MacOS/$name" | sed 's/^.*are: //; s/^.*is architecture: //')"
   done
   echo "  login agent    $AGENT_LABEL.plist -> Contents/MacOS/$AGENT_EXECUTABLE"
+  echo "  updater        $SPARKLE_FRAMEWORK_NAME $(sparkle_embedded_version "$SPARKLE_DIR"), GUI only"
   if [ "$ENGINE_STATE" = "empty" ]; then
     echo "  engine slot    empty (pre-Stage-0 declared state)"
   else
@@ -505,6 +652,8 @@ print_inventory() {
 check_bundle_identity
 check_executables
 check_info_plist
+check_sparkle_framework
+check_sparkle_linkage
 check_launch_agent
 check_vendored_contracts
 check_staged_assets

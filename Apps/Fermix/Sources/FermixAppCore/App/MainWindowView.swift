@@ -273,7 +273,9 @@ struct MainWindowView: View {
                 // Routing publishes several models. Leave List's update stack
                 // first, and ignore callbacks from the List Settings replaced.
                 DispatchQueue.main.async {
-                    guard !presentation.isShowing, identifier != selectedSidebarIdentifier else { return }
+                    guard !presentation.isShowing,
+                          selectedSidebarIdentifier != SidebarItem.settingsIdentifier,
+                          identifier != selectedSidebarIdentifier else { return }
                     guard identifier != SidebarItem.settingsIdentifier else {
                         router.perform(.openSettings)
                         return
@@ -294,7 +296,12 @@ struct MainWindowView: View {
     }
 
     private var selectedSidebarIdentifier: String? {
-        presentation.isShowing ? SidebarItem.settingsIdentifier : SidebarItem.selection(route: model.route)
+        switch model.pendingNavigation {
+        case .settings?: return SidebarItem.settingsIdentifier
+        case .surface(let route)?: return SidebarItem.selection(route: route)
+        case nil:
+            return presentation.isShowing ? SidebarItem.settingsIdentifier : SidebarItem.selection(route: model.route)
+        }
     }
 
     @ViewBuilder
@@ -309,7 +316,7 @@ struct MainWindowView: View {
         case .pet:
             PetSurfaceView(model: surfaces.pet)
         case .update:
-            UpdateSurfaceView(model: surfaces.home.updateSurface)
+            UpdateSurfaceView(model: surfaces.home.updateSurface, router: router)
         case .setup, .uninstall, .recovery:
             // Setup and Recovery use the assistant presentation above;
             // Uninstall resolves to Doctor before this view is reached.
@@ -318,14 +325,15 @@ struct MainWindowView: View {
     }
 }
 
-/// The update surface (M34 §3.4, decision 12).
+/// The update surface (M34 §3.4, decision 12; M34 §6, R2).
 ///
-/// Sparkle is M34 §6 work, so this states what is true today: which engine is
-/// answering, which one this copy of Fermix ships, and the supported way to
-/// replace it. It offers no control, because there is nothing here the app can
-/// do on the operator's behalf.
+/// Three facts and one action: which engine is answering, which one this copy
+/// of Fermix ships, what the last check found, and the check itself. Install,
+/// Remind Later and Skip are the updater's own alert, so nothing here draws a
+/// second one.
 struct UpdateSurfaceView: View {
     let model: UpdateSurfaceModel
+    let router: any CommandPerforming
 
     var body: some View {
         Form {
@@ -344,6 +352,10 @@ struct UpdateSurfaceView: View {
                     .fermixType(Typography.style(.calloutSmall))
                     .foregroundStyle(Palette.secondary.color)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Button(ProductStrings[.updateCheck]) { router.perform(.checkForUpdates) }
+                    .buttonStyle(SecondaryButtonStyle(.inWindow))
+                    .disabled(!router.canPerform(.checkForUpdates))
             }
 
             Section {

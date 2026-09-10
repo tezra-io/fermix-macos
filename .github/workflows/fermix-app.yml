@@ -117,17 +117,25 @@ jobs:
       # `verify_protocol_contract.sh --source <fermix-checkout>`) before a
       # release is cut: the daemon ships first.
       - name: Staging dry run (universal2 / layout / signing)
-        env:
-          RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
           source scripts/product_config.sh
           stage="$RUNNER_TEMP/stage"
           bundle="$(product_config app_bundle_name)"
           mkdir -p "$stage"
-          scripts/stage_app.sh "0.0.0-ci" "$RUN_NUMBER" "$stage/$bundle" universal
+          scripts/stage_app.sh "$(product_config marketing_version)" "$(product_config build_number)" "$stage/$bundle" universal
+          scripts/verify_staged_app.sh "$stage/$bundle" universal unsigned release
           scripts/sign_app.sh "$stage/$bundle" "-"
-          scripts/verify_staged_app.sh "$stage/$bundle" universal signed release
+          scripts/verify_staged_app.sh "$stage/$bundle" universal signed development
+          # An ad-hoc signature has no team, so the release audience must refuse
+          # this bundle. Asserted on a real staged build because the refusal is
+          # what stops an unlaunchable release: under the hardened runtime a
+          # teamless signature cannot load the embedded updater framework. An
+          # explicit branch rather than `!`: errexit ignores a negated command.
+          if scripts/verify_staged_app.sh "$stage/$bundle" universal signed release; then
+            echo "::error title=Release gate::the release audience accepted an ad-hoc signed bundle"
+            exit 1
+          fi
 
   # The vendored management + realtime contracts must match both pin records.
   # The fourth check the script offers — a byte-compare against a real fermix

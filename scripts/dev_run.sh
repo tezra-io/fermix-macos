@@ -50,17 +50,19 @@ cat <<NEXT
 dev_run: staged and ad-hoc signed
   $APP
 
-Open it yourself when you are ready. It is not launched here: the first launch
-asks for microphone consent and can start a login-item transaction, and a build
-script must not decide either for you.
+This bundle does not open, and that is a property of the signature rather than
+a fault in the build. It embeds the updater framework, and under the hardened
+runtime macOS validates every library a process loads against the process's own
+team. An ad-hoc signature has no team, so the framework is refused and the app
+exits before it draws anything.
 
-  open -n "$APP"
+What this bundle is for is the layout, the inventory and the signing structure,
+which scripts/verify_staged_app.sh has just checked. To open a dev build:
 
-An ad-hoc signature has no stable designated requirement, so its cdhash changes
-on every build and macOS re-asks for microphone consent each time. The dev
-install that keeps one stable self-signed identity is
-Apps/Fermix/script/build_and_run.sh; use that when you are testing the grant
-itself rather than the bundle.
+  Apps/Fermix/script/build_and_run.sh   one stable self-signed identity, so the
+                                        microphone grant survives a rebuild
+  scripts/dev_e2e.sh up                 the Developer ID loop, with the engine
+                                        and the background agent
 
 Engine prerequisites, from the fermix checkout's docs/DEVELOPMENT.md. This
 bundle's engine slot is empty until Stage 0, so every surface it draws comes

@@ -226,5 +226,10 @@ final class RecordingSleeper: Sleeping, @unchecked Sendable {
 
     func sleep(seconds: TimeInterval) async throws {
         lock.withLock { recorded.append(seconds) }
+        // A sleeper that never suspends is not a sleeper: an async function
+        // with no suspension point inside it hands control back to nobody, so
+        // a bounded wait would spin its whole budget before the work it is
+        // waiting for could run.
+        await Task.yield()
     }
 }
