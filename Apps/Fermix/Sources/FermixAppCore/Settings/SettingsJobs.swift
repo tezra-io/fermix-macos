@@ -53,6 +53,9 @@ extension SettingsModel {
         setMessage(nil, for: key)
         await startCapabilityInstall(.meetbot, on: runner)
         await runner.drainPendingWork()
+        // The install is what puts the notetaker on this Mac, and the daemon's
+        // detection is the one fact that changes, whichever way the run ended.
+        await refreshNotetakerState()
 
         guard runner.completed else {
             setDraft(nil, for: key)
@@ -67,8 +70,18 @@ extension SettingsModel {
         setDraft(nil, for: key)
     }
 
+    /// The sign-in, then the one read its end changes.
+    ///
+    /// The job row goes back to its idle button when a run completes, so the
+    /// daemon's own sentence about the Google session is the only thing that
+    /// says the sign-in landed. It is re-read here, at the end of the run, by
+    /// the owner of the run: a view watching the runner flip would read only
+    /// when it happened to observe the flip, and a session the sidecar verifies
+    /// in a few seconds is exactly the run a view can miss.
     public func startMeetingsSignIn(on runner: JobRunner) async {
         await start(runner) { try await self.gateway.startMeetingsSignIn() }
+        await runner.drainPendingWork()
+        await refreshNotetakerState()
     }
 
     public func startComputerUseGrant(on runner: JobRunner) async {

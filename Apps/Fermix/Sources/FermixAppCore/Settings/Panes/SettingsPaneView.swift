@@ -222,15 +222,9 @@ struct MeetingsPane: View {
                 }
             }
         }
-        // The sign-in state is the daemon's, and both jobs on this pane change
-        // it: the install puts the notetaker there, and the sign-in signs it in.
-        // Read when the pane opens and once no run of either is left in flight.
+        // The sign-in state is the daemon's. It is read when the pane opens;
+        // the two jobs that change it re-read it themselves when they end.
         .task { await model.refreshNotetakerState() }
-        .onChange(of: install.isRunning || signIn.isRunning) { _, running in
-            guard !running else { return }
-
-            Task { await model.refreshNotetakerState() }
-        }
     }
 
     /// The switch that heads the pane, in its own untitled section, above every

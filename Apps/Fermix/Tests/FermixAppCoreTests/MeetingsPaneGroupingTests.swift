@@ -317,10 +317,7 @@ struct MeetingsNotetakerSignInTests {
         let signIn = model.makeJobRunner()
 
         await model.startMeetingsSignIn(on: signIn)
-        await signIn.drainPendingWork()
         #expect(signIn.completed)
-
-        await model.refreshNotetakerState()
 
         #expect(gateway.detectedTargets == [[.meetbot]])
         let started = try #require(gateway.calls.firstIndex(of: .v2(.meetingsSigninStart)))
@@ -328,22 +325,39 @@ struct MeetingsNotetakerSignInTests {
         #expect(started < probed, "the notetaker was probed before its sign-in ran")
     }
 
-    /// The pane is what notices the end of a run: both jobs are started and
-    /// forgotten, and their end is a change on the runner, which is the shape
-    /// `ProvidersPane` already watches its own sign-in with. One read serves
-    /// the appearance and both runners, so the target is named once.
-    @Test("the pane reads on appearance and when neither job is left running")
-    func thePaneWatchesItsAppearanceAndBothRunners() throws {
+    /// The pane reads once, on appearance. The end of a run is the model's to
+    /// notice, as the owner of the run: a view watching the runner flip reads
+    /// only when it happens to observe the flip.
+    @Test("the pane reads on appearance and leaves the end of a run to the model")
+    func thePaneReadsOnAppearanceOnly() throws {
         let text = try #require(
             try SourceTree.swiftFiles(matching: "Settings/Panes/SettingsPaneView.swift").first?.text
         )
 
         #expect(text.contains(".task { await model.refreshNotetakerState() }"))
-        #expect(text.contains(".onChange(of: install.isRunning || signIn.isRunning)"))
+        #expect(!text.contains(".onChange(of: install.isRunning"))
         #expect(
             !text.contains("refreshDetections([.meetbot])"),
             "the pane names the target itself instead of asking through the model"
         )
+    }
+
+    /// Enabling installs the notetaker before it writes the flag, and the
+    /// install is what puts the notetaker on this Mac: the detection is
+    /// re-read once that run ends, before the flag is written.
+    @Test("finishing the install refreshes the notetaker before the flag is written")
+    @MainActor
+    func finishingTheInstallRefreshesTheNotetaker() async throws {
+        let gateway = try SettingsFixture.gateway()
+        let model = SettingsFixture.model(gateway: gateway)
+        let install = model.makeJobRunner()
+
+        await model.setMeetingsEnabled(true, on: install)
+
+        #expect(gateway.detectedTargets == [[.meetbot]])
+        let installed = try #require(gateway.calls.firstIndex(of: .v2(.capabilitiesInstallStart)))
+        let probed = try #require(gateway.calls.lastIndex(of: .v2(.setupDetect)))
+        #expect(installed < probed, "the notetaker was probed before its install ran")
     }
 
     @MainActor
