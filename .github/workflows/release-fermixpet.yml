@@ -93,6 +93,45 @@ jobs:
           echo "dmg=$dmg sha256=$actual"
           [ "$actual" = "$EXPECTED" ] || { echo "::error title=sha mismatch::$actual != $EXPECTED"; exit 1; }
 
+      - name: Download appcast item artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: fermixpet-appcast-item
+          path: appcast
+
+      # The feed is cumulative by contract: the app refuses an update unless the
+      # feed also describes the build that is installed, so every earlier item
+      # is carried forward from the last release's own asset. Running before the
+      # release is created is what makes "the newest release that exists" the
+      # previous one, and what stops a reused or decreasing build number from
+      # publishing anything at all.
+      - name: Merge the cumulative appcast
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          previous="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 100 \
+            --json tagName --jq '[.[].tagName | select(startswith("fermixpet-v"))] | first // ""')"
+          merge=(--item appcast/appcast-item.xml --out appcast/appcast.xml)
+          if [ -z "$previous" ]; then
+            echo "::notice title=The feed starts here::no earlier app release exists, so this release is the whole feed"
+          else
+            # Listed, never attempted blind: a release cut before the feed
+            # existed carries no appcast.xml, and that is a declared state
+            # rather than a download whose failure gets read as "no updates".
+            assets="$(gh release view "$previous" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+            if printf '%s\n' "$assets" | grep -qx appcast.xml; then
+              mkdir -p previous
+              gh release download "$previous" --repo "$GITHUB_REPOSITORY" \
+                --pattern appcast.xml --dir previous
+              merge+=(--previous previous/appcast.xml)
+            else
+              echo "::notice title=The feed starts here::$previous publishes no appcast.xml, so this release is the whole feed"
+            fi
+          fi
+          scripts/appcast.py merge "${merge[@]}"
+          cat appcast/appcast.xml
+
       - name: Render the Homebrew cask from the DMG bytes
         env:
           VERSION: ${{ needs.version.outputs.version }}
@@ -131,6 +170,21 @@ jobs:
             --latest=false \
             --generate-notes \
             "$dmg" "$dmg.sha256" "$dmg.sig" "$dmg.pem" Casks/fermixpet.rb
+
+      # Both documents become assets of this release: the feed is what the site
+      # serves, and the item is what the next release merges onto, so the next
+      # release reads this one's own bytes instead of a copy kept somewhere
+      # else. Publishing the feed is still a manual step, named here because a
+      # feed that stays on the release reaches nobody.
+      - name: Upload the appcast to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            appcast/appcast.xml appcast/appcast-item.xml
+          echo "::notice title=Publish the feed::copy this release's appcast.xml to fermix-site public/appcast.xml and deploy the site, otherwise installed clients see no update"
 
       # The real cask integrity gate: install from the cask exactly as a user
       # would, which exercises the release URL, the sha256 stanza, the DMG mount,

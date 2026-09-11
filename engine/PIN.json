@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "repository": "tezra-io/fermix",
+  "certificate_oidc_issuer": "https://token.actions.githubusercontent.com",
+  "tag": null,
+  "source_commit": null,
+  "certificate_identity": null,
+  "targets": {
+    "macos_aarch64": {
+      "asset": null,
+      "sha256": null
+    },
+    "macos_x86_64": {
+      "asset": null,
+      "sha256": null
+    }
+  },
+  "note": "Unpinned on purpose: no engine release publishes the app-engine assets yet, so there is nothing to pin and a release cannot be built. To pin, take the engine tag whose release carries fermix_app_engine_macos_aarch64.tar.gz and fermix_app_engine_macos_x86_64.tar.gz and fill, all together: tag (vX.Y.Z), source_commit (the 40-character commit that tag was built from, which the engine-manifest.json inside each tarball repeats), certificate_identity (https://github.com/tezra-io/fermix/.github/workflows/release.yml@refs/tags/ plus the tag), each target's asset (fermix_app_engine_<target>.tar.gz) and each target's sha256 (the digest in the asset's .sha256 sidecar). Either every one of those is null or every one is filled: scripts/engine_pin.sh refuses a half-filled pin, and the release audience of scripts/verify_staged_app.sh refuses a bundle whose staged engine disagrees with what is written here."
+}

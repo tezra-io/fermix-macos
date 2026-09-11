@@ -39,6 +39,12 @@ fake_app_build_stub() {
   rm -f "$scratch/.stub.c"
 }
 
+# The release identity a fixture engine tree declares unless a case overrides
+# it. The harnesses write their fixture engine pin from these two values, so the
+# pin and the tree it vouches for agree without either being typed twice.
+FAKE_APP_ENGINE_SOURCE_COMMIT="1234567890abcdef1234567890abcdef12345678"
+FAKE_APP_ENGINE_PRODUCT_VERSION="9.9.9"
+
 # A minimal engine tree the way the daemon's app-engine release lays it out:
 # the manifest at the root, the shell-script launcher at bin/fermix_app_engine
 # (a mix release's bin entry is a script, sealed as a resource, never signable
@@ -47,8 +53,13 @@ fake_app_build_stub() {
 # release audience reads: `minimum_version` / `maximum_version` /
 # `current_version`, never `minimum` / `maximum`. It is a parameter so a case can
 # stage an engine whose window excludes the version the app speaks.
+#
+# The source commit is a parameter for the same reason: the release audience
+# refuses a tree built from a commit the engine pin does not name, so a case has
+# to be able to stage that disagreement.
 fake_app_build_engine_tree() {
   local tree="$1" arch="$2" management_minimum="${3:-1}" management_maximum="${4:-2}"
+  local source_commit="${5:-$FAKE_APP_ENGINE_SOURCE_COMMIT}"
   mkdir -p "$tree/bin" "$tree/lib" "$tree/erts-0.0/bin"
   printf '#!/bin/sh\nexit 0\n' >"$tree/bin/fermix_app_engine"
   chmod 0755 "$tree/bin/fermix_app_engine"
@@ -59,7 +70,9 @@ fake_app_build_engine_tree() {
   "identity": {
     "architecture": "$arch",
     "distribution_identity": "macos_app",
-    "engine_id": "fermix-core"
+    "engine_id": "fermix-core",
+    "product_version": "$FAKE_APP_ENGINE_PRODUCT_VERSION",
+    "source_commit": "$source_commit"
   },
   "protocols": {
     "management": {

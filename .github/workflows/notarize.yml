@@ -35,6 +35,12 @@ on:
         required: true
       APPLE_APP_PASSWORD:
         required: true
+      # The update feed's signing key. Required rather than optional: a release
+      # that publishes no appcast item cannot be discovered by anyone who
+      # already installed the app, and an optional secret is how that ships
+      # unnoticed.
+      SPARKLE_ED_PRIVATE_KEY:
+        required: true
     outputs:
       dmg_name:
         value: ${{ jobs.notarize.outputs.dmg_name }}
@@ -67,11 +73,13 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           missing=""
           for v in MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD MACOS_KEYCHAIN_PASSWORD \
-                   MACOS_DEVELOPER_ID APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
+                   MACOS_DEVELOPER_ID APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD \
+                   SPARKLE_ED_PRIVATE_KEY; do
             [ -n "${!v}" ] || missing="$missing $v"
           done
           if [ -n "$missing" ]; then
@@ -85,6 +93,13 @@ jobs:
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
           MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
         run: scripts/keychain.sh import
+
+      # Packaging fetches the pinned engine and verifies its cosign signature
+      # before staging it (scripts/verify_engine.sh), and the runner ships no
+      # cosign. Installed unconditionally: a conditional install keyed on the
+      # pin state would be a second path for a fact the packaging reads itself.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 
       - name: Build, sign, notarize + staple (DMG)
         env:
@@ -111,6 +126,38 @@ jobs:
           spctl -a -t exec -vv "$mp/FermixPet.app"
           hdiutil detach "$mp"
 
+      # The update feed's half of a release, written here because this is the
+      # only job that may read the feed signing key and the only one holding the
+      # stapled image together with the app inside it.
+      #
+      # The facts come from the mounted image rather than from the staging
+      # directory on purpose: the versions, the engine build and the signing
+      # authority the feed publishes are then the ones in the bytes people
+      # download, not the ones a packaging step happened to stage. The key goes
+      # from the environment straight into the script's standard input, so it is
+      # never an argument, never a file, and never echoed.
+      - name: Sign for Sparkle and write the appcast item
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          source scripts/product_config.sh
+          dmg="$(ls dist/FermixPet-*.dmg)"
+          mount="$(mktemp -d)"
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount"
+          trap 'hdiutil detach "$mount"' EXIT
+          # Sparkle's tools come with the pinned binary target, so they live in
+          # the release scratch path stage_app.sh builds into. appcast.py
+          # refuses if the tool is not there rather than signing nothing.
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | scripts/appcast.py item \
+            --dmg "$dmg" \
+            --app "$mount/$(product_config app_bundle_name)" \
+            --tag "$REF_NAME" \
+            --sign-update Apps/Fermix/.build-release/artifacts/sparkle/Sparkle/bin/sign_update \
+            --out appcast-item.xml
+          cat appcast-item.xml
+
       - name: Export artifact outputs
         id: out
         run: |
@@ -126,4 +173,14 @@ jobs:
           path: |
             dist/FermixPet-*.dmg
             dist/FermixPet-*.dmg.sha256
+          if-no-files-found: error
+
+      # Its own artifact rather than a file added to the image's: the publish
+      # job takes the item alone, and the two are produced by different steps
+      # that fail for different reasons.
+      - name: Upload appcast item artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fermixpet-appcast-item
+          path: appcast-item.xml
           if-no-files-found: error

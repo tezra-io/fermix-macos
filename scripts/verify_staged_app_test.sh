@@ -44,6 +44,60 @@ fail() {
   exit 1
 }
 
+# The two engine pins the release audience's engine cases stand on.
+#
+# The checked-in engine/PIN.json ships unpinned, because no engine release
+# publishes the app-engine assets yet, so both states are written here instead:
+# a filled pin that vouches for the identity a fixture engine tree declares, and
+# an empty one. Standing on the repository's record would make these rows change
+# meaning the day the engine is tagged — the filled row would compare a fixture
+# tree against a real commit and the empty row would stop being empty.
+#
+# The digests are placeholders, and valid ones: this gate compares the commit
+# and the version, and scripts/verify_engine_test.sh is where a digest decides
+# anything.
+FIXTURE_ENGINE_PIN="$WORK_DIR/engine-pin.json"
+UNPINNED_ENGINE_PIN="$WORK_DIR/engine-pin-unpinned.json"
+OTHER_ENGINE_SOURCE_COMMIT="fedcba9876543210fedcba9876543210fedcba98"
+
+cat >"$FIXTURE_ENGINE_PIN" <<PIN
+{
+  "schema_version": 1,
+  "repository": "tezra-io/fermix",
+  "certificate_oidc_issuer": "https://token.actions.githubusercontent.com",
+  "tag": "v$FAKE_APP_ENGINE_PRODUCT_VERSION",
+  "source_commit": "$FAKE_APP_ENGINE_SOURCE_COMMIT",
+  "certificate_identity": "https://github.com/tezra-io/fermix/.github/workflows/release.yml@refs/tags/v$FAKE_APP_ENGINE_PRODUCT_VERSION",
+  "targets": {
+    "macos_aarch64": {
+      "asset": "fermix_app_engine_macos_aarch64.tar.gz",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "macos_x86_64": {
+      "asset": "fermix_app_engine_macos_x86_64.tar.gz",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "note": "Fixture pin for scripts/verify_staged_app_test.sh."
+}
+PIN
+
+cat >"$UNPINNED_ENGINE_PIN" <<'PIN'
+{
+  "schema_version": 1,
+  "repository": "tezra-io/fermix",
+  "certificate_oidc_issuer": "https://token.actions.githubusercontent.com",
+  "tag": null,
+  "source_commit": null,
+  "certificate_identity": null,
+  "targets": {
+    "macos_aarch64": { "asset": null, "sha256": null },
+    "macos_x86_64": { "asset": null, "sha256": null }
+  },
+  "note": "Unpinned fixture pin for scripts/verify_staged_app_test.sh."
+}
+PIN
+
 # Each case gets its own copy of the reference bundle, so one mutation can never
 # leak into the next.
 fresh_bundle() {
@@ -720,7 +774,7 @@ build_argument_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" none
 fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/arm64" arm64 1 2
 fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/x86_64" x86_64 1 2
 expect_pass "a release bundle whose engine window contains the version it speaks verifies" \
-  "$VERIFY" "$app" universal unsigned release
+  "$VERIFY" "$app" universal unsigned release --engine-pin "$FIXTURE_ENGINE_PIN"
 
 app="$(published_bundle release-engine-behind-the-app)"
 build_argument_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" none
@@ -728,7 +782,41 @@ fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/arm64" a
 fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/x86_64" x86_64 1 1
 expect_refusal "a release bundle whose engine does not serve the version it speaks is refused" \
   "does not serve management protocol" \
-  "$VERIFY" "$app" universal unsigned release
+  "$VERIFY" "$app" universal unsigned release --engine-pin "$FIXTURE_ENGINE_PIN"
+
+# The third release promise: the engine inside the bundle is the engine
+# engine/PIN.json names. Both rows stand on the fixture pin, which vouches for
+# the commit and version a fixture engine tree declares; the repository's own
+# pin ships unpinned, and a gate proven only against an unpinned record is a
+# gate that has never compared anything.
+app="$(published_bundle release-engine-on-the-pin)"
+build_argument_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" none
+fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/arm64" arm64 1 2
+fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/x86_64" x86_64 1 2
+expect_pass "a release bundle whose engine trees are the pinned engine verifies" \
+  "$VERIFY" "$app" universal unsigned release --engine-pin "$FIXTURE_ENGINE_PIN"
+
+# One tree off the pin is enough: a bundle whose two halves came from different
+# engine commits is exactly what a re-staged release produces.
+app="$(published_bundle release-engine-off-the-pin)"
+build_argument_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" none
+fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/arm64" arm64 1 2 \
+  "$OTHER_ENGINE_SOURCE_COMMIT"
+fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/x86_64" x86_64 1 2
+expect_refusal "a release bundle whose engine was built from another commit is refused" \
+  "and the engine pin names $FAKE_APP_ENGINE_SOURCE_COMMIT" \
+  "$VERIFY" "$app" universal unsigned release --engine-pin "$FIXTURE_ENGINE_PIN"
+
+# The state the repository ships in, asserted rather than assumed: an engine in
+# the slot and no pin behind it is refused, so nothing can be staged into a
+# release bundle before the engine tag is written down.
+app="$(published_bundle release-engine-with-no-pin)"
+build_argument_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" none
+fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/arm64" arm64 1 2
+fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/x86_64" x86_64 1 2
+expect_refusal "a release bundle carrying an engine no pin vouches for is refused" \
+  "is unpinned" \
+  "$VERIFY" "$app" universal unsigned release --engine-pin "$UNPINNED_ENGINE_PIN"
 
 # A release bundle is Developer ID signed, and the reason is mechanical: under
 # the hardened runtime an ad-hoc signature has no team, so macOS refuses to map

@@ -23,22 +23,30 @@
 # artifact to keep in step.
 #
 # Usage: verify_staged_app.sh <app-path> <architectures> <signature> [audience]
+#                             [--engine-pin <pin.json>]
 #   <architectures>  universal  both slices required (release and CI)
 #                    native     the building machine's slice only (dev_run.sh)
 #   <signature>      unsigned   straight out of stage_app.sh
 #                    signed     after sign_app.sh, ad-hoc or Developer ID
 #   [audience]       development  the default: a bundle for this machine
 #                    release      a bundle that will leave this machine
+#   --engine-pin     the engine pin the staged engine is judged against.
+#                    Defaults to the repository's engine/PIN.json, which is what
+#                    every release and CI caller means; the harness hands over a
+#                    filled fixture pin, because the checked-in record ships
+#                    unpinned and a gate that cannot be shown refusing is a gate
+#                    nobody has checked.
 #
 # Two declared configurations rather than a strictness dial. A release bundle
-# carries three promises a development one deliberately does not: it speaks no
-# draft contract, the engine beside it serves the protocol it speaks, and it has
-# none of the app's debug-only configurations compiled into it (M34 section
-# 15.0). A development bundle is also the only one that may be built
-# `--configuration debug`, which is what those configurations need.
+# carries four promises a development one deliberately does not: it speaks no
+# draft contract, the engine beside it serves the protocol it speaks and is the
+# engine the pin names, and it has none of the app's debug-only configurations
+# compiled into it (M34 section 15.0). A development bundle is also the only one
+# that may be built `--configuration debug`, which is what those configurations
+# need.
 set -euo pipefail
 
-USAGE="usage: verify_staged_app.sh <app-path> <architectures> <signature> [audience]"
+USAGE="usage: verify_staged_app.sh <app-path> <architectures> <signature> [audience] [--engine-pin <pin.json>]"
 
 APP="${1:?$USAGE}"
 ARCHITECTURES="${2:?$USAGE}"
@@ -58,6 +66,17 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/product_config.sh"
 # shellcheck source=scripts/sparkle.sh
 source "$ROOT_DIR/scripts/sparkle.sh"
+# shellcheck source=scripts/engine_pin.sh
+source "$ROOT_DIR/scripts/engine_pin.sh"
+
+ENGINE_PIN_PATH="$ENGINE_PIN_DEFAULT_PATH"
+if [ "$#" -ge 5 ]; then
+  [ "$5" = "--engine-pin" ] ||
+    { echo "verify_staged_app: unknown argument '$5' ($USAGE)" >&2; exit 1; }
+  ENGINE_PIN_PATH="${6:?--engine-pin needs a pin path}"
+  [ "$#" -eq 6 ] ||
+    { echo "verify_staged_app: unexpected arguments after --engine-pin ($USAGE)" >&2; exit 1; }
+fi
 
 SOURCE_RESOURCES="$ROOT_DIR/Apps/Fermix/Sources/FermixAppCore/Resources"
 
@@ -446,9 +465,51 @@ check_release_promises() {
       fail "the engine in $(basename "$entry") does not serve management protocol $speaks"
   done
 
+  check_engine_matches_pin
   check_release_signature
   check_debug_only_configurations
   check_production_update_key
+}
+
+# The engine staged inside a release bundle is the engine the pin names.
+#
+# scripts/verify_engine.sh already proves this at fetch time, and it proves it
+# about a tarball. This proves it about the bundle that is actually about to be
+# signed, which is the artifact that leaves the machine: a tree copied in by
+# hand, a second stage_app.sh run with a stale --engine, or a pin bumped after
+# the trees were extracted all produce a DMG whose engine no record vouches for.
+# Two facts are compared because the pin carries two: the commit the engine was
+# built from, which is what makes the DMG traceable, and the tag, which is what
+# an upgrade and a support question are named by.
+#
+# An empty engine slot is the pre-Stage-0 declared state and has nothing to
+# compare; a populated one with no pin behind it is refused rather than waved
+# through, because "an engine nobody recorded" is the state this exists to stop.
+check_engine_matches_pin() {
+  local state commit version entry manifest tree_commit tree_version
+  # Whether the slot is populated is check_engine_slot's answer, taken from it
+  # rather than asked of the filesystem a second time.
+  [ "$ENGINE_STATE" != "empty" ] || return 0
+
+  state="$(engine_pin_state "$ENGINE_PIN_PATH")" || exit 1
+  [ "$state" = "pinned" ] ||
+    fail "a release bundle carries an engine and $ENGINE_PIN_PATH is unpinned"
+
+  commit="$(engine_pin_field "$ENGINE_PIN_PATH" source_commit)"
+  version="$(engine_pin_field "$ENGINE_PIN_PATH" version)"
+
+  for entry in "$ENGINE_DIR"/*; do
+    [ -d "$entry" ] || continue
+    manifest="$entry/engine-manifest.json"
+    tree_commit="$(engine_manifest_field "$manifest" source_commit)" ||
+      fail "the engine in $(basename "$entry") declares no source commit"
+    [ "$tree_commit" = "$commit" ] ||
+      fail "the engine in $(basename "$entry") was built from $tree_commit, and the engine pin names $commit"
+    tree_version="$(engine_manifest_field "$manifest" product_version)" ||
+      fail "the engine in $(basename "$entry") declares no product version"
+    [ "$tree_version" = "$version" ] ||
+      fail "the engine in $(basename "$entry") is version $tree_version, and the engine pin names $version"
+  done
 }
 
 # A release bundle is Developer ID signed.

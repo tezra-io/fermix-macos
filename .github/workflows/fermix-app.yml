@@ -17,7 +17,7 @@ name: fermix-app
 # Actions are pinned to immutable commit SHAs per M34 section 7.
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 permissions:
@@ -37,6 +37,13 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: brew install ripgrep
+
+      # The staging dry run verifies the pinned engine's detached signature, and
+      # the runner has no cosign of its own. Installed unconditionally: an
+      # install gated on the pin state would be a second code path keyed on a
+      # fact the dry run reads for itself, and the download is seconds.
+      - name: Install cosign (engine signature verification)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 
       # Cheapest possible gate, and it runs first: every shell script in the
       # repository must at least parse. A release script with a syntax error is
@@ -65,6 +72,7 @@ jobs:
         run: |
           scripts/verify_staged_app_test.sh
           scripts/sign_app_test.sh
+          scripts/verify_engine_test.sh
           bash scripts/dev_e2e_test.sh
 
       - name: Static runtime-policy + build-harness tests
@@ -104,10 +112,17 @@ jobs:
       #
       # Release audience, which is what `package_release.sh` uses, so the
       # promises a bundle that leaves this machine makes are asserted on every
-      # pull request rather than only at release time. The engine slot is empty
-      # here, so the engine-serves-the-protocol promise has nothing to check;
-      # `verify_staged_app_test.sh` above proves that one against reference
-      # bundles with a populated slot.
+      # pull request rather than only at release time.
+      #
+      # The engine is staged exactly as a release stages it whenever
+      # engine/PIN.json names a release: the pinned assets are downloaded and
+      # verified here, so a pin that drifted from the release it claims — a
+      # digest that no longer matches, a tag whose tree was built from another
+      # commit — fails on the pull request that wrote it instead of on the
+      # release that needed it. While the pin is unpinned the slot stages empty,
+      # which is the declared pre-Stage-0 state, and the engine promises have
+      # nothing to check; `verify_staged_app_test.sh` above proves those against
+      # reference bundles with a populated slot and a fixture pin.
       #
       # This step is RED whenever the management contract is vendored from an
       # engine working tree rather than from a commit: SOURCE.json records
@@ -117,13 +132,28 @@ jobs:
       # `verify_protocol_contract.sh --source <fermix-checkout>`) before a
       # release is cut: the daemon ships first.
       - name: Staging dry run (universal2 / layout / signing)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           source scripts/product_config.sh
+          source scripts/engine_pin.sh
           stage="$RUNNER_TEMP/stage"
           bundle="$(product_config app_bundle_name)"
           mkdir -p "$stage"
-          scripts/stage_app.sh "$(product_config marketing_version)" "$(product_config build_number)" "$stage/$bundle" universal
+          # An assignment, not a test: a half-filled pin makes engine_pin_state
+          # refuse, and errexit has to see that status. Read inside `[ ]` the
+          # refusal would read as "not pinned" and stage an engineless bundle.
+          state="$(engine_pin_state engine/PIN.json)"
+          engine=()
+          if [ "$state" = "pinned" ]; then
+            scripts/fetch_engine.sh engine/PIN.json "$RUNNER_TEMP/engine-download"
+            scripts/verify_engine.sh engine/PIN.json "$RUNNER_TEMP/engine-download" "$RUNNER_TEMP/engine"
+            for target in "${ENGINE_PIN_TARGETS[@]}"; do
+              engine+=(--engine "$RUNNER_TEMP/engine/$target")
+            done
+          fi
+          scripts/stage_app.sh "$(product_config marketing_version)" "$(product_config build_number)" "$stage/$bundle" universal ${engine[@]+"${engine[@]}"}
           scripts/verify_staged_app.sh "$stage/$bundle" universal unsigned release
           scripts/sign_app.sh "$stage/$bundle" "-"
           scripts/verify_staged_app.sh "$stage/$bundle" universal signed development

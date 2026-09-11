@@ -12,6 +12,13 @@
 # gated release). This script adds the credentialed notarization (submit-then-poll,
 # never `--wait`), two-pass stapling, and the signed drag-to-Applications DMG.
 #
+# The engine inside the bundle comes from engine/PIN.json, and only from there:
+# the pinned release's two app-engine assets are downloaded by
+# scripts/fetch_engine.sh and proven to be the pinned ones by
+# scripts/verify_engine.sh before anything is staged, and an unpinned pin
+# refuses the build. Downloading needs `gh` with a token and verifying needs
+# cosign, so a release host provides both alongside the Apple credentials below.
+#
 # The bundle name, the DMG name, and the disk image's volume name all come from
 # Product.json through scripts/product_config.sh. The artifact name is therefore
 # whatever `app_bundle_name` says without its .app suffix — and because the
@@ -36,6 +43,8 @@ BUILD_NUMBER="${2:?usage: package_release.sh <version> <build_number>}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/product_config.sh
 source "$ROOT_DIR/scripts/product_config.sh"
+# shellcheck source=scripts/engine_pin.sh
+source "$ROOT_DIR/scripts/engine_pin.sh"
 
 APP_BUNDLE_NAME="$(product_config app_bundle_name)"
 ARTIFACT_NAME="${APP_BUNDLE_NAME%.app}"
@@ -45,6 +54,9 @@ DIST="$ROOT_DIR/dist"
 STAGE="$(mktemp -d)"
 APP="$STAGE/$APP_BUNDLE_NAME"
 DMG="$DIST/$ARTIFACT_NAME-$VERSION.dmg"
+ENGINE_DOWNLOAD="$STAGE/engine-download"
+ENGINE_TREES="$STAGE/engine"
+ENGINE_FLAGS=()
 
 : "${MACOS_DEVELOPER_ID:?release signing is mandatory: MACOS_DEVELOPER_ID is required}"
 : "${APPLE_ID:?APPLE_ID is required}"
@@ -103,9 +115,38 @@ build_dmg() {
   codesign --force --timestamp --sign "$MACOS_DEVELOPER_ID" "$DMG"
 }
 
+# The engine this release ships, downloaded and verified before anything is
+# built.
+#
+# A release without an engine is not a release: the app reads nothing itself,
+# so a DMG with an empty engine slot installs a client with no daemon to talk
+# to. The engine is therefore taken from the pinned engine release and proven
+# to be that release — digest against the pin, cosign against the pinned
+# certificate identity, and the extracted tree's own commit and version — and a
+# pin that names no release refuses the build here rather than producing a
+# bundle nobody can support. The pin is bumped by editing engine/PIN.json; there
+# is no way to ask for a different engine from the command line, because the
+# engine a release shipped has to be readable off the commit that cut it.
+prepare_engine() {
+  local state target
+  state="$(engine_pin_state "$ENGINE_PIN_DEFAULT_PATH")" || exit 1
+  [ "$state" = "pinned" ] ||
+    fail "a release ships an engine; engine/PIN.json is unpinned"
+
+  "$ROOT_DIR/scripts/fetch_engine.sh" "$ENGINE_PIN_DEFAULT_PATH" "$ENGINE_DOWNLOAD"
+  "$ROOT_DIR/scripts/verify_engine.sh" "$ENGINE_PIN_DEFAULT_PATH" \
+    "$ENGINE_DOWNLOAD" "$ENGINE_TREES"
+
+  for target in "${ENGINE_PIN_TARGETS[@]}"; do
+    ENGINE_FLAGS+=(--engine "$ENGINE_TREES/$target")
+  done
+}
+
 main() {
   mkdir -p "$DIST"
-  "$ROOT_DIR/scripts/stage_app.sh" "$VERSION" "$BUILD_NUMBER" "$APP" universal
+  prepare_engine
+  "$ROOT_DIR/scripts/stage_app.sh" "$VERSION" "$BUILD_NUMBER" "$APP" universal \
+    "${ENGINE_FLAGS[@]}"
   "$ROOT_DIR/scripts/sign_app.sh" "$APP" "$MACOS_DEVELOPER_ID"
   # The composed gate over the signed bundle: layout, configured identity, both
   # property lists, the vendored contracts, the assets, the declared slots, and

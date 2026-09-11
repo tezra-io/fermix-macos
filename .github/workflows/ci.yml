@@ -19,7 +19,7 @@ name: ci
 # Actions are pinned to immutable commit SHAs per M34 section 7.
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 permissions:

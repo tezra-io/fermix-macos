@@ -16,7 +16,7 @@ So the answer to "does CI build the app and the file people download" is yes: th
 
 - It stages an empty engine slot. `package_release.sh` calls `stage_app.sh` without `--engine`, so the DMG it produces today is an app with no engine inside. A user who installs it has nothing to run.
 - The bundle is still `FermixPet.app`, the cask is still `fermixpet`, and the tag namespace is `fermixpet-v*`.
-- There is no update channel. Sparkle (spec section 6) is unbuilt: no feed URL, no signing key, no appcast.
+- The update feed is not published. The app carries the feed URL and the public key, and the release rail signs the DMG and attaches the merged `appcast.xml` to the release (section 4), but nothing copies that file to the site yet.
 - The engine is not pinned in this repository. The dev loop passes a locally built tree.
 
 **The engine release rail, in the fermix repository.** On `feat/m34-management-v2` the release workflow gained an `app-engine` job: it builds `fermix_app_engine_<target>.tar.gz` for `macos_aarch64` (macos-15) and `macos_x86_64` (macos-15-intel), cosign-signs and sha256s them beside the formula binaries, and publishes them as assets of the same tag. That branch is pushed and not yet merged into `dev`, so no engine release carries those assets yet.
@@ -50,14 +50,21 @@ Spec step 8 puts this in the first public release, and nothing public depends on
 
 ### 4. Updates
 
-A person who downloads a DMG needs a reliable way to discover future fixes. The first public macOS release accompanying core 0.10.0 must include update discovery and safe, user-initiated installation, with these release gates:
+A person who downloads a DMG needs a reliable way to discover future fixes. The first public macOS release accompanying core 0.10.0 must include update discovery and safe, user-initiated installation.
 
-- Generate the EdDSA key pair once; the private key lives in the `release-macos` environment with a backup and a written rotation procedure; the public key is embedded in Info.plist.
-- An HTTPS feed at `https://fermix.ai/appcast.xml`, embedded from release one. A future feed migration must keep the old endpoint available so installed clients can reach the release containing the new URL. [Sparkle feed migration](https://sparkle-project.org/documentation/publishing/#upgrading-to-newer-features)
-- Use the checked-in positive integer `Product.json` build number for each distinct candidate. The tag, installed plist and appcast must agree; reject reused or decreasing published build numbers.
-- Sign the final notarized and stapled DMG bytes with Sparkle's EdDSA key, then generate the candidate appcast. Test through an isolated feed before promoting the accepted artifact and metadata to production.
-- The source app must journal the update, safely stop its engine before replacement, and recover interrupted updates before ordinary UI. These protections must ship in release one: a coordinator introduced in the next binary cannot protect its own installation.
-- Prove a failed shutdown prevents replacement on every permitted Sparkle path. The pinned Sparkle delegate has no asynchronous veto before installer arming; the postponed-relaunch callback alone cannot provide this guarantee. The current installation path remains a release blocker until that boundary is resolved. [Sparkle delegate contract](https://sparkle-project.org/documentation/api-reference/Protocols/SPUUpdaterDelegate.html)
+**What the rail does now.** The public key and the feed URL are rendered into Info.plist from `Product.json`. The private key is `SPARKLE_ED_PRIVATE_KEY` in the protected `release-macos` environment, which only the notarize job can read, and `notarize.yml` refuses before it builds anything if the secret is unset.
+
+1. After stapling and the Gatekeeper gate, `notarize.yml` mounts the published DMG, signs those exact bytes with `sign_update --ed-key-file -`, and writes `appcast-item.xml` through `scripts/appcast.py item`. The key goes from the environment into the script's standard input, so it is never an argument, a file, or an echo. Every value in the item is read from the artifact rather than configured: the marketing version, build number and system floor from the mounted app's Info.plist, the engine build and product version from the engine trees' own manifests, the signing authority from `codesign`, the sha256 from the DMG bytes, and the signature and byte length from `sign_update`. The item is uploaded as its own artifact.
+2. The publish job merges that item into the cumulative feed with `scripts/appcast.py merge`, before the release is created, so a refusal publishes nothing. It lists the newest app release's assets first, which makes "the previous release carries no `appcast.xml`" a declared state rather than a download whose failure reads as no updates; the first Sparkle release starts the feed. The merge refuses a build number that is not strictly greater than every build already published, and a marketing version that is already in the feed.
+3. `appcast.xml` and `appcast-item.xml` are attached to the release. The feed carries every earlier item forward because the app refuses an update unless the feed also describes the build that is installed, and the next release merges onto this release's own asset.
+4. `scripts/appcast_test.sh` fires every one of those refusals offline, against hand-made bundles with a stubbed `sign_update` and `codesign`, and parses the produced feed back to check the four `fermix:` elements, Sparkle's own fields and the enclosure against the values that went in. No signing key is involved, so it runs anywhere.
+
+**What remains.**
+
+- Publishing the feed is by hand: copy the release's `appcast.xml` to `fermix-site` `public/appcast.xml` and deploy. The release prints a notice naming that step. A future feed migration must keep the old endpoint available so installed clients can reach the release containing the new URL. [Sparkle feed migration](https://sparkle-project.org/documentation/publishing/#upgrading-to-newer-features)
+- Key custody. The private key needs an offline backup and a written rotation procedure. Losing it ends update discovery for every client that already trusts the public key, and there is no second path to those Macs.
+- Test through an isolated feed before promoting the accepted artifact and metadata to production. Nothing in CI decides that a release is critical either: `appcast.py item --critical` writes `sparkle:criticalUpdate` and no workflow passes it, so marking one needs a deliberate maintainer input first.
+- The R3 installation boundary is still the release decision. The app journals the update, stops its engine at the extraction barrier and recovers an interrupted update before ordinary UI, which is the half that had to ship in release one: a coordinator introduced in the next binary cannot protect its own installation. What is not proved is that a failed shutdown prevents replacement on every permitted Sparkle path, because the pinned delegate has no asynchronous veto before installer arming and the postponed-relaunch callback alone cannot provide that guarantee. [Sparkle delegate contract](https://sparkle-project.org/documentation/api-reference/Protocols/SPUUpdaterDelegate.html)
 
 If safe installation is not ready, explicitly reduce scope to informational updates linking to the signed DMG, with a tested manual-upgrade procedure, or defer the macOS release. Do not ship unrestricted installation and defer its safety work to release two. Production key custody, feed publication, and signed update acceptance remain release work; passing unit tests does not complete them.
 
@@ -67,7 +74,7 @@ If safe installation is not ready, explicitly reduce scope to informational upda
 
 ### 6. Publish
 
-Push the tag. CI produces the DMG, its checksum and signature, the cask and the appcast entry. Mark the GitHub Release as latest, merge the tap pull request, then publish the appcast, then the site.
+Push the tag. CI produces the DMG, its checksum and cosign signature, the rendered cask, the signed appcast item and the merged cumulative feed, and attaches all of them to the release. Then, by hand and in this order: mark the GitHub Release as latest, merge the tap pull request, copy the release's `appcast.xml` to `fermix-site` `public/appcast.xml` and deploy the site, then the download page. The feed goes after the release is marked latest and the tap has the cask, because publishing it is the moment installed clients start being offered the release.
 
 ### 7. The site
 
