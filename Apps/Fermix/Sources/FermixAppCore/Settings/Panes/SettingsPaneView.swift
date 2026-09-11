@@ -257,22 +257,29 @@ struct MeetingsPane: View {
         return DescriptorRows(model: model, section: section, excluding: excluded)
     }
 
-    /// The sign-in control, with what the daemon says about the account under
-    /// it. The action stays offered either way: signing in again is how an
-    /// account is changed.
+    /// The sign-in control, with what the daemon says about the account.
+    ///
+    /// Signed in, the account stands above the control and the control reads
+    /// `Sign in again`: the run, its progress, its Cancel and the sentence a
+    /// failed run leaves all still belong to whoever is changing the account,
+    /// so the control stays rather than being taken away. Not signed in, the
+    /// daemon's sentence sits under it as the reason to press it. With no
+    /// answer, the control stands alone.
     @ViewBuilder
     private var googleMeetControls: some View {
         VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+            accountRow
+
             JobRow(
                 title: ProductStrings[.settingsMeetingsSignInTitle],
-                actionTitle: ProductStrings[.settingsMeetingsSignInAction],
+                actionTitle: ProductStrings[signInState.actionTitleKey],
                 kind: .meetingsSignin,
                 runner: signIn
             ) {
                 await model.startMeetingsSignIn(on: signIn)
             }
 
-            if let sentence = signInState.sentence {
+            if let sentence = signInState.pendingSentence {
                 Text(sentence)
                     .fermixType(Typography.style(.calloutSmall))
                     .foregroundStyle(Palette.secondary.color)
@@ -286,26 +293,87 @@ struct MeetingsPane: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private var signInState: NotetakerSignIn {
-        NotetakerSignIn(detection: model.detections.value?.result(for: .meetbot))
+    /// The account, once there is one: this app's label with the daemon's own
+    /// sentence as its value, in the pass colour a granted permission draws.
+    ///
+    /// Status is never colour alone here either: the sentence names the state
+    /// in words, and VoiceOver reads it as the value of the label.
+    @ViewBuilder
+    private var accountRow: some View {
+        if let sentence = signInState.accountSentence {
+            LabeledContent(ProductStrings[.settingsMeetingsGoogleAccountLabel]) {
+                Text(sentence)
+                    .foregroundStyle(StatusTone.pass.textColor.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var signInState: NotetakerSignIn.State {
+        NotetakerSignIn(detection: model.detections.value?.result(for: .meetbot)).state
     }
 }
 
 /// What the daemon says about the notetaker's Google sign-in, from the
 /// `meetbot` row of `setup.detect`.
 ///
-/// The sentence is the daemon's own and is rendered verbatim: whether a browser
-/// profile holds a Google session is the one notetaker fact no client can read
-/// for itself. With the notetaker absent there is nothing to be signed in to,
-/// and a detection still loading or refused is not an answer either, so each of
-/// those is no sentence rather than a state the app invented.
+/// Whether a browser profile holds a Google session is the one notetaker fact
+/// no client can read for itself, and the row publishes it twice: `signed_in`
+/// is the fact this projection switches on, and `detail` is the sentence the
+/// pane renders verbatim. With the notetaker absent there is nothing to be
+/// signed in to, and a detection still loading, refused or never read is not an
+/// answer either, so each of those is an unanswered state rather than one the
+/// app invented.
 struct NotetakerSignIn {
     let detection: ManagementDetection?
 
-    var sentence: String? {
-        guard let detection, detection.present else { return nil }
+    /// Where the account stands. Three cases, because the pane draws three
+    /// things, and the view reads the case rather than the sentence.
+    enum State: Equatable {
+        /// An account is in place, with the daemon's sentence for it.
+        case signedIn(sentence: String?)
+        /// The notetaker is on this Mac and no account is in place yet.
+        case notSignedIn(sentence: String?)
+        /// The daemon said nothing about the sign-in.
+        case unanswered
+    }
 
-        return detection.detail
+    var state: State {
+        guard let detection, detection.present else { return .unanswered }
+
+        switch detection.signedIn {
+        case .some(true): return .signedIn(sentence: detection.detail)
+        case .some(false): return .notSignedIn(sentence: detection.detail)
+        case .none: return .unanswered
+        }
+    }
+}
+
+extension NotetakerSignIn.State {
+    /// The word on the control. Signing in again is a different act from
+    /// signing in for the first time, and an account already in place is the
+    /// one state where that is what pressing it does.
+    var actionTitleKey: ProductStringKey {
+        switch self {
+        case .signedIn: return .settingsMeetingsSignInAgainAction
+        case .notSignedIn, .unanswered: return .settingsMeetingsSignInAction
+        }
+    }
+
+    /// The value of the account row, which only a sign-in that happened has.
+    var accountSentence: String? {
+        guard case .signedIn(let sentence) = self else { return nil }
+
+        return sentence
+    }
+
+    /// The line under the control, which only a notetaker still waiting for an
+    /// account has. Once there is one, that sentence is the account row's
+    /// value instead, so it is never drawn twice.
+    var pendingSentence: String? {
+        guard case .notSignedIn(let sentence) = self else { return nil }
+
+        return sentence
     }
 }
 

@@ -3,7 +3,7 @@
   "description": "Provenance of the vendored Fermix wire contracts. The canonical files live in the fermix repository under apps/fermix_core/priv/; this tree is a byte-identical copy pinned by CHECKSUMS.txt. scripts/verify_protocol_contract.sh asserts the two agree, and --source <fermix-checkout> byte-compares against upstream.",
   "upstream": {
     "repository": "tezra-io/fermix",
-    "commit": "72f188c07b1c681447787c9bb02f6653185405ca",
+    "commit": "6c2f3d128c2ad6e185b851b7cda4d538b6d9a3d4",
     "branch": "release/0.10.0",
     "working_tree": "clean",
     "retrieved_at": "2026-09-11"
@@ -20,17 +20,17 @@
         "maximum": 2
       },
       "committed_upstream": true,
-      "provenance_note": "Taken from release/0.10.0 at the commit that adds the meetbot detect target to setup.detect and the two further image model options to the Images section (72f188c0, pushed to origin). Protocol 2 is unchanged: both are additive inside existing methods, so no minimum version moves.",
+      "provenance_note": "Taken from release/0.10.0 at the commit that adds the meetbot detect target to setup.detect, the two further image model options to the Images section, and the notetaker's sign-in fact beside its sentence (6c2f3d12, pushed to origin). The meetbot row carries signed_in as true or false while the notetaker is present and null while it is absent, so a client hides or relabels its sign-in control on that fact instead of on the words of the detail sentence. Protocol 2 is unchanged: all three are additive inside existing methods, so no minimum version moves.",
       "files": [
         {
           "path": "management/PROTOCOL.md",
           "source_path": "apps/fermix_core/priv/management/PROTOCOL.md",
-          "sha256": "8f7cacfb7d2a680f5f623ea40f84ac90d3c9a72c6e1b199a1282fc74e9972027"
+          "sha256": "0b272976895f6f2d2429db1c89965b1c7b479a95a8e9eca6ad51790344000e83"
         },
         {
           "path": "management/protocol.schema.json",
           "source_path": "apps/fermix_core/priv/management/protocol.schema.json",
-          "sha256": "ff37c7fb5285a5c47e3688463654979f1382257c578d2e228486e4d429fb9c23"
+          "sha256": "8283e48661c1673284948b39d82d6436da1fb4ccba3ff2b6996493994a4cf59f"
         },
         {
           "path": "management/fixtures/compatibility.jsonl",
@@ -50,7 +50,7 @@
         {
           "path": "management/fixtures/success.jsonl",
           "source_path": "apps/fermix_core/priv/management/fixtures/success.jsonl",
-          "sha256": "0cdc05bb688c5d9f627c5057497cd5d6c1c09ada2a0e7bc3f3ba0d04040f0947"
+          "sha256": "92fc84ee6609a726696670f5baafa2d6273826cac7a8bca6fd03c386c88a37d7"
         }
       ]
     },

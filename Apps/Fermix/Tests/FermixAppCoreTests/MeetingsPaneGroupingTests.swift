@@ -250,59 +250,127 @@ struct MeetingsInstallOnEnableTests {
 /// The notetaker's Google sign-in, as the daemon publishes it.
 ///
 /// Nothing on the wire said the sign-in had happened, so the pane kept offering
-/// the idle control after a successful one. `setup.detect` now carries a
-/// `meetbot` row whose detail is the sentence for that session, and the pane
-/// renders it verbatim: whether a browser profile holds a Google session is the
-/// one notetaker fact no client can read for itself.
+/// the idle control after a successful one. The `meetbot` row of `setup.detect`
+/// now carries `signed_in` beside its detail, and the pane switches on that
+/// fact while rendering that sentence: whether a browser profile holds a Google
+/// session is the one notetaker fact no client can read for itself, and the
+/// words of a sentence are not a state to switch on.
 @Suite("Meetings notetaker sign-in")
 struct MeetingsNotetakerSignInTests {
-    /// The sentence is the daemon's, taken from the contract's own golden
-    /// rather than from a literal this test wrote.
-    @Test("a present notetaker renders the daemon's own sentence")
-    func presentRendersTheDaemonsSentence() throws {
+    /// The signed-in state, from the contract's own golden rather than from a
+    /// literal this test wrote. Its sentence becomes the account row's value,
+    /// and nothing is left under the control: the state is stated once.
+    @Test("the golden's signed-in row states the account and leaves the control bare")
+    func aSignedInRowStatesTheAccount() throws {
         let published = try #require(
             try ManagementValueFixture.detections().result(for: .meetbot),
             "the setup_detect golden carries no meetbot row"
         )
 
         #expect(published.present)
-        #expect(NotetakerSignIn(detection: published).sentence == published.detail)
-        #expect(published.detail == "Signed in to Google")
+        #expect(published.signedIn == true)
+
+        let state = NotetakerSignIn(detection: published).state
+
+        #expect(state == .signedIn(sentence: published.detail))
+        #expect(state.accountSentence == "Signed in to Google")
+        #expect(state.pendingSentence == nil)
     }
 
-    /// With the notetaker absent there is nothing to be signed in to, so the
-    /// row carries no sentence and the control gains no second line. A
-    /// detection still loading or refused is not an answer either, and each
-    /// reaches this as no detection at all.
-    @Test("an absent notetaker and an unanswered probe both render nothing")
-    func absentRendersNothing() throws {
-        #expect(NotetakerSignIn(detection: nil).sentence == nil)
-        #expect(NotetakerSignIn(detection: try Self.row(present: false)).sentence == nil)
+    /// Not signed in: the daemon's sentence is the reason to press the control,
+    /// so it sits under it and there is no account row to draw.
+    @Test("a not-signed-in row puts the daemon's sentence under the control")
+    func aNotSignedInRowExplainsWhyToPressIt() throws {
+        let row = try Self.row(present: true, signedIn: "false", detail: "\"Not signed in to Google\"")
+        let state = NotetakerSignIn(detection: row).state
+
+        #expect(state == .notSignedIn(sentence: "Not signed in to Google"))
+        #expect(state.pendingSentence == "Not signed in to Google")
+        #expect(state.accountSentence == nil)
     }
 
-    /// The guard is on `present`, not on the detail alone: a not-present row is
-    /// never read for a sign-in marker, whatever it carries.
-    @Test("a not-present row's detail is never rendered")
-    func aNotPresentDetailIsNeverRendered() throws {
-        let row = try Self.row(present: false, detail: "\"Signed in to Google\"")
+    /// Three ways to have no answer, and the app invents a state for none of
+    /// them: a probe still out or refused reaches the projection as no
+    /// detection at all, an absent notetaker has nothing to be signed in to,
+    /// and a present row whose fact the daemon left null is a row this engine
+    /// does not publish, which must still not take the pane down.
+    @Test("an unanswered probe, an absent notetaker and a null fact all render nothing extra")
+    func nothingIsInvented() throws {
+        let states = [
+            NotetakerSignIn(detection: nil).state,
+            NotetakerSignIn(detection: try Self.row(present: false)).state,
+            NotetakerSignIn(detection: try Self.row(present: true)).state
+        ]
+
+        for state in states {
+            #expect(state == .unanswered)
+            #expect(state.accountSentence == nil)
+            #expect(state.pendingSentence == nil)
+        }
+    }
+
+    /// The guard is on the published facts, not on the detail: a not-present
+    /// row is never read as a sign-in, whatever its sentence says.
+    @Test("a not-present row is never read as signed in")
+    func aNotPresentRowIsNeverSignedIn() throws {
+        let row = try Self.row(present: false, signedIn: "true", detail: "\"Signed in to Google\"")
 
         #expect(row.detail == "Signed in to Google")
-        #expect(NotetakerSignIn(detection: row).sentence == nil)
+        #expect(NotetakerSignIn(detection: row).state == .unanswered)
     }
 
-    /// Through the model, which is where the pane reads it: nothing before the
-    /// probe has answered, the daemon's sentence once it has.
-    @Test("the pane shows no sentence before the probe answers and the daemon's after")
+    /// The control stays offered in every state, because the run behind it, its
+    /// progress, its Cancel and the sentence a failed run leaves are how an
+    /// account is changed. Only its word moves, and it moves with the state
+    /// rather than with the sentence, which is why the projection yields a case.
+    @Test("the control's word comes from the state and never from the sentence")
+    func theActionTitleComesFromTheState() throws {
+        let signedIn = try Self.row(present: true, signedIn: "true", detail: "\"Signed in to Google\"")
+        let waiting = try Self.row(present: true, signedIn: "false", detail: "\"Not signed in to Google\"")
+
+        #expect(
+            NotetakerSignIn(detection: signedIn).state.actionTitleKey
+                == .settingsMeetingsSignInAgainAction
+        )
+        #expect(
+            NotetakerSignIn(detection: waiting).state.actionTitleKey
+                == .settingsMeetingsSignInAction
+        )
+        #expect(
+            NotetakerSignIn(detection: nil).state.actionTitleKey == .settingsMeetingsSignInAction
+        )
+    }
+
+    /// Both new words are the app's own: the label names a thing in this pane
+    /// and the second verb names a different act. Neither reports a state,
+    /// which stays the daemon's sentence beside them.
+    @Test("the app-authored label and second verb follow the copy rules")
+    func theAppAuthoredWordsFollowTheCopyRules() {
+        let label = ProductStrings[.settingsMeetingsGoogleAccountLabel]
+        let again = ProductStrings[.settingsMeetingsSignInAgainAction]
+
+        #expect(ProductCopyRules.violations(in: label).isEmpty)
+        #expect(ProductCopyRules.violations(in: again).isEmpty)
+        #expect(again != ProductStrings[.settingsMeetingsSignInAction])
+        #expect(
+            again.hasSuffix("\u{2026}"),
+            "the second verb opens the same window and ends the same way as the first"
+        )
+    }
+
+    /// Through the model, which is where the pane reads it: no answer before
+    /// the probe has answered, the daemon's own state once it has.
+    @Test("the pane has no answer before the probe answers and the daemon's after")
     @MainActor
-    func theLoadedDetectionCarriesThePaneSentence() async throws {
+    func theLoadedDetectionCarriesThePaneState() async throws {
         let gateway = try SettingsFixture.gateway()
         let model = SettingsFixture.model(gateway: gateway)
 
-        #expect(Self.sentence(in: model) == nil)
+        #expect(Self.state(in: model) == .unanswered)
 
         await model.refreshNotetakerState()
 
-        #expect(Self.sentence(in: model) == "Signed in to Google")
+        #expect(Self.state(in: model) == .signedIn(sentence: "Signed in to Google"))
     }
 
     /// Both jobs on the pane change the sign-in state, and the read that
@@ -361,14 +429,21 @@ struct MeetingsNotetakerSignInTests {
     }
 
     @MainActor
-    private static func sentence(in model: SettingsModel) -> String? {
-        NotetakerSignIn(detection: model.detections.value?.result(for: .meetbot)).sentence
+    private static func state(in model: SettingsModel) -> NotetakerSignIn.State {
+        NotetakerSignIn(detection: model.detections.value?.result(for: .meetbot)).state
     }
 
-    private static func row(present: Bool, detail: String = "null") throws -> ManagementDetection {
+    /// One hand-made row. Both facts are written as JSON literals so a null is
+    /// expressible: null is what the daemon sends for a notetaker that is not
+    /// there, and the case the pane must survive.
+    private static func row(
+        present: Bool,
+        signedIn: String = "null",
+        detail: String = "null"
+    ) throws -> ManagementDetection {
         try JSONDecoder().decode(ManagementDetection.self, from: Data("""
         {"target":"meetbot","present":\(present),"detail":\(detail),
-         "vendors":null,"guidance":null}
+         "signed_in":\(signedIn),"vendors":null,"guidance":null}
         """.utf8))
     }
 }

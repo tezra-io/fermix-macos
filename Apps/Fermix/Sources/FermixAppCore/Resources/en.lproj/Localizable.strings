@@ -538,6 +538,8 @@
 "settings.meetings.googleSection" = "Google Meet";
 "settings.meetings.signInTitle" = "Google account for the notetaker";
 "settings.meetings.signInAction" = "Sign in…";
+"settings.meetings.signInAgainAction" = "Sign in again…";
+"settings.meetings.googleAccountLabel" = "Google account";
 "settings.meetings.signInNotice" = "A browser window opens. Sign in there with the account the notetaker should use.";
 
 /* MARK: Providers */

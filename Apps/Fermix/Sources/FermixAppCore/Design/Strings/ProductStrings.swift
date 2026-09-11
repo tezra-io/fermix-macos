@@ -477,6 +477,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsMeetingsGoogleSection = "settings.meetings.googleSection"
     case settingsMeetingsSignInTitle = "settings.meetings.signInTitle"
     case settingsMeetingsSignInAction = "settings.meetings.signInAction"
+    case settingsMeetingsSignInAgainAction = "settings.meetings.signInAgainAction"
+    case settingsMeetingsGoogleAccountLabel = "settings.meetings.googleAccountLabel"
     case settingsMeetingsSignInNotice = "settings.meetings.signInNotice"
 
     // Providers

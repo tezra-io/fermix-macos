@@ -182,8 +182,19 @@ public struct ManagementDetection: Decodable, Equatable, Sendable {
     public let target: ManagementDetectTarget
     public let present: Bool
     public let detail: String?
+    /// Whether the meeting notetaker's Google account is in place: true or
+    /// false while the notetaker is present, null while it is absent. The
+    /// `detail` sentence says the same thing in the daemon's own words, and
+    /// this is the fact a client switches on so it never reads those words.
+    /// Absent on every other target.
+    public let signedIn: Bool?
     public let vendors: [ManagementHarnessVendor]?
     public let guidance: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case target, present, detail, vendors, guidance
+        case signedIn = "signed_in"
+    }
 }
 
 public struct ManagementDetections: Decodable, Equatable, Sendable {
