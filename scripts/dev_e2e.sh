@@ -165,16 +165,34 @@ engine_branch() {
   git -C "$ENGINE_SRC" rev-parse --abbrev-ref HEAD
 }
 
+engine_commit() {
+  git -C "$ENGINE_SRC" rev-parse HEAD
+}
+
+# Whether the worktree carries changes the commit does not describe. The
+# manifest can only name a commit, so a dirty tree is said out loud at build
+# time rather than hidden behind a clean-looking hash.
+engine_tree_state() {
+  if [ -z "$(git -C "$ENGINE_SRC" status --porcelain)" ]; then
+    echo "clean"
+  else
+    echo "dirty"
+  fi
+}
+
 build_engine() {
   require_engine_source
-  echo "dev_e2e: building the app engine from $ENGINE_SRC ($(engine_branch), as it stands)..."
+  echo "dev_e2e: building the app engine from $ENGINE_SRC ($(engine_branch) at $(engine_commit | cut -c1-12), $(engine_tree_state) tree, as it stands)..."
   (
     cd "$ENGINE_SRC"
     mix deps.get --only prod >/dev/null
     # BuildInfo recompiles itself when these inputs change (__mix_recompile__?),
-    # so no manual invalidation is needed.
+    # so no manual invalidation is needed. The source commit is the worktree's
+    # real HEAD: a bundle stamped with zeroes could not say which revision it
+    # was built from, and a fix that had never reached this worktree looked
+    # applied because nothing in the bundle contradicted it.
     FERMIX_BUILD_ID="dev-e2e" \
-      FERMIX_BUILD_SOURCE_COMMIT=0000000000000000000000000000000000000000 \
+      FERMIX_BUILD_SOURCE_COMMIT="$(engine_commit)" \
       FERMIX_BUILD_DISTRIBUTION=macos_app \
       FERMIX_BUILD_TARGET="macos_$(uname -m | sed 's/arm64/aarch64/')" \
       MIX_ENV=prod mix release fermix_app_engine --overwrite >/dev/null
