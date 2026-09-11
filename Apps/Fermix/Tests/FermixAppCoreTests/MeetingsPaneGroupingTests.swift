@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import FermixAppCore
@@ -243,5 +244,117 @@ struct MeetingsInstallOnEnableTests {
         let rows = try DescriptorCoverageTests.rows(inSection: SettingsBinding.meetingsSection)
 
         return try #require(rows.first { $0.key == SettingsBinding.meetingsEnabled })
+    }
+}
+
+/// The notetaker's Google sign-in, as the daemon publishes it.
+///
+/// Nothing on the wire said the sign-in had happened, so the pane kept offering
+/// the idle control after a successful one. `setup.detect` now carries a
+/// `meetbot` row whose detail is the sentence for that session, and the pane
+/// renders it verbatim: whether a browser profile holds a Google session is the
+/// one notetaker fact no client can read for itself.
+@Suite("Meetings notetaker sign-in")
+struct MeetingsNotetakerSignInTests {
+    /// The sentence is the daemon's, taken from the contract's own golden
+    /// rather than from a literal this test wrote.
+    @Test("a present notetaker renders the daemon's own sentence")
+    func presentRendersTheDaemonsSentence() throws {
+        let published = try #require(
+            try ManagementValueFixture.detections().result(for: .meetbot),
+            "the setup_detect golden carries no meetbot row"
+        )
+
+        #expect(published.present)
+        #expect(NotetakerSignIn(detection: published).sentence == published.detail)
+        #expect(published.detail == "Signed in to Google")
+    }
+
+    /// With the notetaker absent there is nothing to be signed in to, so the
+    /// row carries no sentence and the control gains no second line. A
+    /// detection still loading or refused is not an answer either, and each
+    /// reaches this as no detection at all.
+    @Test("an absent notetaker and an unanswered probe both render nothing")
+    func absentRendersNothing() throws {
+        #expect(NotetakerSignIn(detection: nil).sentence == nil)
+        #expect(NotetakerSignIn(detection: try Self.row(present: false)).sentence == nil)
+    }
+
+    /// The guard is on `present`, not on the detail alone: a not-present row is
+    /// never read for a sign-in marker, whatever it carries.
+    @Test("a not-present row's detail is never rendered")
+    func aNotPresentDetailIsNeverRendered() throws {
+        let row = try Self.row(present: false, detail: "\"Signed in to Google\"")
+
+        #expect(row.detail == "Signed in to Google")
+        #expect(NotetakerSignIn(detection: row).sentence == nil)
+    }
+
+    /// Through the model, which is where the pane reads it: nothing before the
+    /// probe has answered, the daemon's sentence once it has.
+    @Test("the pane shows no sentence before the probe answers and the daemon's after")
+    @MainActor
+    func theLoadedDetectionCarriesThePaneSentence() async throws {
+        let gateway = try SettingsFixture.gateway()
+        let model = SettingsFixture.model(gateway: gateway)
+
+        #expect(Self.sentence(in: model) == nil)
+
+        await model.refreshNotetakerState()
+
+        #expect(Self.sentence(in: model) == "Signed in to Google")
+    }
+
+    /// Both jobs on the pane change the sign-in state, and the read that
+    /// follows either of them asks about the one row that carries it. A probe
+    /// that swept in the harness vendors or the provider targets would be work
+    /// nothing on this pane renders.
+    @Test("finishing the sign-in re-reads the notetaker row and no other target")
+    @MainActor
+    func finishingTheSignInRefreshesOnlyTheNotetaker() async throws {
+        let gateway = try SettingsFixture.gateway()
+        let model = SettingsFixture.model(gateway: gateway)
+        let signIn = model.makeJobRunner()
+
+        await model.startMeetingsSignIn(on: signIn)
+        await signIn.drainPendingWork()
+        #expect(signIn.completed)
+
+        await model.refreshNotetakerState()
+
+        #expect(gateway.detectedTargets == [[.meetbot]])
+        let started = try #require(gateway.calls.firstIndex(of: .v2(.meetingsSigninStart)))
+        let probed = try #require(gateway.calls.lastIndex(of: .v2(.setupDetect)))
+        #expect(started < probed, "the notetaker was probed before its sign-in ran")
+    }
+
+    /// The pane is what notices the end of a run: both jobs are started and
+    /// forgotten, and their end is a change on the runner, which is the shape
+    /// `ProvidersPane` already watches its own sign-in with. One read serves
+    /// the appearance and both runners, so the target is named once.
+    @Test("the pane reads on appearance and when neither job is left running")
+    func thePaneWatchesItsAppearanceAndBothRunners() throws {
+        let text = try #require(
+            try SourceTree.swiftFiles(matching: "Settings/Panes/SettingsPaneView.swift").first?.text
+        )
+
+        #expect(text.contains(".task { await model.refreshNotetakerState() }"))
+        #expect(text.contains(".onChange(of: install.isRunning || signIn.isRunning)"))
+        #expect(
+            !text.contains("refreshDetections([.meetbot])"),
+            "the pane names the target itself instead of asking through the model"
+        )
+    }
+
+    @MainActor
+    private static func sentence(in model: SettingsModel) -> String? {
+        NotetakerSignIn(detection: model.detections.value?.result(for: .meetbot)).sentence
+    }
+
+    private static func row(present: Bool, detail: String = "null") throws -> ManagementDetection {
+        try JSONDecoder().decode(ManagementDetection.self, from: Data("""
+        {"target":"meetbot","present":\(present),"detail":\(detail),
+         "vendors":null,"guidance":null}
+        """.utf8))
     }
 }

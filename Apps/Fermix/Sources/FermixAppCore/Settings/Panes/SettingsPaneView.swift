@@ -222,6 +222,15 @@ struct MeetingsPane: View {
                 }
             }
         }
+        // The sign-in state is the daemon's, and both jobs on this pane change
+        // it: the install puts the notetaker there, and the sign-in signs it in.
+        // Read when the pane opens and once no run of either is left in flight.
+        .task { await model.refreshNotetakerState() }
+        .onChange(of: install.isRunning || signIn.isRunning) { _, running in
+            guard !running else { return }
+
+            Task { await model.refreshNotetakerState() }
+        }
     }
 
     /// The switch that heads the pane, in its own untitled section, above every
@@ -254,21 +263,55 @@ struct MeetingsPane: View {
         return DescriptorRows(model: model, section: section, excluding: excluded)
     }
 
+    /// The sign-in control, with what the daemon says about the account under
+    /// it. The action stays offered either way: signing in again is how an
+    /// account is changed.
     @ViewBuilder
     private var googleMeetControls: some View {
-        JobRow(
-            title: ProductStrings[.settingsMeetingsSignInTitle],
-            actionTitle: ProductStrings[.settingsMeetingsSignInAction],
-            kind: .meetingsSignin,
-            runner: signIn
-        ) {
-            await model.startMeetingsSignIn(on: signIn)
+        VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+            JobRow(
+                title: ProductStrings[.settingsMeetingsSignInTitle],
+                actionTitle: ProductStrings[.settingsMeetingsSignInAction],
+                kind: .meetingsSignin,
+                runner: signIn
+            ) {
+                await model.startMeetingsSignIn(on: signIn)
+            }
+
+            if let sentence = signInState.sentence {
+                Text(sentence)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
 
         Text(ProductStrings[.settingsMeetingsSignInNotice])
             .fermixType(Typography.style(.calloutSmall))
             .foregroundStyle(Palette.secondary.color)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var signInState: NotetakerSignIn {
+        NotetakerSignIn(detection: model.detections.value?.result(for: .meetbot))
+    }
+}
+
+/// What the daemon says about the notetaker's Google sign-in, from the
+/// `meetbot` row of `setup.detect`.
+///
+/// The sentence is the daemon's own and is rendered verbatim: whether a browser
+/// profile holds a Google session is the one notetaker fact no client can read
+/// for itself. With the notetaker absent there is nothing to be signed in to,
+/// and a detection still loading or refused is not an answer either, so each of
+/// those is no sentence rather than a state the app invented.
+struct NotetakerSignIn {
+    let detection: ManagementDetection?
+
+    var sentence: String? {
+        guard let detection, detection.present else { return nil }
+
+        return detection.detail
     }
 }
 

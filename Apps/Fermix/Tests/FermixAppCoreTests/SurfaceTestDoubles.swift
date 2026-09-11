@@ -104,6 +104,8 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var appliedSettings: [SettingsWrite] = []
     var storedSecrets: [SecretWrite] = []
     var readSections: [String] = []
+    /// What each `setup.detect` asked about, in order.
+    var detectedTargets: [[ManagementDetectTarget]] = []
     var polledJobs: [String] = []
     /// The job views a poll walks through. Empty means the fixture's completed
     /// job, which is what most cases want.

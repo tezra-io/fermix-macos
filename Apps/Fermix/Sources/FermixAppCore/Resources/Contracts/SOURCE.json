@@ -3,10 +3,10 @@
   "description": "Provenance of the vendored Fermix wire contracts. The canonical files live in the fermix repository under apps/fermix_core/priv/; this tree is a byte-identical copy pinned by CHECKSUMS.txt. scripts/verify_protocol_contract.sh asserts the two agree, and --source <fermix-checkout> byte-compares against upstream.",
   "upstream": {
     "repository": "tezra-io/fermix",
-    "commit": "999ed3a7efbac00d2de946b40367fc9c8a13160b",
-    "branch": "feat/m34-management-v2",
+    "commit": "72f188c07b1c681447787c9bb02f6653185405ca",
+    "branch": "release/0.10.0",
     "working_tree": "clean",
-    "retrieved_at": "2026-09-06"
+    "retrieved_at": "2026-09-11"
   },
   "contracts": [
     {
@@ -20,17 +20,17 @@
         "maximum": 2
       },
       "committed_upstream": true,
-      "provenance_note": "Taken from feat/m34-management-v2 at the commit that publishes protocol 2 (999ed3a7, pushed to origin). The daemon ships first (PROTOCOL.md, Rollout / rollback order): merge that branch into dev and release the engine before the app that speaks this contract is released.",
+      "provenance_note": "Taken from release/0.10.0 at the commit that adds the meetbot detect target to setup.detect and the two further image model options to the Images section (72f188c0, pushed to origin). Protocol 2 is unchanged: both are additive inside existing methods, so no minimum version moves.",
       "files": [
         {
           "path": "management/PROTOCOL.md",
           "source_path": "apps/fermix_core/priv/management/PROTOCOL.md",
-          "sha256": "f409dfb71e4c6701b79181165d8f0993ad505da97db86a15d3d9d660f4447aa3"
+          "sha256": "8f7cacfb7d2a680f5f623ea40f84ac90d3c9a72c6e1b199a1282fc74e9972027"
         },
         {
           "path": "management/protocol.schema.json",
           "source_path": "apps/fermix_core/priv/management/protocol.schema.json",
-          "sha256": "e27e15528b192676913bdbadbe4362976622e023714d194676fbea7f14074c4d"
+          "sha256": "ff37c7fb5285a5c47e3688463654979f1382257c578d2e228486e4d429fb9c23"
         },
         {
           "path": "management/fixtures/compatibility.jsonl",
@@ -45,12 +45,12 @@
         {
           "path": "management/fixtures/requests.jsonl",
           "source_path": "apps/fermix_core/priv/management/fixtures/requests.jsonl",
-          "sha256": "92d754087b71620a0eb218f0795c73ee5a8c3bd52d2da532cdf0d33816cf3370"
+          "sha256": "1d22723461211806835772f747710e81ed39694999e08261863599aa50108cf0"
         },
         {
           "path": "management/fixtures/success.jsonl",
           "source_path": "apps/fermix_core/priv/management/fixtures/success.jsonl",
-          "sha256": "56f5e8d3bca328686a4f95215e4c8ba359b5f4fa17d2ff40a3fec3a9a6871cad"
+          "sha256": "0cdc05bb688c5d9f627c5057497cd5d6c1c09ada2a0e7bc3f3ba0d04040f0947"
         }
       ]
     },

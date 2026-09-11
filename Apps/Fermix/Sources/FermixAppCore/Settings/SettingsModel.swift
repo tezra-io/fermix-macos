@@ -378,6 +378,17 @@ public final class SettingsModel: ObservableObject {
         }
     }
 
+    /// Re-reads what the notetaker's jobs change.
+    ///
+    /// The install puts the notetaker on this Mac and the sign-in signs it in,
+    /// and the one thing on the wire that moves is the daemon's `meetbot`
+    /// detection: whether both halves are there, and the sentence for the
+    /// Google session. So that row is the whole read either job needs
+    /// afterwards, and the Meetings pane names no other target.
+    public func refreshNotetakerState() async {
+        await refreshDetections([.meetbot])
+    }
+
     // MARK: - Shared bookkeeping
 
     /// Records the restart requirement a read or a write reported.

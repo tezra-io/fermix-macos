@@ -60,7 +60,7 @@ enum ManagementV2Calls {
         "setup_state_get": { _ = try await $0.setupState() },
         "setup_detect": {
             _ = try await $0.detect([
-                .existingPrimary, .claudeCode, .codexCLI, .ollama, .harnessVendors
+                .existingPrimary, .claudeCode, .codexCLI, .ollama, .harnessVendors, .meetbot
             ])
         },
         "settings_sections": { _ = try await $0.settingsSections() },

@@ -216,6 +216,8 @@ public enum ManagementDetectTarget: ManagementVocabulary {
     case codexCLI
     case ollama
     case harnessVendors
+    /// The meeting notetaker: both halves installed, and its Google sign-in.
+    case meetbot
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -223,7 +225,8 @@ public enum ManagementDetectTarget: ManagementVocabulary {
         "claude_code": .claudeCode,
         "codex_cli": .codexCLI,
         "ollama": .ollama,
-        "harness_vendors": .harnessVendors
+        "harness_vendors": .harnessVendors,
+        "meetbot": .meetbot
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
     public var unrecognizedValue: String? {

@@ -26,8 +26,13 @@ extension FakeDaemonGateway {
         return setupStateResult ?? published
     }
 
+    /// The targets are recorded because they are the call: the daemon probes
+    /// what it was asked and nothing else, so a surface that asks for more than
+    /// it renders is a probe nobody ordered.
     func detect(_ targets: [ManagementDetectTarget]) async throws -> ManagementDetections {
-        try answer(.setupDetect, "setup_detect")
+        detectedTargets.append(targets)
+
+        return try answer(.setupDetect, "setup_detect")
     }
 
     // MARK: - Settings
