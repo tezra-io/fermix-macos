@@ -26,10 +26,15 @@ permissions:
 jobs:
   app:
     name: Fermix (build + verify)
-    # macos-15's default toolchain is Xcode 16, i.e. SwiftPM 6 and swift-testing.
-    # Package.swift is tools-version 6.0 (required for the macOS 15 floor) and
-    # the suite is swift-testing, so an Xcode 15 runner cannot resolve or run it.
-    runs-on: macos-15
+    # The app is built against the macOS 26 SDK: its toolbar and glass
+    # materials use API that only that SDK declares, with the macOS 15 floor
+    # kept as the deployment target (M34). The macos-15 image tops out at an
+    # older Xcode whose SDK lacks those symbols, which is how the first run on
+    # dev failed to compile. The Xcode is pinned by path rather than taken from
+    # the image's default, which GitHub moves without notice.
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 

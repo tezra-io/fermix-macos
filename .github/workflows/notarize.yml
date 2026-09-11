@@ -53,11 +53,14 @@ permissions:
 jobs:
   notarize:
     name: sign + notarize
-    # macos-15 defaults to Xcode 16, i.e. SwiftPM 6. Apps/Fermix/Package.swift
-    # is tools-version 6.0 (required for its macOS 15 deployment floor), which
-    # an Xcode 15 runner refuses to resolve.
-    runs-on: macos-15
+    # The same toolchain the pull-request build uses (fermix-app.yml): the app
+    # compiles against the macOS 26 SDK with the macOS 15 floor as its
+    # deployment target, and the Xcode is pinned by path so a release is built
+    # by a toolchain someone chose rather than the image's default of the day.
+    runs-on: macos-26
     environment: release-macos
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     outputs:
       dmg_name: ${{ steps.out.outputs.dmg_name }}
       dmg_sha256: ${{ steps.out.outputs.dmg_sha256 }}
