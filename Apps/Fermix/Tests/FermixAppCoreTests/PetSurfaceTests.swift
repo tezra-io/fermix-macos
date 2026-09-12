@@ -105,7 +105,61 @@ struct PetSurfaceTests {
         let harness = try harness()
 
         #expect(!harness.model.accessibilityValue.isEmpty)
-        #expect(harness.model.statusText == harness.model.presentation.accessibilityLabel)
+        #expect(harness.model.statusText == ProductStrings[.voiceStatusOffline])
+    }
+
+    /// A Mac with no microphone is the case this pins.
+    ///
+    /// `VoiceStatus(mode:)` answers `.offline` for `.error`, so a surface that
+    /// rebuilds its words from the mode tells the owner "Not connected" — a
+    /// healthy disconnection — while the engine is refusing for a reason it has
+    /// already put into a sentence. On 2026-09-12 that is exactly what a Mac
+    /// mini, which ships no microphone at all, reported: the pet went to the
+    /// error tint and said nothing that named the cause.
+    @Test("a capture failure reaches the surface in its own words")
+    func captureFailureIsReadable() async throws {
+        let harness = try harness()
+        harness.engine.permissionError = CaptureError.noInputDevice
+
+        harness.model.toggleCall()
+        harness.negotiate()
+        await harness.settle()
+
+        #expect(harness.model.statusText == ProductStrings[.voiceErrorNoInputDevice])
+        #expect(harness.model.accessibilityValue == ProductStrings[.voiceErrorNoInputDevice])
+        #expect(harness.model.statusText != ProductStrings[.voiceStatusOffline])
+    }
+
+    /// The floating window draws the mascot and the controls and has room for
+    /// no sentence, so the tooltip is where a failure becomes readable without
+    /// opening the app. It says the action while there is an action to take.
+    @Test("the floating pet offers the failure as its tooltip")
+    func floatingPetTooltipCarriesTheFailure() async throws {
+        let harness = try harness()
+
+        #expect(harness.model.callHelpText == harness.model.callActionTitle)
+
+        harness.engine.permissionError = CaptureError.noInputDevice
+        harness.model.toggleCall()
+        harness.negotiate()
+        await harness.settle()
+
+        #expect(harness.model.callHelpText == ProductStrings[.voiceErrorNoInputDevice])
+    }
+
+    /// The speaking tail is the one place the visual mode outlives the daemon's
+    /// state, and it must keep its word: the status the daemon last reported is
+    /// not what the pet is doing while audio is still leaving the speaker.
+    @Test("the speaking tail still reads as speaking")
+    func speakingTailKeepsItsWord() throws {
+        let harness = try harness()
+
+        harness.appModel.voiceCallBegan()
+        harness.appModel.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        harness.appModel.apply(.state(.listening), audioIsPlaying: true)
+
+        #expect(harness.model.visualMode == .speaking)
+        #expect(harness.model.statusText == ProductStrings[.voiceStatusSpeaking])
     }
 
     /// M34 §6: the pet surface is restyled off the deleted card and titlebar

@@ -20,7 +20,7 @@ struct PetView: View {
                     .animation(motion.animation(.mascotEntrance), value: model.visualMode)
                     .contentShape(Rectangle())
                     .onTapGesture { model.toggleCall() }
-                    .help(model.callActionTitle)
+                    .help(model.callHelpText)
             }
             .frame(width: PetMetrics.stageSize.width, height: PetMetrics.stageSize.height)
 

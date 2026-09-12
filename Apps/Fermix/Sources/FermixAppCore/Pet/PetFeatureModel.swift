@@ -80,15 +80,25 @@ public final class PetFeatureModel: ObservableObject {
 
     public var interruptActionTitle: String { ProductStrings[.petInterrupt] }
 
+    /// The mascot's tooltip on the floating window.
+    ///
+    /// That window draws the mascot and the controls and has room for no
+    /// sentence, so a failure would otherwise be readable only by opening the
+    /// app. The action is the right thing to offer while there is an action to
+    /// take, and the failure is the right thing to offer once there is not.
+    public var callHelpText: String {
+        model.voice.status.carriesItsOwnSentence ? statusText : callActionTitle
+    }
+
     public var showsInterrupt: Bool {
         mode == .thinking || visualMode == .speaking
     }
 
     public var accessibilityLabel: String { ProductStrings[.petAccessibilityLabel] }
-    public var accessibilityValue: String { presentation.accessibilityLabel }
+    public var accessibilityValue: String { statusText }
 
     /// The state in words, so the sidebar surface reads it without the mascot.
-    public var statusText: String { presentation.accessibilityLabel }
+    public var statusText: String { model.voice.statusText }
 
     /// Whether the optional floating companion window is on screen. It stays
     /// hidden until it is opened: a launch must not put a companion in front of

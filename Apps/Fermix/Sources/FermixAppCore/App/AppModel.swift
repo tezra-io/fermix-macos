@@ -31,6 +31,17 @@ public struct VoiceState: Equatable, Sendable {
         VoicePresentation(mode: mode, callActive: callActive, audioActive: audioActive)
     }
 
+    /// The sentence a surface shows for this state.
+    ///
+    /// The presentation's label is the default, because it follows the visual
+    /// mode and so keeps saying "Speaking" through the audio tail the daemon
+    /// has already moved past. A failure is the exception: its own words are
+    /// the only ones that name what went wrong, and rebuilding them from
+    /// `.error` yields "Not connected".
+    public var statusText: String {
+        status.carriesItsOwnSentence ? status.text : presentation.accessibilityLabel
+    }
+
     /// What the microphone is doing while a call is live.
     var activeInputMode: VoiceMode { muted ? .muted : .listening }
 }
