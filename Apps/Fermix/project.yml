@@ -1,0 +1,155 @@
+# XcodeGen spec for the Fermix application.
+#
+# It mirrors Package.swift exactly: one core library, the updater adapter, two
+# thin executables, one test bundle. SwiftPM is the local build (this machine
+# has Command Line Tools and no Xcode.app); this spec is what CI and Xcode
+# consume, and it is checked in while the generated Fermix.xcodeproj is not.
+#
+# Every value that Product.json owns is written literally and gated by
+# scripts/check_product_config.sh — XcodeGen substitutes an undefined ${VAR}
+# with an empty string rather than failing, so environment substitution would
+# turn a missing value into a silently wrong project.
+name: Fermix
+
+# The updater, pinned to the same version Product.json declares and
+# Package.swift restates; scripts/check_product_config.sh gates all three
+# against each other. Sparkle publishes a binary xcframework, so this is the
+# framework the app embeds and signs, not a source dependency.
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.9.6
+
+options:
+  bundleIdPrefix: io.tezra
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "15.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_HARDENED_RUNTIME: YES
+    DEAD_CODE_STRIPPING: YES
+
+targets:
+  # Everything the product does: views, voice, and the typed product
+  # configuration. Both executables are thin mains over this framework.
+  FermixAppCore:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/FermixAppCore
+        excludes:
+          - Resources/Contracts
+          - Resources/VendorMarks
+          # The mark master is a generator input, not a runtime resource.
+          # Its three state rasters ship beside it and
+          # scripts/check_brand_images.sh keeps them in step with it.
+          - Resources/MenuBarTemplate/FermixMarkMaster.png
+      # A folder reference, so the vendored contracts keep their
+      # `<protocol>/…` layout inside the bundle. Added as ordinary resources
+      # they would flatten, and both contracts publish a PROTOCOL.md and a
+      # protocol.schema.json.
+      - path: Sources/FermixAppCore/Resources/Contracts
+        type: folder
+      # Same reason: the marks split into providers/ and channels/, and
+      # PROVENANCE.json must stay beside the files it describes.
+      - path: Sources/FermixAppCore/Resources/VendorMarks
+        type: folder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.tezra.FermixPet.core
+        PRODUCT_NAME: FermixAppCore
+        GENERATE_INFOPLIST_FILE: YES
+
+  # The one place that imports Sparkle. Both executables link FermixAppCore, so
+  # an updater dependency there would put the framework into FermixAgent, which
+  # M34 section 6 forbids. A static library rather than a framework: it is
+  # linked into the GUI executable, so the bundle gains no second piece of
+  # nested code to sign, exactly as the SwiftPM build produces.
+  FermixSparkle:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Sources/FermixSparkle
+    dependencies:
+      - target: FermixAppCore
+        embed: false
+      - package: Sparkle
+    settings:
+      base:
+        PRODUCT_NAME: FermixSparkle
+
+  # The GUI, the menu bar, the windows, and the only microphone principal. It
+  # is also the only target that links the updater: the package appears here as
+  # well as on FermixSparkle because a static library carries no link of its
+  # own, and it is the application that embeds and signs Sparkle.framework.
+  Fermix:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Fermix
+        excludes:
+          - Info.plist
+          - Fermix.entitlements
+    dependencies:
+      - target: FermixAppCore
+        embed: true
+      - target: FermixSparkle
+        embed: false
+      - package: Sparkle
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.tezra.FermixPet
+        PRODUCT_NAME: Fermix
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Sources/Fermix/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/Fermix/Fermix.entitlements
+        LD_RUNPATH_SEARCH_PATHS:
+          - "@executable_path/../Frameworks"
+
+  # The daemon launcher that SMAppService.agent registers. No entitlements: it
+  # is never a microphone principal.
+  FermixAgent:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/FermixAgent
+    dependencies:
+      - target: FermixAppCore
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.tezra.FermixPet.agent
+        PRODUCT_NAME: FermixAgent
+        LD_RUNPATH_SEARCH_PATHS:
+          - "@executable_path/../Frameworks"
+
+  FermixAppCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/FermixAppCoreTests
+    dependencies:
+      - target: FermixAppCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.tezra.FermixPet.core.tests
+
+schemes:
+  Fermix:
+    build:
+      targets:
+        Fermix: all
+        FermixAgent: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - FermixAppCoreTests

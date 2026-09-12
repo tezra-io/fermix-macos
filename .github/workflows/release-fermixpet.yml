@@ -15,13 +15,32 @@ permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: fermix-macos-release
+  cancel-in-progress: false
+
 jobs:
   version:
     name: resolve version
-    runs-on: ubuntu-latest
+    # macOS like every other job in this workflow: Product.json is read through
+    # scripts/product_config.sh, whose reader is plutil, so a Linux runner
+    # cannot read the configuration this job compares the tag against. It used
+    # to, and every lookup failed as a version mismatch that named the tag.
+    runs-on: macos-15
     outputs:
       version: ${{ steps.v.outputs.version }}
+      build_number: ${{ steps.v.outputs.build_number }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Every rule about Product.json's own values, the positive-integer build
+      # number among them, belongs to the product-configuration gate. Restating
+      # one here gave the release path a second copy that could disagree with
+      # the gate that PRs run. The tag comparison below is this workflow's own
+      # question, because only a release knows what tag it was cut from.
+      - name: Product configuration (single source of truth)
+        run: scripts/check_product_config.sh
+
       - id: v
         env:
           REF_NAME: ${{ github.ref_name }}
@@ -33,7 +52,13 @@ jobs:
             echo "::error title=Bad tag::'$REF_NAME' is not fermixpet-vX.Y.Z"
             exit 1
           fi
+          source scripts/product_config.sh
+          [ "$version" = "$(product_config marketing_version)" ] || {
+            echo "::error title=Version mismatch::The tag must match Product.json"
+            exit 1
+          }
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build_number=$(product_config build_number)" >> "$GITHUB_OUTPUT"
 
   notarize:
     name: sign + notarize
@@ -41,13 +66,14 @@ jobs:
     uses: ./.github/workflows/notarize.yml
     with:
       version: ${{ needs.version.outputs.version }}
-      build_number: ${{ github.run_number }}
+      build_number: ${{ needs.version.outputs.build_number }}
     secrets: inherit
 
   publish:
     name: publish release + cask
     needs: [version, notarize]
-    runs-on: macos-14
+    # Matches the notarize job's runner: see notarize.yml for why macos-15.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -66,6 +92,45 @@ jobs:
           actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
           echo "dmg=$dmg sha256=$actual"
           [ "$actual" = "$EXPECTED" ] || { echo "::error title=sha mismatch::$actual != $EXPECTED"; exit 1; }
+
+      - name: Download appcast item artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: fermixpet-appcast-item
+          path: appcast
+
+      # The feed is cumulative by contract: the app refuses an update unless the
+      # feed also describes the build that is installed, so every earlier item
+      # is carried forward from the last release's own asset. Running before the
+      # release is created is what makes "the newest release that exists" the
+      # previous one, and what stops a reused or decreasing build number from
+      # publishing anything at all.
+      - name: Merge the cumulative appcast
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          previous="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 100 \
+            --json tagName --jq '[.[].tagName | select(startswith("fermixpet-v"))] | first // ""')"
+          merge=(--item appcast/appcast-item.xml --out appcast/appcast.xml)
+          if [ -z "$previous" ]; then
+            echo "::notice title=The feed starts here::no earlier app release exists, so this release is the whole feed"
+          else
+            # Listed, never attempted blind: a release cut before the feed
+            # existed carries no appcast.xml, and that is a declared state
+            # rather than a download whose failure gets read as "no updates".
+            assets="$(gh release view "$previous" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+            if printf '%s\n' "$assets" | grep -qx appcast.xml; then
+              mkdir -p previous
+              gh release download "$previous" --repo "$GITHUB_REPOSITORY" \
+                --pattern appcast.xml --dir previous
+              merge+=(--previous previous/appcast.xml)
+            else
+              echo "::notice title=The feed starts here::$previous publishes no appcast.xml, so this release is the whole feed"
+            fi
+          fi
+          scripts/appcast.py merge "${merge[@]}"
+          cat appcast/appcast.xml
 
       - name: Render the Homebrew cask from the DMG bytes
         env:
@@ -105,6 +170,21 @@ jobs:
             --latest=false \
             --generate-notes \
             "$dmg" "$dmg.sha256" "$dmg.sig" "$dmg.pem" Casks/fermixpet.rb
+
+      # Both documents become assets of this release: the feed is what the site
+      # serves, and the item is what the next release merges onto, so the next
+      # release reads this one's own bytes instead of a copy kept somewhere
+      # else. Publishing the feed is still a manual step, named here because a
+      # feed that stays on the release reaches nobody.
+      - name: Upload the appcast to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            appcast/appcast.xml appcast/appcast-item.xml
+          echo "::notice title=Publish the feed::copy this release's appcast.xml to fermix-site public/appcast.xml and deploy the site, otherwise installed clients see no update"
 
       # The real cask integrity gate: install from the cask exactly as a user
       # would, which exercises the release URL, the sha256 stanza, the DMG mount,

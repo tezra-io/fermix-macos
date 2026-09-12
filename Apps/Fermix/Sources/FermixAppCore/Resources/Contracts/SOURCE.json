@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "description": "Provenance of the vendored Fermix wire contracts. The canonical files live in the fermix repository under apps/fermix_core/priv/; this tree is a byte-identical copy pinned by CHECKSUMS.txt. scripts/verify_protocol_contract.sh asserts the two agree, and --source <fermix-checkout> byte-compares against upstream.",
+  "upstream": {
+    "repository": "tezra-io/fermix",
+    "commit": "c3d52151e5a5623c25aa52c0db40ed6ed74ee8d8",
+    "branch": "main",
+    "working_tree": "clean",
+    "retrieved_at": "2026-09-11"
+  },
+  "contracts": [
+    {
+      "name": "management",
+      "source_directory": "apps/fermix_core/priv/management",
+      "vendored_directory": "management",
+      "source_of_truth_module": "FermixCore.Management.Protocol",
+      "protocol_version": 2,
+      "supported_version_range": {
+        "minimum": 1,
+        "maximum": 2
+      },
+      "committed_upstream": true,
+      "provenance_note": "Taken from main at c3d52151, the commit the engine release v0.10.0 was built from, whose app-engine trees the bundle ships (engine/PIN.json names the same commit). Protocol 2; the meetbot detect target with its signed_in fact and the two further image model options are additive inside existing methods, so no minimum moves. The bytes are identical to the release branch commits vendored before it.",
+      "files": [
+        {
+          "path": "management/PROTOCOL.md",
+          "source_path": "apps/fermix_core/priv/management/PROTOCOL.md",
+          "sha256": "0b272976895f6f2d2429db1c89965b1c7b479a95a8e9eca6ad51790344000e83"
+        },
+        {
+          "path": "management/protocol.schema.json",
+          "source_path": "apps/fermix_core/priv/management/protocol.schema.json",
+          "sha256": "8283e48661c1673284948b39d82d6436da1fb4ccba3ff2b6996493994a4cf59f"
+        },
+        {
+          "path": "management/fixtures/compatibility.jsonl",
+          "source_path": "apps/fermix_core/priv/management/fixtures/compatibility.jsonl",
+          "sha256": "326b3e08e86a2d0e102a47a467e870e782783681ab1a143fb8deb5b0350416d7"
+        },
+        {
+          "path": "management/fixtures/errors.jsonl",
+          "source_path": "apps/fermix_core/priv/management/fixtures/errors.jsonl",
+          "sha256": "0ce258e845ee09cf40bd051795c21648dd6fed35cb19fc6397ebd98f204fed3b"
+        },
+        {
+          "path": "management/fixtures/requests.jsonl",
+          "source_path": "apps/fermix_core/priv/management/fixtures/requests.jsonl",
+          "sha256": "1d22723461211806835772f747710e81ed39694999e08261863599aa50108cf0"
+        },
+        {
+          "path": "management/fixtures/success.jsonl",
+          "source_path": "apps/fermix_core/priv/management/fixtures/success.jsonl",
+          "sha256": "92fc84ee6609a726696670f5baafa2d6273826cac7a8bca6fd03c386c88a37d7"
+        }
+      ]
+    },
+    {
+      "name": "realtime",
+      "source_directory": "apps/fermix_core/priv/realtime",
+      "vendored_directory": "realtime",
+      "source_of_truth_module": "FermixCore.Realtime.Protocol",
+      "protocol_version": 1,
+      "supported_version_range": {
+        "minimum": 1,
+        "maximum": 1
+      },
+      "committed_upstream": true,
+      "provenance_note": "Supersedes the previous vendored copy under docs/realtime-contract/, which pinned an older PROTOCOL.md (3f3f12fe) than upstream published (f9805b70) and verified only against its own checksums, so the drift was invisible.",
+      "files": [
+        {
+          "path": "realtime/PROTOCOL.md",
+          "source_path": "apps/fermix_core/priv/realtime/PROTOCOL.md",
+          "sha256": "f9805b70f39a618e6d547333881001aa484fb6ddbc4a923cc688dd8e52ddb166"
+        },
+        {
+          "path": "realtime/protocol.schema.json",
+          "source_path": "apps/fermix_core/priv/realtime/protocol.schema.json",
+          "sha256": "fd2aa7fc5d94cf4bc7db43fa62dce3889b9a324126d44e3f3a875f8dc11b17a7"
+        },
+        {
+          "path": "realtime/fixtures/client_events.jsonl",
+          "source_path": "apps/fermix_core/priv/realtime/fixtures/client_events.jsonl",
+          "sha256": "806f9306f7dc27bdf269058a812c171f49cebf5d56af2837b99f525d68878178"
+        },
+        {
+          "path": "realtime/fixtures/server_events.jsonl",
+          "source_path": "apps/fermix_core/priv/realtime/fixtures/server_events.jsonl",
+          "sha256": "dab4252bbff3ea9af429a320f80bd35c1ed951e1a4f40c7a9e2e58d89c42638d"
+        }
+      ]
+    }
+  ]
+}

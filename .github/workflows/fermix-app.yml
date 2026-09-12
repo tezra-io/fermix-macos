@@ -1,0 +1,185 @@
+name: fermix-app
+
+# PR + main gates for the unified Fermix application.
+#
+# It runs on every change, needs no secrets, and produces no release artifact:
+# build, unit tests, the checked-in Xcode project spec, the product-configuration
+# and asset gates, and a staging dry run that performs the exact release build,
+# stage, and inside-out signature ad-hoc. A universal2 build failure, a bundle
+# layout regression, or a broken signing structure therefore fails here, in
+# ungated CI, instead of only when a signed release tag is pushed. Only the Apple
+# round-trip — real Developer ID signing, notarization, stapling, and the DMG —
+# is left to the gated release workflow.
+#
+# This file is deliberately separate from ci.yml, which keeps the legacy
+# FermixPet release path's own gate alive until general availability.
+#
+# Actions are pinned to immutable commit SHAs per M34 section 7.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: Fermix (build + verify)
+    # The app is built against the macOS 26 SDK: its toolbar and glass
+    # materials use API that only that SDK declares, with the macOS 15 floor
+    # kept as the deployment target (M34). The macos-15 image tops out at an
+    # older Xcode whose SDK lacks those symbols, which is how the first run on
+    # dev failed to compile. The Xcode is pinned by path rather than taken from
+    # the image's default, which GitHub moves without notice.
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install ripgrep (runtime_policy_test.sh dependency)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: brew install ripgrep
+
+      # The staging dry run verifies the pinned engine's detached signature, and
+      # the runner has no cosign of its own. Installed unconditionally: an
+      # install gated on the pin state would be a second code path keyed on a
+      # fact the dry run reads for itself, and the download is seconds.
+      - name: Install cosign (engine signature verification)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+
+      # Cheapest possible gate, and it runs first: every shell script in the
+      # repository must at least parse. A release script with a syntax error is
+      # otherwise discovered by the release that needed it.
+      - name: Shell syntax
+        run: |
+          set -euo pipefail
+          find scripts Apps/Fermix/script -name '*.sh' -print0 | xargs -0 -n1 bash -n
+
+      # Nothing may restate a value Product.json owns: the linked Info.plist is
+      # regenerated and diffed, the manifest and XcodeGen spec are checked
+      # against the same configuration, and so are the three files in the legacy
+      # release path that name the released artifact literally.
+      - name: Product configuration (single source of truth)
+        run: scripts/check_product_config.sh
+
+      - name: Vendor marks + brand images
+        run: |
+          scripts/check_vendor_marks.sh
+          scripts/check_brand_images.sh
+
+      # The staging and signing gates, exercised against a reference bundle
+      # rather than a real build, so their refusals are proven to fire without
+      # waiting on universal2. Ad-hoc identity only; no keychain, no secrets.
+      - name: Staging + signing gate harnesses
+        run: |
+          scripts/verify_staged_app_test.sh
+          scripts/sign_app_test.sh
+          scripts/verify_engine_test.sh
+          bash scripts/dev_e2e_test.sh
+
+      - name: Static runtime-policy + build-harness tests
+        working-directory: Apps/Fermix
+        run: |
+          script/runtime_policy_test.sh
+          script/build_and_run_test.sh
+
+      # Unit tests, incl. the RealtimeSocketClient wedged-writer regression that
+      # pins the deadlock fix. The wrapper adds the swift-testing search path
+      # and rpaths a Command Line Tools toolchain needs; on this runner's full
+      # Xcode it is a plain `swift test`.
+      - name: Unit tests (swift-testing)
+        working-directory: Apps/Fermix
+        run: script/swift_test.sh
+
+      - name: Entitlements lint
+        working-directory: Apps/Fermix
+        run: plutil -lint Sources/Fermix/Fermix.entitlements
+
+      # The checked-in Xcode project spec must still generate. This machine's
+      # toolchain has no Xcode.app, so the spec plus `xcodegen generate` is what
+      # satisfies M34's Xcode-project requirement locally; the runner has the
+      # full toolchain and generates the same project.
+      - name: XcodeGen spec
+        working-directory: Apps/Fermix
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      # The staging dry run: the real release build, stage, and inside-out
+      # signature, ad-hoc and into a temporary directory, then the composed
+      # verification that prints the signing, architecture, entitlement, and
+      # artifact inventory into the job log.
+      #
+      # Release audience, which is what `package_release.sh` uses, so the
+      # promises a bundle that leaves this machine makes are asserted on every
+      # pull request rather than only at release time.
+      #
+      # The engine is staged exactly as a release stages it whenever
+      # engine/PIN.json names a release: the pinned assets are downloaded and
+      # verified here, so a pin that drifted from the release it claims — a
+      # digest that no longer matches, a tag whose tree was built from another
+      # commit — fails on the pull request that wrote it instead of on the
+      # release that needed it. While the pin is unpinned the slot stages empty,
+      # which is the declared pre-Stage-0 state, and the engine promises have
+      # nothing to check; `verify_staged_app_test.sh` above proves those against
+      # reference bundles with a populated slot and a fixture pin.
+      #
+      # This step is RED whenever the management contract is vendored from an
+      # engine working tree rather than from a commit: SOURCE.json records
+      # which, and the release audience refuses an unpublished pin. That is the
+      # truth about the tree and not a defect in the gate. Re-take the pin from
+      # the engine commit that publishes the protocol (re-vendor, then
+      # `verify_protocol_contract.sh --source <fermix-checkout>`) before a
+      # release is cut: the daemon ships first.
+      - name: Staging dry run (universal2 / layout / signing)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          source scripts/product_config.sh
+          source scripts/engine_pin.sh
+          stage="$RUNNER_TEMP/stage"
+          bundle="$(product_config app_bundle_name)"
+          mkdir -p "$stage"
+          # An assignment, not a test: a half-filled pin makes engine_pin_state
+          # refuse, and errexit has to see that status. Read inside `[ ]` the
+          # refusal would read as "not pinned" and stage an engineless bundle.
+          state="$(engine_pin_state engine/PIN.json)"
+          engine=()
+          if [ "$state" = "pinned" ]; then
+            scripts/fetch_engine.sh engine/PIN.json "$RUNNER_TEMP/engine-download"
+            scripts/verify_engine.sh engine/PIN.json "$RUNNER_TEMP/engine-download" "$RUNNER_TEMP/engine"
+            for target in "${ENGINE_PIN_TARGETS[@]}"; do
+              engine+=(--engine "$RUNNER_TEMP/engine/$target")
+            done
+          fi
+          scripts/stage_app.sh "$(product_config marketing_version)" "$(product_config build_number)" "$stage/$bundle" universal ${engine[@]+"${engine[@]}"}
+          scripts/verify_staged_app.sh "$stage/$bundle" universal unsigned release
+          scripts/sign_app.sh "$stage/$bundle" "-"
+          scripts/verify_staged_app.sh "$stage/$bundle" universal signed development
+          # An ad-hoc signature has no team, so the release audience must refuse
+          # this bundle. Asserted on a real staged build because the refusal is
+          # what stops an unlaunchable release: under the hardened runtime a
+          # teamless signature cannot load the embedded updater framework. An
+          # explicit branch rather than `!`: errexit ignores a negated command.
+          if scripts/verify_staged_app.sh "$stage/$bundle" universal signed release; then
+            echo "::error title=Release gate::the release audience accepted an ad-hoc signed bundle"
+            exit 1
+          fi
+
+  # The vendored management + realtime contracts must match both pin records.
+  # The fourth check the script offers — a byte-compare against a real fermix
+  # checkout, the only one that can see upstream moving ahead of the vendored
+  # copy — needs cross-repo credentials this workflow does not have, so it runs
+  # at re-vendor time (`--source <fermix-checkout>`), not here.
+  contract:
+    name: wire contracts (checksum + provenance pin)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: scripts/verify_protocol_contract.sh

@@ -1,0 +1,686 @@
+/* Fermix product copy.
+ *
+ * The whole copy deck, externalized. Nothing user-visible is written in a
+ * Swift literal; `ProductStringKey` is the only way in, and
+ * `ProductStringsTests` gates both directions so a key without copy and copy
+ * without a key both fail the build.
+ *
+ * Rules (enforced by ProductCopyRules): sentence case, no em dashes, no
+ * exclamation marks, no "please wait", no placeholder copy, no FermixPet
+ * naming. The daemon is "the Fermix daemon" once per screen and "the daemon"
+ * afterwards. Errors read: what happened, what is untouched, one next action.
+ */
+
+/* MARK: Welcome */
+"welcome.title" = "Welcome to Fermix";
+"welcome.value" = "An assistant that runs on this Mac and answers wherever you message it.";
+"welcome.cta" = "Set up Fermix";
+"welcome.useExistingHome" = "Use an existing Fermix home…";
+"welcome.homeRefusedFormat" = "Fermix cannot use %@ as its home folder, so nothing was changed. Choose a folder you own and can write to.";
+
+/* MARK: Starting */
+"starting.title" = "Starting Fermix";
+"starting.caption" = "macOS may mention a new background item. That is Fermix.";
+"starting.row.service" = "Registering the background service";
+"starting.row.daemon" = "Starting the daemon";
+"starting.row.answering" = "Checking it answers";
+"starting.row.reading" = "Reading what is already set up";
+"ladder.state.done" = "done";
+"ladder.state.active" = "in progress";
+"ladder.state.pending" = "waiting";
+
+/* MARK: Applying */
+"applying.title" = "Applying your setup";
+"applying.row.saving" = "Saving your setup";
+"applying.row.restarting" = "Restarting Fermix so your provider takes effect";
+"applying.restartRefused" = "Fermix couldn’t be restarted, so your answers are saved but aren’t in use yet.";
+"applying.takeRestart" = "Restart Fermix…";
+
+/* MARK: Connect AI */
+"connectAI.title" = "Connect your AI";
+"connectAI.subcopy" = "Use a sign-in from this Mac or add an API key. A new ChatGPT sign-in opens in your browser, and Fermix never sees your password.";
+"connectAI.keyRow.title" = "API key";
+"connectAI.keyRow.hint" = "Any provider that takes a key.";
+"connectAI.connectedTitle" = "Your AI is already connected";
+"connectAI.connectedBody" = "Fermix found a working setup in your home folder and will keep using it.";
+"connectAI.changeProvider" = "Change provider";
+
+/* MARK: About you */
+"aboutYou.title" = "About you";
+"aboutYou.subcopy" = "Fermix uses this to address you and to keep time straight. Change it any time in Settings.";
+"aboutYou.name" = "Your name";
+"aboutYou.timezone" = "Time zone";
+"aboutYou.timezoneChange" = "Change…";
+"aboutYou.timezoneSearchPrompt" = "Search cities and zones";
+"aboutYou.style" = "Style";
+"aboutYou.style.concise" = "Concise";
+"aboutYou.style.balanced" = "Balanced";
+"aboutYou.style.detailed" = "Detailed";
+"aboutYou.style.concise.sentence" = "concise and to the point";
+"aboutYou.style.balanced.sentence" = "balanced, with detail where it helps";
+"aboutYou.style.detailed.sentence" = "detailed and thorough";
+"aboutYou.assistantName" = "Call the assistant";
+
+/* MARK: The assistant's bottom bar */
+"assistant.back" = "Back";
+"assistant.cancel" = "Cancel";
+"assistant.continue" = "Continue";
+
+/* MARK: Onboarding gates */
+"onboarding.blocked.daemon" = "The daemon isn’t answering yet, so Fermix can’t confirm this install is ready.";
+"onboarding.blocked.provider" = "Connect one AI provider first. Everything else can wait.";
+"onboarding.blocked.personalization" = "Tell Fermix your name, time zone and style first.";
+"onboarding.blocked.settings" = "Something in Settings still needs an answer before setup can finish.";
+"onboarding.blocked.restart" = "Fermix has to restart before your setup takes effect.";
+"recovery.title" = "Fermix needs a hand";
+"recovery.body" = "Nothing in your configuration has been changed. Doctor can say what the daemon found, and you can try starting it again.";
+"recovery.tryAgain" = "Try again";
+"recovery.previousFormat" = "Fermix kept the settings from before at %@.";
+
+/* MARK: Ready */
+"ready.title" = "Fermix is live";
+"ready.status" = "Running, answers even when this window is closed";
+"ready.nextChannels" = "Connect Telegram, Slack or Discord";
+"ready.nextVoice" = "Turn on the voice companion";
+"ready.attention" = "Some things still need attention";
+"ready.blockedTitle" = "Almost ready";
+"ready.openPaneFormat" = "Open %@ settings";
+"ready.cli.title" = "Install the fermix command for Terminal";
+"ready.cli.hint" = "Copies a Terminal command you run once";
+"ready.cli.hint.linked" = "Already linked to this copy of Fermix";
+"ready.cli.hint.homebrew" = "Homebrew already owns this link, so there is nothing to run";
+"ready.cli.hint.foreign" = "Another file already holds that path, so Fermix won’t replace it";
+"ready.cli.hint.noLauncher" = "This copy of Fermix ships no command-line launcher to link to";
+"ready.cli.copy" = "Copy command";
+"ready.cli.verify" = "Check again";
+"ready.open" = "Open Fermix";
+
+/* MARK: Boot failed */
+"bootFailed.title" = "Fermix could not start";
+"bootFailed.logHeader" = "LAST LOG LINES";
+"bootFailed.runDoctor" = "Run Doctor";
+"bootFailed.viewLog" = "View full log";
+"bootFailed.tryAgain" = "Try again";
+"bootFailed.cause.timedOut" = "The daemon didn’t respond within 90 seconds. Your configuration hasn’t been touched, and Doctor can usually tell you exactly what happened.";
+"bootFailed.cause.approvalPending" = "macOS is still waiting for you to allow Fermix in Login Items. Your configuration hasn’t been touched, so allow it in System Settings, then try again.";
+"bootFailed.cause.backgroundItemDisabled" = "The Fermix background item is turned off in Login Items. Your configuration hasn’t been touched, so turn it back on in System Settings, then try again.";
+"bootFailed.cause.incompatibleVersion" = "The running daemon speaks a protocol this version of the app cannot use. Your configuration hasn’t been touched, so update Fermix, then try again.";
+"bootFailed.cause.crashLoop" = "The daemon exited three times in a row while starting. Your configuration hasn’t been touched, and the last log lines below name the failure.";
+"bootFailed.cause.bindFailure" = "Another program already holds the port the daemon needs. Your configuration hasn’t been touched, so quit whatever is using 127.0.0.1:4030, then try again.";
+"bootFailed.cause.webUnavailable" = "The daemon started, but its local web surface never answered. Your configuration hasn’t been touched, and Doctor reports which listener is missing.";
+"bootFailed.cause.foreignDaemonRunning" = "A Fermix daemon installed another way is using this home, so nothing was changed. Quit it, then try again.";
+"bootFailed.cause.preManagementDaemonRunning" = "A Fermix daemon from an older version is using this home, so nothing was changed. In Terminal run brew upgrade fermix, then fermix restart, then fermix migrate-to-app.";
+"bootFailed.cause.daemonRefusedIdentity" = "A Fermix daemon is using this home and answered with an error instead of saying which install it belongs to, so nothing was changed. Its answer is below. Quit that daemon, then try again.";
+"bootFailed.cause.duplicateCopyPresent" = "More than one copy of Fermix is installed on this Mac, so nothing was changed. Keep the copy in the Applications folder, remove the others, then try again.";
+"bootFailed.cause.legacySystemInstallPresent" = "A Fermix service is installed for all users on this Mac, so nothing was changed. In Terminal run sudo fermix service uninstall --system, then try again.";
+"bootFailed.cause.migrationHandoffInvalid" = "The home folder recorded by fermix migrate-to-app cannot be used, so nothing was changed. Go back and choose the Fermix home folder yourself, or repair the file named below.";
+"handoffDefect.unreadable" = "The file is there but could not be read.";
+"handoffDefect.malformed" = "The file is not readable as JSON.";
+"handoffDefect.unsupportedSchemaVersion" = "The file was written by a newer version of Fermix.";
+"handoffDefect.home.empty" = "It names no folder.";
+"handoffDefect.home.notAbsolute" = "The folder it names is not a full path.";
+"handoffDefect.home.relativeTraversal" = "The folder it names steps back up through the path.";
+"handoffDefect.home.notADirectory" = "The folder it names is a file.";
+"handoffDefect.home.notOwnedByCurrentUser" = "The folder it names belongs to another account on this Mac.";
+"handoffDefect.home.notWritable" = "The folder it names cannot be written to by this account.";
+"handoffDefect.home.filesystemRoot" = "A Fermix home cannot be the top of the disk.";
+"handoffDefect.home.accountHome" = "A Fermix home cannot be your home folder itself.";
+"handoffDefect.home.systemDirectory" = "A Fermix home cannot be inside a system folder.";
+"handoffDefect.home.applicationsDirectory" = "A Fermix home cannot be inside the Applications folder.";
+"handoffDefect.home.temporaryDirectory" = "A Fermix home cannot be in a temporary folder, which macOS clears out.";
+"handoffDefect.home.cloudSyncedDirectory" = "A Fermix home cannot be in a folder that syncs to the cloud.";
+"handoffDefect.home.bootstrapDirectory" = "A Fermix home cannot be inside the folder that records where it is.";
+"bootFailed.cause.invalidPackage" = "The bundled engine failed its signature and manifest check. Your configuration hasn’t been touched, so reinstall Fermix from the original download.";
+"bootFailed.cause.bootstrapRecordUnusable" = "Fermix could not read or write launcher.json, the file that records where your Fermix home is, so nothing was changed. Check that the Fermix folder in your Library is readable, then try again.";
+"bootFailed.cause.registrationFailed" = "macOS refused to register the Fermix background item, so nothing was changed. Open Login Items in System Settings, allow Fermix there, then try again.";
+"bootFailed.cause.daemonUnresponsive" = "Something is listening on the Fermix socket in this home and did not answer, so nothing was changed. Wait a moment for it to finish starting, then try again.";
+
+/* MARK: Home */
+"home.status.label" = "Status";
+"home.status.running" = "Running";
+"home.status.setupRequired" = "Setup required";
+"home.runInBackground" = "Run in the background";
+"home.openAtLogin" = "Open at login";
+"home.showInMenuBar" = "Show Fermix in the menu bar";
+"home.runtimeEmpty" = "Waiting for the daemon to report";
+"coexistence.unavailable" = "Fermix cannot find that service on this Mac any more.";
+"home.attentionEmpty" = "Nothing needs your attention";
+"home.attention.newerEngine.title" = "This Fermix engine is one release behind";
+"home.attention.unavailable.title" = "The daemon could not report what needs attention";
+"home.attention.unread" = "Fermix has not read the daemon yet";
+"home.runtime.engine" = "Engine";
+"home.runtime.protocol" = "Management protocol";
+"home.runtime.uptime" = "Uptime";
+"home.runtime.provider" = "Provider";
+"home.runtime.channels" = "Channels";
+"home.runtime.skills" = "Skills";
+"home.runtime.tools" = "Tools";
+"home.runtime.none" = "none";
+"home.updateCurrent" = "Up to date";
+"home.continueSetup" = "Continue setup";
+"home.updateUnknown" = "Fermix has not checked for updates yet";
+"home.updateUnconfigured" = "This copy of Fermix cannot check for updates";
+"home.updateChecking" = "Checking for updates";
+"home.updateCheckFailed" = "Fermix could not check for updates";
+"home.updateAvailableFormat" = "Version %@ is available";
+"home.updateCriticalFormat" = "Version %@ is available and fixes something important";
+"home.updateStagedFormat" = "Version %@ is ready and installs when Fermix quits";
+"home.updateCheckedFormat" = "last checked %@";
+"home.uptimeFormat" = "for %@";
+
+/* MARK: Attention rows */
+"attention.personalization.title" = "Tell Fermix about you";
+"attention.personalization.body" = "Fermix keeps your name, time zone and style so it can address you and keep time straight.";
+"attention.provider.unknown.title" = "The configured provider is not one Fermix knows";
+"attention.provider.unknown.body" = "Choose a provider Fermix can reach, or the assistant has nothing to answer with.";
+"attention.provider.primary.title" = "More than one provider is marked primary";
+"attention.provider.primary.body" = "Exactly one provider answers each conversation, so pick which of them it is.";
+"attention.provider.authMode.title" = "A provider is set to sign in a way it does not offer";
+"attention.provider.authMode.body" = "Pick an authentication mode that provider supports, or it will refuse every call.";
+"attention.provider.credentials.titleFormat" = "Connect %@";
+"attention.provider.credentials.body" = "Fermix has no working credential for this provider yet.";
+"attention.channel.titleFormat" = "%@ is on but not finished";
+"attention.channel.body" = "The channel is enabled and still missing something it needs, so it will not answer.";
+"attention.voice.title" = "The voice companion needs an OpenAI key";
+"attention.voice.body" = "Voice uses the OpenAI Realtime API, which a Codex or Claude sign-in does not authorize.";
+"attention.restart.title" = "Restart to apply your changes";
+"attention.restart.body" = "A saved change is waiting for the daemon to restart.";
+"attention.externalChange.title" = "Settings changed outside Fermix";
+"attention.configUnreadable.title" = "The settings file cannot be read";
+"attention.legacyService.title" = "Another Fermix service is registered on this Mac";
+"attention.legacyService.body" = "Two services sharing one home will fight over it.";
+"attention.action.showInstructions" = "Show me how to remove it";
+"coexistence.legacyService.title" = "Remove the other Fermix service";
+"coexistence.legacyService.body" = "Fermix will not touch a service it did not install. Run these in Terminal, then reopen Fermix.";
+"coexistence.copyCommand" = "Copy command";
+"cli.instructions.body" = "Run this in Terminal. It asks for your password because the link goes in a folder every account shares.";
+"attention.secretACL.title" = "Some stored keys are locked to another app";
+"attention.secretACL.body" = "The keychain will not hand these to Fermix, so the providers that use them cannot sign in.";
+"attention.unrecognized.body" = "This Fermix build has no description for that gap, so the daemon’s own name for it is shown.";
+"attention.action.restart" = "Restart…";
+"attention.action.reload" = "Reload settings from disk";
+"attention.action.showUpdate" = "Show the update";
+"attention.update.available.body" = "Fermix installs an update only when you ask it to.";
+"attention.update.critical.body" = "This update fixes something important. Fermix still installs it only when you ask it to.";
+"attention.update.staged.title" = "Fermix finishes updating when it quits";
+"attention.update.staged.body" = "The update is ready to install. Fermix replaces itself the next time you quit it.";
+
+/* MARK: Update and uninstall routes */
+"update.title" = "Updates";
+"update.bundled" = "In this copy of Fermix";
+"update.check" = "Check for updates";
+"update.how" = "Fermix updates by replacing the whole app. It checks for a new version and installs one only when you ask it to. You can also download a new version yourself, or run brew upgrade --cask fermix in Terminal if you installed it with Homebrew.";
+"uninstall.title" = "Removing Fermix is not built into this release";
+"uninstall.body" = "Nothing has been changed. Your Fermix home and its data are where they were, and the settings file is the one place to look before you remove anything by hand.";
+"uninstall.reveal" = "Reveal settings file";
+
+/* MARK: Recovery from an update that did not finish */
+"updateRecovery.title" = "Fermix could not finish updating";
+"updateRecovery.reason.interrupted" = "Fermix could not finish checking the last update. Try again, or open Doctor for diagnostics.";
+"updateRecovery.reason.journalUnusable" = "The record of the last update cannot be read or cleared, so Fermix cannot tell what that update left behind. Doctor reports what the daemon can still see.";
+"updateRecovery.reason.unexpectedApp" = "The copy of Fermix that opened is neither the version this update started from nor the one it was installing, so nothing was started.";
+"updateRecovery.reason.unexpectedEngine" = "This copy of Fermix does not carry the engine the update recorded, so nothing was started.";
+"updateRecovery.reason.engineNotStopped" = "The engine this update started from was still running when the new copy of Fermix replaced it, so Fermix stopped rather than start anything over data that may be half written.";
+"updateRecovery.reason.sourceEngineUnverified" = "Fermix put your background service back the way it was, but the engine it had before did not answer.";
+"updateRecovery.reason.targetEngineUnverified" = "The new engine did not answer after the update, and Fermix will not start a different one in its place.";
+"updateRecovery.reason.registrationNotRestored" = "Fermix could not put your background service back the way it was, so it stopped rather than leave the update half applied. Check that Fermix is allowed in Login Items in System Settings, then open Fermix again.";
+"updateRecovery.reason.conflictingRegistration" = "A Fermix daemon is answering that this account did not register, so this copy cannot restart it into the version you installed. That happens when another account on this Mac holds the registration, or when the daemon was started by hand.";
+"updateRecovery.reason.registrationNeedsApproval" = "macOS is waiting for you to allow Fermix to run in the background. Allow it in Login Items in System Settings, then open Fermix again.";
+"updateRecovery.reason.noSharedProtocol" = "The daemon that is answering and this copy of Fermix have no protocol version in common, so no restart or update step can reach it. Quit that daemon, then open Fermix again.";
+"updateRecovery.versionsFormat" = "Was on version %@, updating to version %@";
+"updateRecovery.installerFormat" = "Previous version %@, signed by %@";
+"updateRecovery.reinstall" = "Reinstall the previous version";
+"updateRecovery.needsNetwork" = "Downloading the previous version needs an internet connection. Everything else on this screen was read from this Mac.";
+"updateRecovery.rollbackUnsafe" = "Your data has already been updated for the new version, so going back to the previous one is not safe.";
+"updateRecovery.disableRefused" = "Fermix could not turn the background service off again, so the new engine may keep starting. Turn Fermix off in Login Items in System Settings.";
+
+/* MARK: Daemon errors, where the daemon itself has no sentence */
+"daemon.state.notRunning" = "Fermix isn’t running";
+"daemon.error.unreachable" = "The daemon could not be reached";
+"daemon.error.incompatible" = "The daemon speaks a protocol this version of Fermix cannot use";
+"daemon.error.unexpectedShape" = "The daemon answered with something Fermix could not read";
+"daemon.error.requiresNewerEngine" = "Restart to finish updating Fermix";
+"lifecycle.daemonNotManaged" = "Fermix’s background service isn’t registered on this Mac, so a restart would stop Fermix and nothing would start it again. Run the Setup Assistant to register it.";
+"lifecycle.serviceBusy" = "Fermix is already changing the background service, so nothing was changed. Try again once it has finished.";
+
+/* MARK: Background service, one wording everywhere it appears */
+
+/* MARK: Sidebar */
+"sidebar.home" = "Home";
+"sidebar.doctor" = "Doctor";
+"sidebar.pet" = "Pet";
+"sidebar.logs" = "Logs";
+"sidebar.settings" = "Settings";
+
+/* MARK: Doctor */
+"doctor.title" = "Doctor";
+"doctor.banner.healthy" = "Everything checks out";
+"doctor.banner.healthyWithWarning" = "Healthy, with one thing to look at";
+"doctor.banner.warningsFormat" = "Healthy, with %lld things to look at";
+"doctor.banner.failingOne" = "One check failed";
+"doctor.banner.failingFormat" = "%lld checks failed";
+"doctor.banner.explainer" = "Answers come from the running daemon: what it can actually see, not this window’s environment.";
+"doctor.banner.checkedJustNow" = "Checked just now";
+"doctor.network.body" = "Probes provider and channel endpoints for real. Uses the network; takes up to 30 seconds.";
+"doctor.network.run" = "Run network checks";
+"doctor.action.systemSettings" = "Open System Settings";
+"doctor.support.export" = "Export support bundle";
+"doctor.support.exportFilename" = "fermix-diagnostics";
+"doctor.support.openLogFolder" = "Open log folder";
+"doctor.support.homeUnavailable" = "No Fermix home is recorded yet, so there is no log folder to open.";
+"doctor.support.settingsPaneUnavailable" = "macOS would not open the System Settings pane this check named.";
+"doctor.runStalled" = "The daemon stopped reporting on this run";
+"doctor.running" = "Running checks";
+"doctor.noChecks" = "No checks have run yet";
+"doctor.cancel" = "Cancel";
+"doctor.retry" = "Try again";
+
+/* MARK: Logs */
+"logs.title" = "Logs";
+"logs.searchPlaceholder" = "Search";
+"logs.levelLabel" = "Level";
+"logs.levelAll" = "All levels";
+"logs.level.emergency" = "Emergency";
+"logs.level.alert" = "Alert";
+"logs.level.critical" = "Critical";
+"logs.level.error" = "Error";
+"logs.level.warning" = "Warning";
+"logs.level.notice" = "Notice";
+"logs.level.info" = "Info";
+"logs.level.debug" = "Debug";
+"logs.pause" = "Pause";
+"logs.resume" = "Resume";
+"logs.copy" = "Copy visible";
+"logs.export" = "Export…";
+"logs.exportFilename" = "fermix-logs";
+"logs.loadOlder" = "Load older";
+"logs.empty" = "No entries match this filter";
+"logs.truncated" = "The daemon dropped the oldest rows of this page to stay inside its size cap.";
+"logs.rotated" = "The log rotated, so the view restarted from the newest entries.";
+"logs.searchTooLong" = "That search is longer than the daemon accepts, so it wasn’t sent.";
+"doctor.pill.pass" = "PASS";
+"doctor.pill.warn" = "WARN";
+"doctor.pill.fail" = "FAIL";
+"doctor.pill.unavailable" = "UNAVAILABLE";
+"doctor.pill.skipped" = "SKIPPED";
+"doctor.pill.cancelled" = "CANCELLED";
+"doctor.pill.timedOut" = "TIMED OUT";
+"doctor.pill.notApplicable" = "N/A";
+
+/* MARK: Voice */
+"voice.status.offline" = "Not connected";
+"voice.status.connecting" = "Connecting";
+"voice.status.idle" = "Ready";
+"voice.status.listening" = "Listening";
+"voice.status.muted" = "Muted";
+"voice.status.thinking" = "Thinking";
+"voice.status.speaking" = "Speaking";
+"voice.status.toolUse" = "Running a tool";
+"voice.status.updateRequired" = "Update Fermix to match the daemon";
+"voice.status.homeUnavailable" = "Fermix cannot read its home on this Mac";
+"voice.status.refusedFormat" = "The daemon reported: %@";
+"voice.status.toolFailed" = "The tool did not finish";
+"voice.error.microphoneDenied" = "Microphone access is denied";
+"voice.error.microphoneRestricted" = "Microphone access is restricted";
+"voice.error.noInputDevice" = "No microphone is available";
+"voice.error.outputFormatUnavailable" = "Voice audio could not be prepared";
+"voice.error.microphoneUnknown" = "The microphone could not start";
+
+/* MARK: Pet */
+"pet.callBegin" = "Begin voice call";
+"pet.callEnd" = "End voice call";
+"pet.mute" = "Mute microphone";
+"pet.unmute" = "Unmute microphone";
+"pet.interrupt" = "Interrupt reply";
+"pet.accessibilityLabel" = "Fermix voice companion";
+"pet.showWindow" = "Show the floating companion";
+"pet.hideWindow" = "Hide the floating companion";
+"pet.windowHint" = "A small always-on-top window you can leave open beside your work.";
+"pet.microphoneNotice" = "Fermix asks for the microphone the first time you begin a voice call, and never before.";
+
+/* MARK: Windows */
+"window.main.title" = "Fermix";
+"window.onboarding.title" = "Fermix";
+"window.pet.title" = "Fermix voice companion";
+
+/* MARK: Menu bar status item */
+"menu.state.starting" = "Starting";
+"menu.glyph.running" = "Fermix is running";
+"menu.glyph.starting" = "Fermix is starting";
+"menu.glyph.attention" = "Fermix needs attention";
+"statusMenu.runningFormat" = "Running for %@";
+"statusMenu.restartPending" = "Restart to finish updating";
+"statusMenu.hideHint" = "Fermix keeps running. Open it from Launchpad or Spotlight to show the item again.";
+
+/* MARK: Toolbars */
+"toolbar.more" = "More";
+
+/* MARK: Product name */
+"product.name" = "Fermix";
+
+/* MARK: Grouped-form section headers (title case, M34 decision 4) */
+"sectionHeader.background" = "Background";
+"sectionHeader.attention" = "Attention";
+"sectionHeader.runtime" = "Runtime";
+"sectionHeader.checks" = "Checks";
+"sectionHeader.versions" = "Versions";
+
+/* MARK: Menu titles (title case, M34 decision 4) */
+"menuTitle.file" = "File";
+"menuTitle.edit" = "Edit";
+"menuTitle.view" = "View";
+"menuTitle.daemon" = "Daemon";
+"menuTitle.window" = "Window";
+"menuTitle.helpMenu" = "Help";
+"menuTitle.about" = "About Fermix";
+"menuTitle.checkForUpdates" = "Check for Updates…";
+"menuTitle.services" = "Services";
+"menuTitle.hide" = "Hide Fermix";
+"menuTitle.hideOthers" = "Hide Others";
+"menuTitle.showAll" = "Show All";
+"menuTitle.quit" = "Quit Fermix";
+"menuTitle.closeWindow" = "Close Window";
+"menuTitle.exportLogs" = "Export Logs…";
+"menuTitle.copyLogs" = "Copy Log Lines";
+"menuTitle.exportSupportBundle" = "Export Support Bundle…";
+"menuTitle.revealLogFolder" = "Reveal Log Folder";
+"menuTitle.undo" = "Undo";
+"menuTitle.redo" = "Redo";
+"menuTitle.cut" = "Cut";
+"menuTitle.copy" = "Copy";
+"menuTitle.paste" = "Paste";
+"menuTitle.delete" = "Delete";
+"menuTitle.selectAll" = "Select All";
+"menuTitle.find" = "Find…";
+"menuTitle.showSidebar" = "Show Sidebar";
+"menuTitle.hideSidebar" = "Hide Sidebar";
+"menuTitle.home" = "Home";
+"menuTitle.doctor" = "Doctor";
+"menuTitle.logs" = "Logs";
+"menuTitle.pet" = "Pet";
+"menuTitle.runLocalChecks" = "Run Local Checks";
+"menuTitle.runNetworkChecks" = "Run Network Checks…";
+"menuTitle.pauseLogs" = "Pause Logs";
+"menuTitle.resumeLogs" = "Resume Logs";
+"menuTitle.openSetupAssistant" = "Open Setup Assistant";
+"menuTitle.restartDaemon" = "Restart Fermix…";
+"menuTitle.enableService" = "Enable Background Service";
+"menuTitle.disableService" = "Disable Background Service";
+"menuTitle.minimize" = "Minimize";
+"menuTitle.zoom" = "Zoom";
+"menuTitle.bringAllToFront" = "Bring All to Front";
+"menuTitle.helpItem" = "Fermix Help";
+"menuTitle.openFermix" = "Open Fermix";
+"menuTitle.runDoctor" = "Run Doctor";
+"menuTitle.showPet" = "Show Pet";
+"menuTitle.hidePet" = "Hide Pet";
+"menuTitle.hideMenuBarItem" = "Hide Menu Bar Item";
+"menuTitle.linkCommandLineTool" = "Add the fermix Command to Terminal…";
+
+/* MARK: Shared formats and humane times */
+"format.middot" = "%1$@ · %2$@";
+"format.commaPair" = "%1$@, %2$@";
+"progress.stepFormat" = "Step %1$lld of %2$lld";
+"time.justNow" = "just now";
+"time.day" = "day";
+"time.days" = "days";
+"time.hour" = "hour";
+"time.hours" = "hours";
+"time.minute" = "minute";
+"time.minutes" = "minutes";
+
+/* MARK: Activation preflight refusals */
+"bootFailed.cause.notInApplications" = "Fermix is running from outside the Applications folder, so nothing was registered and your configuration hasn’t been touched. Move Fermix to Applications and open it again.";
+"bootFailed.cause.legacyInstallPresent" = "A Homebrew-managed Fermix service already exists on this account, so nothing was changed and your configuration hasn’t been touched. In Terminal run brew upgrade fermix, then fermix restart, then fermix migrate-to-app.";
+
+/* MARK: Settings, a presentation of the primary window */
+"settings.group.assistant" = "Assistant";
+"settings.group.connections" = "Connections";
+"settings.group.capabilities" = "Capabilities";
+"settings.group.system" = "System";
+"settings.pane.providers" = "Providers";
+"settings.pane.personality" = "Personality";
+"settings.pane.memory" = "Memory";
+"settings.pane.channels" = "Channels";
+"settings.pane.integrations" = "Integrations";
+"settings.pane.voice" = "Voice";
+"settings.pane.meetings" = "Meetings";
+"settings.pane.computer" = "Computer";
+"settings.pane.codingAgents" = "Coding agents";
+"settings.pane.search" = "Search";
+"settings.pane.images" = "Images";
+"settings.pane.sandbox" = "Sandbox";
+"settings.pane.permissions" = "Permissions";
+
+/* MARK: Settings search keywords */
+"settings.keywords.providers" = "model key sign in account primary reasoning";
+"settings.keywords.personality" = "name style time zone assistant identity";
+"settings.keywords.memory" = "compaction review threshold recall";
+"settings.keywords.channels" = "telegram slack discord signal whatsapp editors token";
+"settings.keywords.integrations" = "plugins mcp google stripe workspace oauth";
+"settings.keywords.voice" = "realtime speech transcription notes microphone";
+"settings.keywords.meetings" = "notetaker zoom google meet transcript bot";
+"settings.keywords.computer" = "screen accessibility history apps sidecar";
+"settings.keywords.codingAgents" = "harness delegate command line tools";
+"settings.keywords.search" = "web places brave tavily duckduckgo";
+"settings.keywords.images" = "picture generation render backend";
+"settings.keywords.sandbox" = "commands environment permissions strict";
+"settings.keywords.permissions" = "microphone screen accessibility login items";
+
+/* MARK: Settings chrome, banners and the restart sheet */
+"settings.back.accessibility" = "Back to Fermix";
+"settings.openPaneFormat" = "Open %@";
+"settings.searchPrompt" = "Search settings";
+"settings.requiresNewerEngine" = "This needs the newer engine in this copy of Fermix. Restart to finish updating.";
+"settings.engineBehindApp" = "Settings needs a newer Fermix engine than this copy ships.";
+"settings.rowUnsupported" = "This copy of Fermix is older than the daemon and has no control for this setting. Update Fermix to change it here.";
+"settings.externalChange.title" = "Settings changed outside Fermix";
+"settings.externalChange.body" = "Reload before changing anything, so nothing you did elsewhere is overwritten.";
+"settings.externalChange.action" = "Reload settings from disk";
+"settings.configUnreadable.title" = "The settings file cannot be read";
+"settings.configUnreadable.body" = "Nothing has been changed. Recovery can show you the file and the copy from before.";
+"settings.configUnreadable.action" = "Open recovery";
+"settings.restart.title" = "Restart to apply";
+"settings.restart.action" = "Restart…";
+"settings.restart.sheetTitle" = "Restart Fermix now?";
+"settings.engine.sheetTitle" = "Finish updating Fermix";
+"settings.restart.now" = "Restart now";
+"settings.restart.whenIdle" = "Restart when idle";
+"settings.restart.cancel" = "Cancel";
+"settings.restart.inFlight.one" = "%lld conversation is in progress and would be interrupted";
+"settings.restart.inFlight.many" = "%lld conversations are in progress and would be interrupted";
+"settings.restart.waiting" = "Waiting until nothing is in progress";
+"settings.restart.stillBusy" = "Something is still in progress, so nothing was restarted";
+
+/* MARK: Settings rows and sheets */
+"settings.sheet.cancel" = "Cancel";
+"settings.sheet.done" = "Done";
+"settings.secret.stored" = "Stored";
+"settings.secret.replace" = "Replace…";
+"settings.secret.remove" = "Remove";
+"settings.secret.add" = "Add…";
+"settings.secret.store" = "Store";
+"settings.secret.prompt" = "Paste the value";
+"settings.number.percentFormat" = "%.0f%%";
+"settings.list.add" = "Add";
+"settings.list.addPrompt" = "New entry";
+"settings.text.emptyPrompt" = "Not set";
+"settings.choice.notSet" = "Not set";
+"settings.choice.suggestions" = "Suggestions";
+"settings.list.remove" = "Remove";
+"settings.job.cancel" = "Cancel";
+"settings.job.timedOut" = "Fermix stopped waiting for this. It is still running, so check again in a moment.";
+
+/* MARK: Job phases. The wire carries an atom per step; these are its words. */
+"job.phase.awaitingBrowser" = "Waiting for your browser.";
+"job.phase.awaitingSignIn" = "Waiting for you to finish signing in.";
+"job.phase.binding" = "Opening a local port for the reply.";
+"job.phase.bindingWorkspace" = "Linking the workspace.";
+"job.phase.calling" = "Calling the provider.";
+"job.phase.downloading" = "Downloading.";
+"job.phase.listing" = "Reading what is available.";
+"job.phase.probing" = "Checking the provider answers.";
+"job.phase.readingKeychain" = "Reading the keychain. macOS may ask you to allow it.";
+"job.phase.sidecarDownloading" = "Downloading the helper.";
+"job.phase.verifying" = "Verifying.";
+"job.phase.verifyingSignIn" = "Verifying the sign-in.";
+"settings.install" = "Install";
+"settings.primarySection" = "Primary";
+"settings.primaryFooterFormat" = "Every conversation uses %@. Other connected providers stand in if it fails.";
+"settings.primaryUnconfiguredBody" = "Connect a provider to get started. The first working provider becomes primary.";
+"settings.providersSection" = "Providers";
+"settings.channelsSection" = "Channels";
+"settings.voice.localSection" = "On this Mac";
+"settings.voice.localTitle" = "Speech model on this Mac";
+"settings.meetings.sharedSection" = "Shared settings";
+"settings.meetings.zoomSection" = "Zoom";
+"settings.meetings.enableFooter" = "Installs the notetaker and its browser on first enable, about 150 MB.";
+"settings.meetings.googleSection" = "Google Meet";
+"settings.meetings.signInTitle" = "Google account for the notetaker";
+"settings.meetings.signInAction" = "Sign in…";
+"settings.meetings.signInAgainAction" = "Sign in again…";
+"settings.meetings.googleAccountLabel" = "Google account";
+"settings.meetings.signInNotice" = "A browser window opens. Sign in there with the account the notetaker should use.";
+
+/* MARK: Providers */
+"provider.verb.signIn" = "Sign in";
+"provider.verb.importClaudeCode" = "Import Claude Code sign-in";
+"provider.verb.importCodexCLI" = "Import Codex sign-in";
+"provider.verb.addSetupToken" = "Add setup token";
+"provider.verb.addKey" = "Add key…";
+"provider.status.signingIn" = "Signing in";
+"provider.status.reconnect" = "Reconnect needed";
+"provider.status.primary" = "Primary";
+"provider.status.connected" = "Connected";
+"provider.status.keyUnverified" = "Key stored, not verified";
+"provider.status.notConnected" = "Not connected";
+"provider.usePrimary" = "Use as primary";
+"provider.primaryConfirm.title" = "Use this provider for every conversation?";
+"provider.primaryConfirm.body" = "This also resets the sub-agent model to the same one as the main agent.";
+"provider.addKey.title" = "Add an API key";
+"provider.addKey.provider" = "Provider";
+"provider.addKey.subcopyFormat" = "The key is stored in your keychain and never leaves this Mac except to %@.";
+"provider.verifyAndSave" = "Verify and save";
+"provider.signIn.title" = "Sign in";
+"provider.signIn.body" = "Finish signing in in your browser. Fermix never sees your password.";
+"provider.signIn.reopen" = "Open the browser again";
+"provider.signIn.browser" = "Sign in with browser";
+"provider.signIn.retry" = "Try again";
+"provider.signIn.openFailed" = "The browser could not open. Try opening it again.";
+"provider.signIn.expired" = "This sign-in link has expired. Cancel this attempt, then sign in again.";
+"provider.import.title" = "Import sign-in";
+"provider.import.body" = "Use the sign-in already saved on this Mac. macOS may ask for keychain access.";
+"provider.setupToken.body" = "Use a setup token to connect your Claude account.";
+"provider.models.title" = "Choose a model";
+"provider.models.searchPrompt" = "Search models";
+"provider.models.more" = "Load more";
+
+/* MARK: Channels */
+"channel.status.off" = "Off";
+"channel.status.needsSetup" = "Needs setup";
+"channel.status.connected" = "Connected";
+"channel.setUp" = "Set up…";
+"channel.sheetFooter" = "Saved as you type. Turn the channel on with the switch beside it when you are done.";
+"channel.manage" = "Change…";
+"channel.enable" = "Turn on";
+
+/* MARK: Computer */
+"computer.rightsSection" = "What the helper may do";
+"computer.grant.title" = "Ask for both rights at once";
+"computer.grant.action" = "Grant…";
+"computer.apps.title" = "Choose apps";
+"computer.apps.searchPrompt" = "Search apps";
+"computer.apps.choose" = "Choose…";
+"computer.apps.countFormat" = "%lld chosen";
+"computer.apps.selectedFormat" = "%1$lld chosen, up to %2$lld";
+
+/* MARK: Permissions */
+"permission.microphone.title" = "Microphone";
+"permission.screenRecording.title" = "Screen recording";
+"permission.inputControl.title" = "Accessibility";
+"permission.backgroundService.title" = "Background service";
+"permission.principal.app" = "Fermix";
+"permission.principal.computerUse" = "Fermix computer-use helper";
+"permission.principal.agent" = "Fermix background agent";
+"permission.state.granted" = "Granted";
+"permission.state.notGranted" = "Not granted";
+"permission.state.requiresApproval" = "Waiting for your approval";
+"permission.state.unknown" = "Not asked yet";
+"permission.action.grant" = "Grant…";
+"permission.action.openSettings" = "Open System Settings";
+"permission.action.openLoginItems" = "Open Login Items settings";
+"permissions.rightsSection" = "Rights";
+"permissions.factsSection" = "Good to know";
+"permissions.browserFact" = "Browsers run under their own identity, never Fermix’s.";
+"permissions.keychainProfile" = "Keychain profile";
+"permissions.profileUnknown" = "Not reported";
+
+"integration.client.portInvalid" = "Enter a port from 1 to 65535, or leave it blank to use the default.";
+"coding.notInstalled" = "Not installed";
+"coding.installed" = "Installed";
+"coding.authenticated" = "Signed in";
+"coding.authUnverified" = "Sign-in not verified";
+"coding.authAbsent" = "Not signed in";
+"coding.detectionUnavailable" = "Fermix has not reported coding tool details. Check again after restarting Fermix.";
+"coding.checkAgain" = "Check again";
+
+/* MARK: Integrations */
+"integrations.clientsSection" = "Sign-in clients";
+"integrations.subtitle" = "Plugins, MCP servers and the built-in drivers Fermix can use.";
+"integrations.searchPrompt" = "Search integrations";
+"integrations.filter.installed" = "Installed";
+"integrations.filter.available" = "Available";
+"integrations.filter.mcps" = "MCPs";
+"integrations.filter.features" = "Features";
+"integrations.noResults" = "Nothing matches your search.";
+"integration.gone" = "This plugin is no longer in the catalog.";
+"integration.enabled" = "Enabled";
+"integration.open" = "Open";
+"integration.disconnect" = "Disconnect";
+"integration.verbsSection" = "What this can do";
+"integration.nextStep" = "Next step";
+"integration.settingsSection" = "Settings";
+"integration.workspace.row" = "Workspace";
+"integration.workspace.choose" = "Choose…";
+"integration.workspace.unset" = "Not chosen";
+"integration.workspace.title" = "Choose a workspace";
+"integration.workspace.accessSection" = "Access";
+"integration.workspace.writeWarning" = "This access level can change data in the workspace.";
+"integration.workspace.find" = "Find workspaces";
+"integration.workspace.use" = "Use this workspace";
+"integration.workspace.empty" = "No workspaces have been found yet";
+"integration.client.row" = "Sign-in client";
+"integration.client.edit" = "Edit…";
+"integration.client.connect" = "Connect…";
+"integration.client.identifier" = "Client ID";
+"integration.client.secret" = "Client secret";
+"integration.client.port" = "Redirect port";
+"integration.client.portPrompt" = "Leave blank for the default";
+"integration.feature.computerUse" = "Computer use";
+"integration.feature.computerUse.body" = "Lets Fermix see the screen and use the pointer, through a separate signed helper.";
+"integration.feature.computerHistory" = "Computer history";
+"integration.feature.computerHistory.body" = "Keeps a private record on this Mac of what you worked on.";
+"integration.feature.meetings" = "Meeting notetaker";
+"integration.feature.meetings.body" = "Joins a meeting as a notetaker and writes the notes up afterwards.";
+"integration.feature.on" = "On";
+"integration.feature.off" = "Off";
+"integration.feature.unread" = "Not reported";
+"integration.install" = "Install…";
+"integration.enable" = "Turn on";
+"integration.disable" = "Turn off";
+"integration.signIn" = "Sign in";
+"integration.addToken" = "Add token…";
+"integration.replaceToken" = "Replace the token";
+"integration.setUpClient" = "Set up the sign-in client";
+"integration.check" = "Check again";
+"integration.client.set" = "Configured";
+"integration.client.unset" = "Not configured";
+"integration.disclosure.title" = "What leaves this Mac";
+"integration.token.label" = "Token";
+
+/* MARK: Settings menu item */
+"menuTitle.settings" = "Settings…";
+"provider.models.choose" = "Choose…";
+"provider.details" = "Details…";
+"provider.signOut" = "Sign out";
+"settings.voice.microphoneSection" = "Microphone";

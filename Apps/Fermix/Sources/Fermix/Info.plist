@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDisplayName</key><string>Fermix</string>
+  <key>CFBundleExecutable</key><string>Fermix</string>
+  <key>CFBundleIconFile</key><string>FermixPet</string>
+  <key>CFBundleIdentifier</key><string>io.tezra.FermixPet</string>
+  <key>CFBundleName</key><string>Fermix</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>FermixResourceBundleName</key><string>Fermix_FermixAppCore.bundle</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>CFBundleURLName</key><string>io.tezra.FermixPet</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>fermix</string>
+      </array>
+    </dict>
+  </array>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>15.0</string>
+  <!-- No LSUIElement: FermixApp.main() sets the accessory policy as its first
+       AppKit act, and the window host promotes to a Dock app while a real
+       window is open. The plist key would pin UIElement and (observed live on
+       macOS 26.5) defeat that runtime promotion. -->
+  <key>NSMicrophoneUsageDescription</key><string>Fermix uses microphone input only while you explicitly start a voice call.</string>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <!-- The update policy (M34 section 6), declared rather than set at runtime:
+       resetting a preference on every launch would overwrite the choice the
+       person made. The feed is fixed and the public key is what verifies its
+       enclosure, so an update that is not signed by the matching private key
+       cannot install.
+
+       SUEnableAutomaticChecks is deliberately ABSENT: with no value Sparkle
+       asks once, and the answer is the person's to give and to change.
+
+       Both automatic-installation keys are off, and the second is what makes
+       the first stick: without SUAllowsAutomaticUpdates Sparkle still offers
+       an opt-in to installing updates by itself, and an installation that
+       replaces this bundle has to run inside the update transaction that stops
+       the engine first. -->
+  <key>SUFeedURL</key><string>https://fermix.ai/appcast.xml</string>
+  <key>SUPublicEDKey</key><string>LYHvaGKFEf34Zqo4ZDneKUdkvZ6mhieIS93cogVowaU=</string>
+  <key>SUAutomaticallyUpdate</key><false/>
+  <key>SUAllowsAutomaticUpdates</key><false/>
+</dict>
+</plist>

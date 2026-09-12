@@ -1,75 +1,44 @@
 name: ci
 
-# PR + main gates. Proves the pet builds universal2 (arm64 + x86_64) and the
-# static runtime-policy / build-harness checks pass, on every change — BEFORE any
-# signed release. No secrets: signing/notarization live in release-fermixpet.yml.
+# The legacy FermixPet release path's ungated gate.
+#
+# release-fermixpet.yml renders Casks/fermixpet.rb.tmpl on a release tag and
+# publishes the result to the tap. That template is checked in but never
+# exercised outside a release, so a style regression in it would surface only
+# after a full sign + notarize round trip. This renders it with a placeholder
+# version and sha and lints it exactly as the release job does.
+#
+# Everything about the unified Fermix application — build, unit tests, the
+# XcodeGen spec, the product configuration and asset gates, the staging dry run,
+# and the vendored wire contracts — lives in fermix-app.yml. This file exists
+# only for as long as the FermixPet cask does; M34 retires it at general
+# availability, when the unified-app cask replaces it.
+#
+# No secrets: signing and notarization live in release-fermixpet.yml.
+#
+# Actions are pinned to immutable commit SHAs per M34 section 7.
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
-  pet:
-    name: FermixPet (build + verify)
-    runs-on: macos-14
-    defaults:
-      run:
-        working-directory: Apps/FermixPet
+  cask:
+    name: FermixPet cask (style)
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Install ripgrep (runtime_policy_test.sh dependency)
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-        run: brew install ripgrep
-
-      - name: Static runtime-policy + build-harness tests
-        run: |
-          script/runtime_policy_test.sh
-          script/build_and_run_test.sh
-
-      # Unit tests, incl. the RealtimeSocketClient wedged-writer regression that
-      # pins the deadlock fix. Needs a full Xcode (XCTest); the macos-14 runner
-      # has one, so no toolchain select is required.
-      - name: Unit tests (swift test)
-        run: swift test
-
-      - name: Entitlements lint
-        run: plutil -lint Sources/FermixPet/FermixPet.entitlements
-
-      # Runs the exact release build + stage + inside-out sign, but ad-hoc
-      # (no secrets), so a universal2 build failure, a bundle-layout regression,
-      # or a broken signing structure fails here — in ungated CI — instead of
-      # only when a signed release tag is pushed. Only real notarization (Apple
-      # round-trip) is left to release-fermixpet.yml.
-      - name: Build + stage + adhoc-sign (universal2 / layout / signing gate)
-        working-directory: ${{ github.workspace }}
-        env:
-          RUN_NUMBER: ${{ github.run_number }}
-        run: |
-          scripts/stage_app.sh "0.0.0-ci" "$RUN_NUMBER" "$RUNNER_TEMP/FermixPet-ci.app"
-          scripts/sign_app.sh "$RUNNER_TEMP/FermixPet-ci.app" "-"
-
-      # Render the cask with placeholder version/sha and lint it exactly as the
-      # release job does, so a cask-template style regression fails here in
-      # ungated CI instead of after a full sign+notarize on a release tag.
       - name: Cask style-check
-        working-directory: ${{ github.workspace }}
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
+          set -euo pipefail
           sha="$(printf '%064d' 0)"
           sed -e "s/__VERSION__/0.0.0/g" -e "s/__SHA256__/$sha/g" \
             Casks/fermixpet.rb.tmpl > Casks/fermixpet.rb
           brew style Casks/fermixpet.rb
           rm -f Casks/fermixpet.rb
-
-  contract:
-    name: realtime wire contract (checksum pin)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: scripts/verify_protocol_contract.sh
