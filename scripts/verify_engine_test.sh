@@ -24,6 +24,8 @@ VERIFY="$ROOT_DIR/scripts/verify_engine.sh"
 # the state the last case needs, and reading it here proves the record the
 # repository carries is one this reader understands.
 REPOSITORY_PIN="$ROOT_DIR/engine/PIN.json"
+# shellcheck source=scripts/engine_pin.sh
+source "$ROOT_DIR/scripts/engine_pin.sh"
 
 # The facts every fixture pin and fixture tree agree on. They are written once
 # here so a case that wants a disagreement has to state it.
@@ -249,10 +251,36 @@ expect_refusal "a pinned asset that is not in the download directory is refused"
   "$VERIFY" "$PIN_INCOMPLETE" "$DOWNLOAD_INCOMPLETE" "$WORK_DIR/out/incomplete" \
   --cosign "$COSIGN_OK"
 
-# The state the repository ships in: no engine release carries these assets yet,
-# so there is nothing to verify against and saying so is the only honest answer.
-expect_refusal "the repository's own unpinned pin is refused rather than skipped" \
+# An unpinned pin is the declared state before an engine release carries the
+# assets; there is nothing to verify against and saying so is the only honest
+# answer. The fixture is the harness's own, so this row keeps its meaning
+# whichever state the repository's record is in.
+cat >"$WORK_DIR/unpinned.json" <<'PIN'
+{
+  "schema_version": 1,
+  "repository": "tezra-io/fermix",
+  "certificate_oidc_issuer": "https://token.actions.githubusercontent.com",
+  "tag": null,
+  "source_commit": null,
+  "certificate_identity": null,
+  "targets": {
+    "macos_aarch64": { "asset": null, "sha256": null },
+    "macos_x86_64": { "asset": null, "sha256": null }
+  },
+  "note": "Fixture: the unpinned state."
+}
+PIN
+expect_refusal "an unpinned pin is refused rather than skipped" \
   "is unpinned, so there is no engine release to verify against" \
-  "$VERIFY" "$REPOSITORY_PIN" "$DOWNLOAD" "$WORK_DIR/out/unpinned" --cosign "$COSIGN_OK"
+  "$VERIFY" "$WORK_DIR/unpinned.json" "$DOWNLOAD" "$WORK_DIR/out/unpinned" --cosign "$COSIGN_OK"
+
+# The repository's own record is read the way every caller reads it: it is
+# whole, and it answers one of the two states rather than a refusal.
+repository_state="$(engine_pin_state "$REPOSITORY_PIN")" ||
+  fail "the repository's engine pin does not parse"
+case "$repository_state" in
+  pinned|unpinned) echo "  ok   the repository's engine pin parses as $repository_state" ;;
+  *) fail "the repository's engine pin answered '$repository_state'" ;;
+esac
 
 echo "verify_engine_test: ok"
