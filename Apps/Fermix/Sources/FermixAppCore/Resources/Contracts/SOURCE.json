@@ -3,7 +3,7 @@
   "description": "Provenance of the vendored Fermix wire contracts. The canonical files live in the fermix repository under apps/fermix_core/priv/; this tree is a byte-identical copy pinned by CHECKSUMS.txt. scripts/verify_protocol_contract.sh asserts the two agree, and --source <fermix-checkout> byte-compares against upstream.",
   "upstream": {
     "repository": "tezra-io/fermix",
-    "commit": "162b1f5a6b370db53f21700967681578e33341ab",
+    "commit": "3f8f0fdf461ed6a6d67f0b50def1369216967aa3",
     "branch": "main",
     "working_tree": "clean",
     "retrieved_at": "2026-09-12"
@@ -20,7 +20,7 @@
         "maximum": 2
       },
       "committed_upstream": true,
-      "provenance_note": "Taken from main at 162b1f5a, the commit the engine release v0.10.1 was built from, whose app-engine trees the bundle ships (engine/PIN.json names the same commit). Protocol 2; the meetbot detect target with its signed_in fact and the two further image model options are additive inside existing methods, so no minimum moves. The bytes are identical to the release branch commits vendored before it.",
+      "provenance_note": "Taken from main at 3f8f0fdf, the commit the engine release v0.10.4 was built from, whose app-engine trees the bundle ships (engine/PIN.json names the same commit). Protocol 2; the meetbot detect target with its signed_in fact and the two further image model options are additive inside existing methods, so no minimum moves. The bytes are identical to those vendored at v0.10.1: nothing under priv/management or priv/realtime changed between the two tags.",
       "files": [
         {
           "path": "management/PROTOCOL.md",
