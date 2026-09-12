@@ -2,17 +2,17 @@
   "schema_version": 1,
   "repository": "tezra-io/fermix",
   "certificate_oidc_issuer": "https://token.actions.githubusercontent.com",
-  "tag": "v0.10.0",
-  "source_commit": "c3d52151e5a5623c25aa52c0db40ed6ed74ee8d8",
-  "certificate_identity": "https://github.com/tezra-io/fermix/.github/workflows/release.yml@refs/tags/v0.10.0",
+  "tag": "v0.10.1",
+  "source_commit": "162b1f5a6b370db53f21700967681578e33341ab",
+  "certificate_identity": "https://github.com/tezra-io/fermix/.github/workflows/release.yml@refs/tags/v0.10.1",
   "targets": {
     "macos_aarch64": {
       "asset": "fermix_app_engine_macos_aarch64.tar.gz",
-      "sha256": "43457c5c69e63e059fbba1071057680a9908ab6dec5bbc21ecd7b19416f5f4c6"
+      "sha256": "98d4bb3f05b3f484a842c2dee911c19421882acc34605f91985740a99d84d878"
     },
     "macos_x86_64": {
       "asset": "fermix_app_engine_macos_x86_64.tar.gz",
-      "sha256": "269169dad27d97539aa6f2377373f1f77f1212a7f1fdda29f6292c7b25c591bd"
+      "sha256": "5ebc7c9c7abed851c9238f0d11bf630db822259d0d4e14cb6f87181ee914f632"
     }
   },
   "note": "Pinned to the engine release whose assets the app ships. To move it, take the engine tag whose release carries fermix_app_engine_macos_aarch64.tar.gz and fermix_app_engine_macos_x86_64.tar.gz and change, all together: tag (vX.Y.Z), source_commit (the 40-character commit that tag was built from, which the engine-manifest.json inside each tarball repeats), certificate_identity (https://github.com/tezra-io/fermix/.github/workflows/release.yml@refs/tags/ plus the tag), each target's asset and each target's sha256 (the digest in the asset's .sha256 sidecar). Either every one of those is null or every one is filled: scripts/engine_pin.sh refuses a half-filled pin, and the release audience of scripts/verify_staged_app.sh refuses a bundle whose staged engine disagrees with what is written here."
