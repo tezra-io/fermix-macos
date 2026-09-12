@@ -23,6 +23,17 @@ docs/                                # ignored except the tracked runbooks, SHIP
 - Any engine capability the app should expose ships as: engine change and export, engine release, app pin bump and re-vendor, app release. The daemon ships first; the app's window (`supported_version_range` in `SOURCE.json`) and the router's per-method minimum are what make an older app degrade to a sentence instead of a crash.
 - `Product.json` is the one product configuration: bundle name, identifier `io.tezra.FermixPet`, agent label, floor, versions. The identifier and agent label never change: TCC grants, the login item and the coexistence preflight are keyed on them.
 
+## Cutting an app release
+
+The app runs the engine it pins, never the newest engine tag, so an engine fix reaches users only through this sequence. The engine repo's `CLAUDE.md` carries the full four-repo choreography (engine, app, tap, site); this is the app's part.
+
+1. Engine released first, and its wire exports compared: if anything under the engine's `priv/management` or `priv/realtime` changed between the pinned tag and the new one, re-vendor `Resources/Contracts` and prove it with `scripts/verify_protocol_contract.sh --source <engine checkout at the new tag>` (byte-identical). Either way, move `SOURCE.json`'s provenance to the new commit.
+2. One chore PR: `engine/PIN.json` moves as a whole (tag, `source_commit`, `certificate_identity`, both `sha256` from the release's `.sha256` sidecars; a half-moved pin is refused), `Product.json` `marketing_version` and `build_number` (the build number is the Sparkle version and must only go up), the same two values in `project.yml`, and the linked `Info.plist` regenerated with `scripts/render_info_plist.sh <version> <build> Apps/Fermix/Sources/Fermix/Info.plist`. Prove it before pushing: `scripts/check_product_config.sh`, then `scripts/fetch_engine.sh engine/PIN.json <dir>` and `scripts/verify_engine.sh engine/PIN.json <dir> <out>` against the published engine release.
+3. Tag `vX.Y.Z` on the merge commit, only when the owner asks and only on a green merge. The rail pauses at the `release-macos` environment for the owner's approval, then publishes the DMG with its cosign material, the cumulative `appcast.xml`, the cask file, and opens the tap's cask PR.
+4. After it publishes: the owner marks the release latest and merges the tap PR; the site takes the release's `appcast.xml` as `public/appcast.xml` in a PR to its `dev` branch, and every download link there derives from that file. The feed the app reads is `https://fermix.ai/appcast.xml`, cached for five minutes.
+
+Never push to `main` without a PR, never tag unasked, and no AI attribution anywhere.
+
 ## Working rules
 - Copy: sentence case, no em dashes, no exclamation marks, no version numbers; every string through `ProductStrings` and `Localizable.strings`; the copy deck is `docs/design/M34_DESIGN_SYSTEM_REDLINES.md`.
 - Vendor marks ship only from the vendor's own host, byte for byte, with the provenance record in `VendorMarks/PROVENANCE.json`; nothing is redrawn or recoloured, and a vendor with no retrievable mark renders as text.
