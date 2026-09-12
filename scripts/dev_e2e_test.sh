@@ -74,7 +74,7 @@ setup_case() {
   WORK_DIR="$(mktemp -d /private/tmp/fermix-dev-loop-test.XXXXXX)"
   trap 'rm -rf "$WORK_DIR"' EXIT
   ROOT_DIR="$WORK_DIR/repo"
-  APP="$ROOT_DIR/Apps/Fermix/dist-e2e/FermixPet.app"
+  APP="$ROOT_DIR/Apps/Fermix/dist-e2e/$APP_BUNDLE_NAME"
   DEV_HOME="$WORK_DIR/dev home"
   ENGINE_SRC="$WORK_DIR/engine"
   ENGINE_TREE="$ENGINE_SRC/_build/prod/rel/fermix_app_engine"
@@ -163,7 +163,7 @@ owned_service() {
 }
 
 case_foreign() {
-  printf 'program = /Applications/FermixPet.app/Contents/MacOS/FermixAgent\n' >"$DEV_E2E_TEST_CONTROL/agent"
+  printf 'program = /Applications/Fermix.app/Contents/MacOS/FermixAgent\n' >"$DEV_E2E_TEST_CONTROL/agent"
   if (up --fast) >"$WORK_DIR/refusal" 2>&1; then fail "accepted another bundle's service"; fi
   [ ! -s "$DEV_E2E_TEST_EVENTS" ] || fail "mutated before refusing another bundle's service"
   [ ! -e "$RECORD" ] || fail "changed the bootstrap record"
@@ -200,7 +200,7 @@ case_version_foreign() {
 
 case_foreign_pid() {
   printf 'path = (submitted by smd)\npid = 123\n' >"$DEV_E2E_TEST_CONTROL/agent"
-  printf '/Applications/FermixPet.app/Contents/MacOS/FermixAgent\n' >"$DEV_E2E_TEST_CONTROL/executable"
+  printf '/Applications/Fermix.app/Contents/MacOS/FermixAgent\n' >"$DEV_E2E_TEST_CONTROL/executable"
   if (up --fast) >"$WORK_DIR/refusal" 2>&1; then fail "accepted another bundle's submitted service"; fi
   [ ! -s "$DEV_E2E_TEST_EVENTS" ] || fail "mutated before refusing another process owner"
 }

@@ -4,7 +4,7 @@ How a person gets the app from fermix.ai onto a Mac, what CI already does, what 
 
 ## What exists today
 
-**The app release rail, in this repository.** Pushing a tag `fermixpet-vX.Y.Z` runs `release-fermixpet.yml`, which calls `notarize.yml` inside the protected `release-macos` environment and then publishes:
+**The app release rail, in this repository.** Pushing a tag `vX.Y.Z` runs `release.yml`, which calls `notarize.yml` inside the protected `release-macos` environment and then publishes:
 
 1. `scripts/package_release.sh`: universal2 build, `stage_app.sh`, Developer ID signing inside out (`sign_app.sh`), notarization by submit and poll, two-pass stapling, a drag-to-Applications DMG, and `verify_staged_app.sh universal signed release`.
 2. A Gatekeeper quarantine-acceptance gate on the stapled DMG.
@@ -15,7 +15,6 @@ So the answer to "does CI build the app and the file people download" is yes: th
 **What that rail does not do yet.**
 
 - It stages an empty engine slot. `package_release.sh` calls `stage_app.sh` without `--engine`, so the DMG it produces today is an app with no engine inside. A user who installs it has nothing to run.
-- The bundle is still `FermixPet.app`, the cask is still `fermixpet`, and the tag namespace is `fermixpet-v*`.
 - The update feed is not published. The app carries the feed URL and the public key, and the release rail signs the DMG and attaches the merged `appcast.xml` to the release (section 4), but nothing copies that file to the site yet.
 - The engine is not pinned in this repository. The dev loop passes a locally built tree.
 
@@ -39,14 +38,18 @@ The daemon ships first, always: a released daemon cannot answer the app's `hello
 - `package_release.sh` downloads both trees from that tag's release, verifies each sha256 and the cosign signature against the release workflow's identity, extracts them, and passes `--engine` twice to `stage_app.sh`. `verify_staged_app.sh universal signed release` already asserts, for a populated slot, that every tree carries the pinned product version and source commit, that both architectures share one commit, and that the engine serves the protocol the app speaks.
 - The PR staging dry run stages the pinned engine too, so a pin that drifts from the contract fails on the pull request rather than at release time.
 
-### 3. The bundle becomes `Fermix.app` and the cask becomes `fermix`
+### 3. The bundle becomes `Fermix.app` and the cask becomes `fermix` (done)
 
 Spec step 8 puts this in the first public release, and nothing public depends on the old name except the pet cask, so doing it now avoids a second migration later:
 
-- `Product.json` `app_bundle_name` becomes `Fermix.app`; the identifier `io.tezra.FermixPet` and the agent label stay, so the microphone and App Management grants and the login item carry over.
-- A third executable target stages a universal `fermix` launcher beside the app and agent, and the staged-executable gate becomes three named entries.
-- The unified cask: `app` stanza, `binary` stanza linking `fermix` onto `PATH`, an early `uninstall` running the bundle's own unregister entry point, and a `zap` naming the Fermix home. The `fermixpet` token moves to the tap's migrations file. Decide the macOS floor policy for the pet cask before the token moves (frozen terminal release for pre-Sequoia, or a raised floor shipped with a caveat first).
-- The tag namespace becomes `app-vX.Y.Z` with its own protected ruleset, and the workflow is renamed to match. The DMG artifact becomes `Fermix-<version>.dmg`.
+- `Product.json` carries `app_bundle_name` `Fermix.app` and `icon_file` `Fermix`; the identifier `io.tezra.FermixPet` and the agent label stay, so the microphone and App Management grants, the login item and the coexistence preflight carry over. Every script that names the bundle reads it from there, and the two files that cannot read it at the moment they need it — `release.yml` and the cask template — are gated against it by `check_product_config.sh`.
+- The cask is `Casks/fermix.rb.tmpl`: token `fermix`, `app "Fermix.app"`, `depends_on macos: :sequoia`, an `early_script` uninstall running the bundle's own `--unregister-login-items` entry point before `quit`, and a `zap` naming the Fermix home, the bootstrap record and the cache. `early_script` rather than `script` because Homebrew runs uninstall directives in a fixed order and only that one runs before `quit`.
+- The tag namespace is plain `vX.Y.Z`, as in the engine repository, and the workflow is `release.yml`. The DMG artifact is `Fermix-<version>.dmg`. The protected-tag ruleset has to name `v*` before the first tag is pushed, and the branch protection on `main` names the cask check, which is now "Fermix cask (style)".
+
+Two pieces are deliberately deferred, and neither blocks a release:
+
+- **The `fermix` command-line launcher and the cask's `binary` stanza.** A third executable target staging a universal `fermix` beside the app and the agent, and the staged-executable gate becoming three named entries, are a later release. Until then the cask links nothing onto `PATH`.
+- **Retiring the `fermixpet` token.** That is a change in `tezra-io/homebrew-tap`, carried by the tap pull request rather than by anything here: the old token moves to the tap's migrations file so an existing install upgrades onto `fermix`. Decide the macOS floor policy for the pet cask before the token moves (freeze it as a terminal release for pre-Sequoia Macs, or raise its floor behind a caveat first).
 
 ### 4. Updates
 
@@ -74,11 +77,11 @@ If safe installation is not ready, explicitly reduce scope to informational upda
 
 ### 6. Publish
 
-Push the tag. CI produces the DMG, its checksum and cosign signature, the rendered cask, the signed appcast item and the merged cumulative feed, and attaches all of them to the release. Then, by hand and in this order: mark the GitHub Release as latest, merge the tap pull request, copy the release's `appcast.xml` to `fermix-site` `public/appcast.xml` and deploy the site, then the download page. The feed goes after the release is marked latest and the tap has the cask, because publishing it is the moment installed clients start being offered the release.
+Push the tag `vX.Y.Z`. CI produces the DMG, named `Fermix-<version>.dmg`, its checksum and cosign signature, the rendered cask, the signed appcast item and the merged cumulative feed, and attaches all of them to the release. Then, by hand and in this order: mark the GitHub Release as latest, merge the tap pull request, copy the release's `appcast.xml` to `fermix-site` `public/appcast.xml` and deploy the site, then the download page. The feed goes after the release is marked latest and the tap has the cask, because publishing it is the moment installed clients start being offered the release.
 
 ### 7. The site
 
-- A download page at `fermix.ai/download` with one button, "Download for Mac", requirements (macOS 15 or later, Apple silicon and Intel in one file), the sha256 and how to check it, and the two alternatives: `brew install --cask tezra-io/tap/fermix`, and for an existing Homebrew install, that the app adopts it in place.
+- A download page at `fermix.ai/download` with one button, "Download for Mac", requirements (macOS 15 or later, Apple silicon and Intel in one file), the sha256 and how to check it, and the two alternatives: `brew install --cask tezra-io/tap/fermix`, and for an existing Homebrew install, that the app adopts it in place. The old `fermixpet` token keeps working until the tap's migration lands, and reads as the pet cask until then.
 - The button points at `https://fermix.ai/download/macos`, a route the site's Worker answers with a redirect to the pinned release asset on GitHub. The URL on the page never changes, the release assets stay immutable, and moving people to a new version is a one-line change in the site's config, deployed with the site. The Worker is already the site's runtime, so this is a route, not new infrastructure.
 - The docs pages that mention FermixPet (installation, distribution and upgrade, realtime voice) change to the app, its cask and the adoption of a brew home; the `fermix-site-docs` skill carries the routing table and the writing rules.
 - The bytes stay on GitHub Releases: free, on a CDN, and already the artifact of record with a cosign signature. If we later want the download to stay on our domain end to end, a Cloudflare R2 bucket behind `download.fermix.ai` mirrors the same file at about a cent and a half per gigabyte a month with no egress charge; nothing in the plan above changes except the redirect target.
@@ -91,7 +94,7 @@ Push the tag. CI produces the DMG, its checksum and cosign signature, the render
 | Sparkle in the first public release | Discovery and safe installation, including the journal and recovery. Discovery-only requires an explicit scope decision. |
 | Pet cask macOS floor policy | Freeze the pet cask as a terminal release for pre-Sequoia Macs; the unified app has a macOS 15 floor. |
 | Where the bytes live | GitHub Releases now, behind a `fermix.ai/download/macos` redirect. R2 mirror later if wanted. |
-| App version | Its own marketing version, starting at 1.0.0 with the rename. The app shows the engine's build separately. |
+| App version | Its own marketing version, 0.1.0 with the rename. The app shows the engine's build separately. |
 
 ## Effort, roughly
 

@@ -21,10 +21,9 @@
 #
 # The bundle name, the DMG name, and the disk image's volume name all come from
 # Product.json through scripts/product_config.sh. The artifact name is therefore
-# whatever `app_bundle_name` says without its .app suffix — and because the
-# legacy FermixPet release path (notarize.yml, release-fermixpet.yml, and the
-# cask template) matches that name literally, scripts/check_product_config.sh
-# gates those three files against this configuration.
+# whatever `app_bundle_name` says without its .app suffix — and because
+# release.yml and the cask template match that name literally,
+# scripts/check_product_config.sh gates both files against this configuration.
 #
 # Usage: package_release.sh <version> <build_number>
 #   <version>       marketing version, e.g. 0.2.0 (from the release tag)

@@ -36,7 +36,7 @@ public struct FermixBoltShape: Shape {
 
 /// The shipped menu-bar template images, one per state.
 ///
-/// Each is the interim Fermix mark — the FermixPet mascot in one ink —
+/// Each is the interim Fermix mark — the pet mascot in one ink —
 /// rasterized from a single master by `scripts/build_menu_bar_template.py`, and
 /// each carries alpha only, so macOS tints it for the current menu-bar
 /// appearance and sizes it the way it sizes every other status item.

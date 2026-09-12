@@ -67,6 +67,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The bundle and artifact names come from Product.json, resolved once
+      # here: the steps below name the disk image in a shell glob and in a
+      # YAML path, and a literal in either would be a second owner of a name
+      # package_release.sh derives from the same configuration.
+      - name: Resolve the product's names
+        run: |
+          set -euo pipefail
+          source scripts/product_config.sh
+          bundle="$(product_config app_bundle_name)"
+          {
+            echo "APP_BUNDLE_NAME=$bundle"
+            echo "ARTIFACT_NAME=${bundle%.app}"
+          } >> "$GITHUB_ENV"
+
       - name: Validate signing secrets are complete
         env:
           MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
@@ -106,6 +120,12 @@ jobs:
 
       - name: Build, sign, notarize + staple (DMG)
         env:
+          # Packaging downloads the pinned engine's release assets with gh,
+          # which is unauthenticated without this and then shares the
+          # runner's per-address rate limit with every other job on that
+          # address; the first tagged run failed there. The token is the
+          # workflow's own, read-only.
+          GH_TOKEN: ${{ github.token }}
           MACOS_DEVELOPER_ID: ${{ secrets.MACOS_DEVELOPER_ID }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -120,13 +140,13 @@ jobs:
       - name: Gatekeeper quarantine-acceptance gate
         run: |
           set -euo pipefail
-          dmg="$(ls dist/FermixPet-*.dmg)"
+          dmg="$(ls "dist/$ARTIFACT_NAME"-*.dmg)"
           # Simulate a browser download; a headless spctl otherwise never sees quarantine.
           xattr -w com.apple.quarantine "0081;$(date +%s);Safari;$(uuidgen)" "$dmg"
           spctl -a -t open --context context:primary-signature -vv "$dmg"
           mp="$(mktemp -d)"
           hdiutil attach "$dmg" -nobrowse -mountpoint "$mp"
-          spctl -a -t exec -vv "$mp/FermixPet.app"
+          spctl -a -t exec -vv "$mp/$APP_BUNDLE_NAME"
           hdiutil detach "$mp"
 
       # The update feed's half of a release, written here because this is the
@@ -145,8 +165,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          source scripts/product_config.sh
-          dmg="$(ls dist/FermixPet-*.dmg)"
+          dmg="$(ls "dist/$ARTIFACT_NAME"-*.dmg)"
           mount="$(mktemp -d)"
           hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount"
           trap 'hdiutil detach "$mount"' EXIT
@@ -155,7 +174,7 @@ jobs:
           # refuses if the tool is not there rather than signing nothing.
           printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | scripts/appcast.py item \
             --dmg "$dmg" \
-            --app "$mount/$(product_config app_bundle_name)" \
+            --app "$mount/$APP_BUNDLE_NAME" \
             --tag "$REF_NAME" \
             --sign-update Apps/Fermix/.build-release/artifacts/sparkle/Sparkle/bin/sign_update \
             --out appcast-item.xml
@@ -165,17 +184,17 @@ jobs:
         id: out
         run: |
           set -euo pipefail
-          dmg="$(ls dist/FermixPet-*.dmg)"
+          dmg="$(ls "dist/$ARTIFACT_NAME"-*.dmg)"
           echo "dmg_name=$(basename "$dmg")" >> "$GITHUB_OUTPUT"
           echo "dmg_sha256=$(cat "$dmg.sha256")" >> "$GITHUB_OUTPUT"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fermixpet-dmg
+          name: fermix-dmg
           path: |
-            dist/FermixPet-*.dmg
-            dist/FermixPet-*.dmg.sha256
+            dist/${{ env.ARTIFACT_NAME }}-*.dmg
+            dist/${{ env.ARTIFACT_NAME }}-*.dmg.sha256
           if-no-files-found: error
 
       # Its own artifact rather than a file added to the image's: the publish
@@ -184,6 +203,6 @@ jobs:
       - name: Upload appcast item artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fermixpet-appcast-item
+          name: fermix-appcast-item
           path: appcast-item.xml
           if-no-files-found: error

@@ -407,7 +407,7 @@ expect_refusal "an Info.plist identity that is not the configured one is refused
   "$VERIFY" "$app" universal unsigned
 
 app="$(fresh_bundle wrong-usage-copy)"
-plutil -replace NSMicrophoneUsageDescription -string "FermixPet needs your microphone" \
+plutil -replace NSMicrophoneUsageDescription -string "Some other app needs your microphone" \
   "$app/Contents/Info.plist"
 expect_refusal "an Info.plist usage string that drifted from the configuration is refused" \
   "NSMicrophoneUsageDescription is" \

@@ -52,7 +52,7 @@
 # a dev loop cannot be given a record of its own. `up` therefore moves the
 # existing record aside and writes one pointing at the dev home, and `down`
 # puts it back. While the loop is up, anything that reads the record reads the
-# dev home — so a registered FermixPet background item would follow this loop's
+# dev home — so a registered Fermix background item would follow this loop's
 # home on its next relaunch, and a crash between `up` and `down` would leave it
 # pointing there. `up` refuses any registered item owned by another bundle.
 # This loop's own item is unregistered before its bundle or record is replaced.
@@ -75,7 +75,8 @@ PORT=4530
 # polled the new bot after its next restart. The dev home carries this profile
 # before the engine ever boots on it.
 SECRET_PROFILE="fermix-macos"
-APP="$ROOT_DIR/Apps/Fermix/dist-e2e/FermixPet.app"
+APP_BUNDLE_NAME="$(product_config app_bundle_name)"
+APP="$ROOT_DIR/Apps/Fermix/dist-e2e/$APP_BUNDLE_NAME"
 GUI_EXECUTABLE="$(product_config gui_executable_name)"
 DEV_FLAG="--development-engine"
 ENGINE_TREE="$ENGINE_SRC/_build/prod/rel/fermix_app_engine"
@@ -98,7 +99,7 @@ live() {
 
 # The one signing identity this loop uses: the Developer ID Application
 # certificate in the login keychain, which is the identity a release carries
-# and the one whose Team ID the shipped FermixPet's grants are keyed to. Exactly
+# and the one whose Team ID the shipped app's grants are keyed to. Exactly
 # one, or a refusal that says what to import; a second identity would make the
 # choice silent.
 signing_identity() {

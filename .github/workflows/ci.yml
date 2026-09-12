@@ -1,20 +1,19 @@
 name: ci
 
-# The legacy FermixPet release path's ungated gate.
+# The cask's ungated gate.
 #
-# release-fermixpet.yml renders Casks/fermixpet.rb.tmpl on a release tag and
-# publishes the result to the tap. That template is checked in but never
-# exercised outside a release, so a style regression in it would surface only
-# after a full sign + notarize round trip. This renders it with a placeholder
-# version and sha and lints it exactly as the release job does.
+# release.yml renders Casks/fermix.rb.tmpl on a release tag and publishes the
+# result to the tap. That template is checked in but never exercised outside a
+# release, so a style regression in it would surface only after a full sign +
+# notarize round trip. This renders it with a placeholder version and sha and
+# lints it exactly as the release job does.
 #
-# Everything about the unified Fermix application — build, unit tests, the
-# XcodeGen spec, the product configuration and asset gates, the staging dry run,
-# and the vendored wire contracts — lives in fermix-app.yml. This file exists
-# only for as long as the FermixPet cask does; M34 retires it at general
-# availability, when the unified-app cask replaces it.
+# Everything else about the application — build, unit tests, the XcodeGen spec,
+# the product configuration and asset gates, the staging dry run, and the
+# vendored wire contracts — lives in fermix-app.yml. The cask keeps its own file
+# because it is the only gate that needs a Homebrew runner.
 #
-# No secrets: signing and notarization live in release-fermixpet.yml.
+# No secrets: signing and notarization live in release.yml.
 #
 # Actions are pinned to immutable commit SHAs per M34 section 7.
 on:
@@ -27,7 +26,7 @@ permissions:
 
 jobs:
   cask:
-    name: FermixPet cask (style)
+    name: Fermix cask (style)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -39,6 +38,6 @@ jobs:
           set -euo pipefail
           sha="$(printf '%064d' 0)"
           sed -e "s/__VERSION__/0.0.0/g" -e "s/__SHA256__/$sha/g" \
-            Casks/fermixpet.rb.tmpl > Casks/fermixpet.rb
-          brew style Casks/fermixpet.rb
-          rm -f Casks/fermixpet.rb
+            Casks/fermix.rb.tmpl > Casks/fermix.rb
+          brew style Casks/fermix.rb
+          rm -f Casks/fermix.rb

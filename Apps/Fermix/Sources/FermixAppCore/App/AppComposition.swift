@@ -194,7 +194,7 @@ final class AppComposition {
         PetAssetCache.shared.preload()
     }
 
-    /// The interim mark: the FermixPet mascot in one ink, which is the icon
+    /// The interim mark: the pet mascot in one ink, which is the icon
     /// everywhere until the owner has a Fermix logo.
     func installApplicationIcon() {
         guard

@@ -9,7 +9,7 @@ signing / notarization / release pipeline.
 
 | App | Path | Cask | Tag namespace |
 |---|---|---|---|
-| **Fermix** — the macOS app (voice companion today, the unified surface in progress) | `Apps/Fermix/` | `Casks/fermixpet.rb` | `fermixpet-v*` |
+| **Fermix** — the macOS app, with the engine bundled inside it | `Apps/Fermix/` | `Casks/fermix.rb` | `v*` |
 
 ## Layout
 
@@ -22,7 +22,8 @@ Apps/Fermix/Sources/FermixAppCore/Resources/Product.json
 scripts/               product_config.sh + render_info_plist.sh + check_product_config.sh,
                        keychain.sh, package_release.sh (build→sign→notarize→staple→DMG),
                        verify_protocol_contract.sh
-.github/workflows/     ci.yml (PR gates), notarize.yml (reusable signing), release-<app>.yml
+.github/workflows/     ci.yml (cask style), fermix-app.yml (PR gates),
+                       notarize.yml (reusable signing), release.yml
 Casks/                 Homebrew cask templates (rendered at release with the real sha)
 Apps/Fermix/Sources/FermixAppCore/Resources/Contracts/
                        vendored copies of Fermix's management and realtime wire
@@ -31,8 +32,8 @@ Apps/Fermix/Sources/FermixAppCore/Resources/Contracts/
 
 ## Releasing an app
 
-1. Push a tag `fermixpet-vX.Y.Z` (maintainers only — protected-tag ruleset).
-2. `release-fermixpet.yml` builds universal2, signs with Developer ID, notarizes +
+1. Push a tag `vX.Y.Z` (maintainers only — protected-tag ruleset).
+2. `release.yml` builds universal2, signs with Developer ID, notarizes +
    staples (two-pass: app then DMG), runs the Gatekeeper quarantine-acceptance gate,
    then publishes a GitHub Release (**not** marked latest) with the DMG, its sha256,
    a keyless cosign signature, and the rendered cask.
@@ -42,7 +43,7 @@ Apps/Fermix/Sources/FermixAppCore/Resources/Contracts/
 Installing (once a release exists and the repo/release is public):
 
 ```sh
-brew install --cask tezra-io/tap/fermixpet   # or the local Casks/fermixpet.rb
+brew install --cask tezra-io/tap/fermix   # or the local Casks/fermix.rb
 ```
 
 ## Development

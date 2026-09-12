@@ -948,8 +948,13 @@ final class PermissionCountingAudioEngine: VoiceAudioEngine, @unchecked Sendable
 
     var permissionRequests: Int { lock.withLock { requests } }
 
+    /// The failure `requestCapturePermission` reports, if there is one. Nil by
+    /// default, so a case that only counts requests is unaffected.
+    var permissionError: (any Error)?
+
     func requestCapturePermission() async throws {
         lock.withLock { requests += 1 }
+        if let permissionError { throw permissionError }
     }
 
     func prepareCapture() throws {}

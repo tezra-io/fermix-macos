@@ -19,7 +19,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESOURCES_DIR="$ROOT_DIR/Apps/Fermix/Sources/FermixAppCore/Resources"
-# The interim mark: the FermixPet mascot in one ink, generated from the pet
+# The interim mark: the pet mascot in one ink, generated from the pet
 # artwork by scripts/build_mascot_mark.py. It stands in until the owner has a
 # Fermix logo, at which point that generator is repointed and this is unchanged.
 MASTER="$RESOURCES_DIR/AppIcon/FermixMonochromeIcon.png"

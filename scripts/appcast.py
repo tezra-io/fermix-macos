@@ -24,8 +24,8 @@ never written to disk, and never printed, not even inside a refusal.
 
 Usage:
   printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | appcast.py item \\
-      --dmg dist/FermixPet-0.1.0.dmg --app /Volumes/x/FermixPet.app \\
-      --tag fermixpet-v0.1.0 --sign-update <path>/bin/sign_update \\
+      --dmg dist/Fermix-0.1.0.dmg --app /Volumes/x/Fermix.app \\
+      --tag v0.1.0 --sign-update <path>/bin/sign_update \\
       --out appcast-item.xml
   appcast.py merge --item appcast-item.xml [--previous appcast.xml] \\
       --out appcast.xml
