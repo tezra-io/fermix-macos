@@ -68,6 +68,23 @@ public enum VoiceStatus: Equatable, Sendable {
         }
     }
 
+    /// Whether this status says something `VoiceStatus(mode:)` cannot rebuild.
+    ///
+    /// Every failure records its own sentence, and `.error` reconstructs as
+    /// `.offline` — so a surface that derives its words from the mode reports a
+    /// healthy disconnection for a machine that is refusing for a reason it has
+    /// already put into words. These four are the statuses a surface must read
+    /// from the status itself. Enumerated rather than defaulted, so a status
+    /// added later has to decide which half it belongs to.
+    public var carriesItsOwnSentence: Bool {
+        switch self {
+        case .updateRequired, .homeUnavailable, .refused, .microphoneUnavailable:
+            return true
+        case .offline, .connecting, .idle, .listening, .muted, .thinking, .speaking, .toolUse:
+            return false
+        }
+    }
+
     /// The plain status for a mode, before anything more specific is known.
     public init(mode: VoiceMode) {
         switch mode {
