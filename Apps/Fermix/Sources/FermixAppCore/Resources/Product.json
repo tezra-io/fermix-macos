@@ -12,8 +12,8 @@
     "arm64",
     "x86_64"
   ],
-  "marketing_version": "0.1.0",
-  "build_number": "1",
+  "marketing_version": "0.1.1",
+  "build_number": "2",
   "icon_file": "Fermix",
   "swift_resource_bundle_name": "Fermix_FermixAppCore.bundle",
   "engine_relative_path": "Contents/Resources/Engine",
