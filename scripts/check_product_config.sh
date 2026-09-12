@@ -21,14 +21,15 @@
 #      search path: two build configurations that disagreed would embed one
 #      framework and compile against another, or link a GUI that cannot find
 #      the framework beside it.
-#   4. The legacy FermixPet release path — notarize.yml, release-fermixpet.yml,
-#      and Casks/fermixpet.rb.tmpl. Those three name the released artifact
-#      literally, in shell globs and in a cask stanza, and they run only on a
-#      release tag. Ungated, renaming the app bundle would break the release
-#      channel at the one moment nobody can afford it, so the artifact name
-#      package_release.sh derives from `app_bundle_name` is required to appear
-#      in each of them. Apps/Fermix/script/build_and_run_test.sh asserts the
-#      same values but is a test, so it fails on its own in CI.
+#   4. The release path — release.yml and Casks/fermix.rb.tmpl. Both name the
+#      released artifact literally, in a shell glob and in a cask stanza, and
+#      they run only on a release tag. Ungated, renaming the app bundle would
+#      break the release channel at the one moment nobody can afford it, so the
+#      artifact name package_release.sh derives from `app_bundle_name` is
+#      required to appear in each of them. notarize.yml is not on this list: it
+#      resolves both names from the configuration itself and restates neither.
+#      Apps/Fermix/script/build_and_run_test.sh asserts the same values but is a
+#      test, so it fails on its own in CI.
 #
 # Every expected string below is derived from Product.json, not typed twice.
 #
@@ -40,9 +41,8 @@ APP_DIR="$ROOT_DIR/Apps/Fermix"
 PLIST="$APP_DIR/Sources/Fermix/Info.plist"
 MANIFEST="$APP_DIR/Package.swift"
 PROJECT_SPEC="$APP_DIR/project.yml"
-NOTARIZE_WORKFLOW="$ROOT_DIR/.github/workflows/notarize.yml"
-RELEASE_WORKFLOW="$ROOT_DIR/.github/workflows/release-fermixpet.yml"
-CASK_TEMPLATE="$ROOT_DIR/Casks/fermixpet.rb.tmpl"
+RELEASE_WORKFLOW="$ROOT_DIR/.github/workflows/release.yml"
+CASK_TEMPLATE="$ROOT_DIR/Casks/fermix.rb.tmpl"
 
 # shellcheck source=scripts/product_config.sh
 source "$ROOT_DIR/scripts/product_config.sh"
@@ -135,16 +135,14 @@ check_project_spec() {
 
 # The artifact name package_release.sh writes is the bundle name without its
 # .app suffix, so both forms are checked wherever the release path names one.
-check_legacy_release_path() {
+check_release_path() {
   local bundle artifact
   bundle="$(product_config app_bundle_name)"
   artifact="${bundle%.app}"
 
-  for workflow in "$NOTARIZE_WORKFLOW" "$RELEASE_WORKFLOW"; do
-    [ -f "$workflow" ] || fail "release workflow is missing at $workflow"
-    require_literal "$workflow" "dist/$artifact-*.dmg" "the released DMG name"
-    require_literal "$workflow" "/$bundle" "the released bundle name"
-  done
+  [ -f "$RELEASE_WORKFLOW" ] || fail "release workflow is missing at $RELEASE_WORKFLOW"
+  require_literal "$RELEASE_WORKFLOW" "dist/$artifact-*.dmg" "the released DMG name"
+  require_literal "$RELEASE_WORKFLOW" "/$bundle" "the released bundle name"
 
   [ -f "$CASK_TEMPLATE" ] || fail "cask template is missing at $CASK_TEMPLATE"
   require_literal "$CASK_TEMPLATE" "$artifact-#{version}.dmg" "the released DMG name"
@@ -158,5 +156,5 @@ check_manifest_platform
 check_sparkle_pin
 check_frameworks_rpath
 check_project_spec
-check_legacy_release_path
+check_release_path
 echo "check_product_config: ok"

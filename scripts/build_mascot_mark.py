@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Derive the interim Fermix mark from the pet artwork.
 
-The mark is the FermixPet mascot in one ink. It is interim: the owner asked for
+The mark is the pet mascot in one ink. It is interim: the owner asked for
 the mascot everywhere until there is a Fermix logo, at which point both masters
 below are regenerated from that logo and nothing else changes.
 

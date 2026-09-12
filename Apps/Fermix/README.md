@@ -40,7 +40,7 @@ Install the app:
 ```sh
 cd Apps/Fermix
 ./script/build_and_run.sh install
-open "$HOME/Applications/FermixPet.app"
+open "$HOME/Applications/Fermix.app"
 ```
 
 When testing against a dev daemon:
@@ -64,7 +64,7 @@ Microphone, or reset the prompt with:
 tccutil reset Microphone io.tezra.FermixPet
 ```
 
-Close the app by right-clicking the pet and choosing `Quit FermixPet`.
+Close the app by right-clicking the pet and choosing `Quit Fermix`.
 
 If the pet flickers to `listening` and immediately drops back to idle/offline,
 or the mic indicator seems stuck, the daemon usually can't open the Realtime
@@ -84,7 +84,7 @@ For early shared builds, ad-hoc signing is acceptable. If Gatekeeper quarantines
 a local build, remove quarantine before launching:
 
 ```sh
-xattr -dr com.apple.quarantine FermixPet.app
+xattr -dr com.apple.quarantine Fermix.app
 ```
 
 Developer ID signing and notarization are release-packaging work outside the

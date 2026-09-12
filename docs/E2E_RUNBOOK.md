@@ -107,7 +107,7 @@ password. Keep the folder you made it in; on this Mac that is `~/apple_cert`.
 
 6. `scripts/dev_e2e.sh up`. Its last lines print `signed  Developer ID
    Application: …`, and
-   `codesign -dvv Apps/Fermix/dist-e2e/FermixPet.app/Contents/MacOS/FermixAgent`
+   `codesign -dvv Apps/Fermix/dist-e2e/Fermix.app/Contents/MacOS/FermixAgent`
    shows `TeamIdentifier=<TEAMID>`. From now on every rebuild keeps the same
    identity, so registrations, restarts and the microphone grant survive it.
 
@@ -118,9 +118,9 @@ an invalid previous build number is refused. Production versioning is unchanged.
 
 ## 0. Decide before starting
 
-1. **Bundle file name** — STAGE0_RUNBOOK §0.1. The staged bundle still ships as
-   `FermixPet.app` (deliberate, gated); gate 5 is meaningless until the rename
-   decision is made. Decide it first.
+1. **Bundle file name** — decided, STAGE0_RUNBOOK §0.1. The staged bundle ships
+   as `Fermix.app` under the unchanged identifier, so gate 5 has a real rename
+   to prove.
 2. **Which account runs the journey.**
    - **Path A (recommended): a fresh macOS test account** on this Mac. Closest
      honest stand-in for a clean machine: its own `~/.fermix`, its own
@@ -161,11 +161,11 @@ sign, verify — `native` covers this Apple-silicon session; `universal` is the
 release shape):
 
 ```bash
-scripts/stage_app.sh 0.1.0 1 Apps/Fermix/dist/FermixPet.app native \
+scripts/stage_app.sh 0.1.0 1 Apps/Fermix/dist/Fermix.app native \
   --engine ~/projects/fermix/_build/prod/rel/fermix_app_engine \
   --cosign "$(which cosign)"
-scripts/sign_app.sh Apps/Fermix/dist/FermixPet.app "Developer ID Application: <You> (<TEAMID>)"
-scripts/verify_staged_app.sh Apps/Fermix/dist/FermixPet.app native signed
+scripts/sign_app.sh Apps/Fermix/dist/Fermix.app "Developer ID Application: <You> (<TEAMID>)"
+scripts/verify_staged_app.sh Apps/Fermix/dist/Fermix.app native signed
 ```
 
 Then STAGE0_RUNBOOK §3: notarize, staple, DMG, quarantined Gatekeeper gate.
@@ -254,7 +254,7 @@ its bundled agent plist.
 On an account with a Homebrew install the SHIPPED activation still refuses by
 design — the app is not in `/Applications`, a legacy launch agent is
 registered, and a second copy exists — which is why the dev loop opens the app
-in its **development configuration**: `open …/FermixPet.app --args
+in its **development configuration**: `open …/Fermix.app --args
 --development-engine`, a debug-only launch that skips those three refusals and
 uses its own bundled background agent. It still
 probes the recorded home's daemon identity, waits for the socket, negotiates

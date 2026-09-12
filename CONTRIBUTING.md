@@ -54,6 +54,6 @@ checkout, can, which is why a re-vendor is verified with it.
 
 ## Releases
 
-Tags are app-scoped (`fermixpet-vX.Y.Z`) and maintainer-only. Never create a bare
-`v*` tag here — that namespace belongs to the fermix CLI. Every release passes
-the protected `release-macos` environment before signing.
+Tags are `vX.Y.Z` and maintainer-only, under a protected-tag ruleset. They name
+releases of this app only; the engine's own tags live in the fermix repository.
+Every release passes the protected `release-macos` environment before signing.
