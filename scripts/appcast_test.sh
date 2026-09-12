@@ -196,15 +196,15 @@ write_codesign_stub "$WORK_DIR/bin-unsigned" ""
 
 echo "appcast_test: one item"
 
-APP="$WORK_DIR/release-1/FermixPet.app"
-DMG="$WORK_DIR/release-1/FermixPet-0.1.0.dmg"
+APP="$WORK_DIR/release-1/Fermix.app"
+DMG="$WORK_DIR/release-1/Fermix-0.1.0.dmg"
 mkdir -p "$WORK_DIR/release-1"
 make_app "$APP" "0.1.0" "1"
 make_disk_image "$DMG"
 ITEM_ONE="$WORK_DIR/item-1.xml"
 
 item_one=(
-  --dmg "$DMG" --app "$APP" --tag "fermixpet-v0.1.0"
+  --dmg "$DMG" --app "$APP" --tag "v0.1.0"
   --sign-update "$SIGN_UPDATE" --out "$ITEM_ONE"
 )
 expect_pass "a stapled image and the app it carries produce one signed item" \
@@ -212,27 +212,27 @@ expect_pass "a stapled image and the app it carries produce one signed item" \
 
 echo "appcast_test: refusals in the item"
 
-app="$WORK_DIR/bad-build/FermixPet.app"
+app="$WORK_DIR/bad-build/Fermix.app"
 make_app "$app" "0.1.0" "0.1.0"
 expect_refusal "a build number that is not a plain positive integer is refused" \
   "is not a plain positive integer" \
-  appcast_item "$WORK_DIR/bin" --dmg "$DMG" --app "$app" --tag "fermixpet-v0.1.0" \
+  appcast_item "$WORK_DIR/bin" --dmg "$DMG" --app "$app" --tag "v0.1.0" \
   --sign-update "$SIGN_UPDATE" --out "$WORK_DIR/refused.xml"
 
-app="$WORK_DIR/no-engine/FermixPet.app"
+app="$WORK_DIR/no-engine/Fermix.app"
 make_app "$app" "0.1.0" "1"
 rm -r "${app:?}/${ENGINE_RELATIVE_PATH:?}"
 expect_refusal "a bundle with an empty engine slot is refused" \
   "carries no engine-manifest.json" \
-  appcast_item "$WORK_DIR/bin" --dmg "$DMG" --app "$app" --tag "fermixpet-v0.1.0" \
+  appcast_item "$WORK_DIR/bin" --dmg "$DMG" --app "$app" --tag "v0.1.0" \
   --sign-update "$SIGN_UPDATE" --out "$WORK_DIR/refused.xml"
 
-app="$WORK_DIR/split-engine/FermixPet.app"
+app="$WORK_DIR/split-engine/Fermix.app"
 make_app "$app" "0.1.0" "1"
 make_engine_manifest "$app/$ENGINE_RELATIVE_PATH/x86_64" x86_64 "2026081902"
 expect_refusal "two engine trees that name different builds are refused" \
   "the engine trees disagree" \
-  appcast_item "$WORK_DIR/bin" --dmg "$DMG" --app "$app" --tag "fermixpet-v0.1.0" \
+  appcast_item "$WORK_DIR/bin" --dmg "$DMG" --app "$app" --tag "v0.1.0" \
   --sign-update "$SIGN_UPDATE" --out "$WORK_DIR/refused.xml"
 
 expect_refusal "an enclosure url that is not https is refused" \
@@ -242,7 +242,7 @@ expect_refusal "an enclosure url that is not https is refused" \
 
 expect_refusal "a sign_update that printed no signature is refused" \
   "printed no sparkle:edSignature attribute" \
-  appcast_item "$WORK_DIR/bin" --dmg "$DMG" --app "$APP" --tag "fermixpet-v0.1.0" \
+  appcast_item "$WORK_DIR/bin" --dmg "$DMG" --app "$APP" --tag "v0.1.0" \
   --sign-update "$GARBLED_SIGN_UPDATE" --out "$WORK_DIR/refused.xml"
 
 expect_refusal "a bundle whose signature names no authority is refused" \
@@ -255,14 +255,14 @@ FEED_ONE="$WORK_DIR/appcast-1.xml"
 expect_pass "the first release starts a new feed" \
   appcast_merge --item "$ITEM_ONE" --out "$FEED_ONE"
 
-APP_TWO="$WORK_DIR/release-2/FermixPet.app"
-DMG_TWO="$WORK_DIR/release-2/FermixPet-0.2.0.dmg"
+APP_TWO="$WORK_DIR/release-2/Fermix.app"
+DMG_TWO="$WORK_DIR/release-2/Fermix-0.2.0.dmg"
 mkdir -p "$WORK_DIR/release-2"
 make_app "$APP_TWO" "0.2.0" "2"
 make_disk_image "$DMG_TWO"
 ITEM_TWO="$WORK_DIR/item-2.xml"
 expect_pass "a critical release produces its own item" \
-  appcast_item "$WORK_DIR/bin" --dmg "$DMG_TWO" --app "$APP_TWO" --tag "fermixpet-v0.2.0" \
+  appcast_item "$WORK_DIR/bin" --dmg "$DMG_TWO" --app "$APP_TWO" --tag "v0.2.0" \
   --sign-update "$SIGN_UPDATE" --critical --out "$ITEM_TWO"
 
 FEED_TWO="$WORK_DIR/appcast-2.xml"
@@ -271,11 +271,11 @@ expect_pass "the next release carries the published one forward" \
 
 echo "appcast_test: refusals in the merge"
 
-app="$WORK_DIR/reused/FermixPet.app"
+app="$WORK_DIR/reused/Fermix.app"
 make_app "$app" "0.3.0" "2"
 item="$WORK_DIR/item-reused.xml"
 expect_pass "an item under an already published build number is written" \
-  appcast_item "$WORK_DIR/bin" --dmg "$DMG_TWO" --app "$app" --tag "fermixpet-v0.3.0" \
+  appcast_item "$WORK_DIR/bin" --dmg "$DMG_TWO" --app "$app" --tag "v0.3.0" \
   --sign-update "$SIGN_UPDATE" --out "$item"
 expect_refusal "a reused build number is refused" \
   "is not greater than 2" \
@@ -285,11 +285,11 @@ expect_refusal "a build number below the published one is refused" \
   "is not greater than 2" \
   appcast_merge --item "$ITEM_ONE" --previous "$FEED_TWO" --out "$WORK_DIR/refused.xml"
 
-app="$WORK_DIR/duplicate-version/FermixPet.app"
+app="$WORK_DIR/duplicate-version/Fermix.app"
 make_app "$app" "0.2.0" "3"
 item="$WORK_DIR/item-duplicate.xml"
 expect_pass "an item reusing a published marketing version is written" \
-  appcast_item "$WORK_DIR/bin" --dmg "$DMG_TWO" --app "$app" --tag "fermixpet-v0.2.1" \
+  appcast_item "$WORK_DIR/bin" --dmg "$DMG_TWO" --app "$app" --tag "v0.2.1" \
   --sign-update "$SIGN_UPDATE" --out "$item"
 expect_refusal "a marketing version that is already published is refused" \
   "is already published as build 2" \
@@ -309,7 +309,7 @@ FEED="$FEED_TWO" \
   EXPECTED_ENGINE_VERSION="$ENGINE_VERSION" \
   EXPECTED_SHA256="$(shasum -a 256 "$DMG_TWO" | awk '{print $1}')" \
   EXPECTED_LENGTH="$(wc -c <"$DMG_TWO" | tr -d ' ')" \
-  EXPECTED_URL="$RELEASE_BASE/fermixpet-v0.2.0/$(basename "$DMG_TWO")" \
+  EXPECTED_URL="$RELEASE_BASE/v0.2.0/$(basename "$DMG_TWO")" \
   EXPECTED_MINIMUM="$(product_config minimum_system_version)" \
   python3 - <<'PY' || fail "the produced feed does not carry what went into it"
 import os

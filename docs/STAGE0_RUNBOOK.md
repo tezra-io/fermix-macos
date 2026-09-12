@@ -19,47 +19,31 @@ under **Stage 0 evidence**.
 
 ## 0. Before you start
 
-### 0.1 One decision blocks the first gate
+### 0.1 The rename has landed
 
-`Product.json` still declares `"app_bundle_name": "FermixPet.app"`. Everything
-else has been renamed: the GUI executable is `Fermix`, the display name is
-`Fermix`, and the bundle identifier is deliberately still `io.tezra.FermixPet`
-because M34 gate 5 depends on retaining it.
+`Product.json` declares `"app_bundle_name": "Fermix.app"`, and the bundle
+identifier is deliberately still `io.tezra.FermixPet` because M34 gate 5 depends
+on retaining it.
 
 Gate 5 reads "retaining `io.tezra.FermixPet` preserves the existing microphone
-grant **after renaming the app and executable to Fermix**". With the bundle still
-named `FermixPet.app` there is no rename to survive, and the gate would pass
-without proving anything.
+grant **after renaming the app and executable to Fermix**", so there is now a
+real rename for it to survive: the shipped pet installs `FermixPet.app` from the
+`fermixpet` cask, this bundle installs `Fermix.app` from `fermix`, and both
+carry the same identifier.
 
-Renaming the bundle is a distribution decision, not a build detail: the FermixPet
-cask installs `FermixPet.app` and the release channel publishes
-`FermixPet-<version>.dmg`, so flipping the name changes what an existing
-`brew upgrade --cask fermixpet` does. That decision is yours, so the value was
-left alone and gated instead.
-
-To flip it, edit one line:
-
-```jsonc
-// Apps/Fermix/Sources/FermixAppCore/Resources/Product.json
-"app_bundle_name": "Fermix.app",
-```
-
-then run the gate, which names every file that has to move with it:
+The gate names every file that has to move with the bundle name:
 
 ```sh
 scripts/check_product_config.sh
 ```
 
-It fails today with `expected 'dist/Fermix-*.dmg'` and points at
-`.github/workflows/notarize.yml`, `.github/workflows/release-fermixpet.yml`, and
-`Casks/fermixpet.rb.tmpl`. Those three name the released artifact literally,
-because a shell glob and a cask stanza cannot read `Product.json` at the moment
-they need it. `Apps/Fermix/script/build_and_run_test.sh` asserts the same values
-and fails on its own in CI.
+Two files cannot read `Product.json` at the moment they need it, a shell glob
+and a cask stanza, so the gate holds them to it:
+`.github/workflows/release.yml` and `Casks/fermix.rb.tmpl`.
+`Apps/Fermix/script/build_and_run_test.sh` asserts the same values and fails on
+its own in CI.
 
-**Do gate 5 with the old bundle still installed and the new bundle renamed.** If
-you would rather not rename yet, gate 5 stays Pending; do not record it as
-passed.
+**Do gate 5 with the old bundle still installed and the new bundle staged.**
 
 ### 0.2 What this artifact is, and is not
 

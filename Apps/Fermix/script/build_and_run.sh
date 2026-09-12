@@ -18,16 +18,16 @@ RESOURCE_BUNDLE_NAME="$(product_config swift_resource_bundle_name)"
 ICON_NAME="$(product_config icon_file).icns"
 
 HOME_DIR="${HOME:-}"
-CACHE_ROOT="${FERMIXPET_CACHE_DIR:-$HOME_DIR/Library/Caches/$BUNDLE_ID}"
-SWIFTPM_BUILD_PATH="${FERMIXPET_SWIFTPM_BUILD_PATH:-$CACHE_ROOT/swiftpm-build}"
-STAGING_DIR="${FERMIXPET_STAGE_DIR:-$CACHE_ROOT/app}"
-INSTALL_DIR="${FERMIXPET_INSTALL_DIR:-$HOME_DIR/Applications}"
-BUILD_CONFIGURATION="${FERMIXPET_SWIFT_CONFIGURATION:-debug}"
-SIGN_IDENTITY="${FERMIXPET_SIGN_IDENTITY:-FermixPet Dev}"
+CACHE_ROOT="${FERMIX_APP_CACHE_DIR:-$HOME_DIR/Library/Caches/$BUNDLE_ID}"
+SWIFTPM_BUILD_PATH="${FERMIX_APP_SWIFTPM_BUILD_PATH:-$CACHE_ROOT/swiftpm-build}"
+STAGING_DIR="${FERMIX_APP_STAGE_DIR:-$CACHE_ROOT/app}"
+INSTALL_DIR="${FERMIX_APP_INSTALL_DIR:-$HOME_DIR/Applications}"
+BUILD_CONFIGURATION="${FERMIX_APP_SWIFT_CONFIGURATION:-debug}"
+SIGN_IDENTITY="${FERMIX_APP_SIGN_IDENTITY:-Fermix Dev}"
 
 case "$MODE" in
   install|--install)
-    BUILD_CONFIGURATION="${FERMIXPET_SWIFT_CONFIGURATION:-release}"
+    BUILD_CONFIGURATION="${FERMIX_APP_SWIFT_CONFIGURATION:-release}"
     ;;
 esac
 
@@ -50,12 +50,12 @@ fail() {
 
 validate_paths() {
   [[ -n "$HOME_DIR" ]] || fail "HOME is not set"
-  [[ -n "$CACHE_ROOT" ]] || fail "FERMIXPET_CACHE_DIR must not be empty"
-  [[ -n "$SWIFTPM_BUILD_PATH" ]] || fail "FERMIXPET_SWIFTPM_BUILD_PATH must not be empty"
-  [[ -n "$STAGING_DIR" ]] || fail "FERMIXPET_STAGE_DIR must not be empty"
-  [[ -n "$INSTALL_DIR" ]] || fail "FERMIXPET_INSTALL_DIR must not be empty"
+  [[ -n "$CACHE_ROOT" ]] || fail "FERMIX_APP_CACHE_DIR must not be empty"
+  [[ -n "$SWIFTPM_BUILD_PATH" ]] || fail "FERMIX_APP_SWIFTPM_BUILD_PATH must not be empty"
+  [[ -n "$STAGING_DIR" ]] || fail "FERMIX_APP_STAGE_DIR must not be empty"
+  [[ -n "$INSTALL_DIR" ]] || fail "FERMIX_APP_INSTALL_DIR must not be empty"
   [[ "$BUILD_CONFIGURATION" == "debug" || "$BUILD_CONFIGURATION" == "release" ]] ||
-    fail "FERMIXPET_SWIFT_CONFIGURATION must be debug or release"
+    fail "FERMIX_APP_SWIFT_CONFIGURATION must be debug or release"
 }
 
 stop_running_app() {
@@ -111,9 +111,9 @@ EOF
     -out "$dir/cert.pem" -days 3650 -config "$cnf" >/dev/null 2>&1 ||
     { rm -rf "$dir"; fail "failed to generate self-signed certificate"; }
   openssl pkcs12 -export -inkey "$dir/key.pem" -in "$dir/cert.pem" \
-    -name "$SIGN_IDENTITY" -out "$dir/identity.p12" -passout pass:fermixpet >/dev/null 2>&1 ||
+    -name "$SIGN_IDENTITY" -out "$dir/identity.p12" -passout pass:fermix >/dev/null 2>&1 ||
     { rm -rf "$dir"; fail "failed to package certificate"; }
-  security import "$dir/identity.p12" -k "$kc" -P fermixpet -T /usr/bin/codesign >/dev/null 2>&1 ||
+  security import "$dir/identity.p12" -k "$kc" -P fermix -T /usr/bin/codesign >/dev/null 2>&1 ||
     { rm -rf "$dir"; fail "failed to import certificate into login keychain"; }
   rm -rf "$dir"
 

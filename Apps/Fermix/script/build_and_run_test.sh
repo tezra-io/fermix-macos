@@ -54,7 +54,7 @@ mkdir -p "$RESOURCE_DIR"
 printf '#!/usr/bin/env bash\n' >"$BUILD_DIR/Fermix"
 printf '#!/usr/bin/env bash\n' >"$BUILD_DIR/FermixAgent"
 chmod +x "$BUILD_DIR/Fermix" "$BUILD_DIR/FermixAgent"
-printf 'icon\n' >"$RESOURCE_DIR/FermixPet.icns"
+printf 'icon\n' >"$RESOURCE_DIR/$FAKE_ICON_NAME"
 
 # The pinned updater, where SwiftPM unpacks a binary target. Real `swift build`
 # resolves it before compiling, and the staging step reads the xcframework's own
@@ -106,7 +106,7 @@ SH
 cat >"$TMP_DIR/bin/security" <<'SH'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "find-identity" ]]; then
-  echo '  1) 0000000000000000000000000000000000000000 "FermixPet Dev"'
+  echo '  1) 0000000000000000000000000000000000000000 "Fermix Dev"'
 fi
 exit 0
 SH
@@ -121,14 +121,19 @@ chmod +x "$TMP_DIR/bin/swift" "$TMP_DIR/bin/pgrep" \
 
 export FAKE_SWIFT_LOG="$TMP_DIR/swift.log"
 export FAKE_SPARKLE_VERSION="$SPARKLE_VERSION"
-export FERMIXPET_INSTALL_DIR="$TMP_DIR/install"
+# The staged bundle's own icon file name, so the stand-in for `swift build`
+# produces the resource the staging step copies rather than a second spelling
+# of it.
+FAKE_ICON_NAME="$(product_config icon_file).icns"
+export FAKE_ICON_NAME
+export FERMIX_APP_INSTALL_DIR="$TMP_DIR/install"
 
 HOME="$TMP_DIR/home" \
 PATH="$TMP_DIR/bin:$PATH" \
   "$SCRIPT" install
 
 EXPECTED_BUILD_PATH="$TMP_DIR/home/Library/Caches/io.tezra.FermixPet/swiftpm-build"
-INSTALLED_APP="$TMP_DIR/install/FermixPet.app"
+INSTALLED_APP="$TMP_DIR/install/$(product_config app_bundle_name)"
 
 test -x "$INSTALLED_APP/Contents/MacOS/Fermix"
 test -x "$INSTALLED_APP/Contents/MacOS/FermixAgent"

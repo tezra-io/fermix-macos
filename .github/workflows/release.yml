@@ -1,15 +1,15 @@
-name: release-fermixpet
+name: release
 
-# Push a tag `fermixpet-vX.Y.Z` to cut a release: build universal2, Developer-ID
-# sign, notarize + staple, DMG, then publish a GitHub Release with the DMG, its
+# Push a tag `vX.Y.Z` to cut a release: build universal2, Developer-ID sign,
+# notarize + staple, DMG, then publish a GitHub Release with the DMG, its
 # sha256, a keyless cosign signature, and the rendered Homebrew cask.
 #
 # Signing is gated by the protected `release-macos` environment (see notarize.yml).
-# The `fermixpet-v*` tag namespace is maintainer-only via a protected-tag ruleset,
-# and `--latest=false` keeps this off the repo-wide /releases/latest pointer.
+# The `v*` tag namespace is maintainer-only via a protected-tag ruleset, and
+# `--latest=false` keeps this off the repo-wide /releases/latest pointer.
 on:
   push:
-    tags: ["fermixpet-v*.*.*"]
+    tags: ["v*.*.*"]
 
 permissions:
   contents: write
@@ -46,10 +46,10 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          version="${REF_NAME#fermixpet-v}"
+          version="${REF_NAME#v}"
           # Strict semver — reject anything the tag namespace shouldn't carry.
           if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error title=Bad tag::'$REF_NAME' is not fermixpet-vX.Y.Z"
+            echo "::error title=Bad tag::'$REF_NAME' is not vX.Y.Z"
             exit 1
           fi
           source scripts/product_config.sh
@@ -80,7 +80,7 @@ jobs:
       - name: Download DMG artifact
         uses: actions/download-artifact@v4
         with:
-          name: fermixpet-dmg
+          name: fermix-dmg
           path: dist
 
       - name: Verify DMG sha256 (from the uploaded bytes)
@@ -88,7 +88,7 @@ jobs:
           EXPECTED: ${{ needs.notarize.outputs.dmg_sha256 }}
         run: |
           set -euo pipefail
-          dmg="$(ls dist/FermixPet-*.dmg)"
+          dmg="$(ls dist/Fermix-*.dmg)"
           actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
           echo "dmg=$dmg sha256=$actual"
           [ "$actual" = "$EXPECTED" ] || { echo "::error title=sha mismatch::$actual != $EXPECTED"; exit 1; }
@@ -96,7 +96,7 @@ jobs:
       - name: Download appcast item artifact
         uses: actions/download-artifact@v4
         with:
-          name: fermixpet-appcast-item
+          name: fermix-appcast-item
           path: appcast
 
       # The feed is cumulative by contract: the app refuses an update unless the
@@ -111,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           previous="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 100 \
-            --json tagName --jq '[.[].tagName | select(startswith("fermixpet-v"))] | first // ""')"
+            --json tagName --jq '[.[].tagName | select(startswith("v"))] | first // ""')"
           merge=(--item appcast/appcast-item.xml --out appcast/appcast.xml)
           if [ -z "$previous" ]; then
             echo "::notice title=The feed starts here::no earlier app release exists, so this release is the whole feed"
@@ -139,11 +139,11 @@ jobs:
         run: |
           set -euo pipefail
           sed -e "s/__VERSION__/$VERSION/g" -e "s/__SHA256__/$SHA256/g" \
-            Casks/fermixpet.rb.tmpl > Casks/fermixpet.rb
-          cat Casks/fermixpet.rb
+            Casks/fermix.rb.tmpl > Casks/fermix.rb
+          cat Casks/fermix.rb
 
       - name: Style-check the cask
-        run: brew style Casks/fermixpet.rb
+        run: brew style Casks/fermix.rb
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -151,7 +151,7 @@ jobs:
       - name: cosign sign-blob (keyless)
         run: |
           set -euo pipefail
-          dmg="$(ls dist/FermixPet-*.dmg)"
+          dmg="$(ls dist/Fermix-*.dmg)"
           cosign sign-blob --yes \
             --output-signature "${dmg}.sig" \
             --output-certificate "${dmg}.pem" \
@@ -163,13 +163,13 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          dmg="$(ls dist/FermixPet-*.dmg)"
+          dmg="$(ls dist/Fermix-*.dmg)"
           gh release create "$REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$REF_NAME" \
             --latest=false \
             --generate-notes \
-            "$dmg" "$dmg.sha256" "$dmg.sig" "$dmg.pem" Casks/fermixpet.rb
+            "$dmg" "$dmg.sha256" "$dmg.sig" "$dmg.pem" Casks/fermix.rb
 
       # Both documents become assets of this release: the feed is what the site
       # serves, and the item is what the next release merges onto, so the next
@@ -202,18 +202,18 @@ jobs:
           # exercising the real release URL, the sha256, the DMG mount, the app
           # copy, and Gatekeeper exactly as a user would. Install to a temp appdir,
           # not /Applications. Retry covers release-asset CDN propagation.
-          tapdir="$(brew --repository)/Library/Taps/tezra-io/homebrew-fpsmoke"
-          brew tap-new tezra-io/fpsmoke >/dev/null
+          tapdir="$(brew --repository)/Library/Taps/tezra-io/homebrew-casksmoke"
+          brew tap-new tezra-io/casksmoke >/dev/null
           mkdir -p "$tapdir/Casks"
-          cp Casks/fermixpet.rb "$tapdir/Casks/fermixpet.rb"
+          cp Casks/fermix.rb "$tapdir/Casks/fermix.rb"
           git -C "$tapdir" add -A
           git -C "$tapdir" -c user.email=ci@local -c user.name=ci commit -q -m smoke
 
-          appdir="$RUNNER_TEMP/fpsmoke-apps"
+          appdir="$RUNNER_TEMP/casksmoke-apps"
           mkdir -p "$appdir"
           installed=""
           for attempt in 1 2 3; do
-            if brew install --cask --appdir="$appdir" tezra-io/fpsmoke/fermixpet; then
+            if brew install --cask --appdir="$appdir" tezra-io/casksmoke/fermix; then
               installed=1
               break
             fi
@@ -221,10 +221,10 @@ jobs:
             sleep 15
           done
           [ -n "$installed" ] || { echo "::error title=Cask install smoke failed::cask does not install from the published release"; exit 1; }
-          test -d "$appdir/FermixPet.app"
-          spctl -a -t exec -vv "$appdir/FermixPet.app"
-          brew uninstall --cask --appdir="$appdir" tezra-io/fpsmoke/fermixpet >/dev/null 2>&1 || true
-          brew untap tezra-io/fpsmoke >/dev/null 2>&1 || true
+          test -d "$appdir/Fermix.app"
+          spctl -a -t exec -vv "$appdir/Fermix.app"
+          brew uninstall --cask --appdir="$appdir" tezra-io/casksmoke/fermix >/dev/null 2>&1 || true
+          brew untap tezra-io/casksmoke >/dev/null 2>&1 || true
 
       # Tap publish is a PR, not a direct push: the tap's own review/CI is the
       # blocking gate, and a PR sidesteps the cross-repo push race with the CLI's
@@ -241,17 +241,17 @@ jobs:
           fi
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/tezra-io/homebrew-tap.git" tap
           cd tap
-          branch="fermixpet-v${VERSION}"
+          branch="fermix-cask-v${VERSION}"
           git checkout -b "$branch"
           mkdir -p Casks
-          cp ../Casks/fermixpet.rb Casks/fermixpet.rb
-          git add Casks/fermixpet.rb
+          cp ../Casks/fermix.rb Casks/fermix.rb
+          git add Casks/fermix.rb
           git -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -m "fermixpet ${VERSION}"
+              commit -m "fermix cask ${VERSION}"
           git push origin "$branch"
           GH_TOKEN="$TAP_TOKEN" gh pr create \
             --repo tezra-io/homebrew-tap \
             --head "$branch" \
-            --title "fermixpet ${VERSION}" \
-            --body "Notarized FermixPet ${VERSION} cask, rendered from the release DMG bytes and install-smoked on the release runner."
+            --title "fermix cask ${VERSION}" \
+            --body "Notarized Fermix ${VERSION} cask, rendered from the release DMG bytes and install-smoked on the release runner."

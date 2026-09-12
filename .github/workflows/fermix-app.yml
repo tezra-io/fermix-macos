@@ -11,8 +11,8 @@ name: fermix-app
 # round-trip — real Developer ID signing, notarization, stapling, and the DMG —
 # is left to the gated release workflow.
 #
-# This file is deliberately separate from ci.yml, which keeps the legacy
-# FermixPet release path's own gate alive until general availability.
+# This file is deliberately separate from ci.yml, which lints the Homebrew cask
+# on a runner with Homebrew.
 #
 # Actions are pinned to immutable commit SHAs per M34 section 7.
 on:
@@ -60,8 +60,8 @@ jobs:
 
       # Nothing may restate a value Product.json owns: the linked Info.plist is
       # regenerated and diffed, the manifest and XcodeGen spec are checked
-      # against the same configuration, and so are the three files in the legacy
-      # release path that name the released artifact literally.
+      # against the same configuration, and so are the two files in the release
+      # path that name the released artifact literally.
       - name: Product configuration (single source of truth)
         run: scripts/check_product_config.sh
 

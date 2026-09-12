@@ -60,7 +60,7 @@ let package = Package(
                 // tint it for the current menu bar appearance.
                 .process("Resources/MenuBarTemplate"),
                 .process("Resources/PetExpressions"),
-                .process("Resources/FermixPet.icns"),
+                .process("Resources/Fermix.icns"),
                 .process("Resources/Product.json"),
                 // The canonical wordmark SVG. `FermixWordmark` draws a 1:1
                 // path port of it rather than loading it (NSImage cannot tint
