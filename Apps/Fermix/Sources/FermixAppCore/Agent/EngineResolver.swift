@@ -72,19 +72,39 @@ public struct EngineResolver {
         self.probe = probe
     }
 
+    /// Where this architecture's engine tree sits inside the bundle.
+    ///
+    /// The one composition of that path, and the reason this type is the only
+    /// owner of it: staging writes one tree per architecture, so a caller that
+    /// builds the path itself is a second answer to where the engine lives, and
+    /// a second answer is free to be wrong without anything noticing.
+    private var treeURL: URL {
+        bundleRoot
+            .appendingPathComponent(configuration.engineRelativePath)
+            .appendingPathComponent(architecture)
+    }
+
     /// The architecture-specific engine tree, proven present.
     public func engineTree() throws -> URL {
         guard configuration.supportedArchitectures.contains(architecture) else {
             throw EngineResolutionError.unsupportedArchitecture(architecture)
         }
 
-        let url = bundleRoot
-            .appendingPathComponent(configuration.engineRelativePath)
-            .appendingPathComponent(architecture)
-        guard probe.directoryExists(at: url) else {
-            throw EngineResolutionError.engineTreeMissing(url.path)
+        guard probe.directoryExists(at: treeURL) else {
+            throw EngineResolutionError.engineTreeMissing(treeURL.path)
         }
-        return url
+        return treeURL
+    }
+
+    /// The engine manifest inside that tree, as a path rather than a proven
+    /// file.
+    ///
+    /// Unproven because the launch reconcile needs the path even when the
+    /// bundle ships no engine: a bundle staged with an empty slot is a declared
+    /// state, and the only way to tell it from a packaging defect is to name
+    /// the path that was inspected. Reading it is the caller's business.
+    public var engineManifestURL: URL {
+        treeURL.appendingPathComponent(EngineManifest.fileName, isDirectory: false)
     }
 
     /// The engine binary inside that tree, proven executable.

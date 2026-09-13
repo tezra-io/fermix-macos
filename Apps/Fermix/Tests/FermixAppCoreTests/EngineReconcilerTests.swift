@@ -105,20 +105,34 @@ struct EngineReconcilerTests {
 
     // MARK: - Reading the bundled manifest
 
-    /// The two ways to have nothing to compare are not the same thing.
+    /// The two ways to have nothing to compare, both against the path staging
+    /// writes to.
     ///
     /// A bundle staged before the engine slot is populated carries no manifest,
     /// which is a declared state. A manifest that is there and cannot be read is
-    /// a packaging defect: the reconcile answers aligned for the life of the
-    /// process, so the `Finish updating Fermix` row never appears again, and
-    /// nothing in the GUI validates the bundle — `AgentLauncher.plan` does, and
-    /// that runs in FermixAgent. It is logged rather than swallowed.
+    /// a packaging defect. Either way the reconcile answers aligned for the life
+    /// of the process, so the `Finish updating Fermix` row never appears again,
+    /// and nothing in the GUI validates the bundle — `AgentLauncher.plan` does,
+    /// and that runs in FermixAgent. Both are logged rather than swallowed.
     @Test("a manifest that is present and unreadable compares nothing")
     func unreadableManifest() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("fermix-reconciler-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        // Where staging writes it: one tree per architecture under the engine
+        // slot, resolved by the type that owns that layout. A fixture that put
+        // the manifest anywhere else would prove the reading and not the
+        // finding, which is the half that shipped broken.
+        let manifest = EngineResolver(
+            configuration: try ProductConfiguration.decode(from: ProductFixture.json()),
+            bundleRoot: root.appendingPathComponent("Fermix.app", isDirectory: true),
+            architecture: EngineResolver.hostArchitecture
+        )
+        .engineManifestURL
+        try FileManager.default.createDirectory(
+            at: manifest.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         // Removed only when the path is the one this test made: a temporary
         // directory removal with an unchecked path is how a test suite once
         // wiped a home folder.
@@ -129,13 +143,9 @@ struct EngineReconcilerTests {
             }
         }
 
-        let absent = EngineReconciler(
-            manifestURL: root.appendingPathComponent(EngineManifest.fileName),
-            plists: StubAgentPlistDigest(digest: nil)
-        )
+        let absent = EngineReconciler(manifestURL: manifest, plists: StubAgentPlistDigest(digest: nil))
         #expect(absent.bundledVersion == nil)
 
-        let manifest = root.appendingPathComponent(EngineManifest.fileName)
         try Data("{ not json".utf8).write(to: manifest)
         let unreadable = EngineReconciler(manifestURL: manifest, plists: StubAgentPlistDigest(digest: nil))
         #expect(unreadable.bundledVersion == nil)
@@ -183,6 +193,63 @@ struct EngineReconcilerTests {
 
         #expect(EngineBuild(hello: hello) == nil)
         #expect(reconciler(bundled: bundled).reconcile(hello: hello) == .aligned)
+    }
+}
+
+/// Where the bundled engine manifest is, which is one question with one owner.
+///
+/// `stage_app.sh` writes one engine release tree per architecture under the
+/// engine slot, so the manifest is at `<slot>/<architecture>/` and never at the
+/// slot root. The agent resolves it through `EngineResolver` to launch the
+/// engine; the GUI resolves it through the same type to compare builds. A
+/// second composition of that path is what shipped in the first two releases,
+/// and it looked one directory too high: `bundledBuild` was always nil, every
+/// launch reconcile answered aligned, and checking for updates refused with an
+/// unknown bundled engine on every installed copy.
+@Suite("The bundled engine manifest's location")
+struct BundledEngineManifestLocationTests {
+    /// The GUI's own resolution, against a bundle laid out the way staging lays
+    /// one out, for the architecture this process runs.
+    @Test("the manifest the launch reconcile reads is the one a staged bundle carries")
+    @MainActor
+    func guiResolvesTheStagedManifest() throws {
+        let architecture = EngineResolver.hostArchitecture
+        let bundle = try StagedBundle(
+            architecture: architecture,
+            manifest: EngineManifestFixture.document(architecture: architecture),
+            includeEngineExecutable: true,
+            includeTools: true
+        )
+        let configuration = try ProductConfiguration.bundled()
+
+        let resolved = AppEnvironment.bundledEngineManifestURL(configuration, bundleRoot: bundle.root)
+
+        #expect(resolved == bundle.manifestURL)
+        #expect(FileManager.default.fileExists(atPath: resolved.path))
+        let reconciler = EngineReconciler(manifestURL: resolved, plists: StubAgentPlistDigest(digest: nil))
+        #expect(reconciler.bundledBuild != nil)
+        #expect(reconciler.bundledVersion == "0.9.0")
+
+        // The shape of the defect, so it cannot come back as a new hand-built
+        // path: staging writes nothing at the slot root, so a resolution that
+        // stops there reads nothing and says nothing.
+        let slotRoot = bundle.root
+            .appendingPathComponent(configuration.engineRelativePath, isDirectory: true)
+            .appendingPathComponent(EngineManifest.fileName, isDirectory: false)
+        #expect(!FileManager.default.fileExists(atPath: slotRoot.path))
+    }
+
+    /// The architecture segment is part of the answer, not a detail of the
+    /// agent's launch, so the value it is composed from has one reader.
+    @Test("only the engine resolver composes a path out of the engine slot")
+    func theEngineSlotPathHasOneReader() throws {
+        let composers = try SourceTree.swiftFiles(under: "", excluding: false)
+            .filter { $0.text.contains("engineRelativePath") }
+            .map(\.path)
+            .filter { !$0.hasSuffix("Agent/EngineResolver.swift") }
+            .filter { !$0.hasSuffix("ProductConfiguration.swift") }
+
+        #expect(composers.isEmpty, "the engine slot path is composed in: \(composers)")
     }
 }
 
