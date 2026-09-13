@@ -388,10 +388,20 @@ struct IntegrationSettingRow: View {
         }
     }
 
+    /// The label over the field rather than beside it. A manifest names its
+    /// setting in a phrase, not a word, and beside a phrase the field was left
+    /// with whatever width the label did not take; stacked, the field has the
+    /// sheet's width and the label may wrap.
     private var field: some View {
-        LabeledContent(setting.label) {
+        VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+            Text(setting.label)
+                .fixedSize(horizontal: false, vertical: true)
+
             TextField(setting.label, text: $draft, prompt: Text(setting.label))
+                .settingsTextField()
                 .labelsHidden()
+                .accessibilityLabel(setting.label)
+                .frame(maxWidth: .infinity)
                 .onSubmit(commit)
         }
         .onAppear { draft = setting.value ?? "" }
@@ -401,7 +411,7 @@ struct IntegrationSettingRow: View {
     /// other switch in the app, and the daemon's two words are the whole of the
     /// value, so there is nothing to hold back.
     private var toggle: some View {
-        LabeledContent(setting.label) {
+        LabeledContent {
             Toggle(setting.label, isOn: Binding(
                 get: { PluginSettingSwitch.isOn(value: setting.value) },
                 set: { write(PluginSettingSwitch.wireValue(isOn: $0)) }
@@ -410,6 +420,9 @@ struct IntegrationSettingRow: View {
             .labelsHidden()
             .disabled(writing)
             .accessibilityLabel(setting.label)
+        } label: {
+            Text(setting.label)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
