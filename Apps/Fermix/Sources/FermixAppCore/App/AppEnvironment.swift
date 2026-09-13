@@ -112,7 +112,7 @@ extension AppEnvironment {
             activationPlan: plan,
             sleeper: TaskSleeper(),
             reconciler: EngineReconciler(
-                manifestURL: bundledEngineManifestURL(configuration),
+                manifestURL: bundledEngineManifestURL(configuration, bundleRoot: Bundle.main.bundleURL),
                 plists: plists
             ),
             termination: ApplicationTermination(),
@@ -122,10 +122,27 @@ extension AppEnvironment {
 
     /// The engine manifest inside this bundle, which is one half of the launch
     /// reconcile (M34 §7.2).
-    private static func bundledEngineManifestURL(_ configuration: ProductConfiguration) -> URL {
-        Bundle.main.bundleURL
-            .appendingPathComponent(configuration.engineRelativePath, isDirectory: true)
-            .appendingPathComponent(EngineManifest.fileName, isDirectory: false)
+    ///
+    /// Resolved through `EngineResolver`, the type the agent already resolves
+    /// the tree it launches from, because staging writes one tree per
+    /// architecture under the engine slot. A path composed here instead pointed
+    /// one directory above every manifest a staged bundle carries, and a
+    /// reconcile that reads nothing answers aligned forever.
+    ///
+    /// The bundle root is a parameter, and the architecture defaults to the one
+    /// this process runs, so the resolution is provable against a staged
+    /// fixture rather than only inside an installed app.
+    static func bundledEngineManifestURL(
+        _ configuration: ProductConfiguration,
+        bundleRoot: URL,
+        architecture: String = EngineResolver.hostArchitecture
+    ) -> URL {
+        EngineResolver(
+            configuration: configuration,
+            bundleRoot: bundleRoot,
+            architecture: architecture
+        )
+        .engineManifestURL
     }
 
     /// The CLI launcher inside this bundle. It is the target the Terminal

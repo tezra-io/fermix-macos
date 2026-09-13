@@ -98,12 +98,12 @@ public enum AgentLauncher {
             probe: probe
         )
 
-        let engineTree = try resolver.engineTree()
+        // The tree first, for its own refusal: a manifest that is absent
+        // because the whole tree is absent must not read as a broken manifest.
+        _ = try resolver.engineTree()
         let tools = try resolver.toolsDirectory()
 
-        let manifest = try EngineManifest.load(
-            from: engineTree.appendingPathComponent(EngineManifest.fileName, isDirectory: false)
-        )
+        let manifest = try EngineManifest.load(from: resolver.engineManifestURL)
         // The vendored contract, not the current one: this asserts the engine in
         // the bundle is the engine the vendored artifact was taken from. What
         // the app can *speak* is a wider set while the draft v2 contract ships.

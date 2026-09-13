@@ -131,17 +131,28 @@ public struct EngineReconciler: Sendable {
 
     /// The build the bundled manifest names, where this bundle ships an engine.
     ///
-    /// Two ways to have nothing to compare, and only one of them is normal. A
-    /// bundle staged before the engine slot is populated carries no manifest at
-    /// all, which `verify_staged_app.sh` accepts as a declared state. A manifest
-    /// that is *there* and cannot be read is a packaging defect, and it is
-    /// logged rather than swallowed: every reconcile would otherwise answer
-    /// aligned for the life of the process and the `Finish updating Fermix` row
-    /// would never appear again. The GUI cannot refuse the bundle over it —
-    /// `AgentLauncher.plan` validates the engine, and that runs in FermixAgent,
-    /// not here — so the loud line in the log is what says so.
+    /// Both ways to have nothing to compare name the path, because neither one
+    /// can be told from the other without it. A manifest that is *there* and
+    /// cannot be read is a packaging defect; a manifest that is not there is
+    /// either a bundle staged before the engine slot is populated, which
+    /// `verify_staged_app.sh` accepts as a declared state, or a resolution
+    /// looking somewhere the staging never wrote — which is what shipped, and
+    /// what a silent `nil` hid. Either way every reconcile answers aligned for
+    /// the life of the process, the `Finish updating Fermix` row never appears
+    /// again and an update refuses with an unknown bundled engine. The GUI
+    /// cannot refuse the bundle over it — `AgentLauncher.plan` validates the
+    /// engine, and that runs in FermixAgent, not here — so the loud line in the
+    /// log is what says so.
     private static func bundledBuild(at manifestURL: URL) -> EngineBuild? {
-        guard FileManager.default.fileExists(atPath: manifestURL.path) else { return nil }
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+            AppLog.logger(.lifecycle).error(
+                """
+                this bundle carries no engine manifest at \(manifestURL.path, privacy: .public), \
+                so no upgrade can be detected
+                """
+            )
+            return nil
+        }
 
         do {
             return EngineBuild(manifest: try EngineManifest.load(from: manifestURL))
