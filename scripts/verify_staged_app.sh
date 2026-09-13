@@ -44,6 +44,11 @@
 # compiled into it (M34 section 15.0). A development bundle is also the only one
 # that may be built `--configuration debug`, which is what those configurations
 # need.
+#
+# A bundle staged under the development identity (PRODUCT_CONFIG_OVERLAY, see
+# scripts/product_config.sh) is judged against that identity, and the release
+# audience refuses it: the overlay declares no update feed it can verify, which
+# is the same refusal a bundle carrying the placeholder public key gets.
 set -euo pipefail
 
 USAGE="usage: verify_staged_app.sh <app-path> <architectures> <signature> [audience] [--engine-pin <pin.json>]"
@@ -108,20 +113,6 @@ SPARKLE_FEED_URL="$(product_config sparkle_feed_url)"
 fail() {
   echo "verify_staged_app: $*" >&2
   exit 1
-}
-
-# The resource root of a bundle is Contents/Resources when the bundle is
-# structured and the bundle itself when it is flat. SwiftPM emits the flat form
-# for a single-architecture build and the structured form for the universal
-# (xcbuild) one, so the question has to be asked of the bundle rather than
-# assumed from the build mode.
-resource_root() {
-  local bundle="$1"
-  if [ -d "$bundle/Contents/Resources" ]; then
-    printf '%s\n' "$bundle/Contents/Resources"
-    return 0
-  fi
-  printf '%s\n' "$bundle"
 }
 
 plist_value() {
@@ -296,12 +287,46 @@ check_launch_agent() {
   [ "$staged" = "1" ] || fail "Contents/Library/LaunchAgents holds $staged entries; only $AGENT_LABEL.plist may ship"
 }
 
+# The configuration the app reads at runtime is the configuration this bundle
+# was staged from.
+#
+# The Info.plist is what macOS reads and Product.json is what the app reads, and
+# the two answer the same questions: which bundle this is, which agent label it
+# registers, which url scheme it parses, and which support folder holds its
+# bootstrap record. A bundle whose two halves disagree is the worst shape a
+# development identity can take — it would advertise one identity and register
+# the other's launchd job — so both are compared against the one configuration
+# rather than against each other.
+check_staged_product_configuration() {
+  local resources staged key expected actual
+  resources="$(product_config_resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
+  staged="$resources/Product.json"
+  [ -f "$staged" ] || fail "the staged resource bundle carries no Product.json at $staged"
+
+  # Fed through a here-document rather than a pipe: a pipeline would run the
+  # loop in a subshell, where fail() could not stop this script.
+  while read -r key; do
+    [ -n "$key" ] || continue
+    expected="$(product_config "$key")"
+    actual="$(plutil -extract "$key" raw -o - "$staged" 2>/dev/null)" ||
+      fail "the staged Product.json carries no $key, so the app would read a configuration this bundle was not staged from"
+    [ "$actual" = "$expected" ] ||
+      fail "the staged Product.json $key is '$actual', and this configuration declares '$expected'"
+  done <<KEYS
+bundle_identifier
+agent_service_label
+support_directory_name
+url_scheme
+product_name
+KEYS
+}
+
 # The vendored wire contracts are checked against the CHECKSUMS.txt that shipped
 # beside them, so the assertion covers every vendored file without this script
 # holding a list of them.
 check_vendored_contracts() {
   local resources contracts
-  resources="$(resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
+  resources="$(product_config_resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
   contracts="$resources/Contracts"
   [ -d "$contracts" ] || fail "vendored wire contracts are not staged at $contracts"
   [ -f "$contracts/SOURCE.json" ] || fail "vendored contract provenance record is not staged"
@@ -313,7 +338,7 @@ check_vendored_contracts() {
 # that describes them must travel with them.
 check_staged_assets() {
   local resources marks source_marks name record
-  resources="$(resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
+  resources="$(product_config_resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
   marks="$resources/VendorMarks"
   # Both records travel with the marks: PROVENANCE.json describes each vendor,
   # and ROSTER.json is the vendored roster it is proven complete against.
@@ -437,7 +462,7 @@ check_release_promises() {
   require_plist_value "$APP/Contents/Info.plist" CFBundleVersion "$(product_config build_number)"
 
   local resources contracts drafts unpublished speaks entry manifest window status
-  resources="$(resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
+  resources="$(product_config_resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
   contracts="$resources/Contracts"
 
   drafts="$(python3 "$ROOT_DIR/scripts/contract_release_facts.py" drafts "$contracts/SOURCE.json")"
@@ -694,6 +719,7 @@ print_inventory() {
     echo "  executable     $name: $(lipo -info "$APP/Contents/MacOS/$name" | sed 's/^.*are: //; s/^.*is architecture: //')"
   done
   echo "  login agent    $AGENT_LABEL.plist -> Contents/MacOS/$AGENT_EXECUTABLE"
+  echo "  support folder Library/Application Support/$(product_config support_directory_name)"
   echo "  updater        $SPARKLE_FRAMEWORK_NAME $(sparkle_embedded_version "$SPARKLE_DIR"), GUI only"
   if [ "$ENGINE_STATE" = "empty" ]; then
     echo "  engine slot    empty (pre-Stage-0 declared state)"
@@ -716,6 +742,7 @@ check_info_plist
 check_sparkle_framework
 check_sparkle_linkage
 check_launch_agent
+check_staged_product_configuration
 check_vendored_contracts
 check_staged_assets
 check_engine_slot

@@ -204,6 +204,7 @@ enum ProductFixture {
               "gui_executable_name": "Fermix",
               "agent_executable_name": "FermixAgent",
               "agent_service_label": "io.tezra.FermixPet.agent",
+              "support_directory_name": "Fermix",
               "minimum_system_version": "15.0",
               "supported_architectures": [\(architectureList)],
               "marketing_version": "0.1.0",

@@ -633,6 +633,30 @@ struct ActivationCoordinatorTests {
         #expect(BundleInstallationProbe.isInstalled(URL(fileURLWithPath: "/Applications")))
     }
 
+    /// The duplicate-copy refusal counts copies of ONE bundle identifier, which
+    /// is what lets the development bundle sit beside the installed app without
+    /// either reading as a second copy of the other: the two carry different
+    /// identifiers, so they are different apps to LaunchServices.
+    ///
+    /// The identifier is injected, and an identifier no bundle on this Mac
+    /// carries answers with no copies at all — including on a Mac where the
+    /// installed app is in /Applications, which is the case this exists for.
+    @Test("the installed-copy count is asked of one bundle identifier")
+    func installedCopiesAreScopedToOneIdentifier() {
+        let development = BundleInstallationProbe(
+            bundleIdentifier: "io.tezra.FermixPet.identity-fixture",
+            home: NSTemporaryDirectory()
+        )
+
+        #expect(development.installedCopies().isEmpty)
+
+        // A bundle that cannot say who it is asks LaunchServices nothing, which
+        // is an empty answer rather than every app on the Mac.
+        let anonymous = BundleInstallationProbe(bundleIdentifier: "", home: NSTemporaryDirectory())
+
+        #expect(anonymous.installedCopies().isEmpty)
+    }
+
     /// The GUI login item is a consent, asked for once. Every later activation —
     /// and `fermix setup` on a configured home is one — leaves it exactly as the
     /// operator left it in Home, because switching it back on without asking is

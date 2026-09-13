@@ -14,7 +14,15 @@ public enum BootstrapLocationError: Error, Equatable, Sendable {
 /// the wrong data. Both directories are injected, so tests never touch the real
 /// account.
 public struct BootstrapLocation: Equatable, Sendable {
-    public static let directoryName = "Fermix"
+    /// The folder under Application Support this build keeps its record in,
+    /// read from the product configuration rather than written here.
+    ///
+    /// There is one record per folder and no override for it, so the folder
+    /// name IS this app's identity to the account: a development bundle that
+    /// shared it would take the installed app's record away from it. The
+    /// configuration is the one owner of that name (`support_directory_name`),
+    /// and the development overlay the dev loop stages under names its own.
+    public static let directoryName = ProductConfiguration.forThisBundle().supportDirectoryName
     public static let recordName = "launcher.json"
     public static let defaultHomeName = ".fermix"
 

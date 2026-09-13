@@ -18,6 +18,9 @@ IDENTITY='Developer ID Application: Fermix Test (TEAM123456)'
 
 launchctl() {
   local label="${2##*/}" file
+  # Every service this loop looks at, so a case can prove which identity's
+  # registrations it reads.
+  printf '%s\n' "$label" >>"$DEV_E2E_TEST_CONTROL/inspected"
   case "$label" in
     "$AGENT_LABEL") file="$DEV_E2E_TEST_CONTROL/agent" ;;
     "$APP_LABEL") file="$DEV_E2E_TEST_CONTROL/login" ;;
@@ -62,7 +65,8 @@ open() {
   rm -f "$DEV_E2E_TEST_CONTROL/health-checked"
   printf '%s %s\n' "$APP/Contents/MacOS/$GUI_EXECUTABLE" "$DEV_FLAG" >"$DEV_E2E_TEST_CONTROL/gui"
   if [ "${4:-}" = '--register-background-service' ]; then
-    record_uses_dev_home || fail "GUI registration received the wrong bootstrap home"
+    [ "$(plutil -extract fermix_home raw -o - "$RECORD" 2>/dev/null)" = "$DEV_HOME" ] ||
+      fail "GUI registration received the wrong bootstrap home"
     event register
     printf 'program = %s/Contents/MacOS/FermixAgent\n' "$APP" >"$DEV_E2E_TEST_CONTROL/agent"
     python3 -c 'import socket,sys;s=socket.socket(socket.AF_UNIX);s.bind(sys.argv[1]);s.close()' "$DEV_HOME/daemon.sock"
@@ -70,23 +74,23 @@ open() {
   fi
 }
 
+# The heavy work replaced, and the paths pointed inside this case's work
+# directory. RECORD_DIR and RECORD are deliberately NOT overridden: they are
+# what the script derives from the product configuration and the account, and
+# the account is this case's own (see the --case entry below).
 setup_case() {
-  WORK_DIR="$(mktemp -d /private/tmp/fermix-dev-loop-test.XXXXXX)"
-  trap 'rm -rf "$WORK_DIR"' EXIT
   ROOT_DIR="$WORK_DIR/repo"
   APP="$ROOT_DIR/Apps/Fermix/dist-e2e/$APP_BUNDLE_NAME"
   DEV_HOME="$WORK_DIR/dev home"
   ENGINE_SRC="$WORK_DIR/engine"
   ENGINE_TREE="$ENGINE_SRC/_build/prod/rel/fermix_app_engine"
-  RECORD_DIR="$WORK_DIR/records"
-  RECORD="$RECORD_DIR/launcher.json"
-  RECORD_BACKUP="$RECORD_DIR/launcher.json.pre-dev"
   export DEV_E2E_TEST_CONTROL="$WORK_DIR/control" DEV_E2E_TEST_EVENTS="$WORK_DIR/events"
   export DEV_E2E_TEST_APP="$APP"
   export DEV_E2E_TEST_SOURCE="$TEST_SOURCE" DEV_E2E_TEST_LABEL="$AGENT_LABEL"
   export DEV_E2E_TEST_IDENTITY="$IDENTITY"
-  mkdir -p "$ROOT_DIR/scripts" "$DEV_E2E_TEST_CONTROL" "$RECORD_DIR" "$DEV_HOME" "$ENGINE_SRC/scripts/dev"
+  mkdir -p "$ROOT_DIR/scripts" "$DEV_E2E_TEST_CONTROL" "$DEV_HOME" "$ENGINE_SRC/scripts/dev"
   : >"$DEV_E2E_TEST_EVENTS"
+  : >"$DEV_E2E_TEST_CONTROL/inspected"
   write_identities "$IDENTITY"
   write_stubs
   "$ROOT_DIR/scripts/stage_app.sh"
@@ -159,9 +163,26 @@ owned_service() {
   printf '%s/Contents/MacOS/FermixAgent\n' "$APP" >"$DEV_E2E_TEST_CONTROL/helper"
   python3 -c 'import socket,sys;s=socket.socket(socket.AF_UNIX);s.bind(sys.argv[1]);s.close()' "$DEV_HOME/daemon.sock"
   touch "$DEV_E2E_TEST_CONTROL/live"
+  mkdir -p "$RECORD_DIR"
   printf '{"fermix_home":"%s","schema_version":1}' "$DEV_HOME" >"$RECORD"
 }
 
+# The installed app's value for a configuration key, read with the overlay
+# unset. Nothing here restates an identity: both halves come from the one
+# reader, so a case comparing them fails the day the overlay stops overriding
+# a key rather than the day someone edits a literal.
+production_config() {
+  (
+    unset PRODUCT_CONFIG_OVERLAY
+    # shellcheck source=scripts/product_config.sh
+    source "$TEST_SOURCE/scripts/product_config.sh"
+    product_config "$1"
+  )
+}
+
+# A service registered under the DEVELOPMENT label that some other bundle owns.
+# The installed app's own label is never looked at, so this is the only
+# ownership question the loop can ask.
 case_foreign() {
   printf 'program = /Applications/Fermix.app/Contents/MacOS/FermixAgent\n' >"$DEV_E2E_TEST_CONTROL/agent"
   if (up --fast) >"$WORK_DIR/refusal" 2>&1; then fail "accepted another bundle's service"; fi
@@ -228,19 +249,27 @@ case_manual_open() {
 
 case_down() {
   owned_service
-  printf 'original record' >"$RECORD_BACKUP"
   down >/dev/null
   [ "$(cat "$DEV_E2E_TEST_EVENTS")" = $'unregister\nquit-gui\nstop' ] || fail "down did not unregister before shutdown"
-  [ "$(cat "$RECORD")" = 'original record' ] || fail "original record was not restored"
+  # The record is the development identity's own file. There is nothing of
+  # anyone else's to put back and nothing to remove, so the bundle can be
+  # opened again without another up.
+  [ "$(plutil -extract fermix_home raw -o - "$RECORD")" = "$DEV_HOME" ] ||
+    fail "down changed the development identity's own record"
 }
 
+# The port is written into the staged development plist and nowhere else. The
+# comparison is the installed app's own plist, rendered with the overlay unset,
+# because that is the file this loop must not have changed the shape of.
 case_port() {
   stage_and_sign "$IDENTITY" >/dev/null
   local production="$WORK_DIR/production.plist"
-  "$TEST_SOURCE/scripts/render_launch_agent_plist.sh" "$production"
+  ( unset PRODUCT_CONFIG_OVERLAY; "$TEST_SOURCE/scripts/render_launch_agent_plist.sh" "$production" )
   if plutil -extract EnvironmentVariables.PORT raw -o - "$production" >/dev/null 2>&1; then
     fail "the production agent inherited the development port"
   fi
+  [ "$(plutil -extract Label raw -o - "$production")" != "$AGENT_LABEL" ] ||
+    fail "the installed app's agent plist carries the development label"
 }
 
 case_build_version() {
@@ -320,40 +349,72 @@ case_profile_foreign() {
   [ "$(cat "$DEV_HOME/config.toml")" = $'[fermix_core]\nprofile = "general"' ] || fail "edited the refused config"
 }
 
-write_escaped_dev_record() {
-  python3 -c 'import json,sys;print(json.dumps({"fermix_home":sys.argv[1],"schema_version":1}).replace("/", "\\/"))' \
-    "$DEV_HOME" >"$RECORD"
+# The bundle this loop stages is a different app to macOS than the installed
+# one: a different bundle name, and a launchd plist that registers a different
+# label for a different bundle identifier. Every value is compared with the
+# installed app's own, so this fails the day the overlay stops overriding one.
+case_development_identity() {
+  local plist
+  stage_and_sign "$IDENTITY" >/dev/null
+  plist="$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
+
+  [ "$(basename "$APP")" != "$(production_config app_bundle_name)" ] ||
+    fail "staged the installed app's bundle name"
+  [ "$APP_LABEL" != "$(production_config bundle_identifier)" ] ||
+    fail "staged the installed app's bundle identifier"
+  [ "$AGENT_LABEL" != "$(production_config agent_service_label)" ] ||
+    fail "staged the installed app's agent label"
+  [ "$(plutil -extract Label raw -o - "$plist")" = "$AGENT_LABEL" ] ||
+    fail "the staged agent plist registers another label"
+  [ "$(plutil -extract AssociatedBundleIdentifiers.0 raw -o - "$plist")" = "$APP_LABEL" ] ||
+    fail "the staged agent plist names another bundle"
 }
 
-case_escaped_record() {
-  write_escaped_dev_record
-  point_record_at_dev_home >/dev/null
-  [ ! -e "$RECORD_BACKUP" ] || fail "mistook escaped dev-home JSON for another home"
-  printf 'original record' >"$RECORD_BACKUP"
-  write_escaped_dev_record
-  point_record_at_dev_home >/dev/null
-  [ "$(cat "$RECORD_BACKUP")" = 'original record' ] || fail "replaced the original backup"
+# There is one launcher.json per support folder and the development identity
+# has its own, so the installed app's record is a file this loop has no name
+# for: `up` writes only inside its own folder and leaves the other untouched.
+case_installed_record_untouched() {
+  local installed
+  installed="$HOME/Library/Application Support/$(production_config support_directory_name)/launcher.json"
+  mkdir -p "$(dirname "$installed")"
+  printf 'the installed app record' >"$installed"
+  owned_service
+  up --fast >/dev/null
+
+  [ "$RECORD" != "$installed" ] || fail "the loop writes the installed app's record"
+  [ "$(cat "$installed")" = 'the installed app record' ] || fail "rewrote the installed app's record"
+  [ "$(plutil -extract fermix_home raw -o - "$RECORD")" = "$DEV_HOME" ] ||
+    fail "the development identity's record does not name the dev home"
 }
 
-case_escaped_down() {
-  write_escaped_dev_record
-  down >/dev/null
-  [ ! -e "$RECORD" ] || fail "left an escaped dev-home record behind"
-}
+# Which registrations the loop reads. Both development principals are
+# inspected, so the assertion is not vacuous, and neither installed one is: a
+# loop that reads another bundle's registration is a loop that can act on it.
+case_installed_labels_untouched() {
+  local inspected
+  owned_service
+  up --fast >/dev/null
+  inspected="$(sort -u "$DEV_E2E_TEST_CONTROL/inspected")"
 
-case_invalid_record() {
-  local malformed
-  for malformed in '{invalid' '{"fermix_home":27,"schema_version":1}'; do
-    printf '%s' "$malformed" >"$RECORD"
-    if (point_record_at_dev_home) >"$WORK_DIR/refusal" 2>&1; then fail "accepted a malformed bootstrap record"; fi
-    [ "$(cat "$RECORD")" = "$malformed" ] || fail "changed the malformed record"
-    [ ! -e "$RECORD_BACKUP" ] || fail "backed up malformed JSON as another home"
-    if (down) >"$WORK_DIR/refusal" 2>&1; then fail "down ignored a malformed bootstrap record"; fi
-    [ "$(cat "$RECORD")" = "$malformed" ] || fail "removed malformed JSON"
-  done
+  printf '%s\n' "$inspected" | grep -Fqx "$AGENT_LABEL" ||
+    fail "the development agent was never inspected"
+  printf '%s\n' "$inspected" | grep -Fqx "$APP_LABEL" ||
+    fail "the development login item was never inspected"
+  ! printf '%s\n' "$inspected" | grep -Fqx "$(production_config agent_service_label)" ||
+    fail "inspected the installed app's agent"
+  ! printf '%s\n' "$inspected" | grep -Fqx "$(production_config bundle_identifier)" ||
+    fail "inspected the installed app's login item"
 }
 
 if [ "${1:-}" = '--case' ]; then
+  WORK_DIR="$(mktemp -d /private/tmp/fermix-dev-loop-test.XXXXXX)"
+  trap 'rm -rf "$WORK_DIR"' EXIT
+  # The account this case runs in. dev_e2e.sh derives the development
+  # identity's support folder from the account at source time, so the fake
+  # account exists before it is sourced and every case then reads the record
+  # path the script really computes rather than one the harness chose.
+  export HOME="$WORK_DIR/account"
+  mkdir -p "$HOME"
   # shellcheck source=scripts/dev_e2e.sh
   source "$TEST_SOURCE/scripts/dev_e2e.sh"
   # Source defines these boundaries; the test replaces their heavy work.
@@ -371,9 +432,9 @@ if [ "${1:-}" = '--case' ]; then
     port) case_port ;;
     build_version) case_build_version ;;
     invalid_version) case_invalid_version ;;
-    escaped_record) case_escaped_record ;;
-    escaped_down) case_escaped_down ;;
-    invalid_record) case_invalid_record ;;
+    development_identity) case_development_identity ;;
+    installed_record_untouched) case_installed_record_untouched ;;
+    installed_labels_untouched) case_installed_labels_untouched ;;
     no_identity) case_no_identity ;;
     two_identities) case_two_identities ;;
     signed_with_identity) case_signed_with_identity ;;
@@ -388,7 +449,7 @@ if [ "${1:-}" = '--case' ]; then
 fi
 
 failed=0
-for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version escaped_record escaped_down invalid_record no_identity two_identities signed_with_identity version_owner version_foreign profile_fresh_home profile_appended profile_foreign; do
+for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version development_identity installed_record_untouched installed_labels_untouched no_identity two_identities signed_with_identity version_owner version_foreign profile_fresh_home profile_appended profile_foreign; do
   if bash "$0" --case "$scenario"; then echo "ok $scenario"; else failed=1; echo "FAILED $scenario" >&2; fi
 done
 exit "$failed"

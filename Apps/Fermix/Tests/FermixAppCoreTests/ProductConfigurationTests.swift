@@ -15,8 +15,32 @@ struct ProductConfigurationTests {
         #expect(configuration.guiExecutableName == "Fermix")
         #expect(configuration.agentExecutableName == "FermixAgent")
         #expect(configuration.agentServiceLabel == "io.tezra.FermixPet.agent")
+        #expect(configuration.supportDirectoryName == "Fermix")
         #expect(configuration.minimumSystemVersion == "15.0")
         #expect(configuration.supportedArchitectures == ["arm64", "x86_64"])
+    }
+
+    /// The two identity values this library reads as constants, because the
+    /// places that need them have nothing to hand an error back to. Both are
+    /// the configuration's, so a bundle staged under the development overlay
+    /// keeps its record in its own folder and parses its own url scheme
+    /// instead of the installed app's.
+    @Test("the identity read as a constant is the configured identity")
+    func identityConstantsComeFromTheConfiguration() throws {
+        let configuration = try ProductConfiguration.bundled()
+
+        #expect(BootstrapLocation.directoryName == configuration.supportDirectoryName)
+        #expect(AppRoute.scheme == configuration.urlScheme)
+    }
+
+    /// The support folder is a folder name, not a path: the record would
+    /// otherwise land somewhere no other copy of this app looks.
+    @Test("the support folder is one path component")
+    func supportDirectoryIsOnePathComponent() throws {
+        let name = try ProductConfiguration.bundled().supportDirectoryName
+
+        #expect(!name.contains("/"))
+        #expect(name != "." && name != "..")
     }
 
     /// The SwiftPM resource bundle name is derived from the package and target

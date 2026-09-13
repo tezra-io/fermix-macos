@@ -14,23 +14,39 @@ Record everything in the M34 Stage 0 evidence table as you go
 `scripts/dev_e2e.sh up` builds the engine from your own worktree at
 `~/.cache/fermix-engine-m34` exactly as it stands (uncommitted work included —
 it neither syncs nor resets it, and refuses if it is not there), stages the app
-as a debug build, signs it with the one Developer ID Application identity in
-your login keychain, points it at the `~/.fermix-macos` dev home, then opens the
-app through Launch Services with `--development-engine
---register-background-service`. The opened GUI registers the bundled background
-agent on port 4530 through its normal lifecycle; a separate maintenance process
-is not used for startup. Manual launches with only `--development-engine` do not
-enable the background service. Once the engine passes its health check, the
-script reopens the existing GUI to refresh Home.
+as a debug build under the development identity, signs it with the one
+Developer ID Application identity in your login keychain, points it at the
+`~/.fermix-macos` dev home, then opens the app through Launch Services with
+`--development-engine --register-background-service`. The opened GUI registers
+the bundled background agent on port 4530 through its normal lifecycle; a
+separate maintenance process is not used for startup. Manual launches with only
+`--development-engine` do not enable the background service. Once the engine
+passes its health check, the script reopens the existing GUI to refresh Home.
 The port is written into the development agent's plist before signing, so
-Restart in the app returns on the same port. `down`
-unregisters that agent before stopping the engine and restoring the original
-bootstrap record. `up` refuses services belonging to another app bundle before
-building or changing anything; it unregisters its own old agent before replacing
-the bundle. `status` tells the truth,
+Restart in the app returns on the same port. `down` unregisters that agent and
+stops the engine; the dev home and the development identity's own record are
+kept. `up` refuses a service registered under the development label that
+belongs to another bundle, before building or changing anything; it unregisters
+its own old agent before replacing the bundle. `status` tells the truth,
 including which branch the engine is built from, which identity signs, and
 whether the running app actually carries the flag. This runbook is for the
 Stage 0 acceptance session below.
+
+**The staged bundle is a different app to macOS, which is how it coexists with
+an installed `Fermix.app`.** The whole run reads the product configuration
+through `scripts/product.dev.json`, so the bundle is `Fermix Dev.app` with
+identifier `io.tezra.FermixPet.dev`, agent label `io.tezra.FermixPet.dev.agent`,
+url scheme `fermix-dev`, and support folder
+`~/Library/Application Support/Fermix Dev`. launchd keys the background job on
+the label, LaunchServices and TCC key their records on the identifier, and there
+is one `launcher.json` per support folder — so the dev loop writes its own
+record and never moves, backs up or restores the installed app's. It also never
+inspects the installed app's login item or agent. macOS asks for the dev
+bundle's own microphone and App Management consent the first time it needs each
+one, and those answers are separate from the installed app's. The bundle carries
+no update feed it can verify, so `Check for updates` reports that this copy
+cannot check rather than offering to replace a development bundle with a
+release.
 
 **The dev home has its own secret profile, and the loop makes sure of it.**
 The engine names its keychain items `fermix:<ENV>` under the config's
@@ -237,13 +253,18 @@ tomorrow is for evidence, fixes come after.
 ## Custom dev home (no code, one record)
 
 For dev testing you can point the whole app — GUI, agent, and engine — at a
-separate home. The production bootstrap record IS the configuration surface;
-there is no env var or flag to maintain:
+separate home. The bootstrap record IS the configuration surface; there is no
+env var or flag to maintain. Each identity reads the record in its own support
+folder, so this is the installed app's:
 
 ```bash
 printf '{"fermix_home":"/Users/sujshe/.fermix-macos","schema_version":1}' \
   > ~/Library/Application\ Support/Fermix/launcher.json
 ```
+
+and `scripts/dev_e2e.sh up` writes the development identity's own, at
+`~/Library/Application Support/Fermix Dev/launcher.json`, without reading this
+one.
 
 Activation confirms a recorded home rather than replacing it (`~/.fermix` is
 only the fresh-account default), and the engine's first boot creates the
@@ -252,10 +273,10 @@ binds port 4030; the dev loop alone stages a `PORT=4530` environment value in
 its bundled agent plist.
 
 On an account with a Homebrew install the SHIPPED activation still refuses by
-design — the app is not in `/Applications`, a legacy launch agent is
-registered, and a second copy exists — which is why the dev loop opens the app
-in its **development configuration**: `open …/Fermix.app --args
---development-engine`, a debug-only launch that skips those three refusals and
+design — the app is not in `/Applications` and a legacy launch agent is
+registered — which is why the dev loop opens the app in its **development
+configuration**: `open …/Fermix\ Dev.app --args --development-engine`, a
+debug-only launch that skips those three refusals and
 uses its own bundled background agent. It still
 probes the recorded home's daemon identity, waits for the socket, negotiates
 `hello` and reads what is set up, so activation proves everything it can
@@ -267,8 +288,12 @@ Restarting and disabling the background service from the app exercise the same
 agent lifecycle as production, while the Homebrew daemon on 4030 stays separate.
 
 The host-safe script regression suite is `bash scripts/dev_e2e_test.sh`. It uses
-command doubles and temporary Unix socket files; it never registers a real
-service, launches an app, or touches the account's bootstrap record.
+command doubles, a temporary account directory and temporary Unix socket files;
+it never registers a real service, launches an app, or touches any real
+bootstrap record. Four of its cases are about the development identity: the
+staged bundle carries it, `up` writes only its own record and leaves an
+installed app's alone, only the development labels are ever inspected, and the
+installed app's agent plist never inherits the development port.
 
 ## Known-open items this session does not cover
 

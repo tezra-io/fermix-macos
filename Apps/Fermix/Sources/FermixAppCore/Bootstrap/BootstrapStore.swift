@@ -1,8 +1,8 @@
 import Darwin
 import Foundation
 
-/// Reads and writes `~/Library/Application Support/Fermix/launcher.json`, the
-/// one pre-daemon bootstrap record on macOS.
+/// Reads and writes `launcher.json` in this build's Application Support folder
+/// (`BootstrapLocation`), the one pre-daemon bootstrap record on macOS.
 ///
 /// The GUI, the agent, and the bundled CLI all take the Fermix home from here.
 /// Production code reads no `FERMIX_HOME`, no shell startup file, and no

@@ -19,6 +19,15 @@ public struct ProductConfiguration: Decodable, Equatable, Sendable {
     public let guiExecutableName: String
     public let agentExecutableName: String
     public let agentServiceLabel: String
+    /// The folder under `~/Library/Application Support` that holds this app's
+    /// bootstrap record and update journal.
+    ///
+    /// It is configuration rather than a constant because it is part of the
+    /// app's identity to the account: there is one record per folder, so two
+    /// bundles that named the same folder would fight over the one file that
+    /// says where the Fermix home is. The development bundle the dev loop
+    /// stages names its own folder and therefore has its own record.
+    public let supportDirectoryName: String
     public let minimumSystemVersion: String
     public let supportedArchitectures: [String]
     public let marketingVersion: String
@@ -46,6 +55,22 @@ public struct ProductConfiguration: Decodable, Equatable, Sendable {
             throw ProductConfigurationError.resourceMissing
         }
         return try decode(from: Data(contentsOf: url))
+    }
+
+    /// The bundled copy, or a hard failure naming what is wrong with it.
+    ///
+    /// For the identity values that are read where there is nothing to hand an
+    /// error back to: the url scheme this build parses and the support folder
+    /// it keeps its record in. A bundle that cannot answer them is broken
+    /// rather than degraded, and there is no second place to read them from.
+    public static func forThisBundle() -> ProductConfiguration {
+        do {
+            return try bundled()
+        } catch let failure as ProductConfigurationError {
+            preconditionFailure(failure.message)
+        } catch {
+            preconditionFailure("the product configuration is unreadable: \(error)")
+        }
     }
 
     private func validate() throws {
@@ -81,6 +106,7 @@ public struct ProductConfiguration: Decodable, Equatable, Sendable {
             ("gui_executable_name", guiExecutableName),
             ("agent_executable_name", agentExecutableName),
             ("agent_service_label", agentServiceLabel),
+            ("support_directory_name", supportDirectoryName),
             ("minimum_system_version", minimumSystemVersion),
             ("marketing_version", marketingVersion),
             ("build_number", buildNumber),

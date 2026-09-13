@@ -76,7 +76,7 @@ extension AppEnvironment {
     ) -> AppEnvironment {
         // A bundle that cannot answer these two questions is broken, not
         // degraded: there is no second place to read them from.
-        let configuration = loadConfiguration()
+        let configuration = ProductConfiguration.forThisBundle()
         let location = loadLocation()
         let loginItems = SMAppServiceLoginItems(configuration: configuration)
         let plists = BundledAgentPlistDigest(configuration: configuration)
@@ -153,16 +153,6 @@ extension AppEnvironment {
             .appendingPathComponent("Contents/MacOS", isDirectory: true)
             .appendingPathComponent("fermix")
             .path
-    }
-
-    private static func loadConfiguration() -> ProductConfiguration {
-        do {
-            return try ProductConfiguration.bundled()
-        } catch let failure as ProductConfigurationError {
-            preconditionFailure(failure.message)
-        } catch {
-            preconditionFailure("the product configuration is unreadable: \(error)")
-        }
     }
 
     private static func loadAppBuild() -> AppBuild {

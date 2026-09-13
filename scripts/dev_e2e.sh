@@ -8,8 +8,8 @@
 #                                  point the app at the dev home, open the app,
 #                                  register its agent, refresh the live window
 #   scripts/dev_e2e.sh up --fast   same, but reuse the already-built engine
-#   scripts/dev_e2e.sh down        quit the app, stop the engine, remove the
-#                                  dev-home record (restoring any original)
+#   scripts/dev_e2e.sh down        quit the app, unregister its agent, stop the
+#                                  engine (the dev identity keeps its record)
 #   scripts/dev_e2e.sh status      what is running, and where
 #
 # Fixed dev-loop facts (constants, not knobs): home ~/.fermix-macos, port
@@ -30,7 +30,9 @@
 # compiles into debug builds only. It means activation does not ask the three
 # refusals that name an installed copy — the bundle is in a build directory,
 # your Homebrew launch agent is registered, and a second copy exists — and
-# registers the bundled background agent. Its staged plist pins PORT=4530
+# registers the bundled background agent. (The last of those could not fire
+# under the development identity anyway: the preflight counts copies of this
+# bundle's own identifier, and an installed Fermix.app carries another one.) Its staged plist pins PORT=4530
 # before signing, so launchd restarts use the same isolated port as first boot.
 # The normal production plist and the GUI's login preference are unchanged.
 #
@@ -46,19 +48,30 @@
 # docs/design/M34_MACOS_APP_RCA_2026-09-05.md. The identity is resolved before
 # anything is touched, and `up` refuses without exactly one.
 #
-# IT REWRITES THIS ACCOUNT'S BOOTSTRAP RECORD. There is one launcher.json per
-# account (~/Library/Application Support/Fermix/launcher.json) and no override
-# for it: the app resolves the account from getpwuid(geteuid()) on purpose, so
-# a dev loop cannot be given a record of its own. `up` therefore moves the
-# existing record aside and writes one pointing at the dev home, and `down`
-# puts it back. While the loop is up, anything that reads the record reads the
-# dev home — so a registered Fermix background item would follow this loop's
-# home on its next relaunch, and a crash between `up` and `down` would leave it
-# pointing there. `up` refuses any registered item owned by another bundle.
-# This loop's own item is unregistered before its bundle or record is replaced.
+# THE BUNDLE IT STAGES IS A DIFFERENT APP TO macOS. The whole run reads the
+# product configuration through the development overlay
+# (scripts/product.dev.json, see scripts/product_config.sh), so the staged
+# bundle is "Fermix Dev.app", identifier io.tezra.FermixPet.dev, agent label
+# io.tezra.FermixPet.dev.agent, url scheme fermix-dev, and its support folder is
+# ~/Library/Application Support/Fermix Dev. macOS keys the launchd job on the
+# label, the login item, the TCC grants and the copy count on the identifier,
+# and there is one launcher.json per support folder — so the development
+# identity has a bootstrap record OF ITS OWN and this loop never touches the
+# installed app's record, its grants, its agent or its home. It refuses a
+# registered service under the DEVELOPMENT label that belongs to another
+# bundle, and unregisters its own before replacing its bundle. The installed
+# app, if there is one, is not inspected and not changed.
+#
+# The one thing the two identities still share is the login keychain, which is
+# why the dev home carries its own secret profile (below).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The development identity, for this process and every script it runs: staging,
+# both plist renderers, signing and verification are separate processes and all
+# of them have to read the same identity, so the overlay is exported rather
+# than passed.
+export PRODUCT_CONFIG_OVERLAY="$ROOT_DIR/scripts/product.dev.json"
 # shellcheck source=scripts/product_config.sh
 source "$ROOT_DIR/scripts/product_config.sh"
 FERMIX_REPO="${FERMIX_REPO:-$HOME/projects/fermix}"
@@ -80,11 +93,13 @@ APP="$ROOT_DIR/Apps/Fermix/dist-e2e/$APP_BUNDLE_NAME"
 GUI_EXECUTABLE="$(product_config gui_executable_name)"
 DEV_FLAG="--development-engine"
 ENGINE_TREE="$ENGINE_SRC/_build/prod/rel/fermix_app_engine"
-RECORD_DIR="$HOME/Library/Application Support/Fermix"
+# The development identity's own support folder, which is where its one
+# bootstrap record lives. The installed app's folder is a different name and
+# nothing here computes it.
+RECORD_DIR="$HOME/Library/Application Support/$(product_config support_directory_name)"
 RECORD="$RECORD_DIR/launcher.json"
-RECORD_BACKUP="$RECORD_DIR/launcher.json.pre-dev"
-# The two principals an installed Fermix registers with SMAppService. Both
-# resolve the Fermix home through the record this loop swaps.
+# The two principals this bundle registers with SMAppService, under the
+# development identity. Both resolve the Fermix home through the record above.
 AGENT_LABEL="$(product_config agent_service_label)"
 APP_LABEL="$(product_config bundle_identifier)"
 
@@ -351,22 +366,15 @@ unregister_dev_services() {
   fail "dev login items remained registered after 20s; the bundle and bootstrap record were kept"
 }
 
-# Decode the JSON string: BootstrapStore may escape its path separators.
-record_uses_dev_home() {
-  local stored_path
-  stored_path="$(plutil -extract fermix_home raw -expect string -o - "$RECORD" 2>/dev/null)" ||
-    fail "could not parse fermix_home from $RECORD; the record was kept"
-  [[ "$stored_path" = /* ]] || fail "$RECORD does not name an absolute Fermix home; the record was kept"
-  [ "$stored_path" = "$DEV_HOME" ]
-}
-
-point_record_at_dev_home() {
+# The development identity's bootstrap record, pointed at the dev home.
+#
+# Written rather than swapped: this record is in the development identity's own
+# support folder, so there is nothing of the installed app's to move aside and
+# nothing to put back. The app resolves the account from getpwuid(geteuid()) and
+# reads no FERMIX_HOME, so this file is the only way to name a home, and the
+# development configuration refuses to register unless it names the dev home.
+write_dev_record() {
   mkdir -p "$DEV_HOME" "$RECORD_DIR"
-  if [ -f "$RECORD" ] && ! record_uses_dev_home; then
-    [ -f "$RECORD_BACKUP" ] && fail "both $RECORD and $RECORD_BACKUP exist; resolve by hand"
-    mv "$RECORD" "$RECORD_BACKUP"
-    echo "dev_e2e: existing launcher.json saved to launcher.json.pre-dev"
-  fi
   printf '{"fermix_home":"%s","schema_version":1}' "$DEV_HOME" >"$RECORD"
 }
 
@@ -412,7 +420,7 @@ up() {
   live && fail "port $PORT is still occupied; refusing to start a second engine"
   [ "$fast" = "--fast" ] || build_engine
   stage_and_sign "$identity"
-  point_record_at_dev_home
+  write_dev_record
   # The opened GUI registers its helper through its journaled lifecycle, the
   # same path the product takes. (The spawn refusals seen on 2026-09-05 were
   # the ad-hoc identity, not which process registered; see the header.)
@@ -423,7 +431,9 @@ up() {
   cat <<DONE
 dev_e2e: up.
   app     $APP  ($DEV_FLAG)
+  bundle  $APP_LABEL, agent $AGENT_LABEL
   home    $DEV_HOME
+  record  $RECORD
   source  $ENGINE_SRC ($(engine_branch))
   engine  http://127.0.0.1:$PORT  (health, setup)
   signed  $identity
@@ -442,14 +452,7 @@ down() {
   else
     echo "dev_e2e: engine was not running"
   fi
-  if [ -f "$RECORD_BACKUP" ]; then
-    mv "$RECORD_BACKUP" "$RECORD"
-    echo "dev_e2e: original launcher.json restored"
-  elif [ -f "$RECORD" ] && record_uses_dev_home; then
-    rm "$RECORD"
-    echo "dev_e2e: dev-home record removed"
-  fi
-  echo "dev_e2e: down. ($DEV_HOME is kept; delete it yourself for a fresh start)"
+  echo "dev_e2e: down. ($DEV_HOME and $RECORD are kept; delete them yourself for a fresh start)"
 }
 
 status() {
@@ -472,7 +475,11 @@ status() {
   else
     echo "app      running without $DEV_FLAG, so activation will refuse. Run up again."
   fi
-  if [ -f "$RECORD" ]; then echo "record   $(cat "$RECORD")"; else echo "record   absent (defaults to ~/.fermix)"; fi
+  if [ -f "$RECORD" ]; then
+    echo "record   $RECORD: $(cat "$RECORD")"
+  else
+    echo "record   absent at $RECORD, so the development configuration refuses to register. Run up."
+  fi
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

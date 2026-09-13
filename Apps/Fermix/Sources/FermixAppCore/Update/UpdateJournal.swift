@@ -248,8 +248,8 @@ public enum UpdateJournalError: Error, Equatable, Sendable {
     case directoryCreationFailed(path: String, code: Int)
 }
 
-/// The app-owned update record at
-/// `~/Library/Application Support/Fermix/update-journal.json`.
+/// The app-owned update record, beside the bootstrap record in this build's
+/// Application Support folder (`BootstrapLocation`).
 ///
 /// It is a second file rather than a second kind of lifecycle record: an update
 /// recovery reads the source and target artifacts and the installer the source

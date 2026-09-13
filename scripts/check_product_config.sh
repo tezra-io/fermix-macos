@@ -55,6 +55,15 @@ fail() {
   exit 1
 }
 
+# This gate judges the CHECKED-IN configuration and the four places that
+# restate it, every one of which is the production identity: the linked
+# Info.plist, the two build configurations, the release workflow and the cask.
+# Read through a development overlay it would compare production files against
+# development values and fail for a reason that is not a defect, so the overlay
+# is refused rather than honoured here.
+[ -z "${PRODUCT_CONFIG_OVERLAY:-}" ] ||
+  fail "PRODUCT_CONFIG_OVERLAY is set; this gate judges the checked-in product configuration, so unset it and run again"
+
 require_literal() {
   local file="$1" expected="$2" what="$3"
   grep -F -q -- "$expected" "$file" ||
@@ -72,6 +81,23 @@ check_build_number() {
   case "$build_number" in
     0 | *[!0-9]* | 0*)
       fail "build_number is '$build_number'; it must be a positive integer"
+      ;;
+  esac
+}
+
+# The Application Support folder name, which is this app's identity to the
+# account: the bootstrap record and the update journal live in it. Nothing
+# restates the value — Swift reads it from the configuration and every script
+# reads it through product_config.sh — so what is checked is that it can be a
+# folder name at all. A value carrying a separator would put the one
+# pre-daemon record somewhere nobody looks for it, and product_config's own
+# rule already refuses an absent or empty one.
+check_support_directory() {
+  local name
+  name="$(product_config support_directory_name)"
+  case "$name" in
+    */* | . | ..)
+      fail "support_directory_name is '$name'; it must be one path component"
       ;;
   esac
 }
@@ -151,6 +177,7 @@ check_release_path() {
 }
 
 check_build_number
+check_support_directory
 check_linked_info_plist
 check_manifest_platform
 check_sparkle_pin
