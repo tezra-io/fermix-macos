@@ -3,7 +3,7 @@
   "description": "Provenance of the vendored Fermix wire contracts. The canonical files live in the fermix repository under apps/fermix_core/priv/; this tree is a byte-identical copy pinned by CHECKSUMS.txt. scripts/verify_protocol_contract.sh asserts the two agree, and --source <fermix-checkout> byte-compares against upstream.",
   "upstream": {
     "repository": "tezra-io/fermix",
-    "commit": "385489237e8de4678083e95af73789df9124d89f",
+    "commit": "880f14925b482aaa9254a363fac16ad0b91a0355",
     "branch": "dev",
     "working_tree": "clean",
     "retrieved_at": "2026-09-13"
@@ -20,7 +20,7 @@
         "maximum": 2
       },
       "committed_upstream": true,
-      "provenance_note": "Taken from the fermix repository on dev at 385489237e, the commit that publishes the Live voice engine, so committed_upstream is true and the release audience of verify_staged_app.sh accepts this pin. Protocol stays 2 on the 1 to 2 window: the engine field on the overview's realtime object, the combined voice model row whose every option names the engine it selects, the reasoning effort row that only the Realtime engine carries and the read-only backend row that only Live carries are additive inside existing methods, so no method minimum moves. The voice section has no engine row: the engine is derived from the model and reported back in applied, and settings.apply refuses realtime_engine as a key this section does not have.",
+      "provenance_note": "Taken from the fermix repository on dev at 385489237e, the commit that publishes the Live voice engine, so committed_upstream is true and the release audience of verify_staged_app.sh accepts this pin. Protocol stays 2 on the 1 to 2 window: the engine field on the overview's realtime object, the combined voice model row whose every option names the engine it selects, the reasoning effort row that only the Realtime engine carries and the read-only backend row that only Live carries are additive inside existing methods, so no method minimum moves. The voice section has no engine row: the engine is derived from the model and reported back in applied, and settings.apply refuses realtime_engine as a key this section does not have. This pin also carries the schema's declaration of the overview's realtime engine field, which the router and the golden already published.",
       "files": [
         {
           "path": "management/PROTOCOL.md",
@@ -30,7 +30,7 @@
         {
           "path": "management/protocol.schema.json",
           "source_path": "apps/fermix_core/priv/management/protocol.schema.json",
-          "sha256": "26dd73827cefe03bc39db39822b02f84610601302f45daac0792eae0151d8772"
+          "sha256": "8a7904365cc2c2ed20f52b0db8912d564d703af9812d98a5281bf23c4dc7a547"
         },
         {
           "path": "management/fixtures/compatibility.jsonl",
