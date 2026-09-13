@@ -20,7 +20,7 @@
         "maximum": 2
       },
       "committed_upstream": true,
-      "provenance_note": "Taken from the fermix repository on dev at 385489237e, the commit that publishes the Live voice engine, so committed_upstream is true and the release audience of verify_staged_app.sh accepts this pin. Protocol stays 2 on the 1 to 2 window: the engine field on the overview's realtime object, the combined voice model row whose every option names the engine it selects, the reasoning effort row that only the Realtime engine carries and the read-only backend row that only Live carries are additive inside existing methods, so no method minimum moves. The voice section has no engine row: the engine is derived from the model and reported back in applied, and settings.apply refuses realtime_engine as a key this section does not have. This pin also carries the schema's declaration of the overview's realtime engine field, which the router and the golden already published.",
+      "provenance_note": "Taken from the fermix repository on dev at 880f14925b48, the commit that publishes the Live voice engine, so committed_upstream is true and the release audience of verify_staged_app.sh accepts this pin. Protocol stays 2 on the 1 to 2 window: the engine field on the overview's realtime object, the combined voice model row whose every option names the engine it selects, the reasoning effort row that only the Realtime engine carries and the read-only backend row that only Live carries are additive inside existing methods, so no method minimum moves. The voice section has no engine row: the engine is derived from the model and reported back in applied, and settings.apply refuses realtime_engine as a key this section does not have. This pin also carries the schema's declaration of the overview's realtime engine field, which the router and the golden already published.",
       "files": [
         {
           "path": "management/PROTOCOL.md",
@@ -65,7 +65,7 @@
         "maximum": 2
       },
       "committed_upstream": true,
-      "provenance_note": "Taken from the same fermix commit on dev, 385489237e, which publishes the Live voice engine, so committed_upstream is true. Protocol 2 adds the frames the Live engine needs: task_cancel from the pet, call_ready, caption and task from the daemon, the Live fields on usage, and kind, detail and required_for on error. The window is 1 to 2, so a pet speaking 1 still runs the Realtime engine against this daemon.",
+      "provenance_note": "Taken from the same fermix commit on dev, 880f14925b48, which publishes the Live voice engine, so committed_upstream is true. Protocol 2 adds the frames the Live engine needs: task_cancel from the pet, call_ready, caption and task from the daemon, the Live fields on usage, and kind, detail and required_for on error. The window is 1 to 2, so a pet speaking 1 still runs the Realtime engine against this daemon.",
       "files": [
         {
           "path": "realtime/PROTOCOL.md",
