@@ -212,6 +212,98 @@ struct PetSurfaceTests {
         }
     }
 
+    /// The Live rows are drawn from what the daemon actually sent: no caption,
+    /// no line; no delegation, no status; no reported cost, no figure.
+    @Test("the live call rows say only what the daemon reported")
+    func liveRowsFollowTheDaemon() throws {
+        let harness = try harness()
+
+        #expect(harness.model.captionLine == nil)
+        #expect(harness.model.taskStatusText == nil)
+        #expect(harness.model.voiceCostText == nil)
+        #expect(!harness.model.showsCancelTask)
+
+        harness.appModel.voiceNegotiated()
+        harness.appModel.voiceCallBegan()
+        _ = harness.appModel.apply(
+            .caption(RealtimeCaption(speaker: .user, delta: "what is ", startMs: 0, endMs: 440)),
+            audioIsPlaying: false
+        )
+        _ = harness.appModel.apply(
+            .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running)),
+            audioIsPlaying: false
+        )
+        _ = harness.appModel.apply(.usage(RealtimeUsage(voiceCostCents: 5.35)), audioIsPlaying: false)
+
+        #expect(harness.model.captionLine?.hasSuffix("what is ") == true)
+        #expect(harness.model.taskStatusText == ProductStrings[.voiceTaskRunning])
+        #expect(harness.model.voiceCostText?.isEmpty == false)
+        #expect(harness.model.showsCancelTask)
+    }
+
+    /// Cancelling is offered for work that is running, and for nothing else: a
+    /// finished delegation has nothing left to call off.
+    @Test("a finished task offers no cancel")
+    func aFinishedTaskOffersNoCancel() throws {
+        let harness = try harness()
+        harness.appModel.voiceNegotiated()
+        harness.appModel.voiceCallBegan()
+
+        _ = harness.appModel.apply(
+            .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .completed)),
+            audioIsPlaying: false
+        )
+
+        #expect(!harness.model.showsCancelTask)
+        #expect(harness.model.taskStatusText == ProductStrings[.voiceTaskCompleted])
+    }
+
+    /// The pet decides nothing about the call: cancelling reaches the daemon as
+    /// the delegation the daemon itself named.
+    @Test("cancelling a task sends the daemon that delegation")
+    func cancelSendsTheDelegation() async throws {
+        let harness = try harness()
+
+        harness.model.toggleCall()
+        harness.negotiate()
+        await harness.settle()
+
+        _ = harness.appModel.apply(
+            .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running)),
+            audioIsPlaying: false
+        )
+        harness.model.cancelTask()
+
+        #expect(harness.transport.sent.contains(.taskCancel(delegationId: "dg_01H9")))
+    }
+
+    /// With no delegation there is nothing to cancel, and an invented one would
+    /// be a frame about work that does not exist.
+    @Test("cancelling with no task sends nothing")
+    func cancelWithoutATaskSendsNothing() async throws {
+        let harness = try harness()
+
+        harness.model.toggleCall()
+        harness.negotiate()
+        await harness.settle()
+        let before = harness.transport.sent.count
+
+        harness.model.cancelTask()
+
+        #expect(harness.transport.sent.count == before)
+    }
+
+    /// The Live rows belong to a live call: a surface that kept drawing the
+    /// last call's caption would be reporting a call that is over.
+    @Test("the live call rows are drawn only while a call is active")
+    func liveRowsAreGatedOnACall() throws {
+        let view = try SourceTree.swiftFiles(matching: "Pet/PetSurfaceView.swift")
+        let text = try #require(view.first?.text)
+
+        #expect(text.contains("if model.callActive {"))
+        #expect(text.contains("liveCall"))
+    }
+
     @Test("every pet action carries product copy that obeys the voice rules")
     func actionCopyIsClean() throws {
         let harness = try harness()
@@ -219,6 +311,7 @@ struct PetSurfaceTests {
             harness.model.callActionTitle,
             harness.model.muteActionTitle,
             harness.model.interruptActionTitle,
+            harness.model.cancelTaskActionTitle,
             harness.model.floatingWindowActionTitle
         ]
 
@@ -292,7 +385,7 @@ final class PetHarness {
     /// The daemon answering its half of the handshake, which is what turns a
     /// requested call into a live one.
     func negotiate() {
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
     }
 
     /// Lets the call's permission task run without a wall-clock wait.

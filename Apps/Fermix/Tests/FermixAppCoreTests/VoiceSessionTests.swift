@@ -38,10 +38,10 @@ struct VoiceSessionTests {
         session.onNegotiated = { negotiated = $0 }
 
         session.connect()
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
 
         #expect(session.phase == .negotiated)
-        #expect(negotiated == RealtimeVersionWindow(minimum: 1, maximum: 1))
+        #expect(negotiated == RealtimeVersionWindow(minimum: 1, maximum: 2))
         #expect(scheduler.liveCount == 0)
     }
 
@@ -56,10 +56,10 @@ struct VoiceSessionTests {
         session.onFailed = { failure = $0 }
 
         session.connect()
-        transport.deliver(.serverHello(minVersion: 2, maxVersion: 3))
+        transport.deliver(.serverHello(minVersion: 3, maxVersion: 4))
 
         #expect(
-            failure == .versionUnsupported(direction: .clientTooOld, minimum: 2, maximum: 3)
+            failure == .versionUnsupported(direction: .clientTooOld, minimum: 3, maximum: 4)
         )
         #expect(session.phase == .disconnected)
         #expect(transport.closeCount == 1)
@@ -150,7 +150,7 @@ struct VoiceSessionTests {
         transport.deliver(.audioDelta(base64: "AAAA"))
         #expect(routed.isEmpty)
 
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
         transport.deliver(.state(.listening))
 
         #expect(routed == [.state(.listening)])
@@ -167,8 +167,8 @@ struct VoiceSessionTests {
         session.onNegotiated = { _ in negotiations += 1 }
 
         session.connect()
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
 
         #expect(negotiations == 1)
         #expect(session.phase == .negotiated)
@@ -220,7 +220,7 @@ struct VoiceSessionTests {
         session.onFailed = { failure = $0 }
 
         session.connect()
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
         transport.fail(.peerClosed)
 
         #expect(failure == .transport(.peerClosed))

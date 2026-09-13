@@ -7,6 +7,9 @@ public protocol VoiceControlling: AnyObject {
     func toggleCall()
     func setMuted(_ muted: Bool)
     func interrupt()
+    /// Calls off the backend delegation the daemon last reported. Nothing is
+    /// presumed about the outcome: the task ends when a `task` frame says so.
+    func cancelTask()
     /// Releases the microphone and the socket. Sends no daemon lifecycle
     /// command: the daemon outlives the window.
     func shutdown()
@@ -54,6 +57,12 @@ public final class VoiceCoordinator: VoiceControlling {
         let played = audio.interruptPlayback()
         session.send(.interrupt(audioEndMs: played))
         model.voiceInterrupted()
+    }
+
+    public func cancelTask() {
+        guard let delegationId = model.voice.task?.delegationId else { return }
+
+        session.send(.taskCancel(delegationId: delegationId))
     }
 
     public func shutdown() {

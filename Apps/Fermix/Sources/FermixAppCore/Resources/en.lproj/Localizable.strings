@@ -325,6 +325,16 @@
 "voice.error.noInputDevice" = "No microphone is available";
 "voice.error.outputFormatUnavailable" = "Voice audio could not be prepared";
 "voice.error.microphoneUnknown" = "The microphone could not start";
+"voice.caption.speakerUser" = "You";
+"voice.caption.speakerAssistant" = "Fermix";
+"voice.caption.lineFormat" = "%@: %@";
+"voice.task.pending" = "Task queued";
+"voice.task.running" = "Task running";
+"voice.task.completed" = "Task finished";
+"voice.task.failed" = "Task did not finish";
+"voice.task.cancelled" = "Task cancelled";
+"voice.task.statusFormat" = "Task: %@";
+"voice.costFormat" = "Voice so far: %@";
 
 /* MARK: Pet */
 "pet.callBegin" = "Begin voice call";
@@ -332,6 +342,7 @@
 "pet.mute" = "Mute microphone";
 "pet.unmute" = "Unmute microphone";
 "pet.interrupt" = "Interrupt reply";
+"pet.cancelTask" = "Cancel task";
 "pet.accessibilityLabel" = "Fermix voice companion";
 "pet.showWindow" = "Show the floating companion";
 "pet.hideWindow" = "Hide the floating companion";

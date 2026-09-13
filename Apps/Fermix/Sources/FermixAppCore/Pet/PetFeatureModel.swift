@@ -90,6 +90,58 @@ public final class PetFeatureModel: ObservableObject {
         model.voice.status.carriesItsOwnSentence ? statusText : callActionTitle
     }
 
+    public var cancelTaskActionTitle: String { ProductStrings[.petCancelTask] }
+
+    /// The last caption fragment, prefixed with who said it: the daemon's own
+    /// bytes, never reflowed, because a caption is verbatim or it is not a
+    /// caption. The surface draws it on one line and truncates what does not
+    /// fit rather than rewriting it.
+    public var captionLine: String? {
+        guard let caption = model.voice.captions.last else { return nil }
+
+        return String(
+            format: ProductStrings[.voiceCaptionLineFormat],
+            Self.speakerName(caption.speaker),
+            caption.delta
+        )
+    }
+
+    /// What the backend delegation is doing, or the daemon's own word for it
+    /// where this build has never seen that status.
+    public var taskStatusText: String? {
+        guard let task = model.voice.task else { return nil }
+
+        switch task.status {
+        case .pending: return ProductStrings[.voiceTaskPending]
+        case .running: return ProductStrings[.voiceTaskRunning]
+        case .completed: return ProductStrings[.voiceTaskCompleted]
+        case .failed: return ProductStrings[.voiceTaskFailed]
+        case .cancelled: return ProductStrings[.voiceTaskCancelled]
+        case .unrecognized(let value): return String(format: ProductStrings[.voiceTaskStatusFormat], value)
+        }
+    }
+
+    /// What the call's voice has cost so far, where the daemon has said. The
+    /// backend's share is reported as unknown rather than as a number, so it is
+    /// never added in here as zero.
+    public var voiceCostText: String? {
+        guard let cents = model.voice.usage?.voiceCostCents else { return nil }
+
+        return String(format: ProductStrings[.voiceCostFormat], CurrencyFormat.wholeCents(cents))
+    }
+
+    /// Cancelling is offered only for work that is actually running: a pending
+    /// task has nothing to call off yet, and a finished one cannot be.
+    public var showsCancelTask: Bool { model.voice.task?.status == .running }
+
+    private static func speakerName(_ speaker: RealtimeCaptionSpeaker) -> String {
+        switch speaker {
+        case .user: return ProductStrings[.voiceCaptionSpeakerUser]
+        case .assistant: return ProductStrings[.voiceCaptionSpeakerAssistant]
+        case .unrecognized(let value): return value
+        }
+    }
+
     public var showsInterrupt: Bool {
         mode == .thinking || visualMode == .speaking
     }
@@ -136,6 +188,10 @@ public final class PetFeatureModel: ObservableObject {
 
     public func interrupt() {
         voice.interrupt()
+    }
+
+    public func cancelTask() {
+        voice.cancelTask()
     }
 
     public func setWindowVisible(_ visible: Bool) {

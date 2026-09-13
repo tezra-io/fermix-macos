@@ -501,6 +501,7 @@ final class FakeVoiceController: VoiceControlling {
     func toggleCall() { toggleCallCount += 1 }
     func setMuted(_ muted: Bool) {}
     func interrupt() {}
+    func cancelTask() {}
     func shutdown() { shutdownCount += 1 }
 }
 

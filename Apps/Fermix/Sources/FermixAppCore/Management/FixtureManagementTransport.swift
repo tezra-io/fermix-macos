@@ -346,6 +346,7 @@ enum FixtureReadiness: Equatable {
         realtime["enabled"] = false
         realtime["status"] = NSNull()
         realtime["provider"] = NSNull()
+        realtime["engine"] = NSNull()
         realtime["model"] = NSNull()
         realtime["socket_alive"] = false
         realtime["active_sessions"] = 0

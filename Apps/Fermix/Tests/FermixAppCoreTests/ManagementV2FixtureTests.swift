@@ -595,6 +595,22 @@ struct ManagementV2FixtureTests {
         #expect(!schema.contains("\"attention\""))
     }
 
+    /// The selected voice engine is a fact the daemon publishes beside the
+    /// provider and the model, null while voice is disabled rather than absent.
+    /// A decoder that dropped it would leave the app unable to say which engine
+    /// answered a call it is already showing.
+    @Test("the overview reports which voice engine is selected")
+    func overviewCarriesTheVoiceEngine() throws {
+        let overview: ManagementOverview = try FakeDaemonGateway.fixtureResult(
+            named: "overview_get",
+            as: ManagementOverview.self
+        )
+
+        #expect(overview.realtime.engine == "openai_realtime")
+        #expect(overview.realtime.provider == "openai")
+        #expect(overview.realtime.model == "gpt-realtime")
+    }
+
     /// Personalization gates. The failure carries `gating` on the wire and the
     /// app reads it there, so a home missing the owner's own description cannot
     /// be reported ready by one surface and not by another.

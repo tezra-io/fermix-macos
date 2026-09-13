@@ -316,6 +316,20 @@ Notes that the shapes alone do not carry:
   `overview.get` asks for.
 - **`read_only` marks a row `settings.apply` will not take**, rendered as a plain
   labelled row rather than a control whose save always refuses.
+- **The voice section's rows depend on its own engine row.** `realtime_engine`
+  selects `openai_realtime` (the Realtime API, which runs tools inside the voice
+  session) or `openai_live` (the Live API, which delegates every tool call,
+  memory read and reasoning step back to the Fermix agent and bills by the
+  minute). `realtime_model` and `realtime_voice` publish the catalog of the
+  engine in force and nothing else, so a model the other engine ships is not an
+  option here. `realtime_reasoning_effort` is a Realtime session setting with no
+  Live equivalent and is absent under Live; `realtime_backend` is present only
+  under Live, is read-only, and names the primary provider and model that answer
+  while Live speaks. Send `realtime_engine` on its own: applying it moves the
+  model to that engine's default and adds or removes the reasoning effort, and
+  the result names every key the daemon derived in `applied` with a sentence for
+  each in `side_effects`. `overview.get` reports the same selection as
+  `realtime.engine`, null while voice is disabled.
 - **Secrets travel inbound only, in `secret.set`, one per call.** Every other
   method reports presence as a boolean. "Present" means a reference or a value
   sits at that key's own path, never "the keyring holds an item": a key stored

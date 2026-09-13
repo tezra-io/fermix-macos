@@ -16,8 +16,21 @@ public enum VoiceEffect: Equatable, Sendable {
     case endAudio
 }
 
+/// What the daemon said, as the model holds it.
+///
+/// The wire shapes are the model's shapes: a caption is the fragment that
+/// arrived, a task is the frame that arrived, and a parallel struct beside each
+/// would only be somewhere for the two to drift apart.
+public typealias VoiceCaption = RealtimeCaption
+public typealias VoiceTask = RealtimeTask
+public typealias VoiceUsage = RealtimeUsage
+
 /// The voice facts, separate from how they draw.
 public struct VoiceState: Equatable, Sendable {
+    /// How many caption fragments are kept. A Live call emits them for as long
+    /// as it runs, so the tail is bounded and the head is dropped.
+    public static let captionLimit = 40
+
     public var mode: VoiceMode = .offline
     public var connected = false
     public var callActive = false
@@ -26,6 +39,17 @@ public struct VoiceState: Equatable, Sendable {
     /// daemon's speaking state by the length of the buffered tail.
     public var audioActive = false
     public var status: VoiceStatus = .offline
+    /// Which engine answered and which call this is, from `call_ready`. Both
+    /// are the daemon's own words, and neither changes what the pet draws.
+    public var engine: String?
+    public var callId: String?
+    /// The transcript fragments of this call, oldest first, capped at
+    /// `captionLimit`. They are held exactly as they arrived.
+    public var captions: [VoiceCaption] = []
+    /// The backend delegation the daemon last reported, where the call has one.
+    public var task: VoiceTask?
+    /// The usage frame the daemon last reported.
+    public var usage: VoiceUsage?
 
     public var presentation: VoicePresentation {
         VoicePresentation(mode: mode, callActive: callActive, audioActive: audioActive)
@@ -195,6 +219,14 @@ public final class AppModel: ObservableObject {
         voice.muted = false
         voice.mode = .idle
         voice.status = .connecting
+        // Everything the daemon reports about a call belongs to that call. The
+        // previous one's captions, delegation and bill are not this one's, and
+        // a surface that showed them would be reporting the wrong call.
+        voice.engine = nil
+        voice.callId = nil
+        voice.captions = []
+        voice.task = nil
+        voice.usage = nil
     }
 
     public func voiceCallEnded() {
@@ -290,7 +322,18 @@ public final class AppModel: ObservableObject {
             return applyToolEvent(status: status, reason: reason)
         case .error(let failure):
             return applyServerError(failure)
-        case .serverHello, .transcriptDelta, .assistantTextDelta, .usage:
+        case .callReady(let ready):
+            return applyCallReady(ready)
+        case .caption(let caption):
+            return applyCaption(caption)
+        case .task(let task):
+            return applyTask(task)
+        case .usage(let usage):
+            // A bill is a fact, not a state: what a limit does to the call
+            // arrives as its own `error`, carrying the cost_limit kind.
+            voice.usage = usage
+            return []
+        case .serverHello, .transcriptDelta, .assistantTextDelta:
             return []
         case .unrecognized(let type):
             log.debug("no presentation for realtime event \(type, privacy: .public)")
@@ -352,6 +395,46 @@ public final class AppModel: ObservableObject {
         }
 
         voice.mode = voice.callActive ? .toolUse : .idle
+        voice.status = VoiceStatus(mode: voice.mode)
+        return []
+    }
+
+    /// `call_ready` is a fact about the call rather than a turn state: it says
+    /// which engine answered and which call this is. The daemon reports what
+    /// the turn is doing in `state`, so nothing here touches the mode.
+    private func applyCallReady(_ ready: RealtimeCallReady) -> [VoiceEffect] {
+        voice.engine = ready.engine
+        voice.callId = ready.callId
+        return []
+    }
+
+    /// Fragments are appended exactly as they arrived: the contract says to
+    /// concatenate the deltas without trimming them or inserting spaces, and
+    /// user and assistant fragments may overlap in time.
+    private func applyCaption(_ caption: RealtimeCaption) -> [VoiceEffect] {
+        voice.captions.append(caption)
+
+        let overflow = voice.captions.count - VoiceState.captionLimit
+        if overflow > 0 {
+            voice.captions.removeFirst(overflow)
+        }
+
+        return []
+    }
+
+    /// A backend delegation presents like a tool call, which is what it is from
+    /// this side: the assistant is working while it runs, and back at the
+    /// microphone once it stops. A status this build cannot read is not
+    /// terminal, so an unknown word never ends the work early.
+    private func applyTask(_ task: RealtimeTask) -> [VoiceEffect] {
+        voice.task = task
+
+        if task.status.isTerminal {
+            voice.mode = voice.callActive ? voice.activeInputMode : .idle
+        } else {
+            voice.mode = voice.callActive ? .toolUse : .idle
+        }
+
         voice.status = VoiceStatus(mode: voice.mode)
         return []
     }

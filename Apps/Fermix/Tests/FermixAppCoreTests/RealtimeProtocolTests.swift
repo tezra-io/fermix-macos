@@ -47,14 +47,54 @@ struct RealtimeProtocolTests {
             return try RealtimeServerEvent.decode(fixture.line)
         }
 
-        #expect(try event("server_hello") == .serverHello(minVersion: 1, maxVersion: 1))
+        #expect(try event("server_hello") == .serverHello(minVersion: 1, maxVersion: 2))
         #expect(try event("state") == .state(.listening))
         #expect(try event("audio_delta") == .audioDelta(base64: "AAAA"))
         #expect(try event("transcript_delta") == .transcriptDelta(text: "hello"))
         #expect(try event("assistant_text_delta") == .assistantTextDelta(text: "hi"))
         #expect(try event("tool_event") == .toolEvent(status: .completed, reason: nil))
-        #expect(try event("usage") == .usage)
+        #expect(try event("usage") == .usage(RealtimeUsage()))
         #expect(try event("playback_stop") == .playbackStop)
+        #expect(
+            try event("call_ready") == .callReady(
+                RealtimeCallReady(
+                    engine: "openai_live",
+                    callId: "voice_live:17",
+                    providerSessionId: "sess_live_01H9",
+                    expiresAt: 1_788_000_000,
+                    captions: true
+                )
+            )
+        )
+        #expect(
+            try event("caption") == .caption(
+                RealtimeCaption(speaker: .user, delta: "what is ", startMs: 1_200, endMs: 1_640)
+            )
+        )
+        #expect(
+            try event("task") == .task(
+                RealtimeTask(
+                    delegationId: "dg_01H9",
+                    revision: 1,
+                    status: .running,
+                    summary: "checking the calendar"
+                )
+            )
+        )
+
+        let live = try event("usage") { $0.object["status"] as? String == "live" }
+        #expect(
+            live == .usage(
+                RealtimeUsage(
+                    status: "live",
+                    voiceSeconds: 64.2,
+                    voiceCostCents: 5.35,
+                    backendTurns: 2,
+                    backendCost: "unknown",
+                    accounting: "running"
+                )
+            )
+        )
 
         let refusal = try event("error") { ($0.object["direction"] as? String) != nil }
         #expect(
@@ -63,7 +103,21 @@ struct RealtimeProtocolTests {
                     reason: "unsupported_protocol_version",
                     direction: .clientTooNew,
                     minVersion: 1,
-                    maxVersion: 1
+                    maxVersion: 2
+                )
+            )
+        )
+
+        let update = try event("error") { ($0.object["kind"] as? String) == "update_required" }
+        #expect(
+            update == .error(
+                RealtimeServerError(
+                    reason: "unsupported_protocol_version",
+                    kind: .updateRequired,
+                    requiredFor: "openai_live",
+                    direction: .clientTooOld,
+                    minVersion: 2,
+                    maxVersion: 2
                 )
             )
         )
@@ -74,11 +128,13 @@ struct RealtimeProtocolTests {
         let fixtures = try RealtimeFixtures.load(.clientEvents)
         let produced: [RealtimeClientEvent] = [
             .clientHello(protocolVersion: 1),
+            .clientHello(protocolVersion: 2),
             .callStart,
             .audioChunk(base64: "MTIzNA=="),
             .interrupt(audioEndMs: nil),
             .interrupt(audioEndMs: 1_500),
             .mute(enabled: true),
+            .taskCancel(delegationId: "dg_01H9"),
             .callStop
         ]
 
@@ -93,6 +149,107 @@ struct RealtimeProtocolTests {
                 "\(fixture.type): \(String(decoding: frame, as: UTF8.self))"
             )
         }
+    }
+
+    /// The two frames a Live call cannot run without, read back as the daemon
+    /// sent them. `provider_session_id` and `expires_at` are absent where the
+    /// provider never said, which is not the same as a session that never
+    /// expires, so both stay optional rather than being defaulted.
+    @Test("a call_ready without a provider session or an expiry still decodes")
+    func callReadyWithoutOptionalFields() throws {
+        let frame = #"{"type":"call_ready","engine":"openai_realtime","call_id":"voice:3","captions":false}"#
+        let event = try RealtimeServerEvent.decode(Data(frame.utf8))
+
+        #expect(
+            event == .callReady(
+                RealtimeCallReady(engine: "openai_realtime", callId: "voice:3", captions: false)
+            )
+        )
+    }
+
+    /// A caption is verbatim: the leading and trailing bytes are the daemon's,
+    /// and nothing here trims them or inserts a space the wire did not carry.
+    @Test("a caption fragment keeps its own bytes")
+    func captionIsVerbatim() throws {
+        let frame = #"{"type":"caption","speaker":"assistant","delta":" and then ","start_ms":0,"end_ms":40}"#
+        let event = try RealtimeServerEvent.decode(Data(frame.utf8))
+
+        #expect(event == .caption(RealtimeCaption(speaker: .assistant, delta: " and then ", startMs: 0, endMs: 40)))
+    }
+
+    @Test("a caption from a speaker this build has never seen keeps its word")
+    func unknownCaptionSpeakerIsPreserved() throws {
+        let frame = #"{"type":"caption","speaker":"operator","delta":"hi","start_ms":0,"end_ms":1}"#
+        let event = try RealtimeServerEvent.decode(Data(frame.utf8))
+
+        #expect(event == .caption(RealtimeCaption(speaker: .unrecognized("operator"), delta: "hi", startMs: 0, endMs: 1)))
+    }
+
+    /// A task frame without a summary is a task nobody has described yet, not a
+    /// task with an empty description.
+    @Test("a task without a summary decodes, and its terminal statuses are terminal")
+    func taskStatuses() throws {
+        let frame = #"{"type":"task","delegation_id":"dg_2","revision":4,"status":"cancelled"}"#
+        let event = try RealtimeServerEvent.decode(Data(frame.utf8))
+
+        #expect(event == .task(RealtimeTask(delegationId: "dg_2", revision: 4, status: .cancelled)))
+
+        for status in [RealtimeTaskStatus.completed, .failed, .cancelled] {
+            #expect(status.isTerminal, "\(status)")
+        }
+        for status in [RealtimeTaskStatus.pending, .running, .unrecognized("paused")] {
+            #expect(!status.isTerminal, "\(status)")
+        }
+    }
+
+    /// The N/N-1 window is only real if a v1 frame still decodes: a daemon that
+    /// has moved to the Live engine still sends the Realtime engine's `usage`
+    /// for a Realtime call, and it carries none of the Live fields.
+    @Test("a usage frame in the version 1 shape decodes with no Live fields")
+    func versionOneUsageStillDecodes() throws {
+        let event = try RealtimeServerEvent.decode(Data(#"{"type":"usage","input_tokens":1,"output_tokens":2}"#.utf8))
+
+        #expect(event == .usage(RealtimeUsage()))
+        guard case .usage(let usage) = event else {
+            Issue.record("a usage frame decoded as \(event.wireType)")
+            return
+        }
+
+        #expect(usage.voiceCostCents == nil)
+        #expect(usage.accounting == nil)
+        #expect(usage.backendCost == nil)
+    }
+
+    /// Unknown is not zero: a backend billing against a subscription allowance
+    /// reports its cost as a word, and the word is carried rather than folded
+    /// into a number.
+    @Test("a Live usage frame carries the vendor's unknown as a word")
+    func liveUsageCarriesUnknown() throws {
+        let frame = #"{"type":"usage","status":"limit_reached","backend_cost":"unknown","accounting":"complete"}"#
+        let event = try RealtimeServerEvent.decode(Data(frame.utf8))
+
+        #expect(event == .usage(RealtimeUsage(status: "limit_reached", backendCost: "unknown", accounting: "complete")))
+    }
+
+    /// A terminal status word is not a diagnosis, so the vendor's own sentence
+    /// has to survive the decode rather than being dropped for the reason code.
+    @Test("an error carries its typed kind and the vendor's own sentence")
+    func errorCarriesKindAndDetail() throws {
+        let frame = #"{"type":"error","reason":"provider_error","kind":"provider_refused","detail":"Insufficient quota."}"#
+        let event = try RealtimeServerEvent.decode(Data(frame.utf8))
+
+        #expect(
+            event == .error(
+                RealtimeServerError(reason: "provider_error", kind: .providerRefused, detail: "Insufficient quota.")
+            )
+        )
+    }
+
+    @Test("an error kind this build has never seen keeps its own word")
+    func unknownErrorKindIsPreserved() throws {
+        let event = try RealtimeServerEvent.decode(Data(#"{"type":"error","reason":"x","kind":"moon_phase"}"#.utf8))
+
+        #expect(event == .error(RealtimeServerError(reason: "x", kind: .unrecognized("moon_phase"))))
     }
 
     /// The state vocabulary is open and additive: a value this build has never
