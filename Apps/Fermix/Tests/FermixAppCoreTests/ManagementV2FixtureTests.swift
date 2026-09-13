@@ -91,10 +91,11 @@ struct ManagementV2FixtureTests {
             ("model source", Array(ManagementModelSource.publishedValues.keys)),
             ("plugin action", Array(ManagementPluginAction.publishedValues.keys)),
             ("plugin runtime kind", Array(ManagementPluginRuntimeKind.publishedValues.keys)),
-            ("plugin auth kind", Array(ManagementPluginAuthKind.publishedValues.keys))
+            ("plugin auth kind", Array(ManagementPluginAuthKind.publishedValues.keys)),
+            ("plugin setting kind", Array(ManagementPluginSettingKind.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 15)
+        #expect(modelled.count == 16)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),

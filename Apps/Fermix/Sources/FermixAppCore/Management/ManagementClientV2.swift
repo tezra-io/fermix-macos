@@ -254,7 +254,8 @@ extension ManagementClient {
     public func setOAuthClient(
         provider: String,
         clientId: String,
-        redirectPort: Int? = nil
+        redirectPort: Int? = nil,
+        region: String? = nil
     ) async throws -> ManagementPluginOAuthClientRow {
         if let redirectPort, !(1...65535).contains(redirectPort) {
             throw ManagementError.invalidParameter(.outOfRange(field: "redirect_port"))
@@ -264,7 +265,8 @@ extension ManagementClient {
             params: ManagementOAuthClientParams(
                 provider: try requireText(provider, field: "provider"),
                 clientId: try requireText(clientId, field: "client_id"),
-                redirectPort: redirectPort
+                redirectPort: redirectPort,
+                region: try region.map { try requireText($0, field: "region") }
             ),
             as: ManagementPluginOAuthClientRow.self
         )

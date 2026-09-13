@@ -667,6 +667,10 @@
 "integration.client.secret" = "Client secret";
 "integration.client.port" = "Redirect port";
 "integration.client.portPrompt" = "Leave blank for the default";
+"integration.client.region" = "Account region";
+"integration.client.regionPrompt" = "Choose a region";
+"integration.client.regionFooter" = "Pick the region the account belongs to. Its sign-in goes to that region’s host.";
+"integration.client.regionMissing" = "Choose the account’s region.";
 "integration.feature.computerUse" = "Computer use";
 "integration.feature.computerUse.body" = "Lets Fermix see the screen and use the pointer, through a separate signed helper.";
 "integration.feature.computerHistory" = "Computer history";

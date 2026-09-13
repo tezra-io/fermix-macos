@@ -942,6 +942,158 @@ struct SettingsPanesTests {
         #expect(catalog.plugins.contains { $0.authKind == nil }, "a plugin needing no credential")
     }
 
+    /// A setting names the control it is, and the two words are a closed set.
+    ///
+    /// The kind is optional for an older protocol-2 engine, which published
+    /// none and meant a text field: a switch drawn as a field is how an
+    /// operator turns a tool on by typing `TRUE` and finds it still off.
+    @Test("a plugin setting's kind is the published closed set, and an absent one is text")
+    func settingKindsArePublished() throws {
+        let kinds = Set(try Self.pluginVocabulary("setting_kinds"))
+
+        #expect(kinds == ["text", "boolean"])
+        #expect(Set(ManagementPluginSettingKind.publishedValues.keys) == kinds)
+
+        #expect(try Self.setting(kind: nil).kind == .text)
+        #expect(try Self.setting(kind: "text").kind == .text)
+        #expect(try Self.setting(kind: "boolean").kind == .boolean)
+        // A kind from a newer daemon is preserved rather than mapped onto a
+        // neighbour, so the row can say which word it could not draw.
+        #expect(try Self.setting(kind: "dial").kind == .unrecognized("dial"))
+        #expect(try Self.setting(kind: "dial").kind.isPublished == false)
+    }
+
+    /// The switch writes the daemon's two words and reads off as everything
+    /// else, including the unwritten setting the row simply omits.
+    @Test("a boolean setting is on only for the daemon's own true")
+    func booleanSettingsAreTheDaemonsTwoWords() {
+        #expect(PluginSettingSwitch.isOn(value: "true"))
+        #expect(!PluginSettingSwitch.isOn(value: "TRUE"))
+        #expect(!PluginSettingSwitch.isOn(value: "1"))
+        #expect(!PluginSettingSwitch.isOn(value: ""))
+        #expect(!PluginSettingSwitch.isOn(value: nil))
+
+        #expect(PluginSettingSwitch.wireValue(isOn: true) == .text("true"))
+        #expect(PluginSettingSwitch.wireValue(isOn: false) == .text("false"))
+    }
+
+    /// The region is the sign-in client's, with the daemon's own labels. Both
+    /// fields are optional for an older protocol-2 engine, and an absent
+    /// `regions` is a provider that serves one region rather than a picker that
+    /// failed to arrive.
+    @Test("a sign-in client carries the region it is bound to and the ones offered")
+    func oauthClientRegionsAreTheDaemonsOwn() throws {
+        let published = try Self.client(
+            region: "eu",
+            regions: [("na", "North America"), ("eu", "Europe")]
+        )
+
+        #expect(published.region == "eu")
+        #expect(published.regions.map(\.id) == ["na", "eu"])
+        #expect(published.regionLabel == "Europe")
+        #expect(OAuthClientState.sentence(for: published)
+            == ProductStrings.commaPair(ProductStrings[.integrationClientUnset], "Europe"))
+
+        let quiet = try Self.client(region: nil, regions: nil)
+
+        #expect(quiet.region == nil)
+        #expect(quiet.regions.isEmpty)
+        #expect(quiet.regionLabel == nil)
+        #expect(OAuthClientState.sentence(for: quiet) == ProductStrings[.integrationClientUnset])
+    }
+
+    /// The region reaches the daemon, and only where there is one to send.
+    ///
+    /// A client whose provider offers regions stays at `needs_client_config`
+    /// until one arrives, and the daemon refuses a region for a provider that
+    /// serves a single one, so both halves are the call.
+    @Test("registering a sign-in client carries the region the sheet chose")
+    func oauthClientRegionReachesTheDaemon() async throws {
+        let gateway = try SettingsFixture.gateway()
+        let model = SettingsFixture.model(gateway: gateway)
+
+        let regional = await model.setOAuthClient(
+            provider: "tesla",
+            clientId: "client-1",
+            redirectPort: nil,
+            region: "eu"
+        )
+        let single = await model.setOAuthClient(
+            provider: "google",
+            clientId: "client-2",
+            redirectPort: 1455,
+            region: nil
+        )
+
+        #expect(regional == nil)
+        #expect(single == nil)
+        #expect(gateway.oauthClientRegions == ["eu", nil])
+    }
+
+    /// The `obsidian` row's one manifest setting, with the kind under test.
+    ///
+    /// Edited into the golden `plugins.list` record rather than written in
+    /// Swift, so every field the case does not vary is still the engine's.
+    private static func setting(kind: String?) throws -> ManagementPluginSetting {
+        var body = try Self.pluginsListResult()
+        var plugins = try #require(body["plugins"] as? [[String: Any]])
+        let index = try #require(plugins.firstIndex { $0["name"] as? String == "obsidian" })
+        var settings = try #require(plugins[index]["settings"] as? [[String: Any]])
+
+        if let kind {
+            settings[0]["kind"] = kind
+        } else {
+            settings[0].removeValue(forKey: "kind")
+        }
+        plugins[index]["settings"] = settings
+        body["plugins"] = plugins
+
+        return try #require(
+            try Self.catalog(body).plugins.first { $0.name == "obsidian" }?.settings.first
+        )
+    }
+
+    /// The `notion` sign-in client, with the region facts under test. Nil
+    /// regions removes both keys, which is the older protocol-2 engine.
+    private static func client(
+        region: String?,
+        regions: [(id: String, label: String)]?
+    ) throws -> ManagementPluginOAuthClient {
+        var body = try Self.pluginsListResult()
+        var clients = try #require(body["oauth_clients"] as? [[String: Any]])
+        let index = try #require(clients.firstIndex { $0["provider"] as? String == "notion" })
+
+        if let regions {
+            clients[index]["regions"] = regions.map { ["id": $0.id, "label": $0.label] }
+        } else {
+            clients[index].removeValue(forKey: "regions")
+        }
+        if let region {
+            clients[index]["region"] = region
+        } else {
+            clients[index].removeValue(forKey: "region")
+        }
+        body["oauth_clients"] = clients
+
+        return try #require(try Self.catalog(body).oauthClients.first { $0.provider == "notion" })
+    }
+
+    /// The golden `plugins.list` result, as a document a case can edit.
+    private static func pluginsListResult() throws -> [String: Any] {
+        let fixture = try #require(
+            try ManagementFixtures.load(.success, from: .management).first { $0.name == "plugins_list" }
+        )
+
+        return try #require(try fixture.object("response")["result"] as? [String: Any])
+    }
+
+    private static func catalog(_ body: [String: Any]) throws -> ManagementPluginCatalog {
+        try JSONDecoder().decode(
+            ManagementPluginCatalog.self,
+            from: try JSONSerialization.data(withJSONObject: body)
+        )
+    }
+
     /// One closed set the schema publishes, read from the artifact rather than
     /// restated: `x-plugin-vocabulary` is where a client enumerating the words
     /// and a client validating a frame read one list.

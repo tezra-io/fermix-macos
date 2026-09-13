@@ -278,7 +278,7 @@ struct IntegrationDetailSheet: View {
     private func signInClient(_ row: IntegrationRowModel) -> some View {
         if let client = IntegrationRowProjection.client(for: row, in: model.plugins.value) {
             LabeledContent(ProductStrings[.integrationClientRow]) {
-                Text(ProductStrings[client.configured ? .integrationClientSet : .integrationClientUnset])
+                Text(OAuthClientState.sentence(for: client))
                     .foregroundStyle(Palette.secondary.color)
             }
         }
@@ -348,7 +348,19 @@ struct IntegrationDetailSheet: View {
     }
 }
 
-/// One plugin setting: the manifest's label, and its value.
+/// The two words a boolean plugin setting is written in.
+///
+/// The daemon takes `true` or `false` and refuses everything else, and a
+/// setting nobody has written is absent from the row, which is what off is.
+/// Both rules live here so the switch cannot disagree with the wire about what
+/// off looks like.
+enum PluginSettingSwitch {
+    static func isOn(value: String?) -> Bool { value == "true" }
+
+    static func wireValue(isOn: Bool) -> ManagementSettingValue { .text(isOn ? "true" : "false") }
+}
+
+/// One plugin setting: the manifest's label, and the control its kind names.
 struct IntegrationSettingRow: View {
     let name: String
     let setting: ManagementPluginSetting
@@ -356,8 +368,27 @@ struct IntegrationSettingRow: View {
     let refused: (String?) -> Void
 
     @State private var draft = ""
+    @State private var writing = false
 
+    @ViewBuilder
     var body: some View {
+        switch setting.kind {
+        case .text:
+            field
+        case .boolean:
+            toggle
+        // A kind this build has no control for means the daemon is ahead of the
+        // app, so the row says so rather than writing a shape it guessed. The
+        // same answer `DescriptorRow` gives an unknown row kind.
+        case .unrecognized:
+            LabeledContent(setting.label) {
+                Text(ProductStrings[.settingsRowUnsupported])
+                    .foregroundStyle(Palette.secondary.color)
+            }
+        }
+    }
+
+    private var field: some View {
         LabeledContent(setting.label) {
             TextField(setting.label, text: $draft, prompt: Text(setting.label))
                 .labelsHidden()
@@ -366,17 +397,34 @@ struct IntegrationSettingRow: View {
         .onAppear { draft = setting.value ?? "" }
     }
 
+    /// A switch, written on every flip. There is no save button behind any
+    /// other switch in the app, and the daemon's two words are the whole of the
+    /// value, so there is nothing to hold back.
+    private var toggle: some View {
+        LabeledContent(setting.label) {
+            Toggle(setting.label, isOn: Binding(
+                get: { PluginSettingSwitch.isOn(value: setting.value) },
+                set: { write(PluginSettingSwitch.wireValue(isOn: $0)) }
+            ))
+            .toggleStyle(.switch)
+            .labelsHidden()
+            .disabled(writing)
+            .accessibilityLabel(setting.label)
+        }
+    }
+
     private func commit() {
         guard draft != (setting.value ?? "") else { return }
 
+        write(draft.isEmpty ? .absent : .text(draft))
+    }
+
+    private func write(_ value: ManagementSettingValue) {
+        writing = true
         Task {
-            refused(
-                await model.setPluginSetting(
-                    name: name,
-                    key: setting.key,
-                    value: draft.isEmpty ? .absent : .text(draft)
-                )
-            )
+            let sentence = await model.setPluginSetting(name: name, key: setting.key, value: value)
+            writing = false
+            refused(sentence)
         }
     }
 }
@@ -393,7 +441,7 @@ struct OAuthClientRow: View {
     var body: some View {
         LabeledContent {
             HStack(spacing: Spacing.xs) {
-                Text(ProductStrings[client.configured ? .integrationClientSet : .integrationClientUnset])
+                Text(OAuthClientState.sentence(for: client))
                     .foregroundStyle(Palette.secondary.color)
 
                 Button(ProductStrings[client.configured ? .integrationClientEdit : .integrationClientConnect]) {
@@ -420,6 +468,20 @@ struct OAuthClientRow: View {
     }
 }
 
+/// What a sign-in client's state reads as, wherever it is drawn.
+///
+/// The plugin's detail and the row at the foot of the page both say it, so one
+/// rule composes it: the configured word, and the region the account belongs to
+/// where the daemon named one. The label is the daemon's own.
+enum OAuthClientState {
+    static func sentence(for client: ManagementPluginOAuthClient) -> String {
+        let state = ProductStrings[client.configured ? .integrationClientSet : .integrationClientUnset]
+        guard let label = client.regionLabel else { return state }
+
+        return ProductStrings.commaPair(state, label)
+    }
+}
+
 /// One sign-in client, as a sheet item.
 ///
 /// The sheet is addressed by provider rather than by the client record, which is
@@ -434,14 +496,32 @@ struct OAuthClientTarget: Identifiable, Equatable, Sendable {
 
 /// Public client settings stay local until Done. Secrets use their own row.
 struct OAuthClientDraft {
-    enum ValidationError: Error, Equatable { case invalidPort }
+    enum ValidationError: Error, Equatable { case invalidPort, missingRegion }
 
     var identifier: String
     var port: String
+    var region: String
 
     init(client: ManagementPluginOAuthClient?) {
         identifier = client?.clientId ?? ""
         port = client?.redirectPort.map(String.init) ?? ""
+        region = client?.region ?? ""
+    }
+
+    /// The account region, against the regions the daemon offers for this
+    /// provider.
+    ///
+    /// A provider that serves one region publishes none and the daemon refuses
+    /// a region for it, so nothing is sent. Where it publishes some the daemon
+    /// requires one of them, and anything else is not a region this provider
+    /// offers.
+    func validatedRegion(offered: [ManagementPluginOAuthRegion]) throws -> String? {
+        guard !offered.isEmpty else { return nil }
+        guard offered.contains(where: { $0.id == region }) else {
+            throw ValidationError.missingRegion
+        }
+
+        return region
     }
 
     func validatedPort() throws -> Int? {
@@ -502,6 +582,8 @@ struct OAuthClientSheet: View {
             .fermixType(Typography.sheetTitle)
             .foregroundStyle(Palette.ink.color)
 
+            region
+
             LabeledContent(ProductStrings[.integrationClientIdentifier]) {
                 TextField(
                     ProductStrings[.integrationClientIdentifier],
@@ -538,11 +620,63 @@ struct OAuthClientSheet: View {
 
                 Button(ProductStrings[.settingsSheetDone], action: store)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(draft.identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || saving)
+                    .disabled(
+                        draft.identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || regionMissing
+                            || saving
+                    )
             }
         }
         .padding(WindowMetrics.contentPadding)
         .frame(width: SheetMetrics.credentialWidth)
+    }
+
+    /// The regions this provider offers, which is the daemon's own list and
+    /// empty for a provider that serves one.
+    private var offeredRegions: [ManagementPluginOAuthRegion] { client?.regions ?? [] }
+
+    /// Done waits for a region the way it waits for an identifier, because the
+    /// daemon requires one exactly where the client offers some. It reads the
+    /// same validation the save runs, so what the sheet refuses to send is what
+    /// it refuses to enable.
+    private var regionMissing: Bool {
+        do {
+            _ = try draft.validatedRegion(offered: offeredRegions)
+            return false
+        } catch {
+            return true
+        }
+    }
+
+    /// The account region, first because it is a fact about the account rather
+    /// than about the client, and because it is chosen before connecting: it
+    /// selects the token audience, so a grant minted under the wrong one is
+    /// refused rather than used.
+    @ViewBuilder
+    private var region: some View {
+        if !offeredRegions.isEmpty {
+            LabeledContent(ProductStrings[.integrationClientRegion]) {
+                Picker(ProductStrings[.integrationClientRegion], selection: $draft.region) {
+                    // Nothing chosen has no tag among the offered ids, so the
+                    // popup would draw blank. It says so instead, and the row
+                    // goes once a region is chosen.
+                    if !offeredRegions.contains(where: { $0.id == draft.region }) {
+                        Text(ProductStrings[.integrationClientRegionPrompt]).tag(draft.region)
+                    }
+
+                    ForEach(offeredRegions, id: \.id) { entry in
+                        Text(entry.label).tag(entry.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+            }
+
+            Text(ProductStrings[.integrationClientRegionFooter])
+                .fermixType(Typography.style(.calloutSmall))
+                .foregroundStyle(Palette.secondary.color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder
@@ -562,7 +696,8 @@ struct OAuthClientSheet: View {
     }
 
     /// A blank port is absent rather than zero: the daemon owns the default,
-    /// and sending one the operator did not type would pin it.
+    /// and sending one the operator did not type would pin it. A region is sent
+    /// only where the provider offers some, which is where the daemon wants one.
     private func store() {
         let identifier = draft.identifier.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !identifier.isEmpty, !saving else { return }
@@ -574,12 +709,21 @@ struct OAuthClientSheet: View {
             return
         }
 
+        let chosenRegion: String?
+        do {
+            chosenRegion = try draft.validatedRegion(offered: offeredRegions)
+        } catch {
+            refusal = ProductStrings[.integrationClientRegionMissing]
+            return
+        }
+
         saving = true
         Task {
             let sentence = await model.setOAuthClient(
                 provider: provider,
                 clientId: identifier,
-                redirectPort: redirectPort
+                redirectPort: redirectPort,
+                region: chosenRegion
             )
             saving = false
             refusal = sentence

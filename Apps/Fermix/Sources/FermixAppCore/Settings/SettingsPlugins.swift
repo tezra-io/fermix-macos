@@ -209,10 +209,14 @@ extension SettingsModel {
         return await write { try await self.gateway.setPluginSetting(name: name, key: key, value: value) }
     }
 
+    /// Registers one sign-in client. The region is sent exactly where the
+    /// client row publishes regions to choose from: the daemon refuses one for
+    /// a provider that serves a single region, so nil is what that means here.
     public func setOAuthClient(
         provider: String,
         clientId: String,
-        redirectPort: Int?
+        redirectPort: Int?,
+        region: String?
     ) async -> String? {
         precondition(!provider.isEmpty, "an OAuth client names its provider")
         precondition(!clientId.isEmpty, "an OAuth client needs its identifier")
@@ -223,7 +227,8 @@ extension SettingsModel {
             _ = try await gateway.setOAuthClient(
                 provider: provider,
                 clientId: clientId,
-                redirectPort: redirectPort
+                redirectPort: redirectPort,
+                region: region
             )
             await refreshPlugins()
             return nil
