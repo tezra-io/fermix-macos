@@ -3,10 +3,10 @@
   "description": "Provenance of the vendored Fermix wire contracts. The canonical files live in the fermix repository under apps/fermix_core/priv/; this tree is a byte-identical copy pinned by CHECKSUMS.txt. scripts/verify_protocol_contract.sh asserts the two agree, and --source <fermix-checkout> byte-compares against upstream.",
   "upstream": {
     "repository": "tezra-io/fermix",
-    "commit": "8da1d0544709e954e573db59b4d2f7be47417ab7",
+    "commit": "385489237e8de4678083e95af73789df9124d89f",
     "branch": "dev",
-    "working_tree": "dirty",
-    "retrieved_at": "2026-09-12"
+    "working_tree": "clean",
+    "retrieved_at": "2026-09-13"
   },
   "contracts": [
     {
@@ -19,23 +19,23 @@
         "minimum": 1,
         "maximum": 2
       },
-      "committed_upstream": false,
-      "provenance_note": "Taken from the fermix working tree at 8da1d054 on dev, where the Live voice engine is implemented and not yet committed, so committed_upstream is false and the release audience of verify_staged_app.sh refuses this pin until the engine publishes it. Protocol stays 2 on the 1 to 2 window: the engine field on the overview's realtime object, and the voice section's engine row with its engine-scoped model and voice options, the reasoning effort row that only the Realtime engine carries and the read-only backend row that only Live carries, are additive inside existing methods, so no method minimum moves.",
+      "committed_upstream": true,
+      "provenance_note": "Taken from the fermix repository on dev at 385489237e, the commit that publishes the Live voice engine, so committed_upstream is true and the release audience of verify_staged_app.sh accepts this pin. Protocol stays 2 on the 1 to 2 window: the engine field on the overview's realtime object, the combined voice model row whose every option names the engine it selects, the reasoning effort row that only the Realtime engine carries and the read-only backend row that only Live carries are additive inside existing methods, so no method minimum moves. The voice section has no engine row: the engine is derived from the model and reported back in applied, and settings.apply refuses realtime_engine as a key this section does not have.",
       "files": [
         {
           "path": "management/PROTOCOL.md",
           "source_path": "apps/fermix_core/priv/management/PROTOCOL.md",
-          "sha256": "429b97a89e8148cda3f65a8211655c45829dcf53aa56441218abbaf9056b638b"
+          "sha256": "5eaff890f3dfd4feb3ec87513b520aa81ffbb6e1c82b58d30ea6bb2334c6bc77"
         },
         {
           "path": "management/protocol.schema.json",
           "source_path": "apps/fermix_core/priv/management/protocol.schema.json",
-          "sha256": "63b1729330aac6533386ba610fd5644b66056916d7005d47a503100a4e64c9e1"
+          "sha256": "26dd73827cefe03bc39db39822b02f84610601302f45daac0792eae0151d8772"
         },
         {
           "path": "management/fixtures/compatibility.jsonl",
           "source_path": "apps/fermix_core/priv/management/fixtures/compatibility.jsonl",
-          "sha256": "326b3e08e86a2d0e102a47a467e870e782783681ab1a143fb8deb5b0350416d7"
+          "sha256": "58b64f8c387d8ff41bda66d33e0e308277db16a0061c0c014d707e4461158ae9"
         },
         {
           "path": "management/fixtures/errors.jsonl",
@@ -50,7 +50,7 @@
         {
           "path": "management/fixtures/success.jsonl",
           "source_path": "apps/fermix_core/priv/management/fixtures/success.jsonl",
-          "sha256": "4a29bef70b339b444f0749b3de7977eed72c2645579e2648cb45c636b6be0e37"
+          "sha256": "0d87d3f2c082ceddca5e3fc776d2dfd8ad53853ff7de9a97831108b50bcec742"
         }
       ]
     },
@@ -64,8 +64,8 @@
         "minimum": 1,
         "maximum": 2
       },
-      "committed_upstream": false,
-      "provenance_note": "Taken from the same uncommitted fermix working tree at 8da1d054 on dev, so committed_upstream is false and the release audience of verify_staged_app.sh refuses this pin until the engine publishes it. Protocol 2 adds the frames the Live engine needs: task_cancel from the pet, call_ready, caption and task from the daemon, the Live fields on usage, and kind, detail and required_for on error. The window is 1 to 2, so a pet speaking 1 still runs the Realtime engine against this daemon.",
+      "committed_upstream": true,
+      "provenance_note": "Taken from the same fermix commit on dev, 385489237e, which publishes the Live voice engine, so committed_upstream is true. Protocol 2 adds the frames the Live engine needs: task_cancel from the pet, call_ready, caption and task from the daemon, the Live fields on usage, and kind, detail and required_for on error. The window is 1 to 2, so a pet speaking 1 still runs the Realtime engine against this daemon.",
       "files": [
         {
           "path": "realtime/PROTOCOL.md",
