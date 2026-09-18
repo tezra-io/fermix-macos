@@ -139,33 +139,38 @@ public enum FermixApp {
         exit(2)
     }
 
+    /// Withdraws this bundle's registrations and says what happened.
+    ///
+    /// Every outcome reaches the caller's log, because the caller is a cask
+    /// upgrade and this is the only account of what it did: a withdrawal that
+    /// took goes to standard output, and anything that did not goes to standard
+    /// error with a non-zero status. `LoginItemWithdrawal` owns the decision, so
+    /// what is here is the printing and the exit.
     @MainActor
     private static func unregisterLoginItems() -> Never {
-        var failures = 0
-
+        let configuration: ProductConfiguration
         do {
-            let configuration = try ProductConfiguration.bundled()
-            let services = ServiceController(
-                loginItems: SMAppServiceLoginItems(configuration: configuration)
-            )
-
-            for principal in [LoginItemPrincipal.agent, .mainApp] {
-                do {
-                    try services.disable(principal)
-                    print("unregistered \(principal.rawValue)")
-                } catch {
-                    failures += 1
-                    FileHandle.standardError.write(
-                        Data("could not unregister \(principal.rawValue): \(error)\n".utf8)
-                    )
-                }
-            }
+            configuration = try ProductConfiguration.bundled()
         } catch {
-            FileHandle.standardError.write(Data("unregister failed: \(error)\n".utf8))
+            FileHandle.standardError.write(
+                Data("fermix: no registration could be withdrawn: \(error)\n".utf8)
+            )
             exit(70)
         }
 
-        exit(failures == 0 ? 0 : 70)
+        let withdrawal = LoginItemWithdrawal.run(
+            services: ServiceController(loginItems: SMAppServiceLoginItems(configuration: configuration))
+        )
+        for line in withdrawal.lines {
+            let text = Data("fermix: \(line.sentence)\n".utf8)
+            if line.withdrawn {
+                FileHandle.standardOutput.write(text)
+            } else {
+                FileHandle.standardError.write(text)
+            }
+        }
+
+        exit(withdrawal.exitCode)
     }
 }
 
