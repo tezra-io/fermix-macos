@@ -59,6 +59,10 @@ public final class AppCoordinator {
     /// it, and nothing else compares an update transaction with the machine.
     private let updates: any UpdateReconciling
     private let bootstrap: () -> BootstrapCondition
+    /// Which build wrote the agent registration this account carries, read per
+    /// launch through the store rather than held, for the same reason the
+    /// bootstrap condition is.
+    private let registrationBuild: () -> AgentRegistrationBuild
     private let termination: any TerminationRequesting
     /// The one settings model, so opening a pane by url and opening it from the
     /// sidebar write the same selection.
@@ -90,6 +94,10 @@ public final class AppCoordinator {
     /// What the last transaction ended as, so a caller that waited can be told
     /// whether it worked rather than inferring it from the model.
     private var lastOutcome: LifecycleOutcome?
+    /// Whether this process has already rebuilt the registration a replaced
+    /// bundle left behind. The receipt is what stops the *next* launch; this is
+    /// what stops the second launch path entered inside this one.
+    private var registrationRebuilt = false
 
     public init(
         model: AppModel,
@@ -99,6 +107,7 @@ public final class AppCoordinator {
         updates: any UpdateReconciling,
         gate: ServiceMutationGate,
         bootstrap: @escaping () -> BootstrapCondition,
+        registrationBuild: @escaping () -> AgentRegistrationBuild,
         termination: any TerminationRequesting,
         settings: SettingsModel,
         presentation: SettingsPresentation
@@ -110,6 +119,7 @@ public final class AppCoordinator {
         self.updates = updates
         self.gate = gate
         self.bootstrap = bootstrap
+        self.registrationBuild = registrationBuild
         self.termination = termination
         self.settings = settings
         self.presentation = presentation
@@ -233,6 +243,7 @@ public final class AppCoordinator {
             self.setupRouting?.cancel()
             self.setupRouting = nil
             await self.reconcileUpdate()
+            await self.rebuildRegistrationLeftByAnotherBuild()
             self.presentLaunch(reason)
         }
     }
@@ -555,6 +566,11 @@ public final class AppCoordinator {
     /// bundle about to be swapped.
     public var isRunningTransaction: Bool { gate.isHeld || transaction != nil }
 
+    /// What the last lifecycle transaction refused with, where this build has a
+    /// sentence for it. Cleared when the next one starts, so a surface reading
+    /// it is reading the outcome of the request the person just made.
+    public var transactionRefusal: String? { model.restartRefusal }
+
     // MARK: - Transactions
 
     /// One lifecycle transaction at a time. A second request while one is in
@@ -688,6 +704,46 @@ public final class AppCoordinator {
         log.error(
             "\(self.gate.holder?.rawValue ?? "another owner", privacy: .public) holds the service, so no record was read"
         )
+    }
+
+    /// Rebuilds the agent registration once, on the first launch by a build
+    /// that did not write the one this account carries (M34 §7.2).
+    ///
+    /// `brew upgrade --cask fermix` replaces the bundle under a registered
+    /// agent and never calls back into the app. The launchd job survives with a
+    /// stale parent bundle version, macOS marks it as needing an LWCR update,
+    /// and in that state launchd spawns the agent without its default
+    /// environment at all: no PATH, and `AgentLauncher.plan` refuses every
+    /// launch (owner report of 2026-09-17, 95 refusals). Turning the Home
+    /// switch off and on again fixed it, which is exactly the transaction this
+    /// takes on the person's behalf.
+    ///
+    /// It runs after the update reconcile and asks the receipt rather than the
+    /// reconcile's outcome: a launch on which the reconcile re-registered has
+    /// already written this build's receipt, so there is nothing left to
+    /// rebuild and no second owner of that decision.
+    private func rebuildRegistrationLeftByAnotherBuild() async {
+        guard !registrationRebuilt, registrationBuild() == .anotherBuild else { return }
+
+        guard gate.acquire(.lifecycle) else {
+            log.error(
+                "\(self.gate.holder?.rawValue ?? "another owner", privacy: .public) holds the service, so the registration was not rebuilt"
+            )
+            return
+        }
+        defer { gate.release(.lifecycle) }
+
+        // Set once the transaction is actually this launch's to run, and never
+        // unset: a rebuild that failed is not repeated behind the person's back,
+        // and the Home switch is the way to ask for another.
+        registrationRebuilt = true
+
+        log.log("this build did not register the background agent on this account, so the job is being rebuilt")
+        do {
+            _ = try await lifecycle.enableBackgroundService()
+        } catch {
+            transactionFailed(error)
+        }
     }
 
     /// What the reconcile found. Only the recovery outcome puts anything on

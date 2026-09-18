@@ -92,13 +92,29 @@ public enum LifecycleFailure: Error, Equatable, Sendable {
     /// The one sentence a surface shows for this failure, where this build has
     /// copy for it.
     ///
-    /// Only the preflight refusal has one. Every other case is a step that
-    /// stopped part-way, which the journal records and Recovery reads; inventing
-    /// a sentence per case here would put copy on states no screen renders.
+    /// Two states have one: the preflight refusal, and a verify that found
+    /// nothing answering. The second is what the 2026-09-17 upgrade produced —
+    /// the registration was made, the daemon never came up, and the only record
+    /// was one line in the log while the window sat on its progress screen. The
+    /// remaining cases are steps that stopped part-way, which the journal
+    /// records and Recovery reads; inventing a sentence per case here would put
+    /// copy on states no screen renders.
     public var sentence: String? {
-        guard case .daemonNotManaged = self else { return nil }
-
-        return ProductStrings[.lifecycleDaemonNotManaged]
+        switch self {
+        case .daemonNotManaged:
+            return ProductStrings[.lifecycleDaemonNotManaged]
+        // Every way a transaction can reach its verify phase and find nothing
+        // answering, whichever transaction it was.
+        case .socketNeverAppeared, .webNeverAnswered, .daemonNeverReturned:
+            return ProductStrings[.lifecycleServiceNeverAnswered]
+        // Enumerated rather than defaulted: a failure added later has to be
+        // decided about here instead of silently reaching no screen at all,
+        // which is how this one came to.
+        case .bootstrapMissing, .registration, .socketNeverReleased, .daemonNeverExited,
+             .deferredWhileBusy, .negotiationFailed, .daemonIdentityUnreadable,
+             .journalUnavailable, .recoveryPending:
+            return nil
+        }
     }
 }
 
@@ -155,15 +171,16 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
 
     // MARK: - Enable
 
-    /// Validate the bootstrap, register the agent, wait for the socket,
-    /// negotiate, then verify the local web surface answers.
+    /// Validate the bootstrap, rebuild the agent registration, wait for the
+    /// socket, negotiate, then verify the local web surface answers.
     public func enableBackgroundService() async throws -> LifecycleOutcome {
         let record = try loadBootstrap()
-        var entry = try begin(.enable, registration: services.status(.agent))
+        let registration = services.status(.agent)
+        var entry = try begin(.enable, registration: registration)
 
         do {
             try advance(&entry, to: .mutate)
-            try register()
+            try rebuildRegistration(from: registration)
 
             try advance(&entry, to: .verify)
             try await waitForSocket(at: record.daemonSocketURL.path)
@@ -179,6 +196,27 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
             log.error("enable failed at \(entry.phase.rawValue, privacy: .public)")
             throw error
         }
+    }
+
+    /// Withdraws the registration this account carries, then registers this
+    /// bundle's.
+    ///
+    /// `SMAppService.register` on an item that already exists is a no-op, so an
+    /// enable over a degraded job confirmed it rather than replacing it. A cask
+    /// upgrade is exactly that case: it replaces the bundle under a registered
+    /// agent, the surviving job needs an LWCR update, and launchd then spawns
+    /// the agent without its default environment — no PATH, and every launch
+    /// refused (owner report of 2026-09-17). Withdrawing first is what rebuilds
+    /// the job, and it is the same two steps the operator had to perform by
+    /// hand with the Home switch.
+    ///
+    /// An agent that was never registered has nothing to withdraw, so the
+    /// status decides rather than a swallowed unregister failure: every other
+    /// status is an item macOS knows about and this one owns.
+    private func rebuildRegistration(from registration: ServiceRegistrationStatus) throws {
+        if registration != .notRegistered { try unregister() }
+
+        try register()
     }
 
     // MARK: - Disable
@@ -291,7 +329,7 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
         recordRegistrationReceipt()
     }
 
-    /// Records which plist is now registered.
+    /// Records which plist is now registered, and which build registered it.
     ///
     /// Never fatal, and for the same reason activation's own receipt write is
     /// not: the reconciler reads an absent or unwritten receipt as a difference,
@@ -304,7 +342,10 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
         }
 
         do {
-            try store.recordAgentRegistration(plistSHA256: digest)
+            try store.recordAgentRegistration(
+                plistSHA256: digest,
+                appBuild: ProductConfiguration.forThisBundle().buildNumber
+            )
         } catch {
             log.error("the registration receipt could not be written: \(String(describing: error), privacy: .public)")
         }

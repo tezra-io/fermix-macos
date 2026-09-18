@@ -39,6 +39,34 @@ struct LifecycleCoordinatorTests {
         #expect(harness.journal.isEmpty)
     }
 
+    /// The incident of 2026-09-17: `brew upgrade --cask fermix` replaced the
+    /// bundle while the agent was registered, and the launchd job that survived
+    /// it spawned the agent with no default environment at all. `register` on an
+    /// item that already exists is a no-op, so the stale job stayed and the
+    /// switch could only be fixed by turning it off and on again. An enable
+    /// rebuilds the job instead of confirming it.
+    @Test("enabling an already registered agent unregisters it before registering it again")
+    func enableRebuildsAnExistingRegistration() async throws {
+        let harness = try makeHarness(registered: true)
+
+        let outcome = try await harness.coordinator.enableBackgroundService()
+
+        #expect(outcome == .enabled(pid: 4_242))
+        #expect(harness.loginItems.mutations == [.unregister(.agent), .register(.agent)])
+    }
+
+    /// Nothing to withdraw is not a step to take: a fresh account has no job,
+    /// and an unregister there would be a mutation nobody asked for.
+    @Test("enabling an agent that was never registered registers it once")
+    func enableRegistersAnAbsentRegistrationOnce() async throws {
+        let harness = try makeHarness(registered: false)
+
+        let outcome = try await harness.coordinator.enableBackgroundService()
+
+        #expect(outcome == .enabled(pid: 4_242))
+        #expect(harness.loginItems.mutations == [.register(.agent)])
+    }
+
     @Test("a successful enable records the bundled agent registration receipt")
     func enableRecordsRegistrationReceipt() async throws {
         let harness = try makeHarness(registrationReceipt: nil)
@@ -48,6 +76,18 @@ struct LifecycleCoordinatorTests {
         #expect(outcome == .enabled(pid: 4_242))
         #expect(try harness.registrationReceipt() == LifecycleHarness.bundledPlistDigest)
         #expect(harness.journal.isEmpty)
+    }
+
+    /// The receipt says which bundle registered the agent, so the next launch by
+    /// a different one can tell a job it owns from a job an upgrade left behind.
+    @Test("a successful enable records the running build in the registration receipt")
+    func enableRecordsTheAppBuild() async throws {
+        let harness = try makeHarness(registrationReceipt: nil)
+
+        _ = try await harness.coordinator.enableBackgroundService()
+
+        #expect(try harness.store.load().registeredAppBuild == ProductConfiguration.bundled().buildNumber)
+        #expect(harness.store.registrationBuild(matching: try ProductConfiguration.bundled().buildNumber) == .thisBuild)
     }
 
     @Test("an enable with an invalid daemon PID cannot record a success receipt")
@@ -205,13 +245,31 @@ struct LifecycleCoordinatorTests {
     /// And the refusal says why, in one sentence the sheet and the assistant
     /// both render. A refusal that only reached the log left `Restart now`
     /// looking like a button that does nothing.
+    /// A transaction that stops at verify leaves the window on its progress
+    /// screen with nothing said: the registration was made, the daemon never
+    /// answered, and the log was the only record (owner report of 2026-09-17).
+    /// Every failure that means "it never came up" carries the sentence.
+    @Test(
+        "a daemon that never answered the verify carries the sentence a surface can show",
+        arguments: [
+            LifecycleFailure.socketNeverAppeared(path: "/tmp/daemon.sock"),
+            .webNeverAnswered(origin: "http://127.0.0.1:4030"),
+            .daemonNeverReturned
+        ]
+    )
+    func verifyFailuresCarryTheirSentence(_ failure: LifecycleFailure) {
+        #expect(failure.sentence == ProductStrings[.lifecycleServiceNeverAnswered])
+    }
+
     @Test("the refusal carries the sentence a surface can show")
     func unmanagedRefusalCarriesItsSentence() {
         #expect(
             LifecycleFailure.daemonNotManaged(.notFound).sentence
                 == ProductStrings[.lifecycleDaemonNotManaged]
         )
-        #expect(LifecycleFailure.daemonNeverReturned.sentence == nil)
+        // A step that stopped part-way still has no copy of its own: the journal
+        // records it and Recovery reads it.
+        #expect(LifecycleFailure.daemonNeverExited(pid: 4_242).sentence == nil)
     }
 
     /// The registration is touched only where the bundled plist has changed

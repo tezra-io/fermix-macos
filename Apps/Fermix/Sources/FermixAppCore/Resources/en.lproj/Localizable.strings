@@ -242,6 +242,7 @@
 "daemon.error.requiresNewerEngine" = "Restart to finish updating Fermix";
 "lifecycle.daemonNotManaged" = "Fermix’s background service isn’t registered on this Mac, so a restart would stop Fermix and nothing would start it again. Run the Setup Assistant to register it.";
 "lifecycle.serviceBusy" = "Fermix is already changing the background service, so nothing was changed. Try again once it has finished.";
+"lifecycle.serviceNeverAnswered" = "The background service did not answer while Fermix was checking that it started, so Fermix is not running yet. Open Doctor to see what it found.";
 
 /* MARK: Background service, one wording everywhere it appears */
 

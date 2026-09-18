@@ -478,15 +478,20 @@ public struct ActivationCoordinator: ActivationDriving {
         }
     }
 
-    /// Records which plist was registered, so the next launch can tell a changed
-    /// one from an unchanged one (M34 §7.2 step 5). A receipt that cannot be
-    /// written is logged and never fatal: the reconciler reads an absent receipt
-    /// as a difference, which re-registers rather than skipping.
+    /// Records which plist was registered and which build registered it, so the
+    /// next launch can tell a changed one from an unchanged one (M34 §7.2
+    /// step 5) and a launch by another build can tell a job it owns from one a
+    /// bundle replacement left behind. A receipt that cannot be written is
+    /// logged and never fatal: the reconciler reads an absent receipt as a
+    /// difference, which re-registers rather than skipping.
     private func recordRegistrationReceipt() {
         guard let digest = services.bundledAgentPlistDigest() else { return }
 
         do {
-            try store.recordAgentRegistration(plistSHA256: digest)
+            try store.recordAgentRegistration(
+                plistSHA256: digest,
+                appBuild: ProductConfiguration.forThisBundle().buildNumber
+            )
         } catch {
             log.error("the registration receipt could not be written: \(String(describing: error), privacy: .public)")
         }

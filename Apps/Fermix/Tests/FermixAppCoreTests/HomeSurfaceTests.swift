@@ -873,6 +873,35 @@ struct HomeSurfaceTests {
     }
 }
 
+/// What Home says when the background service did not come up.
+@Suite("Home states a refused background service")
+@MainActor
+struct HomeBackgroundRefusalTests {
+    /// Turning the switch on and watching the window sit there was the whole of
+    /// the incident: the transaction failed at verify, logged one line, and put
+    /// nothing in front of the person who asked for it.
+    @Test("a background service that never answered is stated under Attention")
+    func failedEnableIsStated() async throws {
+        let harness = try HomeHarness()
+        harness.lifecycle.stageFailure(.socketNeverAppeared(path: "/tmp/daemon.sock"))
+
+        harness.model.setBackgroundService(true)
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.model.attentionMessage == ProductStrings[.lifecycleServiceNeverAnswered])
+    }
+
+    @Test("a background service that came up states nothing")
+    func successfulEnableStatesNothing() async throws {
+        let harness = try HomeHarness()
+
+        harness.model.setBackgroundService(true)
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.model.attentionMessage == nil)
+    }
+}
+
 @MainActor
 final class HomeHarness {
     let gateway = FakeDaemonGateway()
@@ -904,6 +933,7 @@ final class HomeHarness {
             updates: FakeUpdateReconciler(),
             gate: ServiceMutationGate(),
             bootstrap: { .present },
+            registrationBuild: { .thisBuild },
             termination: FakeTerminationRequester(),
             settings: settings,
             presentation: SettingsPresentation()

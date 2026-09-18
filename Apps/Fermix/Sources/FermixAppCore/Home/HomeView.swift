@@ -92,7 +92,7 @@ struct HomeView: View {
                 }
             }
 
-            if let message = model.actionMessage {
+            if let message = model.attentionMessage {
                 Text(message)
                     .fermixType(Typography.style(.calloutSmall))
                     .foregroundStyle(Palette.warning.color)

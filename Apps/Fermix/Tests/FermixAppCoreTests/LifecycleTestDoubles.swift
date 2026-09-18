@@ -20,6 +20,12 @@ final class LifecycleHarness {
 
     var socketPath: String { location.defaultFermixHome.appendingPathComponent("daemon.sock").path }
 
+    /// The build the harness's existing receipt says registered the agent. It
+    /// is not this bundle's: what a scenario varies is the plist, and a build
+    /// that matched would make every harness receipt say "this build" by
+    /// accident.
+    nonisolated static let registeredAppBuild = "1"
+
     /// The digest the fake bundle reports for its agent plist.
     nonisolated static let bundledPlistDigest =
         "3d1f0a7c9b2e4d6f8a0c1e3b5d7f9a1c3e5b7d9f1a3c5e7b9d1f3a5c7e9b1d3f"
@@ -43,7 +49,10 @@ final class LifecycleHarness {
         store = BootstrapStore(location: location)
         try store.save(fermixHome: home)
         if let registrationReceipt {
-            try store.recordAgentRegistration(plistSHA256: registrationReceipt)
+            try store.recordAgentRegistration(
+                plistSHA256: registrationReceipt,
+                appBuild: Self.registeredAppBuild
+            )
         }
 
         journal = LifecycleJournal(location: location)

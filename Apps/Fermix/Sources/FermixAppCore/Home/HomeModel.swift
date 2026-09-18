@@ -95,6 +95,17 @@ public final class HomeModel: ObservableObject {
         coordinator.isRunningTransaction
     }
 
+    /// The one sentence under the Attention section: an Attention row's own
+    /// refusal, or what the last background-service transaction refused with.
+    ///
+    /// Read through the coordinator, exactly as the in-flight flag is: the
+    /// transaction is the coordinator's and a copy kept here would drift from
+    /// it. Home's own refresh runs after every outcome, which is what redraws
+    /// this.
+    public var attentionMessage: String? {
+        actionMessage ?? coordinator.transactionRefusal
+    }
+
     public func refresh() async {
         loading = true
         defer { loading = false }
