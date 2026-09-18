@@ -375,6 +375,7 @@ final class PetHarness {
             updates: FakeUpdateReconciler(),
             gate: ServiceMutationGate(),
             bootstrap: { .present },
+            registrationBuild: { .thisBuild },
             termination: FakeTerminationRequester(),
             settings: SettingsFixture.model(gateway: try SettingsFixture.gateway()),
             presentation: SettingsPresentation()

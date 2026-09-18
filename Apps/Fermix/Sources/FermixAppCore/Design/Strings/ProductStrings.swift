@@ -219,6 +219,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// practice is an update stopping the engine before it replaces the app
     /// (M34 section 6).
     case lifecycleServiceBusy = "lifecycle.serviceBusy"
+    /// A transaction that reached its verify phase and found nothing answering.
+    /// It is the one outcome that used to reach the log and no screen: the
+    /// registration was made, the daemon never came up, and the window sat on
+    /// its progress screen (owner report of 2026-09-17).
+    case lifecycleServiceNeverAnswered = "lifecycle.serviceNeverAnswered"
 
     // Background service
 

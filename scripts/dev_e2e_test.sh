@@ -261,13 +261,26 @@ case_down() {
 # The port is written into the staged development plist and nowhere else. The
 # comparison is the installed app's own plist, rendered with the overlay unset,
 # because that is the file this loop must not have changed the shape of.
+#
+# The PATH is the opposite case: it is rendered into every agent plist, so the
+# development bundle keeps it while it adds its port, and the installed one
+# carries it without one.
 case_port() {
   stage_and_sign "$IDENTITY" >/dev/null
-  local production="$WORK_DIR/production.plist"
+  local production="$WORK_DIR/production.plist" expected_path
+  expected_path="$(product_config agent_search_path)"
+  [ "$(plutil -extract EnvironmentVariables.PORT raw -o - \
+        "$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist")" = "$PORT" ] ||
+    fail "the development agent plist lost its port"
+  [ "$(plutil -extract EnvironmentVariables.PATH raw -o - \
+        "$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist")" = "$expected_path" ] ||
+    fail "the development agent plist lost its PATH when the port was added"
   ( unset PRODUCT_CONFIG_OVERLAY; "$TEST_SOURCE/scripts/render_launch_agent_plist.sh" "$production" )
   if plutil -extract EnvironmentVariables.PORT raw -o - "$production" >/dev/null 2>&1; then
     fail "the production agent inherited the development port"
   fi
+  [ "$(plutil -extract EnvironmentVariables.PATH raw -o - "$production")" = "$expected_path" ] ||
+    fail "the installed app's agent plist declares no PATH"
   [ "$(plutil -extract Label raw -o - "$production")" != "$AGENT_LABEL" ] ||
     fail "the installed app's agent plist carries the development label"
 }

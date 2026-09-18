@@ -396,6 +396,7 @@ final class RouterHarness {
             updates: FakeUpdateReconciler(),
             gate: ServiceMutationGate(),
             bootstrap: { .present },
+            registrationBuild: { .thisBuild },
             termination: termination,
             settings: settings,
             presentation: presentation

@@ -7,6 +7,7 @@
   "gui_executable_name": "Fermix",
   "agent_executable_name": "FermixAgent",
   "agent_service_label": "io.tezra.FermixPet.agent",
+  "agent_search_path": "/usr/bin:/bin:/usr/sbin:/sbin",
   "support_directory_name": "Fermix",
   "minimum_system_version": "15.0",
   "supported_architectures": [

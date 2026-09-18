@@ -45,7 +45,8 @@ public struct BootstrapStore {
         return BootstrapRecord(
             schemaVersion: document.schemaVersion,
             fermixHome: URL(fileURLWithPath: home, isDirectory: true),
-            registeredAgentPlistSHA256: document.registeredAgentPlistSHA256
+            registeredAgentPlistSHA256: document.registeredAgentPlistSHA256,
+            registeredAppBuild: document.registeredAppBuild
         )
     }
 
@@ -101,8 +102,13 @@ public struct BootstrapStore {
     /// unless the caller is writing a new one: recording a home is not a
     /// registration, and dropping the receipt here would make every launch
     /// re-register the agent (M34 §7.2).
+    ///
+    /// Both halves of the receipt move together. Carrying one forward and
+    /// dropping the other would publish a registration some other build made as
+    /// this build's own, which is the exact comparison the launch rebuild
+    /// stands on.
     @discardableResult
-    public func save(path: String, registeredAgentPlistSHA256: String? = nil) throws -> BootstrapRecord {
+    public func save(path: String, receipt: AgentRegistrationReceipt? = nil) throws -> BootstrapRecord {
         let home = try normalize(path)
         do {
             try validator.checkAccess(home)
@@ -110,11 +116,12 @@ public struct BootstrapStore {
             throw BootstrapStoreError.invalidHome(defect)
         }
 
-        let receipt = registeredAgentPlistSHA256 ?? (try? load())?.registeredAgentPlistSHA256
+        let recorded = recordedReceipt(orWriting: receipt)
         let document = BootstrapDocument(
             schemaVersion: BootstrapRecord.supportedSchemaVersion,
             fermixHome: home,
-            registeredAgentPlistSHA256: receipt
+            registeredAgentPlistSHA256: recorded?.plistSHA256,
+            registeredAppBuild: recorded?.appBuild
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -122,8 +129,17 @@ public struct BootstrapStore {
 
         return BootstrapRecord(
             fermixHome: URL(fileURLWithPath: home, isDirectory: true),
-            registeredAgentPlistSHA256: receipt
+            registeredAgentPlistSHA256: recorded?.plistSHA256,
+            registeredAppBuild: recorded?.appBuild
         )
+    }
+
+    /// The receipt this save writes: the caller's, or the one already on disk.
+    private func recordedReceipt(orWriting receipt: AgentRegistrationReceipt?) -> AgentRegistrationReceipt? {
+        if let receipt { return receipt }
+        guard let existing = try? load(), let digest = existing.registeredAgentPlistSHA256 else { return nil }
+
+        return AgentRegistrationReceipt(plistSHA256: digest, appBuild: existing.registeredAppBuild)
     }
 
     /// Whether this account has ever completed an activation.
@@ -136,15 +152,30 @@ public struct BootstrapStore {
         (try? load())?.registeredAgentPlistSHA256 != nil
     }
 
-    /// Records the plist that was actually registered with `SMAppService`.
+    /// Records the plist that was actually registered with `SMAppService`, and
+    /// the build of the app bundle that registered it.
     ///
     /// Written by the one caller that performs the registration, so the receipt
     /// and the registration cannot disagree.
     @discardableResult
-    public func recordAgentRegistration(plistSHA256: String) throws -> BootstrapRecord {
+    public func recordAgentRegistration(plistSHA256: String, appBuild: String) throws -> BootstrapRecord {
         precondition(!plistSHA256.isEmpty, "a registration receipt is a digest")
+        precondition(!appBuild.isEmpty, "a registration receipt names the build that made it")
 
-        return try save(path: try resolvedHome().path, registeredAgentPlistSHA256: plistSHA256)
+        return try save(
+            path: try resolvedHome().path,
+            receipt: AgentRegistrationReceipt(plistSHA256: plistSHA256, appBuild: appBuild)
+        )
+    }
+
+    /// Which bundle wrote the registration this account carries, compared with
+    /// the build running now. An unreadable record is not a registration this
+    /// build made, and it is not a fresh account either: recovery owns it, and
+    /// nothing is rebuilt over it.
+    public func registrationBuild(matching appBuild: String) -> AgentRegistrationBuild {
+        guard let record = try? load() else { return .unregistered }
+
+        return record.registrationBuild(matching: appBuild)
     }
 
     /// Clears the bootstrap, as in-app uninstall does. Removing a record that is
