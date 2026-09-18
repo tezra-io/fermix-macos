@@ -275,6 +275,11 @@ check_sparkle_linkage() {
 
 # SMAppService.agent(plistName:) reads exactly this path out of the bundle, and
 # launchd resolves BundleProgram against the bundle around it.
+#
+# The PATH is asserted for the same reason the program is: launchd hands a job
+# its default environment only while the registration is clean, and a bundle
+# replaced under a registered agent leaves one that is not, so a plist that
+# declares no PATH ships an agent that refuses every spawn.
 check_launch_agent() {
   local dir="$APP/Contents/Library/LaunchAgents" plist staged
   plist="$dir/$AGENT_LABEL.plist"
@@ -283,6 +288,7 @@ check_launch_agent() {
   require_plist_value "$plist" Label "$AGENT_LABEL"
   require_plist_value "$plist" BundleProgram "Contents/MacOS/$AGENT_EXECUTABLE"
   require_plist_value "$plist" AssociatedBundleIdentifiers.0 "$BUNDLE_ID"
+  require_plist_value "$plist" EnvironmentVariables.PATH "$(product_config agent_search_path)"
   staged="$(find "$dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
   [ "$staged" = "1" ] || fail "Contents/Library/LaunchAgents holds $staged entries; only $AGENT_LABEL.plist may ship"
 }

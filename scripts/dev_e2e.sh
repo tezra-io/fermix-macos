@@ -247,7 +247,10 @@ stage_and_sign() {
   echo "dev_e2e: staging and signing the app (debug build $build_number, $identity)..."
   "$ROOT_DIR/scripts/stage_app.sh" 0.1.0 "$build_number" "$APP" native --configuration debug \
     --engine "$ENGINE_TREE" --cosign "$(command -v cosign)" >/dev/null
-  plutil -insert EnvironmentVariables -json "{\"PORT\":\"$PORT\"}" \
+  # Into the dict the renderer already writes, beside the PATH it declares: a
+  # whole-dict insert would refuse the key that is there, and replacing the dict
+  # would drop the PATH the agent refuses to launch without.
+  plutil -insert EnvironmentVariables.PORT -string "$PORT" \
     "$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
   "$ROOT_DIR/scripts/sign_app.sh" "$APP" "$identity" >/dev/null
   "$ROOT_DIR/scripts/verify_staged_app.sh" "$APP" native signed development >/dev/null

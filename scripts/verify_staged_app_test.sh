@@ -532,6 +532,23 @@ expect_refusal "a LaunchAgents plist pointing elsewhere is refused" \
   "BundleProgram is 'Contents/MacOS/Elsewhere'" \
   "$VERIFY" "$app" universal unsigned
 
+# launchd hands a job its default environment only while its registration is
+# clean, and a bundle replaced under a registered agent leaves one that is not:
+# the agent is spawned with no PATH and refuses every launch. The plist carries
+# its own, so the value is declared rather than inherited.
+app="$(fresh_bundle agent-plist-without-a-path)"
+plutil -remove EnvironmentVariables "$app/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
+expect_refusal "a LaunchAgents plist declaring no PATH is refused" \
+  "has no EnvironmentVariables.PATH" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle agent-plist-with-another-path)"
+plutil -replace EnvironmentVariables.PATH -string "/opt/elsewhere" \
+  "$app/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
+expect_refusal "a LaunchAgents plist declaring another PATH is refused" \
+  "EnvironmentVariables.PATH is '/opt/elsewhere'" \
+  "$VERIFY" "$app" universal unsigned
+
 echo "verify_staged_app_test: vendored contracts and assets"
 
 app="$(fresh_bundle tampered-contract)"
