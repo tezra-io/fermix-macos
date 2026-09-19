@@ -1,0 +1,43 @@
+# Fermix macOS app
+
+Native SwiftUI app with the Fermix engine bundled inside it. The app never reads config, secrets or state itself: everything it shows and changes goes over `daemon.sock` through the management protocol, and voice goes over the realtime wire. The engine repository (`tezra-io/fermix`) owns both contracts; this repository vendors them and pins the engine it ships. This is the repo's only agent-instruction file; never add a `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` (Claude Code would read that instead).
+
+## Layout
+```
+Apps/Fermix/Sources/FermixAppCore/   # every view and behaviour; Resources/ (Product.json, Contracts/, VendorMarks/, strings)
+Apps/Fermix/Sources/Fermix           # the GUI executable
+Apps/Fermix/Sources/FermixAgent      # the background agent launchd runs (SMAppService)
+Apps/Fermix/Tests/FermixAppCoreTests # swift-testing; run through script/swift_test.sh (plain swift test misses the framework paths)
+scripts/                             # stage_app.sh, sign_app.sh, verify_staged_app.sh, package_release.sh, dev_e2e.sh, the gates
+docs/                                # ignored except the tracked runbooks, SHIPPING.md and the design redlines
+```
+
+## The contract with the engine
+- `Resources/Contracts/management/` and `Resources/Contracts/realtime/` are byte-identical copies of the engine's `apps/fermix_core/priv/{management,realtime}/`, pinned by `CHECKSUMS.txt` and `SOURCE.json`. `scripts/verify_protocol_contract.sh` checks the pin; `--source <fermix-checkout>` byte-compares against the engine tree. A change to a descriptor, sentence, vocabulary or method lands in the engine first, then is re-vendored here in one commit with the tests that follow the goldens. Never edit a vendored file by hand.
+- `SOURCE.json` must pin a committed engine commit (`committed_upstream: true`). The release audience of `verify_staged_app.sh` refuses an unpublished pin, a draft contract, a debug-only configuration and an engine outside the protocol window; CI's staging dry run runs that audience on every pull request.
+- The app decodes the daemon's answers and renders its sentences. It never derives state the daemon publishes (`status_sentence`, `primary_action`, readiness, restart reasons), never authors a second copy of a descriptor, and switches on published action ids, never on verb words.
+- The bundled engine is a per-architecture `fermix_app_engine` release tree taken from the engine release's assets at a pinned tag and verified by checksum and cosign at staging (`docs/SHIPPING.md`). The app never builds an engine of its own.
+
+## Shipping and upgrades
+- Releases are tag-driven and CI-built: universal build, Developer ID signing, notarization and stapling, a DMG, a Gatekeeper gate, a GitHub Release with sha256, cosign signature and the cask, then the tap pull request. `docs/SHIPPING.md` is the plan; `docs/STAGE0_RUNBOOK.md` is the acceptance session.
+- An engine capability the app should expose ships as: engine change and export, engine release, app pin bump and re-vendor, app release. The daemon ships first; the app's window (`supported_version_range` in `SOURCE.json`) and the router's per-method minimum make an older app degrade to a sentence instead of a crash.
+- `Product.json` is the one product configuration: bundle name, identifier `io.tezra.FermixPet`, agent label, support folder, floor, versions. The identifier, agent label and support folder never change: TCC grants, the login item, the coexistence preflight and the one bootstrap record per account are keyed on them.
+- The one exception is the **development identity**, applied at staging and never checked into `Product.json`: `PRODUCT_CONFIG_OVERLAY=scripts/product.dev.json` merges over the base, so the dev bundle is a different app to macOS (`Fermix Dev.app`, `io.tezra.FermixPet.dev`, agent `io.tezra.FermixPet.dev.agent`, scheme `fermix-dev`, support folder `Fermix Dev`, and no update feed it can verify). Every script reads the configuration through `scripts/product_config.sh`, so one exported variable reaches staging, both plist renderers, signing and verification with no per-script branch. `stage_app.sh` writes the merged document into the staged bundle, Swift reads its identity from it, and `verify_staged_app.sh` refuses a bundle whose `Product.json` and `Info.plist` name different apps.
+
+## Cutting an app release
+The app runs the engine it pins, never the newest engine tag, so an engine fix reaches users only through this sequence. The engine repo's `AGENTS.md` has the full four-repo choreography (engine, app, tap, site); this is the app's part.
+
+1. Engine released first, with its wire exports compared: if anything under the engine's `priv/management` or `priv/realtime` changed between the pinned tag and the new one, re-vendor `Resources/Contracts` and prove it with `scripts/verify_protocol_contract.sh --source <engine checkout at the new tag>` (byte-identical). Either way, move `SOURCE.json`'s provenance to the new commit.
+2. One chore PR: `engine/PIN.json` moves as a whole (tag, `source_commit`, `certificate_identity`, both `sha256` from the release's `.sha256` sidecars; a half-moved pin is refused), `Product.json` `marketing_version` and `build_number` (the build number is the Sparkle version and must only go up), the same two values in `project.yml`, and the linked `Info.plist` regenerated with `scripts/render_info_plist.sh <version> <build> Apps/Fermix/Sources/Fermix/Info.plist`. Prove it before pushing: `scripts/check_product_config.sh`, then `scripts/fetch_engine.sh engine/PIN.json <dir>` and `scripts/verify_engine.sh engine/PIN.json <dir> <out>` against the published engine release.
+3. Tag `vX.Y.Z` on the merge commit only when the owner asks and only on a green merge. The rail pauses at the `release-macos` environment for the owner's approval, then publishes the DMG with its cosign material, the cumulative `appcast.xml` and the cask file, and opens the tap's cask PR.
+4. After it publishes: the owner marks the release latest and merges the tap PR; the site takes the release's `appcast.xml` as `public/appcast.xml` in a PR to its `dev` branch, and every download link there derives from that file. The app reads the feed at `https://fermix.ai/appcast.xml`, cached for five minutes.
+
+Never push to `main` without a PR, never tag unasked, and no AI attribution anywhere.
+
+## Working rules
+- Copy: sentence case, no em dashes, no exclamation marks, no version numbers; every string through `ProductStrings` and `Localizable.strings`; the copy deck is `docs/design/M34_DESIGN_SYSTEM_REDLINES.md`.
+- Vendor marks ship only from the vendor's own host, byte for byte, with the provenance record in `VendorMarks/PROVENANCE.json`; nothing is redrawn or recoloured, and a vendor with no retrievable mark renders as text.
+- The dev loop (`scripts/dev_e2e.sh up`) builds the engine from `~/.cache/fermix-engine-m34` as it stands, stages `Apps/Fermix/dist-e2e/Fermix Dev.app` under the development identity, signs it with the one Developer ID Application identity in the login keychain, and registers the real background agent on `~/.fermix-macos:4530` under its own secret profile (`[fermix_core] profile = "fermix-macos"`, so the app's secret writes never land in the live daemon's keychain items). As its own app, the dev bundle has its own launchd label, login item, TCC grants and bootstrap record (`~/Library/Application Support/Fermix Dev/launcher.json`): the installed app's record, agent, grants and home are never read or changed, and macOS prompts once for the dev bundle's own microphone and App Management grants. It refuses without that identity: an ad-hoc signature has no Team ID, and macOS refuses an SMAppService agent from an ad-hoc app after every rebuild (`docs/E2E_RUNBOOK.md`).
+- Tests never touch AppKit windows or host state (no keychain, no login items, no `~/.fermix*`).
+- Gates before done: `swift build` with zero warnings, `script/swift_test.sh`, `xcodegen generate`, `scripts/check_product_config.sh`, `scripts/check_brand_images.sh`, `scripts/check_vendor_marks.sh`, `scripts/verify_protocol_contract.sh` in both modes, `scripts/verify_staged_app_test.sh`, `scripts/sign_app_test.sh`, `scripts/verify_engine_test.sh`, `scripts/appcast_test.sh`, `Apps/Fermix/script/build_and_run_test.sh`, `bash scripts/dev_e2e_test.sh`.
+- Code: linear flow, small functions, one owner per concept, no fallbacks, surgical changes. No AI attribution anywhere.
