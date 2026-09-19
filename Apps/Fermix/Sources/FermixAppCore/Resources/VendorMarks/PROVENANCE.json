@@ -18,8 +18,8 @@
     "plugins": "apps/fermix_core/priv/plugins/index.json and catalog.json (the static catalog and the bundled set)",
     "features": "apps/fermix_web/lib/fermix_web_web/live/setup_live (the three native driver logos)",
     "roster": "ROSTER.json",
-    "roster_sha256": "c760b1a151911c4618f127b6bc6e123fda6c2883b3c312aa9b5bf42fa8a778ac",
-    "provider_count": 7,
+    "roster_sha256": "b648f710ba05f779f6ef774811e368bd37f03ecf368f85db650c072fab628965",
+    "provider_count": 8,
     "channel_count": 5,
     "plugin_count": 12,
     "feature_count": 3,
@@ -770,6 +770,38 @@
           "sha256": "0d22462e4f2835a5a5b9000af0a55fc9238e39996100f54706e41ec45b9d1727",
           "asset_url": "https://openrouter.ai/brand/logos/transparent/glyph/svg/glyph-volt.svg",
           "retrieved_on": "2026-09-03"
+        }
+      ]
+    },
+    {
+      "key": "venice",
+      "kind": "provider",
+      "origin": "vendor",
+      "display_name": "Venice",
+      "accessibility_label": "Venice",
+      "treatment": "vendor_mark",
+      "plate": "neutral",
+      "source_url": "https://venice.ai/brand",
+      "source_retrieved_on": "2026-09-19",
+      "usage_terms": "The brand kit page publishes the marks and the kit's own DESIGN.md carries the rules. On the files: \"Always use these approved files. Never redraw, retype, or recreate any mark.\" On the keys, which is the mark used here: \"The keys are the compact symbol for the brand. Use them cleanly and never decorate, outline, fade, or redraw the vector.\", with \"Do not change the opacity of the keys.\" and \"Do not modify curves, anchor points, or proportions.\" On colour: \"The logo only appears in Deep Blue, Off White, white, or black.\" and \"For the logo: use Deep Blue on light backgrounds and Off White on dark backgrounds.\"",
+      "permitted_treatment": "The keys symbol, which the kit names the compact mark for icons, from the transparent approved file. Drawn inset on the neutral tile, unmodified, unrecoloured, unstretched and never outlined. The wordmark and the lockup are not used here: both are wide and the provider row is a square tile, and cropping one is an edit no record permits.",
+      "dark_mode_policy": "Two published inks, resolved by appearance, which is the vendor's own instruction: light takes venice-deep-blue and dark takes venice-off-white. Never a template tint, because Deep Blue and Off White are the only approved logo colours the app has a use for and a tint would be a third.",
+      "assets": [
+        {
+          "role": "light",
+          "path": "providers/venice-deep-blue.svg",
+          "sha256": "0db01572736b52eabfef31b5ca55725749a8cf4158667dd89da5a65a43a2020c",
+          "asset_url": "https://basehub.venice.ai/brand/venice-keys-svg.zip",
+          "asset_member": "Venice Keys SVG/venice-keys-deep-blue.svg",
+          "retrieved_on": "2026-09-19"
+        },
+        {
+          "role": "dark",
+          "path": "providers/venice-off-white.svg",
+          "sha256": "b28fa0fa44f87360aedd746fa5824e6c6ffa5a65cbc80844a5ae4c20f0792851",
+          "asset_url": "https://basehub.venice.ai/brand/venice-keys-svg.zip",
+          "asset_member": "Venice Keys SVG/venice-keys-off-white.svg",
+          "retrieved_on": "2026-09-19"
         }
       ]
     },

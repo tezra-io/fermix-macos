@@ -1,13 +1,13 @@
 {
   "schema_version": 2,
-  "recorded_on": "2026-09-10",
+  "recorded_on": "2026-09-19",
   "note": "The vendored roster snapshot. PROVENANCE.json must carry one record per key here, and roster_source.roster_sha256 pins these bytes, so a vendor cannot be dropped from either file alone. The upstream cross-check (vendor_marks.py check --fermix-repo <checkout>) is what re-vendors it when fermix moves.",
   "source": {
     "repository": "https://github.com/tezra-io/fermix",
     "providers": {
       "path": "apps/fermix_core/lib/fermix_core/providers/descriptor.ex",
       "symbol": "Providers.Descriptor.all/0",
-      "sha256": "e5b70c75fa66d1e5471838ecc760e506554c1b5acbfc23d1ff143cdce4a91288"
+      "sha256": "f27b0c452c665ded635c6452b9968d4aeaba4f0104663b1e3e1ae1077a295371"
     },
     "channels": {
       "path": "apps/fermix_web/lib/fermix_web_web/live/setup_live.ex",
@@ -47,6 +47,7 @@
     "openai",
     "openai_codex",
     "openrouter",
+    "venice",
     "xai"
   ],
   "channels": [

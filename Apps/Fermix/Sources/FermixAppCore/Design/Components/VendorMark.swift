@@ -132,6 +132,14 @@ public enum VendorMarks {
                 dark: .init("providers", "openrouter-volt", "svg")
             )
         ),
+        VendorMark(
+            .provider,
+            "venice",
+            .pair(
+                light: .init("providers", "venice-deep-blue", "svg"),
+                dark: .init("providers", "venice-off-white", "svg")
+            )
+        ),
         VendorMark(.provider, "xai", .template(.init("providers", "xai-mono", "png"))),
 
         // Channels.

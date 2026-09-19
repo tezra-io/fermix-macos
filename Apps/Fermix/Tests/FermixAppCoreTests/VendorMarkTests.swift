@@ -335,7 +335,7 @@ struct VendorMarkTests {
         }
     }
 
-    /// The one mark with two published inks draws the vendor's own choice per
+    /// A mark with two published inks draws the vendor's own choice per
     /// appearance rather than one file tinted, because recolouring is what
     /// OpenRouter's brand page asks callers not to do.
     @Test("a mark with two published inks resolves by appearance")
@@ -344,6 +344,20 @@ struct VendorMarkTests {
 
         #expect(mark.asset(dark: false)?.name == "openrouter-grape")
         #expect(mark.asset(dark: true)?.name == "openrouter-volt")
+    }
+
+    /// Venice is the second provider whose kit publishes two inks and says
+    /// which background each is for: Deep Blue on light, Off White on dark. Its
+    /// brand guidelines name four approved logo colours and nothing else, so a
+    /// template tint would be a fifth the vendor never published.
+    @Test("the Venice mark draws the vendor's own ink per appearance")
+    func venicePair() throws {
+        let mark = try #require(VendorMarks.mark(.provider, "venice"))
+
+        #expect(mark.asset(dark: false)?.name == "venice-deep-blue")
+        #expect(mark.asset(dark: true)?.name == "venice-off-white")
+        #expect(mark.plate == .neutral, "the keys ship on transparency")
+        #expect(!mark.isTemplate, "an approved ink is never tinted into a fifth one")
     }
 
     /// Marks are decorative wherever they are drawn: the row around one carries
