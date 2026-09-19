@@ -56,6 +56,10 @@ public struct DescriptorRowModel: Identifiable, Equatable, Sendable {
     public let key: String
     public let label: String
     public let footer: String?
+    /// The explanation the row keeps behind its info control, where the daemon
+    /// published one. Empty text is the same answer as none, so it is resolved
+    /// to nil here and no surface has to test for both.
+    public let info: String?
     public let control: DescriptorControl
     /// Whether changing this row needs a restart, which the banner then names.
     public let restart: Bool
@@ -68,6 +72,7 @@ public struct DescriptorRowModel: Identifiable, Equatable, Sendable {
         self.key = row.key
         self.label = row.label
         self.footer = row.footer
+        self.info = row.explanation
         self.restart = row.restart
         self.control = Self.control(for: row, value: value)
     }
@@ -260,6 +265,17 @@ extension ManagementSettingRow {
     /// An empty option can name an inherited default without storing an override.
     var emptyValuePrompt: String {
         options.first { $0.value.isEmpty }?.label ?? ProductStrings[.settingsTextEmptyPrompt]
+    }
+
+    /// The row's explanation, where it has one worth an info control.
+    ///
+    /// One reading, so a row cannot draw the control on one surface and not on
+    /// the next: an engine that omits the field and an engine that publishes an
+    /// empty string are the same answer, and it is "this row explains nothing".
+    var explanation: String? {
+        guard let info, !info.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        return info
     }
 }
 

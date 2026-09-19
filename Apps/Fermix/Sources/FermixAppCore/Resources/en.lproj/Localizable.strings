@@ -519,6 +519,7 @@
 "settings.text.emptyPrompt" = "Not set";
 "settings.choice.notSet" = "Not set";
 "settings.choice.suggestions" = "Suggestions";
+"settings.row.info" = "About this setting";
 "settings.list.remove" = "Remove";
 "settings.job.cancel" = "Cancel";
 "settings.job.timedOut" = "Fermix stopped waiting for this. It is still running, so check again in a moment.";

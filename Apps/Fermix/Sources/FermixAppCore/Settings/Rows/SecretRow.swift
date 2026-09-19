@@ -15,12 +15,14 @@ struct SecretRow: View {
     let identifier: String
     let present: Bool
     @ObservedObject var model: SettingsModel
+    /// The row's longer explanation, drawn behind the (i) beside the label.
+    var info: String?
 
     @State private var sheetShown = false
     @State private var removing = false
 
     var body: some View {
-        LabeledContent(label) {
+        LabeledContent {
             HStack(spacing: Spacing.xs) {
                 if present {
                     Text(ProductStrings[.settingsSecretStored])
@@ -33,6 +35,8 @@ struct SecretRow: View {
                     Button(ProductStrings[.settingsSecretAdd]) { sheetShown = true }
                 }
             }
+        } label: {
+            DescriptorRowLabel(label, info: info)
         }
         .sheet(isPresented: $sheetShown) {
             SecretSheet(label: label, identifier: identifier, model: model) {

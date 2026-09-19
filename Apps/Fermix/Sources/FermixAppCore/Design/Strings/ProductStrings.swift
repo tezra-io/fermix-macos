@@ -458,6 +458,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsTextEmptyPrompt = "settings.text.emptyPrompt"
     case settingsChoiceNotSet = "settings.choice.notSet"
     case settingsChoiceSuggestions = "settings.choice.suggestions"
+    /// What VoiceOver calls the info control beside a row's label. The row's own
+    /// label is spoken after it, so the name says which setting it opens.
+    case settingsRowInfo = "settings.row.info"
     case settingsListRemove = "settings.list.remove"
     case settingsJobCancel = "settings.job.cancel"
     case settingsJobTimedOut = "settings.job.timedOut"

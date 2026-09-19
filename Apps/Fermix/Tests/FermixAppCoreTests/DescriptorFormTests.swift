@@ -584,3 +584,111 @@ struct DescriptorCoverageTests {
         }
     }
 }
+
+/// The row explanation that sits behind an info control (M49 §3.4).
+///
+/// It is one additive wire field, so the two halves worth proving are that a
+/// row which carries it reaches the control, and that a row from an engine
+/// which never heard of it decodes exactly as it does today. The second half is
+/// the vendored contract itself: not one fixture row publishes `info`.
+@Suite("Descriptor row info")
+struct DescriptorRowInfoTests {
+    private static let paragraph = "Private models run on hardware the vendor controls."
+
+    @Test("a row that publishes an explanation carries it to the projection")
+    func publishedInfoReachesTheProjection() throws {
+        let row = try ManagementValueFixture.settingRow(
+            key: "default_model",
+            kind: "choice",
+            label: "Model",
+            info: Self.paragraph,
+            value: "\"grok-4-6\"",
+            suggestions: true
+        )
+
+        #expect(row.info == Self.paragraph)
+        #expect(row.explanation == Self.paragraph)
+        #expect(DescriptorRowModel(row: row, value: row.value).info == Self.paragraph)
+    }
+
+    /// The older-engine case: the key is absent from the payload entirely, and
+    /// the row decodes with everything else intact rather than throwing.
+    @Test("a row from an engine that omits the key still decodes")
+    func absentInfoStillDecodes() throws {
+        let row = try ManagementValueFixture.settingRow(
+            key: "default_model",
+            kind: "choice",
+            label: "Model",
+            footer: "The model this provider answers with.",
+            value: "\"grok-4-6\"",
+            suggestions: true
+        )
+
+        #expect(row.info == nil)
+        #expect(row.explanation == nil)
+        #expect(row.footer == "The model this provider answers with.")
+        #expect(DescriptorRowModel(row: row, value: row.value).info == nil)
+        #expect(DescriptorRowModel(row: row, value: row.value).footer == row.footer)
+    }
+
+    /// A published null and a published empty string are the same answer, and
+    /// it is "this row explains nothing". Resolved once, so one surface cannot
+    /// draw an info control over an empty popover while the next draws none.
+    @Test("an empty explanation is the same answer as none")
+    func emptyInfoDrawsNoControl() throws {
+        for published in ["", "   "] {
+            let row = try ManagementValueFixture.settingRow(info: published)
+
+            #expect(row.info == published)
+            #expect(row.explanation == nil, "\(published.debugDescription) drew a control")
+            #expect(DescriptorRowModel(row: row, value: row.value).info == nil)
+        }
+    }
+
+    /// The vendored contract is an engine that predates the field, so every
+    /// fixture row is the older-engine case and every one of them must decode.
+    @Test("every vendored contract row decodes with no explanation")
+    func vendoredRowsCarryNoInfo() throws {
+        let rows = try DescriptorCoverageTests.fixtureRows()
+
+        #expect(!rows.isEmpty, "the scan found no vendored rows to check")
+        for row in rows {
+            #expect(row.explanation == nil, "\(row.key) publishes an explanation the fixtures do not carry")
+        }
+    }
+
+    /// A component with no caller is the same defect as a design token no view
+    /// applies. Both doors into a provider's Model row draw their label through
+    /// the shared one, so an explanation cannot reach the pane and miss the
+    /// sub-page.
+    @Test("both model-row surfaces draw their label through the shared control")
+    func theControlIsWiredToBothSurfaces() throws {
+        let component = try #require(
+            try SourceTree.swiftFiles(matching: "Design/Components/InfoButton.swift").first?.text
+        )
+        #expect(component.contains("Image(systemName: \"info.circle\")"))
+        #expect(component.contains(".popover(isPresented:"))
+        #expect(component.contains(".accessibilityLabel("))
+
+        for path in ["Settings/Rows/DescriptorRow.swift", "Settings/Panes/ProvidersPane.swift"] {
+            let text = try #require(try SourceTree.swiftFiles(matching: path).first?.text, "\(path)")
+
+            #expect(text.contains("DescriptorRowLabel("), "\(path) draws no row label of its own")
+        }
+    }
+
+    /// Every control a descriptor row can resolve to resolves its label through
+    /// the shared one. Written as a scan for the controls that take a label
+    /// string directly, so a control added later either joins the label view or
+    /// fails here rather than silently dropping the explanation.
+    @Test("no descriptor control takes the row label as a bare string")
+    func everyControlLabelsThroughTheSharedView() throws {
+        for path in ["Settings/Rows/DescriptorRow.swift", "Settings/Rows/SecretRow.swift"] {
+            let text = try #require(try SourceTree.swiftFiles(matching: path).first?.text, "\(path)")
+
+            for bare in ["Toggle(row.label", "Picker(row.label", "LabeledContent(row.label", "LabeledContent(label)"] {
+                #expect(!text.contains(bare), "\(path) still draws \(bare)")
+            }
+        }
+    }
+}

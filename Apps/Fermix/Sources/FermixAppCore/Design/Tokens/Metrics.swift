@@ -59,6 +59,10 @@ public enum SettingsRowMetrics {
     /// taller than its cap height sets the row's height instead of sitting
     /// inside it.
     public static let markSize: Double = 20
+    /// The paragraph an info control opens. Wide enough that three sentences
+    /// read as three or four lines rather than a column, and narrow enough that
+    /// the popover stays an aside beside the row rather than a second pane.
+    public static let infoPopoverWidth: Double = 260
 }
 
 /// Minimum interactive heights.

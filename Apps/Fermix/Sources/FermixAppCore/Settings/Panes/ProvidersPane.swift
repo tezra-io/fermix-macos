@@ -424,19 +424,22 @@ struct ModelChoiceRow: View {
             value: DescriptorValue.text(model.value(of: row, in: section)),
             model: model, key: key,
             commit: { value in Task { await model.apply(section: section, key: row.key, value: value) } },
-            accessory: AnyView(chooser)
+            accessory: AnyView(chooser),
+            info: row.explanation
         )
     }
 
     private var key: SettingsDraftKey { SettingsDraftKey(section: section, key: row.key) }
 
     private var listedValue: some View {
-        LabeledContent(row.label) {
+        LabeledContent {
             HStack(spacing: Spacing.xs) {
                 Text(DescriptorValue.text(model.value(of: row, in: section)))
                     .foregroundStyle(Palette.secondary.color)
                 chooser
             }
+        } label: {
+            DescriptorRowLabel(row.label, info: row.explanation)
         }
     }
 

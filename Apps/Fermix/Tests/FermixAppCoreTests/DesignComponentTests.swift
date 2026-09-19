@@ -25,7 +25,7 @@ struct DesignComponentTests {
     func interactiveComponentsAreClassified() {
         let interactive = Set(DesignComponent.allCases.filter(\.isInteractive))
 
-        #expect(interactive == [.primaryButton, .secondaryButton, .linkButton])
+        #expect(interactive == [.primaryButton, .secondaryButton, .linkButton, .infoButton])
     }
 
     /// M34 §6 deleted the containers the app drew for itself, so the inventory
