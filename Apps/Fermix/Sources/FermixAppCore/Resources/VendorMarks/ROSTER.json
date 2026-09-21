@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "recorded_on": "2026-09-19",
+  "recorded_on": "2026-09-20",
   "note": "The vendored roster snapshot. PROVENANCE.json must carry one record per key here, and roster_source.roster_sha256 pins these bytes, so a vendor cannot be dropped from either file alone. The upstream cross-check (vendor_marks.py check --fermix-repo <checkout>) is what re-vendors it when fermix moves.",
   "source": {
     "repository": "https://github.com/tezra-io/fermix",
@@ -12,13 +12,13 @@
     "channels": {
       "path": "apps/fermix_web/lib/fermix_web_web/live/setup_live.ex",
       "symbol": "the channels form map",
-      "sha256": "10e3eec064933e5e7d95724708207ba2c7f0709eda6cc162d60602ea511051a7"
+      "sha256": "5e24466c31d2c75503b9b11c27d6dfda5f790640453f506230c266ac91c9fc42"
     },
     "plugins": {
       "path": "apps/fermix_core/priv/plugins/index.json",
       "symbol": "the static plugin catalog",
-      "sha256": "4dfda7e0ee51873e5d8b5a2ad11227decbcc8ee76c14b85e87e307fba0cd3ed1",
-      "generated_at": "2026-08-04T02:49:35Z",
+      "sha256": "37c907a1dfb54473856619602d84802e31d02515e9cf14e79858e1bcc59b7988",
+      "generated_at": "2026-09-19T15:17:56Z",
       "bundled": {
         "path": "apps/fermix_core/priv/plugins/catalog.json",
         "symbol": "the plugins the engine ships inside itself, which Registry.list unions into every install",
@@ -61,7 +61,6 @@
     "agentmail",
     "computer_use_sidecar",
     "discord",
-    "eden",
     "github",
     "gmail",
     "google_calendar",
@@ -69,6 +68,7 @@
     "notion",
     "obsidian",
     "slack",
+    "tesla",
     "x"
   ],
   "features": [

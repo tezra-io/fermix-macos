@@ -356,7 +356,7 @@ struct SettingsPanesTests {
     /// Every button is titled from the app's own catalogue by the id the daemon
     /// published, and the daemon's own word is never a button title.
     ///
-    /// The eden row is the case: status `needs_workspace`, `primary_verb`
+    /// The acme row is the case: status `needs_workspace`, `primary_verb`
     /// `Choose workspace`, and an app-derived action of `check`. The verb was
     /// painted onto that button, so the detail drew `Choose workspace` on a
     /// control that ran `plugins.check.start`, beside a second `Choose…` that
@@ -382,12 +382,12 @@ struct SettingsPanesTests {
             }
         }
 
-        let eden = try #require(rows.first { $0.name == "eden" })
+        let acme = try #require(rows.first { $0.name == "acme" })
 
-        #expect(eden.verb == "Choose workspace", "the golden row this gate exists for")
-        #expect(eden.primaryAction == .chooseWorkspace, "the daemon says which method that verb runs")
-        #expect(eden.buttons.contains(.chooseWorkspace))
-        #expect(!eden.buttons.contains(.check) || eden.actions.contains(.check))
+        #expect(acme.verb == "Choose workspace", "the golden row this gate exists for")
+        #expect(acme.primaryAction == .chooseWorkspace, "the daemon says which method that verb runs")
+        #expect(acme.buttons.contains(.chooseWorkspace))
+        #expect(!acme.buttons.contains(.check) || acme.actions.contains(.check))
     }
 
     /// Every published action has a word, and the two credential verbs draw no

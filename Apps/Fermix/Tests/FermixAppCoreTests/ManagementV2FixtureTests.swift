@@ -201,7 +201,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 67, "every success record was decoded")
+        #expect(seen.count == 70, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -324,7 +324,7 @@ struct ManagementV2FixtureTests {
     // MARK: - Plugin rows
 
     /// A word is not a routing key. Every button an integration row can draw
-    /// runs the id the daemon published beside the word, so the eden row can no
+    /// runs the id the daemon published beside the word, so the acme row can no
     /// longer draw `Choose workspace` on a button that runs
     /// `plugins.check.start`.
     @Test("every plugin row's buttons run the action the daemon published")

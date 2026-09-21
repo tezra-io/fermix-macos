@@ -446,7 +446,7 @@ struct DescriptorCoverageTests {
             sections += 1
         }
 
-        #expect(sections == 25)
+        #expect(sections == 26)
         #expect(!mixed.isEmpty, "no section mixes the two, so the flag reads as section-wide")
 
         let state: ManagementSetupState = try FakeDaemonGateway.fixtureResult(
@@ -540,8 +540,8 @@ struct DescriptorCoverageTests {
     /// and `Summarise with` above a catalogue that says `authorize` and
     /// `Minimize`.
     ///
-    /// The case set is every label, footer and option the contract publishes,
-    /// so a row added upstream joins the rule rather than escaping it.
+    /// The case set is every label, footer, explanation and option the contract
+    /// publishes, so a row added upstream joins the rule rather than escaping it.
     @Test("every label the contract publishes is written in the app's own dialect")
     func publishedLabelsShareTheAppDialect() throws {
         let british = [
@@ -553,6 +553,7 @@ struct DescriptorCoverageTests {
         for row in try Self.fixtureRows() {
             phrases.append(row.label)
             row.footer.map { phrases.append($0) }
+            row.info.map { phrases.append($0) }
             phrases.append(contentsOf: row.options.map(\.label))
         }
 
@@ -589,8 +590,10 @@ struct DescriptorCoverageTests {
 ///
 /// It is one additive wire field, so the two halves worth proving are that a
 /// row which carries it reaches the control, and that a row from an engine
-/// which never heard of it decodes exactly as it does today. The second half is
-/// the vendored contract itself: not one fixture row publishes `info`.
+/// which never heard of it decodes exactly as it did before. The vendored
+/// contract is the first half: every row publishes the key, as a string or
+/// null, and the rows that carry text are read off the goldens rather than
+/// listed here. The second half is a row built with the key left out.
 @Suite("Descriptor row info")
 struct DescriptorRowInfoTests {
     private static let paragraph = "Private models run on hardware the vendor controls."
@@ -645,16 +648,66 @@ struct DescriptorRowInfoTests {
         }
     }
 
-    /// The vendored contract is an engine that predates the field, so every
-    /// fixture row is the older-engine case and every one of them must decode.
-    @Test("every vendored contract row decodes with no explanation")
-    func vendoredRowsCarryNoInfo() throws {
-        let rows = try DescriptorCoverageTests.fixtureRows()
+    /// The vendored contract publishes the key on every row, and the decoded
+    /// row says exactly what its golden said: a null draws no control and a
+    /// paragraph reaches it unchanged. The case set is the raw records, so a row
+    /// that gains an explanation upstream joins it at the next re-vendor.
+    @Test("every vendored contract row carries the explanation its golden publishes")
+    func vendoredRowsCarryThePublishedInfo() throws {
+        let published = try Self.publishedRows()
+        var explained = 0
 
-        #expect(!rows.isEmpty, "the scan found no vendored rows to check")
-        for row in rows {
-            #expect(row.explanation == nil, "\(row.key) publishes an explanation the fixtures do not carry")
+        #expect(!published.isEmpty, "the scan found no vendored rows to check")
+        for (section, raw) in published {
+            let key = try #require(raw["key"] as? String)
+            let row = try #require(
+                try DescriptorCoverageTests.rows(inSection: section).first { $0.key == key },
+                "\(section).\(key) did not decode"
+            )
+            let text = raw["info"] as? String
+
+            #expect(raw.keys.contains("info"), "\(section).\(key) omits a key the schema requires")
+            #expect(row.info == text, "\(section).\(key)")
+            #expect(DescriptorRowModel(row: row, value: row.value).info == text, "\(section).\(key)")
+            if text != nil { explained += 1 }
         }
+
+        #expect(explained > 0, "no golden row publishes an explanation, so the control has no contract case")
+    }
+
+    /// The row the contract names as the first to carry one: Venice's Model row,
+    /// where the privacy tier closing each option's label is two words that mean
+    /// materially different things. It reaches the control as the daemon wrote
+    /// it, beside the options it explains.
+    @Test("the Venice model row carries the daemon's paragraph to its info control")
+    func veniceModelRowIsExplained() throws {
+        let rows = try DescriptorCoverageTests.rows(inSection: "providers.venice")
+        let model = try #require(rows.first { $0.key == "default_model" })
+        let projected = DescriptorRowModel(row: model, value: model.value)
+
+        #expect(model.info?.isEmpty == false)
+        #expect(projected.info == model.info)
+        guard case .suggestion(_, let options) = projected.control else {
+            Issue.record("the Venice model row does not render as a suggestion field")
+            return
+        }
+
+        #expect(options.map(\.label) == model.options.map(\.label))
+    }
+
+    /// Every `settings.get` row as its golden wrote it, beside its section id.
+    /// Raw rather than decoded, because whether a key was published at all is
+    /// the one thing a decoded optional cannot say.
+    private static func publishedRows() throws -> [(section: String, row: [String: Any])] {
+        try ManagementFixtures.load(.success, from: .management)
+            .filter { (try? $0.string("method")) == ManagementMethod.settingsGet.rawValue }
+            .flatMap { fixture -> [(section: String, row: [String: Any])] in
+                let result = try #require(try fixture.object("response")["result"] as? [String: Any])
+                let section = try #require(result["id"] as? String)
+                let rows = try #require(result["rows"] as? [[String: Any]])
+
+                return rows.map { (section: section, row: $0) }
+            }
     }
 
     /// A component with no caller is the same defect as a design token no view

@@ -280,15 +280,15 @@ struct FixtureConfigurationTests {
 
     /// The params one method is asked with.
     ///
-    /// Two methods are keyed on their params, because the contract publishes
-    /// more than one golden for each: `settings.get` answers per section and
-    /// `secret.set` answers per secret, so asking either with none would be
-    /// asking for something the contract does not publish. Every other method
-    /// answers one shape.
+    /// Three methods are keyed on their params, because the contract publishes
+    /// more than one golden for each: `settings.get` answers per section, and
+    /// `secret.set` and `secret.clear` answer per secret, so asking any of them
+    /// with none would be asking for something the contract does not publish.
+    /// Every other method answers one shape.
     static func params(for method: ManagementMethod) -> [String: Any] {
         switch method {
         case .settingsGet: return ["section": "realtime"]
-        case .secretSet: return ["id": "openai_api_key"]
+        case .secretSet, .secretClear: return ["id": "openai_api_key"]
         default: return [:]
         }
     }
@@ -316,29 +316,43 @@ struct FixtureConfigurationTests {
         }
     }
 
-    /// Both secrets the contract publishes an answer for are answered, and each
-    /// one gets its own. `secret.set` is the second method with more than one
-    /// golden, and answering either with whichever the file listed last is a
-    /// choice nobody made.
+    /// Every secret the contract publishes an answer for is answered, and each
+    /// one gets its own. `secret.set` and `secret.clear` both publish more than
+    /// one golden, and answering with whichever the file listed last is a choice
+    /// nobody made. The case set is the goldens' own, asked under each golden's
+    /// own params, so a secret family added upstream is checked at the re-vendor
+    /// that brings it rather than when somebody remembers to list it here.
     @Test("each published secret is answered under its own id")
     func everyPublishedSecretIsAnswered() async throws {
         let transport = try FixtureManagementTransport(
             machine: FixtureMachine(daemonUp: true),
             readiness: .gatingFailure
         )
+        let methods = [ManagementMethod.secretSet.rawValue, ManagementMethod.secretClear.rawValue]
+        var answered: [String: Set<String>] = [:]
 
-        for identifier in ["openai_api_key", "anthropic_setup_token"] {
+        for fixture in try ManagementFixtures.load(.requests, from: .management) {
+            let method = try fixture.string("method")
+            guard methods.contains(method) else { continue }
+
+            let params = try #require(try fixture.object("frame")["params"] as? [String: Any])
+            let identifier = try #require(params["id"] as? String)
             let payload = try JSONSerialization.data(withJSONObject: [
                 "request_id": "req-fixture-1",
                 "protocol_version": 2,
-                "method": ManagementMethod.secretSet.rawValue,
-                "params": ["id": identifier, "value": "not-a-real-secret"]
+                "method": method,
+                "params": params
             ])
             let answer = try await transport.exchange(payload, timeout: .seconds(1))
             let frame = try JSONSerialization.jsonObject(with: answer) as? [String: Any]
             let result = frame?["result"] as? [String: Any]
 
-            #expect(result?["id"] as? String == identifier)
+            #expect(result?["id"] as? String == identifier, "\(fixture.name)")
+            answered[method, default: []].insert(identifier)
+        }
+
+        for method in methods {
+            #expect((answered[method]?.count ?? 0) > 1, "\(method) publishes more than one secret to tell apart")
         }
     }
 

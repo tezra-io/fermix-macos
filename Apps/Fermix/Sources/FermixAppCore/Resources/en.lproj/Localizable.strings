@@ -183,6 +183,10 @@
 "attention.channel.body" = "The channel is enabled and still missing something it needs, so it will not answer.";
 "attention.voice.title" = "The voice companion needs an OpenAI key";
 "attention.voice.body" = "Voice uses the OpenAI Realtime API, which a Codex or Claude sign-in does not authorize.";
+"attention.sandboxEnv.missing.title" = "Some allowed environment variables are not set";
+"attention.sandboxEnv.missing.body" = "Sandboxed commands run without them until each value is stored or its name is removed from the allowed list. Fermix runs in the background and does not read your shell profile.";
+"attention.sandboxEnv.helperFailed.title" = "A helper command for an environment variable failed";
+"attention.sandboxEnv.helperFailed.body" = "Sandboxed commands run without that value until the helper command in the settings file works again.";
 "attention.restart.title" = "Restart to apply your changes";
 "attention.restart.body" = "A saved change is waiting for the daemon to restart.";
 "attention.externalChange.title" = "Settings changed outside Fermix";

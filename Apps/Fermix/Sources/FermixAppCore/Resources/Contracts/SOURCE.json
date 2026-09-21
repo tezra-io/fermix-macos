@@ -3,10 +3,10 @@
   "description": "Provenance of the vendored Fermix wire contracts. The canonical files live in the fermix repository under apps/fermix_core/priv/; this tree is a byte-identical copy pinned by CHECKSUMS.txt. scripts/verify_protocol_contract.sh asserts the two agree, and --source <fermix-checkout> byte-compares against upstream.",
   "upstream": {
     "repository": "tezra-io/fermix",
-    "commit": "880f14925b482aaa9254a363fac16ad0b91a0355",
+    "commit": "6af289d6c72c5c47b266d699773dc8dcf2194caf",
     "branch": "dev",
     "working_tree": "clean",
-    "retrieved_at": "2026-09-13"
+    "retrieved_at": "2026-09-20"
   },
   "contracts": [
     {
@@ -20,17 +20,17 @@
         "maximum": 2
       },
       "committed_upstream": true,
-      "provenance_note": "Taken from the fermix repository on dev at 880f14925b48, the commit that publishes the Live voice engine, so committed_upstream is true and the release audience of verify_staged_app.sh accepts this pin. Protocol stays 2 on the 1 to 2 window: the engine field on the overview's realtime object, the combined voice model row whose every option names the engine it selects, the reasoning effort row that only the Realtime engine carries and the read-only backend row that only Live carries are additive inside existing methods, so no method minimum moves. The voice section has no engine row: the engine is derived from the model and reported back in applied, and settings.apply refuses realtime_engine as a key this section does not have. This pin also carries the schema's declaration of the overview's realtime engine field, which the router and the golden already published.",
+      "provenance_note": "Taken from the fermix repository on dev at 6af289d6c72c, which origin/dev contains, so committed_upstream is true and the release audience of verify_staged_app.sh accepts this pin. It carries the Venice provider, as its own settings section and as a row in setup.state.get; the info field on every settings row, a string or null, which is the longer explanation a surface keeps behind an info control and which one row publishes today, Venice's model row; the sandbox section's one row per environment variable name, keyed env:<NAME>, a secret row where Fermix can store the value and a read-only text row where it cannot or where the value comes from a helper command or another variable, with restart false on the allowed names row and on every name row; the fifth secret id family, env:<NAME>, on secret.set and secret.clear; two advisory readiness failures for allowed sandbox environment variables the daemon cannot read, sandbox:env_missing and sandbox:env_helper_failed, both under the sandbox pane; and the computer use section's second row, work inside one window. Protocol stays 2 on the 1 to 2 window: each of these is a row, a field or a failure inside a method that already exists, and env:<NAME> is an open id family on two existing methods rather than a method of its own, so no method minimum moves. The schema changes in one definition, the settings row, which gains info; its version, its window and its 42 method minimums are the ones the previous pin carried. The goldens' sample hosted plugin is now the fictional acme, because the engine retired Eden.",
       "files": [
         {
           "path": "management/PROTOCOL.md",
           "source_path": "apps/fermix_core/priv/management/PROTOCOL.md",
-          "sha256": "5eaff890f3dfd4feb3ec87513b520aa81ffbb6e1c82b58d30ea6bb2334c6bc77"
+          "sha256": "e5bc3ef5cc0872ecfad3a2dedf4426c16a4bc5139bac9398cc8427c77ab86c72"
         },
         {
           "path": "management/protocol.schema.json",
           "source_path": "apps/fermix_core/priv/management/protocol.schema.json",
-          "sha256": "8a7904365cc2c2ed20f52b0db8912d564d703af9812d98a5281bf23c4dc7a547"
+          "sha256": "0b2251766bad7f8da4f6e2e57e9884a7d498cf8011a95f26694a2f38d0ab88c3"
         },
         {
           "path": "management/fixtures/compatibility.jsonl",
@@ -45,12 +45,12 @@
         {
           "path": "management/fixtures/requests.jsonl",
           "source_path": "apps/fermix_core/priv/management/fixtures/requests.jsonl",
-          "sha256": "1d22723461211806835772f747710e81ed39694999e08261863599aa50108cf0"
+          "sha256": "85338b08a754af54cf40339adfc1335a477a3790116ed62ccab7efe32ad225a6"
         },
         {
           "path": "management/fixtures/success.jsonl",
           "source_path": "apps/fermix_core/priv/management/fixtures/success.jsonl",
-          "sha256": "0d87d3f2c082ceddca5e3fc776d2dfd8ad53853ff7de9a97831108b50bcec742"
+          "sha256": "29f5de0d8cfd5a69e507510f1978527bf887aa6e5e3175397721f2a41ec5ce11"
         }
       ]
     },
@@ -65,7 +65,7 @@
         "maximum": 2
       },
       "committed_upstream": true,
-      "provenance_note": "Taken from the same fermix commit on dev, 880f14925b48, which publishes the Live voice engine, so committed_upstream is true. Protocol 2 adds the frames the Live engine needs: task_cancel from the pet, call_ready, caption and task from the daemon, the Live fields on usage, and kind, detail and required_for on error. The window is 1 to 2, so a pet speaking 1 still runs the Realtime engine against this daemon.",
+      "provenance_note": "Taken from the same fermix commit on dev, 6af289d6c72c, which origin/dev contains, so committed_upstream is true. Nothing under the realtime tree changed between 880f14925b48, the previous pin, and this commit: all four files are byte for byte the ones already vendored, so only the recorded commit moves. Protocol 2 is the one that added the frames the Live engine needs: task_cancel from the pet, call_ready, caption and task from the daemon, the Live fields on usage, and kind, detail and required_for on error. The window is 1 to 2, so a pet speaking 1 still runs the Realtime engine against this daemon.",
       "files": [
         {
           "path": "realtime/PROTOCOL.md",

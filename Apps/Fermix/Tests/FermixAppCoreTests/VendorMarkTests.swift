@@ -154,20 +154,53 @@ struct VendorMarkTests {
     /// every one of them drew the puzzle-piece tile under the default Installed
     /// pill. Reading the contract fixture is what makes the case set the
     /// daemon's rather than this file's.
+    ///
+    /// One reported name is set aside, and it is named rather than derived on
+    /// purpose. Excusing every row the roster does not carry would excuse the
+    /// defect above, which was exactly a real plugin the roster had missed.
     @Test("every plugin the daemon reports draws a recorded mark")
     func everyReportedPluginHasAMark() throws {
         let catalog: ManagementPluginCatalog = try FakeDaemonGateway.fixtureResult(
             named: "plugins_list",
             as: ManagementPluginCatalog.self
         )
+        let published = catalog.plugins.filter { $0.name != Self.fictionalHostedPlugin }
 
-        #expect(!catalog.plugins.isEmpty, "the fixture publishes no plugins to check")
-        for plugin in catalog.plugins {
+        #expect(!published.isEmpty, "the fixture publishes no plugins to check")
+        for plugin in published {
             #expect(
                 VendorMarks.integration(plugin.name) != nil,
                 "\(plugin.name) has no mark and would draw the generic tile"
             )
         }
+    }
+
+    /// The one plugin the contract's goldens report that no catalog publishes.
+    ///
+    /// The engine retired Eden, and the hosted row its goldens keep as the
+    /// remote rail's sample is now a fictional vendor, `acme` on
+    /// `mcp.acme.example`. A vendor that does not exist has no mark to retrieve.
+    static let fictionalHostedPlugin = "acme"
+
+    /// So it draws the neutral symbol, which is the recorded treatment for a
+    /// name in neither roster, and a mark made up to satisfy the gate above
+    /// fails here. The first expectation is what retires this: the day the
+    /// goldens stop carrying the sample, the exemption has nothing to name.
+    @Test("the goldens' fictional hosted plugin draws the neutral symbol, never an invented mark")
+    func theFictionalPluginHasNoMark() throws {
+        let catalog: ManagementPluginCatalog = try FakeDaemonGateway.fixtureResult(
+            named: "plugins_list",
+            as: ManagementPluginCatalog.self
+        )
+        let rosterURL = SourceTree.root.appendingPathComponent("Resources/VendorMarks/ROSTER.json")
+        let roster = try #require(
+            try JSONSerialization.jsonObject(with: try Data(contentsOf: rosterURL)) as? [String: Any]
+        )
+        let plugins = try #require(roster["plugins"] as? [String])
+
+        #expect(catalog.plugins.contains { $0.name == Self.fictionalHostedPlugin })
+        #expect(VendorMarks.integration(Self.fictionalHostedPlugin) == nil)
+        #expect(!plugins.contains(Self.fictionalHostedPlugin), "the roster is the engine's catalog, not the goldens'")
     }
 
     /// Every feature row the Integrations page can draw has one too, so a

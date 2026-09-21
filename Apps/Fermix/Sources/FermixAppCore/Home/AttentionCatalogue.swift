@@ -23,6 +23,13 @@ public enum AttentionDetail: Equatable, Sendable {
     case providerCredentials(provider: String)
     case channel(name: String)
     case voiceRealtime
+    /// Allowed sandbox environment variables the daemon cannot read where it
+    /// runs, one case per cause. Not parameterised: the daemon sends one
+    /// failure per cause however many variables share it, and the wire carries
+    /// no name. The Sandbox pane's own rows say which variable is in which
+    /// state, which is why both link there.
+    case sandboxEnvMissing
+    case sandboxEnvHelperFailed
     case restartPending
     case externalConfigChange
     case configUnreadable
@@ -38,6 +45,8 @@ public enum AttentionDetail: Equatable, Sendable {
         "provider:multiple_primary": .providerMultiplePrimary,
         "provider:invalid_auth_mode": .providerInvalidAuthMode,
         "realtime:openai": .voiceRealtime,
+        "sandbox:env_missing": .sandboxEnvMissing,
+        "sandbox:env_helper_failed": .sandboxEnvHelperFailed,
         "restart_pending": .restartPending,
         "external_config_change": .externalConfigChange,
         "config_unreadable": .configUnreadable,
@@ -221,6 +230,8 @@ public enum AttentionCatalogue {
         case .channel(let name):
             return String(format: ProductStrings[.attentionChannelTitleFormat], names.channel(name))
         case .voiceRealtime: return ProductStrings[.attentionVoiceTitle]
+        case .sandboxEnvMissing: return ProductStrings[.attentionSandboxEnvMissingTitle]
+        case .sandboxEnvHelperFailed: return ProductStrings[.attentionSandboxEnvHelperFailedTitle]
         case .restartPending: return ProductStrings[.attentionRestartTitle]
         case .externalConfigChange: return ProductStrings[.attentionExternalChangeTitle]
         case .configUnreadable: return ProductStrings[.attentionConfigUnreadableTitle]
@@ -239,6 +250,8 @@ public enum AttentionCatalogue {
         case .providerCredentials: return ProductStrings[.attentionProviderCredentialsBody]
         case .channel: return ProductStrings[.attentionChannelBody]
         case .voiceRealtime: return ProductStrings[.attentionVoiceBody]
+        case .sandboxEnvMissing: return ProductStrings[.attentionSandboxEnvMissingBody]
+        case .sandboxEnvHelperFailed: return ProductStrings[.attentionSandboxEnvHelperFailedBody]
         // The daemon owns the reason sentences; the app never composes its own
         // reason for a restart (M34 §5.10).
         case .restartPending: return evidence ?? ProductStrings[.attentionRestartBody]
@@ -273,6 +286,7 @@ public enum AttentionCatalogue {
             return .openSettings(.providers)
         case .channel: return .openSettings(.channels)
         case .voiceRealtime: return .openSettings(.voice)
+        case .sandboxEnvMissing, .sandboxEnvHelperFailed: return .openSettings(.sandbox)
         // Answered outside Fermix, so the row opens the sheet that prints the
         // commands rather than carrying none at all (M34 §15.2, §3.2).
         case .legacyServiceUnit: return .showInstructions

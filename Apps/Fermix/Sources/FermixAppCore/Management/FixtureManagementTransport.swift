@@ -194,18 +194,21 @@ struct FixtureManagementTransport: ManagementTransport {
 
     /// The request params a record answers for, read from the answer itself.
     ///
-    /// Two methods publish more than one golden, and each result names the
+    /// Three methods publish more than one golden, and each result names the
     /// request it answers under its own key: `settings.get` answers per section
-    /// (`id` is the section), and `secret.set` answers per secret (`id` is the
-    /// secret). Reading it off the answer keeps the selector and the answer one
-    /// fact, so a re-vendor that adds a section or a secret needs nothing here.
+    /// (`id` is the section), and `secret.set` and `secret.clear` answer per
+    /// secret (`id` is the secret). Reading it off the answer keeps the selector
+    /// and the answer one fact, so a re-vendor that adds a section or a secret
+    /// needs nothing here. A method that publishes its second golden does: it
+    /// joins this switch, which is what `secret.clear` did when the sandbox
+    /// environment family gave it one.
     static func selector(method: String, result: Any) -> [String: String] {
         guard let identifier = (result as? [String: Any])?["id"] as? String else { return [:] }
 
         switch method {
         case ManagementMethod.settingsGet.rawValue:
             return ["section": identifier]
-        case ManagementMethod.secretSet.rawValue:
+        case ManagementMethod.secretSet.rawValue, ManagementMethod.secretClear.rawValue:
             return ["id": identifier]
         default:
             return [:]

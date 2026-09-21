@@ -104,9 +104,11 @@ public struct ManagementSettingRow: Decodable, Equatable, Sendable {
     /// showing inline. Null on nearly every row: a footer is the sentence that
     /// always sits under a control, and this is the paragraph a person asks for.
     ///
-    /// Decoded as an optional, which is `decodeIfPresent`, so an engine that
-    /// predates the field decodes exactly as it does today. The vendored
-    /// contract fixtures carry no `info` key and are the proof.
+    /// The contract publishes the key on every row, as a string or null. It is
+    /// still decoded as an optional, which is `decodeIfPresent`: the field
+    /// arrived inside protocol 2 without moving a method minimum, so an engine
+    /// inside the window that predates it omits the key, and that engine's rows
+    /// have to decode exactly as they did before.
     public let info: String?
     public let value: ManagementSettingValue
     /// Whether a secret sits at the key's path. Nil on every other kind.
