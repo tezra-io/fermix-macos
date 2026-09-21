@@ -526,6 +526,8 @@ final class CoordinatorHarness {
     let voice = FakeVoiceController()
     let lifecycle = FakeLifecycleController()
     let termination = FakeTerminationRequester()
+    /// What the coordinator told VoiceOver, in order.
+    let announcer = RecordingAnnouncer()
     let coordinator: AppCoordinator
     /// The launch reconcile, scripted. Every launch and every route asks it, so
     /// a harness that did not declare one would be asserting against a
@@ -562,7 +564,8 @@ final class CoordinatorHarness {
             registrationBuild: { registrationBuild },
             termination: termination,
             settings: settings,
-            presentation: presentation
+            presentation: presentation,
+            announcer: announcer
         )
     }
 }
@@ -611,6 +614,9 @@ final class FakeLifecycleController: DaemonLifecycleControlling, @unchecked Send
     /// Parks the disable until a case releases it, so an interruption can be
     /// observed from inside the step rather than after it.
     var holdDisable: AsyncGate?
+    /// Parks the restart the same way, so a case can read what the app says
+    /// while one is actually running.
+    var holdRestart: AsyncGate?
 
     func stageFailure(_ failure: LifecycleFailure) {
         lock.lock()
@@ -676,6 +682,7 @@ final class FakeLifecycleController: DaemonLifecycleControlling, @unchecked Send
 
     func restartDaemon() async throws -> LifecycleOutcome {
         try record(.restart)
+        await holdRestart?.wait()
         return .restarted(previousPid: 1, currentPid: 2)
     }
 

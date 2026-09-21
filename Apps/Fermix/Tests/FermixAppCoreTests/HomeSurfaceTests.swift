@@ -987,7 +987,8 @@ final class HomeHarness {
             registrationBuild: { .thisBuild },
             termination: FakeTerminationRequester(),
             settings: settings,
-            presentation: SettingsPresentation()
+            presentation: SettingsPresentation(),
+            announcer: RecordingAnnouncer()
         )
         menuBar = MenuBarController(model: appModel, item: statusItem)
         model = HomeModel(

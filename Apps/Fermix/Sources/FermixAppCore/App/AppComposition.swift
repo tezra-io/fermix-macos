@@ -428,7 +428,8 @@ final class AppComposition {
             registrationBuild: { store.registrationBuild(matching: environment.configuration.buildNumber) },
             termination: environment.termination,
             settings: settings,
-            presentation: presentation
+            presentation: presentation,
+            announcer: AppKitAccessibilityAnnouncer()
         )
     }
 

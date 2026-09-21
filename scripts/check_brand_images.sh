@@ -26,10 +26,13 @@ MARK_MASTER="FermixMarkMaster.png"
 ICON_MASTER="FermixMonochromeIcon.png"
 
 # The three states the rasterizer publishes, each with its @2x sibling.
+# The three menu bar states, and the same mark as the Pet surface's still mascot.
+# All four come out of one generator run and take the same two checks.
 TEMPLATES=(
   FermixMarkTemplate
   FermixMarkStartingTemplate
   FermixMarkAttentionTemplate
+  FermixMarkPet
 )
 
 # shellcheck source=scripts/product_config.sh

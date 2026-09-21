@@ -164,7 +164,17 @@ public final class AppModel: ObservableObject {
     @Published public var daemon: DaemonCondition = .starting
     @Published public var petShown = false
     @Published public var needsAttention = false
-    @Published public var transactionInFlight = false
+    /// The lifecycle transaction this app started that is still running, or
+    /// nil where none is.
+    ///
+    /// One writer, `AppCoordinator`, and one fact behind every surface that
+    /// says a restart is under way: the toolbar's status sentence, Home's
+    /// Status row and the status item's state line (owner report of
+    /// 2026-09-20: the Restart sheet closed, the daemon went away for several
+    /// seconds, and nothing on screen said why). It is the app's own fact and
+    /// not the daemon's, which is the only reason the app may state it: the
+    /// daemon is gone for most of a restart and publishes nothing about one.
+    @Published public var transactionInFlight: LifecycleTransactionKind?
     /// Whether the Restart sheet is asking, in the one window that can host it.
     ///
     /// One owner for the whole app (M34 §5.10): Home's Attention row, the

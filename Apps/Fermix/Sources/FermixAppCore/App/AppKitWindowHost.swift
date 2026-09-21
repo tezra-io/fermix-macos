@@ -91,11 +91,18 @@ struct AppSurfaces {
 /// break the label. White on `#2b5cff` is 5.13:1, while white on `accentHover`
 /// (`#4a73ff`), the only lighter accent the ramp has, is 4.04:1 and under the
 /// 4.5:1 floor §9 gates.
+///
+/// The control shape travels the same way and for the same reason. The system
+/// draws its toolbar buttons as capsules, and a bordered button inside a form
+/// row arrived as a rounded rectangle beside them, so one window showed two
+/// button shapes. Set once here, every bordered button the system draws is the
+/// capsule the two styles the app draws already are (`ButtonRecipe.shape`).
 struct ProductTinted<Content: View>: View {
     let content: Content
 
     var body: some View {
         content.tint(Palette.accent.color)
+            .buttonBorderShape(.capsule)
     }
 }
 
@@ -228,6 +235,24 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
 
     // MARK: - Construction
 
+    /// Whether the titlebar gives up its own fill.
+    ///
+    /// The titlebar paints an opaque band wherever the content under it is not
+    /// a scroll view, which is the assistant and the Integrations page header:
+    /// one grey strip across the top of the window's ambient ground (redlines
+    /// §1.3), on exactly the two presentations that are mostly ground. The fill
+    /// is AppKit's, so a SwiftUI toolbar background modifier does not reach it.
+    ///
+    /// Clear on macOS 26 and later, where the system's scroll edge effect is
+    /// what keeps a bar legible over content that scrolls beneath it. The
+    /// macOS 15 floor has no such effect, so a titled window keeps its fill
+    /// there and only a window with no title is clear, as before.
+    static func titlebarIsClear(showsTitle: Bool) -> Bool {
+        if #available(macOS 26.0, *) { return true }
+
+        return !showsTitle
+    }
+
     private func makeWindow(_ descriptor: WindowDescriptor) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: descriptor.size),
@@ -241,7 +266,7 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
         // which is what draws the sidebar toggle and the inline title. One that
         // does not still draws a titlebar zone of its own.
         window.titleVisibility = descriptor.showsTitle ? .visible : .hidden
-        window.titlebarAppearsTransparent = !descriptor.showsTitle
+        window.titlebarAppearsTransparent = Self.titlebarIsClear(showsTitle: descriptor.showsTitle)
         window.toolbarStyle = descriptor.showsTitle ? .unified : .automatic
         window.isReleasedWhenClosed = false
         window.isRestorable = descriptor.restorable

@@ -29,23 +29,31 @@ struct ProviderEditingRegressionTests {
         #expect(try store.read().rows.first { $0.key == row.key }?.value == .text(choice.value))
     }
 
-    @Test("auth-mode selection controls credentials while retaining slots for other entry points")
+    /// The auth mode decides which credential editor is drawn, and nothing
+    /// else. It used to take the sign-in doors away as well: under `api_key`
+    /// the detail answered no doors at all, so a provider that signs in led
+    /// with nothing. Sign-in is the primary method wherever a provider has one
+    /// (owner directive of 2026-09-20), so the doors stand in both modes and
+    /// the key is the secondary one beside them.
+    @Test("auth-mode selection controls the credential editor and never the sign-in doors")
     func selectedAuthModeControlsCredentials() async throws {
         let gateway = try SettingsFixture.gateway()
         gateway.providerSettings = try StatefulProviderSettings(section: "providers.anthropic")
         let model = SettingsFixture.model(gateway: gateway)
         await model.loadSection("providers.anthropic")
+        // Both of Claude's sign-in doors, in either mode.
+        let claudeDoors: [ProviderVerb] = [.importClaudeCode, .addSetupToken]
 
         #expect(await model.apply(section: "providers.anthropic", key: "auth_mode", value: .text("oauth")))
         #expect(model.providerAuthMode("anthropic") == "oauth")
         #expect(model.providerCredentialExclusions("anthropic") == ["anthropic_api_key"])
         #expect(model.section("providers.anthropic").value?.rows.contains { $0.key == "anthropic_api_key" } == true)
-        #expect(ProviderRowProjection.detailAuthVerbs(for: "anthropic", detections: nil, authMode: model.providerAuthMode("anthropic")) == [.addSetupToken])
+        #expect(ProviderRowProjection.detailDoors(for: "anthropic", detections: nil).map(\.verb) == claudeDoors)
 
         #expect(await model.apply(section: "providers.anthropic", key: "auth_mode", value: .text("api_key")))
         #expect(model.providerAuthMode("anthropic") == "api_key")
         #expect(model.providerCredentialExclusions("anthropic").isEmpty)
-        #expect(ProviderRowProjection.detailAuthVerbs(for: "anthropic", detections: nil, authMode: model.providerAuthMode("anthropic")).isEmpty)
+        #expect(ProviderRowProjection.detailDoors(for: "anthropic", detections: nil).map(\.verb) == claudeDoors)
     }
 
     @Test("a provider write is validated against its actual published keys")

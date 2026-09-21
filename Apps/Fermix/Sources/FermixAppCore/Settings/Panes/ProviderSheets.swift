@@ -233,9 +233,9 @@ struct SignInSheet: View {
 
 /// Choose a model (M34 §5.1).
 ///
-/// Paginated over `providers.models.list`, because a provider with thousands of
-/// models is exactly why that method has a cursor. A live listing that fails
-/// says so; it never falls back to the catalog under a live label.
+/// The pane presents this for the primary's model row, one level deep. A
+/// provider's own detail draws the same listing as a page of itself instead,
+/// because a popup never raises a second popup.
 struct ModelPickerSheet: View {
     /// Which provider's models to list. It is the primary provider's id, read
     /// from `setup.state.get`, because a descriptor row names a model and never
@@ -246,6 +246,46 @@ struct ModelPickerSheet: View {
     let commit: (String) -> Void
     let dismiss: () -> Void
 
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.s) {
+            Text(ProductStrings[.providerModelsTitle])
+                .fermixType(Typography.sheetTitle)
+                .foregroundStyle(Palette.ink.color)
+
+            ModelListing(provider: provider, model: model) { chosen in
+                commit(chosen)
+                dismiss()
+            }
+
+            HStack(spacing: Spacing.s) {
+                Spacer(minLength: 0)
+
+                Button(ProductStrings[.settingsSheetCancel], action: dismiss)
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(WindowMetrics.contentPadding)
+        .frame(width: SheetMetrics.pickerSize.width, height: SheetMetrics.pickerSize.height)
+    }
+}
+
+/// One provider's model listing: the search field, the pages, and the daemon's
+/// refusal.
+///
+/// Paginated over `providers.models.list`, because a provider with thousands of
+/// models is exactly why that method has a cursor. A live listing that fails
+/// says so; it never falls back to the catalog under a live label.
+///
+/// One view for both places a listing is drawn, the pane's sheet and the page
+/// inside a provider's detail, so the two cannot page, search or refuse
+/// differently. It draws no title and no way out: those belong to whichever
+/// surface it is on.
+struct ModelListing: View {
+    let provider: String
+    @ObservedObject var model: SettingsModel
+    /// Hands back the chosen model's id. Leaving is the caller's to do.
+    let choose: (String) -> Void
+
     @State private var models: [ManagementProviderModel] = []
     @State private var cursor: String?
     @State private var query = ""
@@ -254,10 +294,6 @@ struct ModelPickerSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s) {
-            Text(ProductStrings[.providerModelsTitle])
-                .fermixType(Typography.sheetTitle)
-                .foregroundStyle(Palette.ink.color)
-
             TextField(
                 ProductStrings[.providerModelsTitle],
                 text: $query,
@@ -274,26 +310,14 @@ struct ModelPickerSheet: View {
                     .foregroundStyle(Palette.warning.color)
                     .accessibilityAddTraits(.updatesFrequently)
             }
-
-            HStack(spacing: Spacing.s) {
-                Spacer(minLength: 0)
-
-                Button(ProductStrings[.settingsSheetCancel], action: dismiss)
-                    .keyboardShortcut(.cancelAction)
-            }
         }
-        .padding(WindowMetrics.contentPadding)
-        .frame(width: SheetMetrics.pickerSize.width, height: SheetMetrics.pickerSize.height)
         .task { await reload() }
     }
 
     private var list: some View {
         List(models, id: \.id) { entry in
-            Button(entry.label) {
-                commit(entry.id)
-                dismiss()
-            }
-            .accessibilityLabel(entry.label)
+            Button(entry.label) { choose(entry.id) }
+                .accessibilityLabel(entry.label)
         }
         .frame(maxHeight: .infinity)
         .overlay(alignment: .bottom) { more }

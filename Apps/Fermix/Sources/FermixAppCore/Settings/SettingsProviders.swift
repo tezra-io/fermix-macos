@@ -12,7 +12,9 @@ extension SettingsModel {
     public func providerAuthMode(_ provider: String) -> String? {
         precondition(!provider.isEmpty, "an authentication mode names its provider")
         let section = ProviderRowProjection.sectionId(for: provider)
-        guard let row = self.section(section).value?.rows.first(where: { $0.key == "auth_mode" }) else {
+        guard let row = self.section(section).value?.rows.first(where: {
+            $0.key == ProviderRowProjection.authModeKey
+        }) else {
             return setupState.value?.providers.first { $0.id == provider }?.authMode
         }
 

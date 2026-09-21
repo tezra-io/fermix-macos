@@ -554,7 +554,8 @@ struct SettingsSourceGateTests {
     /// the shape these panes actually reach for.
     static let scrollingPaneFiles: [String: String] = [
         "Settings/Panes/ProviderSheets.swift": "the model picker's paginated listing, inside a sheet",
-        "Settings/Panes/IntegrationSheets.swift": "the workspace listing, inside a sheet",
+        "Settings/Panes/IntegrationSheets.swift":
+            "the workspace listing and the plugin detail's own rows, each a page of one sheet",
         "Settings/Panes/ComputerPane.swift": "the installed-app picker, inside a sheet",
         "Settings/Panes/IntegrationsPane.swift": "the plugins page's flat list, which is that pane's only scroll"
     ]
@@ -618,6 +619,12 @@ struct SettingsSourceGateTests {
 
         let row = try SourceTree.swiftFiles(matching: "Settings/Rows/SecretRow.swift")
         #expect(row.first?.text.contains("SecureField") == true, "the gate is checking a file that has none")
+
+        // One call site, not merely one file. The row types in place now, so
+        // the entry, the row and every surface that takes a credential all
+        // compose the one `SecretInput` rather than each building a field.
+        let calls = try #require(row.first?.text).components(separatedBy: "SecureField(").count - 1
+        #expect(calls == 1, "SecretRow.swift builds \(calls) secure fields")
     }
 
     /// The banner floats over the pane, so it has to be measured like the pane.

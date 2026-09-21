@@ -399,7 +399,8 @@ final class RouterHarness {
             registrationBuild: { .thisBuild },
             termination: termination,
             settings: settings,
-            presentation: presentation
+            presentation: presentation,
+            announcer: RecordingAnnouncer()
         )
         sidebar = SidebarModel(store: InMemorySidebarStore())
         menuBar = MenuBarController(model: model, item: statusItem)

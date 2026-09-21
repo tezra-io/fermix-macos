@@ -84,12 +84,12 @@ extension SettingsModel {
     // MARK: - Secrets
 
     /// Stores one secret. The value crosses the socket in this one method and
-    /// nowhere else, and a blank is never sent: the caller's sheet refuses it
-    /// before this is reached.
+    /// nowhere else, and a blank is never sent: the row or sheet the value is
+    /// typed into refuses it before this is reached.
     ///
     /// Answers the daemon's sentence on a refusal and nil on success, because
-    /// the sheet stays open on a refusal so the operator can try again without
-    /// retyping.
+    /// the field keeps what was typed on a refusal so the operator can try
+    /// again without retyping.
     public func setSecret(id: String, value: String) async -> String? {
         precondition(!id.isEmpty, "a secret is written by id")
         precondition(!value.isEmpty, "a blank secret is never sent")

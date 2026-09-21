@@ -212,12 +212,16 @@ struct WebSetupCoverageTests {
     /// The three sub-surfaces the first implementation slices left unbuilt are
     /// rows in the table like any other, and this slice builds them rather than
     /// exempting them (M34 §5).
-    @Test("the workspace sheet, the OAuth client sheet and the provider sub-page are built")
+    ///
+    /// The workspace picker is a page of the plugin's detail rather than a
+    /// sheet over it, because a sheet never raises a sheet; it is the same
+    /// surface answering the same row.
+    @Test("the workspace page, the OAuth client sheet and the provider sub-page are built")
     func thePreviouslyUnbuiltSurfacesAreBuilt() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
         let text = files.map(\.text).joined(separator: "\n")
 
-        for symbol in ["WorkspaceSheet", "OAuthClientSheet", "ProviderDetailSheet"] {
+        for symbol in ["WorkspacePage", "OAuthClientSheet", "ProviderDetailSheet"] {
             #expect(WebSetupCoverage.declares(symbol, in: text), "\(symbol) is not declared")
         }
 

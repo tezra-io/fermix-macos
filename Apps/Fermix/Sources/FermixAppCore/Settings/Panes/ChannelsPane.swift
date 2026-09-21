@@ -230,7 +230,8 @@ struct ChannelSheet: View {
                 }
             }
             .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
+            .showsAmbientGround()
+            .rowActions()
             .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: Spacing.s) {
@@ -245,7 +246,20 @@ struct ChannelSheet: View {
         }
         .padding(WindowMetrics.contentPadding)
         .frame(width: SheetMetrics.credentialWidth)
-        .onExitCommand(perform: dismiss)
+        .onExitCommand(perform: escape)
         .task { await model.loadChannelSection(row.name) }
+    }
+
+    /// Escape, by the rule the settings window and the provider sheet follow
+    /// (M34 §3.1). A field being edited owns it first, which now includes a
+    /// secret typed in its own row: the half-typed value is dropped and the
+    /// sheet stays, and only Escape with nothing being edited closes it.
+    private func escape() {
+        guard model.editingRow == nil else {
+            model.revertEdit()
+            return
+        }
+
+        dismiss()
     }
 }

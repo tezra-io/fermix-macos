@@ -586,7 +586,7 @@
     "kind": "field",
     "name": "oauth_client_form[client_id] (modal)",
     "symbols": [
-      "Settings/Panes/IntegrationSheets.swift#OAuthClientSheet"
+      "Settings/Panes/IntegrationSheets.swift#OAuthClientEditor"
     ]
   },
   {
@@ -594,7 +594,7 @@
     "kind": "field",
     "name": "oauth_client_form[client_secret] (modal)",
     "symbols": [
-      "Settings/Panes/IntegrationSheets.swift#OAuthClientSheet",
+      "Settings/Panes/IntegrationSheets.swift#OAuthClientEditor",
       "Settings/Rows/SecretRow.swift#SecretRow"
     ]
   },
@@ -603,7 +603,7 @@
     "kind": "field",
     "name": "oauth_client_form[redirect_port] (modal)",
     "symbols": [
-      "Settings/Panes/IntegrationSheets.swift#OAuthClientSheet"
+      "Settings/Panes/IntegrationSheets.swift#OAuthClientEditor"
     ]
   },
   {
@@ -640,7 +640,7 @@
     "kind": "field",
     "name": "resource_picker: access profile buttons + workspace Select buttons",
     "symbols": [
-      "Settings/Panes/IntegrationSheets.swift#WorkspaceSheet",
+      "Settings/Panes/IntegrationSheets.swift#WorkspacePage",
       "Management/ManagementPlugins.swift#ManagementPluginAccessProfile"
     ]
   },
@@ -798,7 +798,7 @@
     "symbols": [
       "Settings/SettingsPlugins.swift#startWorkspaceDiscovery",
       "Settings/SettingsPlugins.swift#startWorkspaceSelection",
-      "Settings/Panes/IntegrationSheets.swift#WorkspaceSheet"
+      "Settings/Panes/IntegrationSheets.swift#WorkspacePage"
     ]
   },
   {
@@ -921,7 +921,7 @@
     "kind": "sub_surface",
     "name": "resource_picker_modal (access profile + workspace list, pending/choose/selecting/error) components.ex:2705-2995",
     "symbols": [
-      "Settings/Panes/IntegrationSheets.swift#WorkspaceSheet"
+      "Settings/Panes/IntegrationSheets.swift#WorkspacePage"
     ]
   },
   {

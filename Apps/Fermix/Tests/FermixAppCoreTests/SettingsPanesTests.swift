@@ -238,6 +238,149 @@ struct SettingsPanesTests {
         }
     }
 
+    /// A row leads with how the provider really connects, and sign-in is that
+    /// method wherever a provider has one (owner directive of 2026-09-20: "add
+    /// key in every provider doesnt sit well since some like SpaceXAI and
+    /// Anthropic and Codex are sign-in and that should be the primary sign-in
+    /// method").
+    ///
+    /// Built from the golden's own providers, because the defect lived in a
+    /// fact a fabricated provider does not carry: the daemon selects `api_key`
+    /// for Anthropic and SpaceXAI by default, and while the selection moved the
+    /// verb that default is what put `Add key…` on both.
+    @Test("a provider that signs in leads with its sign-in, and only a key-only provider leads with the key")
+    func rowsLeadWithThePrimaryMethod() throws {
+        let state: ManagementSetupState = try FakeDaemonGateway.fixtureResult(
+            named: "setup_state_get",
+            as: ManagementSetupState.self
+        )
+        let detections: ManagementDetections = try FakeDaemonGateway.fixtureResult(
+            named: "setup_detect",
+            as: ManagementDetections.self
+        )
+        func verb(_ id: String, _ detected: ManagementDetections?) throws -> ProviderVerb {
+            ProviderRowProjection.verb(for: try #require(state.providers.first { $0.id == id }), detections: detected)
+        }
+
+        // Non-vacuity: the selection that used to win is still the golden's.
+        for id in ["anthropic", "xai"] {
+            let published = try #require(state.providers.first { $0.id == id })
+
+            #expect(published.authMode == ProviderRowProjection.apiKeyMode, "\(id)")
+            #expect(published.authModes.contains(ProviderRowProjection.oauthMode), "\(id)")
+        }
+
+        // The doors, in the order they win: a sign-in this Mac already has,
+        // then Anthropic's setup token, then the browser.
+        #expect(try verb("anthropic", detections) == .importClaudeCode)
+        #expect(try verb("anthropic", nil) == .addSetupToken)
+        #expect(try verb("xai", nil) == .signIn)
+
+        // Only a provider with no sign-in door leads with the key.
+        for id in ["openai", "openrouter", "mistral"] {
+            let published = try #require(state.providers.first { $0.id == id })
+
+            #expect(published.authModes == [ProviderRowProjection.apiKeyMode], "\(id)")
+            #expect(try verb(id, detections) == .addKey, "\(id)")
+        }
+
+        // And the two that lead with nothing still do.
+        #expect(try verb("ollama", detections) == .none)
+        #expect(try verb("openai_codex", detections) == .none, "connected and primary")
+    }
+
+    /// The detail leads with the same doors the row does, so a provider never
+    /// offers `Sign in` on its row and only a key inside.
+    @Test("every provider whose row leads with a sign-in offers that door in its detail")
+    func theDetailOffersWhatTheRowLeadsWith() throws {
+        let state: ManagementSetupState = try FakeDaemonGateway.fixtureResult(
+            named: "setup_state_get",
+            as: ManagementSetupState.self
+        )
+        let detections: ManagementDetections = try FakeDaemonGateway.fixtureResult(
+            named: "setup_detect",
+            as: ManagementDetections.self
+        )
+        var checked = 0
+
+        for detected in [nil, detections] {
+            for published in state.providers {
+                let verb = ProviderRowProjection.verb(for: published, detections: detected)
+                let doors = ProviderRowProjection.detailDoors(for: published.id, detections: detected).map(\.verb)
+
+                switch verb {
+                case .signIn, .importClaudeCode, .importCodexCLI, .addSetupToken:
+                    checked += 1
+                    #expect(doors.contains(verb), "\(published.id) leads with \(verb.rawValue)")
+                case .addKey:
+                    #expect(doors.isEmpty, "\(published.id) leads with a key and has a sign-in door")
+                case .none:
+                    continue
+                }
+            }
+        }
+
+        #expect(checked >= 4, "only \(checked) sign-in rows were checked")
+    }
+
+    /// The detail draws a provider's one section as two blocks, and every row
+    /// lands in exactly one of them (M34 §5.1): a key with two controls is two
+    /// ways to answer one question, and a key in neither is a setting nobody
+    /// can reach.
+    @Test("the detail's two blocks split a provider's rows with none shared and none dropped")
+    func detailBlocksPartitionTheSection() async throws {
+        let harness = try SettingsHarness()
+        var withCredential = 0
+
+        for id in ["anthropic", "xai", "openai", "openrouter", "mistral", "openai_codex", "ollama"] {
+            let section = ProviderRowProjection.sectionId(for: id)
+            await harness.model.loadSection(section)
+            let rows = try #require(harness.model.section(section).value?.rows, "\(id)")
+            let keys = Set(rows.map(\.key))
+            let blocks = ProviderRowProjection.detailBlocks(rows: rows, hidden: [])
+
+            let credential = keys.subtracting(blocks.credentialExcluding)
+            let settings = keys.subtracting(blocks.settingsExcluding)
+
+            #expect(credential.isDisjoint(with: settings), "\(id) draws \(credential.intersection(settings)) twice")
+            #expect(credential.union(settings) == keys, "\(id) drops \(keys.subtracting(credential.union(settings)))")
+            #expect(blocks.hasCredential == !credential.isEmpty, "\(id)")
+            #expect(blocks.hasSettings == !settings.isEmpty, "\(id)")
+            // The credential is the mode and the secrets, read off their shape.
+            for row in rows {
+                let isCredential = row.key == ProviderRowProjection.authModeKey || row.kind == .secret
+
+                #expect(credential.contains(row.key) == isCredential, "\(id)/\(row.key)")
+            }
+            if blocks.hasCredential { withCredential += 1 }
+        }
+
+        #expect(withCredential >= 5, "the goldens publish a key for five providers")
+    }
+
+    /// A provider that only signs in publishes no key, so its detail draws no
+    /// disclosure over nothing; and the key the chosen auth mode hides stays
+    /// hidden inside the disclosure while the mode row that reveals it stays.
+    @Test("the key door is drawn only where there is a credential behind it")
+    func keyDoorNeedsACredential() async throws {
+        let harness = try SettingsHarness()
+        await harness.model.loadSection("providers.openai_codex")
+        await harness.model.loadSection("providers.anthropic")
+        let codex = try #require(harness.model.section("providers.openai_codex").value?.rows)
+        let anthropic = try #require(harness.model.section("providers.anthropic").value?.rows)
+
+        #expect(!ProviderRowProjection.detailBlocks(rows: codex, hidden: []).hasCredential)
+
+        let hidden: Set<String> = ["anthropic_api_key"]
+        let blocks = ProviderRowProjection.detailBlocks(rows: anthropic, hidden: hidden)
+
+        #expect(blocks.hasCredential, "the auth mode row is still there to choose the key with")
+        #expect(blocks.credentialExcluding.isSuperset(of: hidden))
+        #expect(!blocks.credentialExcluding.contains(ProviderRowProjection.authModeKey))
+        // Hidden from the credential block is not moved to the settings block.
+        #expect(blocks.settingsExcluding.isSuperset(of: hidden))
+    }
+
     // MARK: - Channels
 
     @Test("a channel row carries the status its state earns")
@@ -513,8 +656,8 @@ struct SettingsPanesTests {
         #expect(!gateway.calls.contains(.v2(.pluginsEnable)))
     }
 
-    /// The detail and workspace sheets address their plugin by name and read it
-    /// back out of the catalogue on every render, so a discovery or an enable
+    /// The detail and its workspace page address their plugin by name and read
+    /// it back out of the catalogue on every render, so a discovery or an enable
     /// that re-reads that catalogue changes what they show. A captured row
     /// makes `Find workspaces` a button that can never change its own list.
     @Test("a plugin sheet reads its row live rather than capturing it")
@@ -529,16 +672,62 @@ struct SettingsPanesTests {
         #expect(IntegrationRowProjection.row(named: bound.name, in: nil) == nil)
         #expect(IntegrationRowProjection.row(named: "no-such-plugin", in: catalog) == nil)
 
-        // Both sheets take a name, never a row: a stored `row` on either is the
+        // Both take a name, never a row: a stored `row` on either is the
         // captured snapshot this replaces.
         let sheets = try SourceTree.swiftFiles(matching: "Settings/Panes/IntegrationSheets.swift")
         let text = try #require(sheets.first?.text)
 
         #expect(text.contains("struct IntegrationDetailSheet: View {\n    let name: String"))
-        #expect(text.contains("struct WorkspaceSheet: View {\n    let name: String"))
-        // And the discovery job re-reads that catalogue when it ends, which is
-        // where the republished workspace list arrives.
-        #expect(text.contains("Task { await model.refreshPlugins() }"))
+        #expect(text.contains("struct WorkspacePage: View {\n    let name: String"))
+    }
+
+    /// The daemon republishes a discovery's workspaces and a binding's label on
+    /// the plugin row, not on the job, so the end of either re-reads the
+    /// catalogue. That is where the republished list arrives.
+    ///
+    /// The rule is the model's rather than the workspace page's, because a
+    /// binding sends the person back to the detail while its job is still
+    /// running: hung on the page, the re-read would be gone before the job it
+    /// was waiting for ended, and the workspace row would go on saying
+    /// `Not chosen` over a workspace that had just been bound.
+    @Test(
+        "a workspace job that ends re-reads the catalogue",
+        arguments: ["plugin_workspaces_discover", "plugin_workspace_select"]
+    )
+    func workspaceJobsReReadTheCatalogue(_ kind: String) async throws {
+        let gateway = try SettingsFixture.gateway()
+        let model = SettingsFixture.model(gateway: gateway)
+
+        await model.pluginJobFinished(try ManagementValueFixture.job(kind: kind, phase: "listing"))
+        #expect(!gateway.calls.contains(.v2(.pluginsList)), "a \(kind) job still running moved nothing")
+
+        await model.pluginJobFinished(
+            try ManagementValueFixture.job(kind: kind, status: "completed", phase: nil)
+        )
+        #expect(gateway.calls.filter { $0 == .v2(.pluginsList) }.count == 1)
+        #expect(!gateway.calls.contains(.v2(.setupStateGet)), "only a sign-in re-reads the setup state")
+    }
+
+    /// Every other kind of job leaves the catalogue alone: an install is
+    /// finished by the consent sheet that started it, and a provider probe has
+    /// nothing to say about a plugin.
+    @Test("only the jobs that move a plugin row re-read the catalogue")
+    func onlyPluginJobsReReadTheCatalogue() async throws {
+        #expect(
+            SettingsModel.jobsRepublishingPlugins
+                == [.auth, .pluginCheck, .pluginWorkspacesDiscover, .pluginWorkspaceSelect]
+        )
+
+        for kind in ["plugin_install", "provider_probe", "capability_install", "meetings_signin"] {
+            let gateway = try SettingsFixture.gateway()
+            let model = SettingsFixture.model(gateway: gateway)
+
+            await model.pluginJobFinished(
+                try ManagementValueFixture.job(kind: kind, status: "completed", phase: nil)
+            )
+
+            #expect(!gateway.calls.contains(.v2(.pluginsList)), "\(kind) re-read the catalogue")
+        }
     }
 
     /// The four pills of decision D6, each with its live count over the

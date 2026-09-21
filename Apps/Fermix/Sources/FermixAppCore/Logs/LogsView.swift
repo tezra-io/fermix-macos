@@ -58,6 +58,7 @@ struct LogsView: View {
             // M34 §3.2 and redlines §5.7: the log list runs edge to edge, which
             // is the plain style. The inset style is the shape they replaced.
             .listStyle(.plain)
+            .showsAmbientGround()
         }
     }
 

@@ -98,10 +98,7 @@ struct ProvidersPane: View {
             signingIn: model.signingInProvider,
             // Where a provider's key slot is named. The shared model owns the
             // lookup, so this pane and the assistant read one answer.
-            descriptorRows: model.providerDescriptorRows(for: published),
-            selectedAuthModes: Dictionary(uniqueKeysWithValues: published.compactMap { provider in
-                model.providerAuthMode(provider.id).map { (provider.id, $0) }
-            })
+            descriptorRows: model.providerDescriptorRows(for: published)
         )
     }
 

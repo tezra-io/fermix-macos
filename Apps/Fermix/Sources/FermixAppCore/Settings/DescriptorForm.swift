@@ -20,6 +20,8 @@ struct SettingsPaneForm<Content: View>: View {
             content
         }
         .formStyle(.grouped)
+        .showsAmbientGround()
+        .rowActions()
         .scrollIndicators(.never)
         .paneScrollEdges()
         .frame(maxWidth: WindowMetrics.settingsContentMaxWidth)

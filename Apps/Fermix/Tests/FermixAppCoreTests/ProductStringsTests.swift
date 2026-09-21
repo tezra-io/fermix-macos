@@ -565,8 +565,35 @@ struct ProductStringsTests {
         #expect(ProductStrings[.settingsSecretStored] == "Stored")
         #expect(ProductStrings[.settingsSecretReplace] == "Replace…")
         #expect(ProductStrings[.settingsSecretRemove] == "Remove")
-        #expect(ProductStrings[.settingsSecretAdd] == "Add…")
+        // An absent secret is the field itself, so there is no `Add…` to press.
+        #expect(ProductStrings[.settingsSecretStore] == "Store")
         #expect(ProductStrings[.providerVerifyAndSave] == "Verify and save")
+    }
+
+    /// The key of a provider that signs in waits behind one disclosure. Its
+    /// title opens nothing new, so it carries no ellipsis: on the Mac an
+    /// ellipsis promises a window or a sheet, and this is neither.
+    @Test("the key door's title is a sentence-case line with no ellipsis")
+    func keyDoorTitle() {
+        let title = ProductStrings[.providerUseKeyInstead]
+
+        #expect(title == "Use an API key instead")
+        #expect(!title.hasSuffix("…"))
+        #expect(ProductStrings[.providerSetupTokenLabel] == "Setup token")
+    }
+
+    /// The line under Claude's sign-in while this Mac has none to adopt. It
+    /// says what is so and then what to do, as two sentences: the deck joins
+    /// nothing with a comma, and the door it sits under already names itself.
+    @Test("the unready Claude Code door says what is missing and what makes it ready")
+    func unreadyClaudeCodeCaption() {
+        let caption = ProductStrings[.providerImportClaudeCodeUnavailable]
+
+        #expect(
+            caption == "No Claude Code sign-in was found on this Mac. Sign in to Claude Code first to use it here."
+        )
+        #expect(caption.components(separatedBy: ". ").count == 2)
+        #expect(!caption.contains(","))
     }
 
     /// A poll that reached its cap stopped watching the job; it did not stop the

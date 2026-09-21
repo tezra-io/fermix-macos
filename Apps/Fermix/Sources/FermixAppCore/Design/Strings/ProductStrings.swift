@@ -224,6 +224,19 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// registration was made, the daemon never came up, and the window sat on
     /// its progress screen (owner report of 2026-09-17).
     case lifecycleServiceNeverAnswered = "lifecycle.serviceNeverAnswered"
+    /// What every surface says while a lifecycle transaction this app started
+    /// is running: the toolbar's status sentence, Home's Status row and the
+    /// status item's state line, which holds all three under its row cap. One
+    /// string per transaction in one place, for the reason the not-running
+    /// sentence above is one.
+    case lifecycleRestarting = "lifecycle.restarting"
+    case lifecycleEnabling = "lifecycle.enabling"
+    case lifecycleDisabling = "lifecycle.disabling"
+    /// What VoiceOver hears once that transaction has worked. Spoken and never
+    /// drawn: on screen the sentence above simply goes away.
+    case lifecycleRestarted = "lifecycle.restarted"
+    case lifecycleEnabled = "lifecycle.enabled"
+    case lifecycleDisabled = "lifecycle.disabled"
 
     // Background service
 
@@ -453,7 +466,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsSecretStored = "settings.secret.stored"
     case settingsSecretReplace = "settings.secret.replace"
     case settingsSecretRemove = "settings.secret.remove"
-    case settingsSecretAdd = "settings.secret.add"
     case settingsSecretStore = "settings.secret.store"
     case settingsSecretPrompt = "settings.secret.prompt"
     case settingsNumberPercentFormat = "settings.number.percentFormat"
@@ -532,6 +544,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case providerSignInExpired = "provider.signIn.expired"
     case providerImportTitle = "provider.import.title"
     case providerImportBody = "provider.import.body"
+    /// Under the Claude Code door while this Mac has no such sign-in: the door
+    /// stays where it is, and this says what makes it ready.
+    case providerImportClaudeCodeUnavailable = "provider.import.claudeCode.unavailable"
+    case providerSetupTokenLabel = "provider.setupToken.label"
     case providerSetupTokenBody = "provider.setupToken.body"
     case providerModelsTitle = "provider.models.title"
     case providerModelsSearchPrompt = "provider.models.searchPrompt"
@@ -541,6 +557,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// live there rather than on the row.
     case providerDetails = "provider.details"
     case providerSignOut = "provider.signOut"
+    /// The key of a provider that signs in, kept behind its sign-in.
+    case providerUseKeyInstead = "provider.useKeyInstead"
 
     // Channels
     case channelStatusOff = "channel.status.off"
@@ -597,6 +615,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// search that matched nothing: one is a filter, the other is a plugin that
     /// went away while its sheet was open.
     case integrationGone = "integration.gone"
+    /// What VoiceOver calls the chevron at the top of a page of a plugin's
+    /// detail, which carries no word of its own. Formatted with the plugin.
+    case integrationPageBackFormat = "integration.page.backFormat"
     case integrationEnabled = "integration.enabled"
     case integrationOpen = "integration.open"
     case integrationDisconnect = "integration.disconnect"

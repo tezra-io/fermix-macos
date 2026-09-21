@@ -247,6 +247,12 @@
 "lifecycle.daemonNotManaged" = "Fermix’s background service isn’t registered on this Mac, so a restart would stop Fermix and nothing would start it again. Run the Setup Assistant to register it.";
 "lifecycle.serviceBusy" = "Fermix is already changing the background service, so nothing was changed. Try again once it has finished.";
 "lifecycle.serviceNeverAnswered" = "The background service did not answer while Fermix was checking that it started, so Fermix is not running yet. Open Doctor to see what it found.";
+"lifecycle.restarting" = "Restarting Fermix";
+"lifecycle.enabling" = "Enabling the background service";
+"lifecycle.disabling" = "Disabling the background service";
+"lifecycle.restarted" = "Fermix restarted";
+"lifecycle.enabled" = "Background service enabled";
+"lifecycle.disabled" = "Background service disabled";
 
 /* MARK: Background service, one wording everywhere it appears */
 
@@ -514,7 +520,6 @@
 "settings.secret.stored" = "Stored";
 "settings.secret.replace" = "Replace…";
 "settings.secret.remove" = "Remove";
-"settings.secret.add" = "Add…";
 "settings.secret.store" = "Store";
 "settings.secret.prompt" = "Paste the value";
 "settings.number.percentFormat" = "%.0f%%";
@@ -587,6 +592,8 @@
 "provider.signIn.expired" = "This sign-in link has expired. Cancel this attempt, then sign in again.";
 "provider.import.title" = "Import sign-in";
 "provider.import.body" = "Use the sign-in already saved on this Mac. macOS may ask for keychain access.";
+"provider.import.claudeCode.unavailable" = "No Claude Code sign-in was found on this Mac. Sign in to Claude Code first to use it here.";
+"provider.setupToken.label" = "Setup token";
 "provider.setupToken.body" = "Use a setup token to connect your Claude account.";
 "provider.models.title" = "Choose a model";
 "provider.models.searchPrompt" = "Search models";
@@ -651,6 +658,7 @@
 "integrations.filter.features" = "Features";
 "integrations.noResults" = "Nothing matches your search.";
 "integration.gone" = "This plugin is no longer in the catalog.";
+"integration.page.backFormat" = "Back to %@";
 "integration.enabled" = "Enabled";
 "integration.open" = "Open";
 "integration.disconnect" = "Disconnect";
@@ -704,4 +712,5 @@
 "provider.models.choose" = "Choose…";
 "provider.details" = "Details…";
 "provider.signOut" = "Sign out";
+"provider.useKeyInstead" = "Use an API key instead";
 "settings.voice.microphoneSection" = "Microphone";

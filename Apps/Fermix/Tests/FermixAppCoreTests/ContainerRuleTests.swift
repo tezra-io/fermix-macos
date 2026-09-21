@@ -143,6 +143,63 @@ struct ContainerRuleTests {
         #expect(checked >= 8, "only \(checked) sheets were scanned")
     }
 
+    /// A popup never raises a second popup (owner directive of 2026-09-20: "I
+    /// dont mind having a one level popup").
+    ///
+    /// The owner's report was three windows deep to type one key: a pane raised
+    /// a provider's or a plugin's detail, the detail raised a sheet for the key
+    /// or for its sign-in client, and that one raised a third. One popup is
+    /// fine. What it owns beyond that is a page it turns to or a row that is
+    /// edited in place, so the depth cannot come back one modifier at a time.
+    ///
+    /// Derived from every sheet declaration in the tree rather than from a list
+    /// of files, so a sheet added later joins the rule by being one.
+    @Test("no sheet presents anything of its own")
+    func sheetsPresentNothing() throws {
+        let files = try SourceTree.swiftFiles(under: "", excluding: false)
+            .filter { $0.text.contains("Sheet: View") }
+        var checked: [String] = []
+
+        for file in files {
+            for declaration in Self.sheetDeclarations(in: file.text) {
+                let body = Self.body(of: declaration, in: file.text)
+                checked.append(declaration)
+
+                for presentation in Self.presentations {
+                    #expect(
+                        !body.contains(presentation),
+                        "\(declaration) in \(file.path) raises a popup of its own with \(presentation)"
+                    )
+                }
+            }
+        }
+
+        // The ones that were two and three deep, named, so the rule cannot pass
+        // over a file it never read.
+        for sheet in ["ProviderDetailSheet", "AddKeySheet", "SignInSheet", "ModelPickerSheet",
+                      "IntegrationDetailSheet", "OAuthClientSheet", "ChannelSheet"] {
+            #expect(checked.contains(sheet), "\(sheet) was not scanned")
+        }
+    }
+
+    /// A credential is typed in the row that owns it, so the secret row
+    /// presents nothing at all. As a sheet it stacked on whichever sheet the
+    /// row was already inside: a channel's, a plugin's, a provider's.
+    @Test("the secret row presents nothing")
+    func secretRowPresentsNothing() throws {
+        let row = try SourceTree.swiftFiles(matching: "Settings/Rows/SecretRow.swift")
+        let text = try #require(row.first?.text)
+
+        #expect(text.contains("struct SecretRow: View"), "the gate is checking a file with no secret row")
+        for presentation in Self.presentations {
+            #expect(!text.contains(presentation), "SecretRow.swift presents with \(presentation)")
+        }
+        #expect(Self.sheetDeclarations(in: text).isEmpty, "a sheet is declared beside the secret row again")
+    }
+
+    /// Every way a SwiftUI view raises something over the one it is in.
+    static let presentations = [".sheet(", ".popover(", ".alert(", ".confirmationDialog(", ".fullScreenCover("]
+
     /// A control the app draws needs a name VoiceOver can read: the catalogue
     /// title it was built from, or an explicit label beside it.
     @Test("every button under Settings and Onboarding carries a readable name")
@@ -436,11 +493,22 @@ struct ContainerRuleTests {
     /// because the app hosts SwiftUI inside an `NSHostingView` and has no
     /// `Scene` for that modifier to reach. Decision D4 adds the pane form's
     /// scroll edge effect in its place, so the inventory stays at five.
+    ///
+    /// The glass refresh of 2026-09-20 adds the sixth: the clear titlebar over
+    /// the window's ambient ground, which is clear only where the system's
+    /// scroll edge effect exists to keep the bar legible (redlines §1.3).
+    ///
+    /// The prominent glass button style left the same day: §4.4 made the primary
+    /// action the product's own monochrome capsule, which no system style draws.
+    /// Its availability site did not go with it, it moved: the toolbar now hides
+    /// the shared background behind that capsule as well as behind the status
+    /// sentence, so the same modifier covers both and the inventory stays at
+    /// five expressions over four files.
     static let macOS26Sites: [String: [String]] = [
+        "App/AppKitWindowHost.swift": ["window.titlebarAppearsTransparent = Self.titlebarIsClear("],
         "Design/Components/SurfaceToolbar.swift": [
             "ToolbarSpacer(",
-            ".sharedBackgroundVisibility(",
-            ".glassProminent"
+            ".sharedBackgroundVisibility("
         ],
         "Settings/DescriptorForm.swift": [".scrollEdgeEffectStyle("],
         "Settings/SettingsBanners.swift": [".safeAreaBar("]
@@ -470,13 +538,25 @@ struct ContainerRuleTests {
 
     /// Each macOS 26 modifier has a declared macOS 15 form, so the same tree
     /// renders on the floor rather than losing a control.
+    ///
+    /// Two items hide the toolbar's shared background on macOS 26: the prominent
+    /// action, which draws its own capsule (§4.4), and the status sentence,
+    /// which sits on no glass at all. The floor has no shared background to
+    /// hide, so for both the macOS 15 form is the same item with the modifier
+    /// left off, and each branch is counted rather than merely present: a branch
+    /// that dropped its item would lose the control on the floor and nowhere
+    /// else, which is the failure this gate exists for.
     @Test("the macOS 26 toolbar sites declare their macOS 15 forms")
     func macOS15Forms() throws {
         let toolbar = try SourceTree.swiftFiles(matching: "Design/Components/SurfaceToolbar.swift")
         let text = try #require(toolbar.first?.text)
 
-        #expect(text.contains(".borderedProminent"), "the prominent action has no macOS 15 form")
-        #expect(occurrences(of: "ToolbarItem(placement: .status)", in: text) == 2, "the status item has one form")
+        #expect(occurrences(of: ".sharedBackgroundVisibility(.hidden)", in: text) == 2)
+        #expect(
+            occurrences(of: "ToolbarItem(placement: .primaryAction) { primaryButton(primary) }", in: text) == 2,
+            "the prominent action has no macOS 15 form"
+        )
+        #expect(occurrences(of: "ToolbarItem(placement: .status) { label }", in: text) == 2, "the status item has one form")
     }
 
     /// The settings banner is a bar, so it draws a bar's material on both

@@ -2,8 +2,9 @@ import SwiftUI
 
 /// The mascot, at whatever size a surface calls for.
 ///
-/// One component for every *still* mascot in the product: the Pet tab's
-/// preview and Ready. The floating companion
+/// One component for the painted *still* mascot, which Ready draws. The Pet
+/// tab's preview drew it too until 2026-09-20, when the owner replaced it there
+/// with the one-ink mark (`PetMark`). The floating companion
 /// is `PetView`, which drives the same layers off the live voice mode and is a
 /// different thing; this one never reads the daemon.
 ///

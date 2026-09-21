@@ -69,6 +69,10 @@ public enum SettingsRowMetrics {
 public enum HitTarget {
     public static let button: Double = 36
     public static let onboardingCTA: Double = 44
+    /// The action at the trailing edge of a form row. The height the system
+    /// gives its own row controls, so a row with an action is no taller than a
+    /// row with a switch.
+    public static let rowAction: Double = 26
 }
 
 /// Stroke widths. Only the Telegram hero card is heavier than a hairline.
@@ -90,12 +94,38 @@ public enum WindowMetrics {
     /// pane column beside a readable content column.
     public static let mainDefaultSize = CGSize(width: 1040, height: 640)
 
-    /// The sidebar column the system lays out. Three numbers rather than one:
-    /// `NavigationSplitView` owns the width and the user can drag inside this
-    /// range, which is what makes the column resizable at all.
-    public static let sidebarMinWidth: Double = 180
-    public static let sidebarIdealWidth: Double = 200
-    public static let sidebarMaxWidth: Double = 260
+    /// The rail: the app sidebar as one fixed column of symbols (redlines §5.7).
+    /// Wide enough to clear the window's traffic lights, which sit over its
+    /// head, and narrow enough that it never has to collapse to make room.
+    ///
+    /// 96 rather than the first cut's 76 (owner, 2026-09-20: the traffic lights
+    /// "feel cutoff because of the reduced left pane width"). Measured on the
+    /// running window, the cluster spans x 19 to x 78, so at 76 the green light
+    /// straddled the rail's trailing edge and was drawn half on black and half
+    /// on the ground, which is exactly what a cut-off light looks like. At 96
+    /// the whole cluster sits on the black with 19 points of it leading and 18
+    /// trailing, so the lights read as centred in the column they are on.
+    public static let railWidth: Double = 96
+    /// What the pinned Settings row keeps clear of the column's bottom edge.
+    ///
+    /// The gear is placed by a spacer measured against the column's full height,
+    /// so without this it lands on the edge itself. 12 leaves it 19 points off
+    /// the bottom, which is what the traffic lights sit off the top: the rail
+    /// then has the same margin at both ends rather than a mark that is inset
+    /// and a gear that is not.
+    public static let railBottomInset: Double = 12
+    /// The radius the body's two leading corners are cut to, measured off this
+    /// window's own rounded corners rather than taken from `Radius.window`.
+    ///
+    /// `Radius.window` 14 is the artboards' number for a drawn panel. This one
+    /// has to be what macOS itself rounds this window by, because the two
+    /// corners sit on the window's own top and bottom edges, one rail width in
+    /// from the corners the system draws there. Two different curves on one
+    /// straight edge read as a mistake; the same curve twice reads as a frame.
+    public static let bodyCornerRadius: Double = 20
+    /// One rail symbol, and the row it sits in.
+    public static let railSymbolSize: Double = 17
+    public static let railRowHeight: Double = 30
 
     /// The window floor. One number rather than the pair a separate Settings
     /// window allowed, because decision D3 puts settings inside this window:

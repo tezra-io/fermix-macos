@@ -48,11 +48,15 @@ struct PetSurfaceView: View {
             }
         }
         .formStyle(.grouped)
+        .showsAmbientGround()
+        .rowActions()
+        .scrollIndicators(.never)
+        .paneScrollEdges()
         .navigationTitle(ProductStrings[.sidebarPet])
     }
 
     private var preview: some View {
-        MascotArtwork(size: 108)
+        PetMark()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(model.accessibilityLabel)
             .accessibilityValue(model.accessibilityValue)

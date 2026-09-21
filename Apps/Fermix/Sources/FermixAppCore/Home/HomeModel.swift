@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// Home's narrow model.
@@ -40,6 +41,10 @@ public final class HomeModel: ObservableObject {
     /// `DoctorModel`, which owns the reveal seam; this is that one, not a
     /// second.
     private let revealSettingsFile: () -> Void
+    /// The coordinator's transaction as it starts and ends. Home reads that fact
+    /// through rather than holding a copy, so this is only what tells the view
+    /// to read it again.
+    private var transactionChanges: AnyCancellable?
     private let log = AppLog.logger(.app)
 
     /// What the reconcile last found, read back from the one model that owns it
@@ -73,6 +78,9 @@ public final class HomeModel: ObservableObject {
         self.snapshot = HomeSnapshot.unreachable(
             attention: .unavailable(ProductStrings[.homeAttentionUnread])
         )
+        self.transactionChanges = coordinator.transactionChanges.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
 
     /// Whether the GUI opens at login. Independent of the background service in
@@ -93,6 +101,12 @@ public final class HomeModel: ObservableObject {
 
     public var transactionInFlight: Bool {
         coordinator.isRunningTransaction
+    }
+
+    /// What the Status row says: the transaction this app is running, where it
+    /// is running one, and the daemon's last answer otherwise.
+    public var status: HomeStatus {
+        HomeStatus(transaction: coordinator.transactionInFlight, snapshot: snapshot)
     }
 
     /// The one sentence under the Attention section: an Attention row's own

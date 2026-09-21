@@ -29,12 +29,14 @@ extension ManagementPluginAction {
 
     public var title: String? { titleKey.map { ProductStrings[$0] } }
 
-    /// Whether the detail draws a button for this action.
+    /// Whether the detail draws a button for this action among its verbs.
     ///
     /// Neither token verb does. The credential slot is the sheet's own
     /// `SecretRow`, which is the one door to that slot; a button beside it would
     /// be a second control for one thing, and the only thing this sheet could do
-    /// with it is nothing.
+    /// with it is nothing. Where the slot is a page down because a sign-in leads
+    /// (`IntegrationTokenSlot.secondary`), the way to that page is the slot's
+    /// own row rather than a verb, so it is still one door.
     public var drawsButton: Bool {
         switch self {
         case .addToken, .replaceToken: return false
@@ -45,18 +47,38 @@ extension ManagementPluginAction {
         }
     }
 
-    /// Whether this action is answered by a sheet rather than by a call.
+    /// Whether this action is answered inside the detail rather than by a call.
     ///
     /// The two credential verbs are the `SecretRow` slot, the client verb is the
-    /// OAuth client sheet, and a workspace is the operator's own choice. Routing
-    /// any of them through the write path would be a defect at the call site
-    /// rather than a button that quietly does nothing.
-    public var isAnsweredBySheet: Bool {
+    /// detail's own client page, and a workspace is the operator's own choice on
+    /// its workspace page. None of them raises a window of its own: the detail
+    /// is the one sheet, and it turns to the page that answers. Routing any of
+    /// them through the write path would be a defect at the call site rather
+    /// than a button that quietly does nothing.
+    public var isAnsweredInPlace: Bool {
         switch self {
         case .addToken, .replaceToken, .setUpClient, .chooseWorkspace: return true
         case .install, .enable, .disable, .signIn, .check, .disconnect, .unrecognized: return false
         }
     }
+}
+
+/// Where a plugin's token slot stands beside its other way in (M34 §5.6).
+///
+/// A plugin that takes a token and also signs in has two doors, and they are
+/// not peers: one of them is how the plugin is meant to be connected and the
+/// other is the fallback. Which is which is the daemon's `primary_action`, the
+/// id and never the word, so the app cannot promote a token over a sign-in the
+/// daemon leads with, or bury the token a plugin actually needs.
+public enum IntegrationTokenSlot: Equatable, Sendable {
+    /// The plugin takes no token, so there is no slot to draw.
+    case none
+    /// The token is this plugin's way in: its only door, or the one the daemon
+    /// leads with. It is drawn on the detail itself.
+    case leading
+    /// A sign-in leads and the token is the other way in, so it sits one page
+    /// down rather than beside the sign-in.
+    case secondary
 }
 
 /// The four kind pills of decision D6, each with its live count.
@@ -162,6 +184,28 @@ public struct IntegrationRowModel: Identifiable, Equatable, Sendable {
     /// Whether this plugin binds to a workspace at all, which is what puts the
     /// workspace row in its detail.
     public var bindsWorkspace: Bool { !accessProfiles.isEmpty }
+
+    /// Where this plugin's token slot is drawn, if it has one.
+    ///
+    /// The slot exists for a plugin whose credential is a token, which is the
+    /// daemon's `auth_kind`. It leads wherever it is the only door, and wherever
+    /// the daemon itself leads with a token verb; beside a published sign-in it
+    /// is otherwise the second way in.
+    public var tokenSlot: IntegrationTokenSlot {
+        guard authKind == .apiKey else { return .none }
+        guard actions.contains(.signIn) else { return .leading }
+
+        switch primaryAction {
+        case .addToken, .replaceToken: return .leading
+        default: return .secondary
+        }
+    }
+
+    /// The id the token's own door is titled by: replacing what is stored, or
+    /// adding what is not. Both words are the deck's, by id.
+    public var tokenAction: ManagementPluginAction {
+        credentialPresent ? .replaceToken : .addToken
+    }
 
     public var accessibilityLabel: String { ProductStrings.commaPair(title, status) }
 
@@ -411,7 +455,10 @@ struct IntegrationsPane: View {
         }
         .padding(.horizontal, Spacing.xs)
         .padding(.vertical, Spacing.xxs)
-        .background(Palette.base200.color, in: Capsule())
+        // An alpha fill rather than `base200`: this page sits on the window's
+        // ambient ground, and an opaque capsule on a wash reads as a hole cut
+        // in it. The selected pill and the row's hover fill take the same one.
+        .background(Palette.chipFill.color, in: Capsule())
         .frame(maxWidth: IntegrationMetrics.searchWidth)
         .accessibilityLabel(ProductStrings[.integrationsSearchPrompt])
     }
@@ -464,6 +511,11 @@ struct IntegrationsPane: View {
             clients
         }
         .listStyle(.plain)
+        // The list gives up its own ground for the window's, as every form
+        // does, and its sign-in client rows draw their actions in the one row
+        // style (redlines §1.3, §4.4).
+        .showsAmbientGround()
+        .rowActions()
         .id(filter)
         .id(query)
         .id(model.plugins.value != nil)
@@ -548,7 +600,7 @@ struct IntegrationPill: View {
             .fermixType(Typography.style(.calloutSmall))
             .padding(.horizontal, Spacing.xs)
             .padding(.vertical, Spacing.xxs)
-            .background(selected ? Palette.base200.color : .clear, in: Capsule())
+            .background(selected ? Palette.chipFill.color : .clear, in: Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -615,7 +667,7 @@ struct IntegrationRow: View {
         }
         .padding(.vertical, Spacing.xs)
         .padding(.horizontal, Spacing.xs)
-        .background(hovering ? Palette.base200.color : .clear, in: RoundedRectangle(cornerRadius: Radius.controlCompact, style: .continuous))
+        .background(hovering ? Palette.chipFill.color : .clear, in: RoundedRectangle(cornerRadius: Radius.controlCompact, style: .continuous))
         .onHover { hovering = $0 }
     }
 

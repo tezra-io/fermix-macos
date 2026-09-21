@@ -46,6 +46,25 @@ public enum Palette {
     /// The keyboard focus ring: a 3-point outer stroke of the accent at 45%.
     public static let focusRing = ThemedColor(uniform: .rgba(43, 92, 255, 0.45))
 
+    /// The accent as text, which is a different requirement from the accent as a
+    /// fill (owner, 2026-09-20: on Settings over the gradient "some text doesnt
+    /// feel that visible wherever it falls").
+    ///
+    /// A fill is read against its own label and carries the ratio itself.
+    /// Coloured text is read against whatever it lands on, and `#2b5cff` lands
+    /// at 3.47:1 on a dark card, under §9's 4.5:1 floor. On dark this is the
+    /// same blue lifted until it reads: 6.95:1 on `cardFill` and 5.58:1 at the
+    /// dark ground's brightest point.
+    ///
+    /// On light it is the accent unchanged, because there is nothing to fix
+    /// there in the direction that would help: 5.15:1 on the white card, and
+    /// lightening a blue on a light ground is what loses it.
+    ///
+    /// It is the accent as text and nothing else. Fills, switches, selection,
+    /// the focus ring and the progress dots stay `accent`, so §1.1's one blue is
+    /// still one blue.
+    public static let accentText = ThemedColor(light: SRGBColor(hex: "#2b5cff"), dark: SRGBColor(hex: "#7f9dff"))
+
     /// §1.1 gives this token a dark value only.
     public static let linkHoverDark = SRGBColor(hex: "#6b8dff")
 

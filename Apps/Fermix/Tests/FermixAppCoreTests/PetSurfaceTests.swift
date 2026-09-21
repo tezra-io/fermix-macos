@@ -182,8 +182,23 @@ struct PetSurfaceTests {
         let view = try SourceTree.swiftFiles(matching: "Pet/PetSurfaceView.swift")
         let text = try #require(view.first?.text)
 
-        #expect(text.contains("MascotArtwork("))
+        #expect(text.contains("PetMark()"))
         #expect(text.contains("PrimaryAction("))
+    }
+
+    /// The floating companion is dragged from anywhere on it, not only from the
+    /// few points of padding the mascot's own click leaves unclaimed, and the
+    /// first press drags even while another app is active. Both are one line
+    /// each and both are easy to lose in a restyle, so they are asserted.
+    @Test("the floating companion states its window drag and takes it from an inactive app")
+    func companionIsDraggedFromAnywhere() throws {
+        let view = try SourceTree.swiftFiles(matching: "Pet/PetView.swift")
+        let text = try #require(view.first?.text)
+
+        #expect(text.contains(".simultaneousGesture(WindowDragGesture())"))
+        #expect(text.contains(".allowsWindowActivationEvents(true)"))
+        // The click is still the mascot's, beside the drag rather than under it.
+        #expect(text.contains(".onTapGesture { model.toggleCall() }"))
     }
 
     /// The mascot draws no ground on either screen that draws it.
@@ -204,12 +219,19 @@ struct PetSurfaceTests {
         #expect(!artwork.contains("Palette.chipFill"))
         #expect(artwork.contains("canvasScale"), "the ring's orbit keeps its room")
 
-        for path in ["Pet/PetSurfaceView.swift", "Onboarding/ReadySurface.swift"] {
+        // Each screen draws its own mascot and neither puts a ground under it.
+        // Ready keeps the painted artwork; the Pet surface draws the one-ink
+        // mark in its place (owner, 2026-09-20: "replacing the blue actual
+        // mascot in the pet page with monochrome").
+        for (path, mascot) in [("Pet/PetSurfaceView.swift", "PetMark()"), ("Onboarding/ReadySurface.swift", "MascotArtwork(")] {
             let text = try #require(try SourceTree.swiftFiles(matching: path).first?.text)
 
-            #expect(text.contains("MascotArtwork("), "\(path) draws no mascot")
+            #expect(text.contains(mascot), "\(path) draws no mascot")
             #expect(!text.contains("Palette.chipFill"), "\(path) draws a ground under the mascot")
         }
+
+        let pet = try #require(try SourceTree.swiftFiles(matching: "Pet/PetSurfaceView.swift").first?.text)
+        #expect(!pet.contains("MascotArtwork("), "the Pet surface draws the painted mascot again")
     }
 
     /// The Live rows are drawn from what the daemon actually sent: no caption,
@@ -378,7 +400,8 @@ final class PetHarness {
             registrationBuild: { .thisBuild },
             termination: FakeTerminationRequester(),
             settings: SettingsFixture.model(gateway: try SettingsFixture.gateway()),
-            presentation: SettingsPresentation()
+            presentation: SettingsPresentation(),
+            announcer: RecordingAnnouncer()
         )
         model = PetFeatureModel(model: appModel, voice: voice, coordinator: coordinator)
     }

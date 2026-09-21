@@ -27,8 +27,10 @@ public enum ProviderVerb: String, CaseIterable, Sendable {
 
     public var title: String? { titleKey.map { ProductStrings[$0] } }
 
-    /// Whether this verb opens the key sheet, which cannot write anything until
-    /// the daemon has named the slot the value belongs in.
+    /// Whether this verb ends in a typed secret, which cannot be written until
+    /// the daemon has named the slot the value belongs in. On a row it opens
+    /// the key sheet. In a provider's detail it is a row of its own instead,
+    /// because a popup never raises a second one.
     public var writesSecret: Bool { self == .addKey || self == .addSetupToken }
 }
 
@@ -176,11 +178,10 @@ public enum ProviderRowProjection {
         providers: [ManagementSetupProvider],
         detections: ManagementDetections?,
         signingIn: String?,
-        descriptorRows: [String: [ManagementSettingRow]],
-        selectedAuthModes: [String: String] = [:]
+        descriptorRows: [String: [ManagementSettingRow]]
     ) -> [ProviderRowModel] {
         providers.map { provider in
-            let verb = verb(for: provider, detections: detections, selectedAuthMode: selectedAuthModes[provider.id])
+            let verb = verb(for: provider, detections: detections)
 
             return ProviderRowModel(
                 id: provider.id,
@@ -250,23 +251,82 @@ public enum ProviderRowProjection {
         }
     }
 
+    /// The sign-in doors a provider's detail leads with, and none for a provider
+    /// whose only way in is a key.
+    ///
     /// Replacing a connected account uses the same credential flows as its
     /// first connection, without signing out the current account first.
-    public static func detailAuthVerbs(
+    ///
+    /// Whatever auth mode is selected, and whatever is already connected.
+    /// Sign-in is the primary method wherever a provider has one (owner
+    /// directive of 2026-09-20), so choosing the key does not take the doors
+    /// away: it opens the secondary one beside them. Answering none under
+    /// `api_key` left a provider that signs in with a detail that led with
+    /// nothing.
+    ///
+    /// A sign-in this Mac already has is drawn in one of two ways. Beside a
+    /// browser sign-in it is a shortcut, so it is offered only when it would
+    /// work. For a provider `auth.start` opens no browser for, it is the only
+    /// sign-in there is, so it is always drawn and says when it is not ready
+    /// (owner directive of 2026-09-20: "for claude, the sign-in option should
+    /// still be there, in addition to import token and also the api"). Without
+    /// it a Mac with no Claude Code sign-in showed a detail with no sign-in in
+    /// it at all, and nothing said one existed.
+    ///
+    /// This is the detail's rule and not the row's. A row's one verb has to
+    /// work when it is clicked, so `verb(for:)` leads with an adopted sign-in
+    /// only once it is detected.
+    public static func detailDoors(
         for provider: String,
-        detections: ManagementDetections?,
-        authMode: String? = nil
-    ) -> [ProviderVerb] {
+        detections: ManagementDetections?
+    ) -> [ProviderDoor] {
         precondition(!provider.isEmpty, "provider authentication actions name their provider")
-        guard authMode != apiKeyMode else { return [] }
 
-        var verbs: [ProviderVerb] = browserSignInProviders.contains(provider) ? [.signIn] : []
-        if let source = importSources[provider], detections?.result(for: source)?.present == true {
-            verbs.append(source == .claudeCode ? .importClaudeCode : .importCodexCLI)
+        let opensBrowser = browserSignInProviders.contains(provider)
+        var doors = opensBrowser ? [ProviderDoor(verb: .signIn, available: true)] : []
+
+        if let source = importSources[provider] {
+            let detected = detections?.result(for: source)?.present == true
+            let verb: ProviderVerb = source == .claudeCode ? .importClaudeCode : .importCodexCLI
+
+            if detected || !opensBrowser { doors.append(ProviderDoor(verb: verb, available: detected)) }
         }
-        if provider == anthropicProvider { verbs.append(.addSetupToken) }
+        if provider == anthropicProvider { doors.append(ProviderDoor(verb: .addSetupToken, available: true)) }
 
-        return verbs
+        return doors
+    }
+
+    /// The descriptor key the daemon publishes a provider's auth mode under.
+    public static let authModeKey = "auth_mode"
+
+    /// Which of a provider's own rows its detail draws in which block, so no
+    /// key gets two controls (M34 §5.1).
+    ///
+    /// The credential is the auth mode, where the daemon publishes one, and
+    /// every secret: choosing the key is what the mode row means, so the two
+    /// travel together. For a provider that signs in they sit behind one
+    /// disclosure under its sign-in; for a key-only provider they are the
+    /// detail's first block. Everything else is the provider's settings.
+    ///
+    /// Read off each row's own shape and the one key the contract names, never
+    /// a list of fields: which rows a provider publishes is the daemon's answer
+    /// (M34 §7.7).
+    ///
+    /// - Parameter hidden: the credentials the chosen auth mode hides, which is
+    ///   `SettingsModel.providerCredentialExclusions`.
+    public static func detailBlocks(
+        rows: [ManagementSettingRow],
+        hidden: Set<String>
+    ) -> ProviderDetailBlocks {
+        let credential = Set(rows.filter { $0.key == authModeKey || $0.kind == .secret }.map(\.key))
+        let settings = Set(rows.map(\.key)).subtracting(credential)
+
+        return ProviderDetailBlocks(
+            credentialExcluding: settings.union(hidden),
+            settingsExcluding: credential,
+            hasCredential: !credential.subtracting(hidden).isEmpty,
+            hasSettings: !settings.isEmpty
+        )
     }
 
     /// The six status words of M34 §5.1, in the order they win.
@@ -298,10 +358,17 @@ public enum ProviderRowProjection {
     }
 
     /// The verb, which the detections move and nothing else does.
+    ///
+    /// A row leads with the provider's primary connection method, and sign-in
+    /// is that method wherever a provider has one (owner directive of
+    /// 2026-09-20). The selected auth mode does not move it. While it did, the
+    /// daemon's default of `api_key` put `Add key…` on Anthropic and SpaceXAI,
+    /// which sign in, and the pane read as seven rows asking for a key. A
+    /// provider that signs in keeps its key as a secondary door inside its own
+    /// detail; only a provider with no sign-in door leads with the key.
     static func verb(
         for provider: ManagementSetupProvider,
-        detections: ManagementDetections?,
-        selectedAuthMode: String? = nil
+        detections: ManagementDetections?
     ) -> ProviderVerb {
         // A provider that takes no credential has nothing to add. Ollama
         // answers on localhost, and the key verb on it was a button that could
@@ -313,21 +380,47 @@ public enum ProviderRowProjection {
         // list to do: `Replace…` and `Sign out` live on its own sub-page, which
         // is where everything belonging to one provider lives.
         if provider.configured, tokenUsable, provider.primary || provider.presentKey { return .none }
-        if selectedAuthMode == apiKeyMode { return .addKey }
 
+        // The sign-in doors, in the order they win: a sign-in this Mac already
+        // has, then Anthropic's setup token, then the browser.
         if let source = importSources[provider.id], detections?.result(for: source)?.present == true {
             return source == .claudeCode ? .importClaudeCode : .importCodexCLI
         }
 
-        // Before the sign-in branch, because Anthropic publishes `oauth` and has
-        // no browser flow: its door is the setup token `secret.set` takes under
-        // `anthropic_setup_token`, and the key door beside these rows takes its
-        // API key.
+        // Before the browser branch, because Anthropic publishes `oauth` and
+        // has no browser flow: its door is the setup token `secret.set` takes
+        // under `anthropic_setup_token`.
         if provider.id == anthropicProvider { return .addSetupToken }
         if provider.authModes.contains(oauthMode) { return .signIn }
 
         return .addKey
     }
+}
+
+/// One sign-in door in a provider's detail, and whether it can be used now.
+///
+/// Availability is part of the door rather than a second question, so the
+/// detail cannot draw a door one function offered and another called ready.
+public struct ProviderDoor: Equatable, Sendable {
+    public let verb: ProviderVerb
+    /// False only for a sign-in this Mac does not have yet. The door is still
+    /// drawn, so the person learns it exists, and it cannot be pressed.
+    public let available: Bool
+}
+
+/// What each block of a provider's detail leaves out of the provider's one
+/// section, which is how the descriptor form is told what to draw.
+public struct ProviderDetailBlocks: Equatable, Sendable {
+    /// Left out of the credential block: every setting, and the credentials the
+    /// chosen auth mode hides.
+    public let credentialExcluding: Set<String>
+    /// Left out of the settings block: the credential, which has its own.
+    public let settingsExcluding: Set<String>
+    /// Whether the credential block would draw anything. A provider that only
+    /// signs in publishes no key, and a disclosure over nothing is a control
+    /// that opens onto an empty row.
+    public let hasCredential: Bool
+    public let hasSettings: Bool
 }
 
 /// The two surfaces that can draw a provider's own descriptor rows.

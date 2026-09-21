@@ -32,6 +32,20 @@ struct PetView: View {
         .padding(.vertical, Spacing.xxs)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
+        // The companion moves from wherever it is held. The window is movable
+        // by its background, but AppKit only moves a window from a point nothing
+        // else claims, and the mascot claims nearly all of it for its click: what
+        // was left to hold was a few points of padding, so it read as a window
+        // that would not move (owner report of 2026-09-20: "I'm unable to drag
+        // and move it everywhere"). The drag is stated instead. A press that
+        // moves drags the window and a press that does not is still the click,
+        // and it is simultaneous so the mascot's own tap keeps the click.
+        //
+        // The companion floats over other apps, so the press that starts a drag
+        // is usually also the one that would activate Fermix. Without the second
+        // line that first press is spent on activation and the drag never starts.
+        .simultaneousGesture(WindowDragGesture())
+        .allowsWindowActivationEvents(true)
         .onHover { inside in
             withAnimation(motion.animation(.stepCrossfade)) { hovered = inside }
         }
