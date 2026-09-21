@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Who is behind the management socket right now.
 public struct DaemonIdentity: Equatable, Sendable {

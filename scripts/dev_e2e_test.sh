@@ -14,6 +14,21 @@ curl() {
 ps() { cat "$DEV_E2E_TEST_CONTROL/executable"; }
 # The keychain listing: one Developer ID identity unless a case says otherwise.
 security() { cat "$DEV_E2E_TEST_CONTROL/identities"; }
+# Background Task Management's record, which is empty unless a case writes one.
+sfltool() { cat "$DEV_E2E_TEST_CONTROL/btm" 2>/dev/null || true; }
+# The toolchain this case's Mac has: a selected Xcode on the release's own SDK
+# unless a case says otherwise. vtool's two verbs are the whole of what the loop
+# asks of it, and the rewrite is an event so a case can prove where it falls.
+xcode-select() { cat "$DEV_E2E_TEST_CONTROL/developer-dir"; }
+xcrun() {
+  case "$*" in
+    '--show-sdk-version') cat "$DEV_E2E_TEST_CONTROL/default-sdk-version" ;;
+    '--sdk '*' --show-sdk-version') printf '26.5\n' ;;
+    'vtool -show-build '*) printf '    minos 15.0\n      sdk 15.0\n' ;;
+    'vtool -set-build-version macos '*) event "stamp ${!###*/} $4 $5" ;;
+    *) echo "unexpected xcrun $*" >&2; return 2 ;;
+  esac
+}
 IDENTITY='Developer ID Application: Fermix Test (TEAM123456)'
 
 launchctl() {
@@ -64,7 +79,7 @@ open() {
   event open
   rm -f "$DEV_E2E_TEST_CONTROL/health-checked"
   printf '%s %s\n' "$APP/Contents/MacOS/$GUI_EXECUTABLE" "$DEV_FLAG" >"$DEV_E2E_TEST_CONTROL/gui"
-  if [ "${4:-}" = '--register-background-service' ]; then
+  if [ "${4:-}" = '--register-background-service' ] && [ ! -f "$DEV_E2E_TEST_CONTROL/btm" ]; then
     [ "$(plutil -extract fermix_home raw -o - "$RECORD" 2>/dev/null)" = "$DEV_HOME" ] ||
       fail "GUI registration received the wrong bootstrap home"
     event register
@@ -92,6 +107,8 @@ setup_case() {
   : >"$DEV_E2E_TEST_EVENTS"
   : >"$DEV_E2E_TEST_CONTROL/inspected"
   write_identities "$IDENTITY"
+  printf '%s\n' /Applications/Xcode.app/Contents/Developer >"$DEV_E2E_TEST_CONTROL/developer-dir"
+  printf '26.5\n' >"$DEV_E2E_TEST_CONTROL/default-sdk-version"
   write_stubs
   "$ROOT_DIR/scripts/stage_app.sh"
   : >"$DEV_E2E_TEST_EVENTS"
@@ -127,6 +144,7 @@ STUB
 #!/usr/bin/env bash
 set -euo pipefail
 echo stage >>"$DEV_E2E_TEST_EVENTS"
+printf '%s\n' "${SDKROOT:-}" >"$DEV_E2E_TEST_CONTROL/staged-sdk"
 mkdir -p "$DEV_E2E_TEST_APP/Contents/MacOS" "$DEV_E2E_TEST_APP/Contents/Library/LaunchAgents"
 python3 -c 'import pathlib,plistlib,sys;pathlib.Path(sys.argv[1]).write_bytes(plistlib.dumps({"CFBundleVersion":sys.argv[2]}))' \
   "$DEV_E2E_TEST_APP/Contents/Info.plist" "${2:-1}"
@@ -419,6 +437,90 @@ case_installed_labels_untouched() {
     fail "inspected the installed app's login item"
 }
 
+# The SDK the app is staged against. A Mac with only the Command Line Tools, once
+# they default to an SDK newer than the release's, cannot compile SwiftUI at
+# all, so staging is pointed at the release's SDK beside it and both executables
+# are restamped before signing; every other Mac is left exactly as it was.
+command_line_tools() {
+  local tools="$WORK_DIR/CommandLineTools"
+  mkdir -p "$tools/SDKs"
+  printf '%s\n' "$tools" >"$DEV_E2E_TEST_CONTROL/developer-dir"
+  printf '%s\n' "$1" >"$DEV_E2E_TEST_CONTROL/default-sdk-version"
+  printf '%s\n' "$tools"
+}
+
+case_toolchain_xcode() {
+  owned_service
+  up --fast >/dev/null
+  [ -z "$(cat "$DEV_E2E_TEST_CONTROL/staged-sdk")" ] || fail "a selected Xcode was pointed at another SDK"
+  ! grep -q '^stamp ' "$DEV_E2E_TEST_EVENTS" || fail "restamped executables a selected Xcode built"
+}
+
+case_toolchain_current_tools() {
+  owned_service
+  command_line_tools 26.5 >/dev/null
+  up --fast >/dev/null
+  [ -z "$(cat "$DEV_E2E_TEST_CONTROL/staged-sdk")" ] || fail "overrode a default SDK that builds the app"
+  ! grep -q '^stamp ' "$DEV_E2E_TEST_EVENTS" || fail "restamped executables built on the default SDK"
+}
+
+case_toolchain_newer_tools() {
+  local tools expected
+  owned_service
+  tools="$(command_line_tools 27.0)"
+  mkdir -p "$tools/SDKs/MacOSX26.sdk"
+  up --fast >/dev/null
+  [ "$(cat "$DEV_E2E_TEST_CONTROL/staged-sdk")" = "$tools/SDKs/MacOSX26.sdk" ] ||
+    fail "staged against '$(cat "$DEV_E2E_TEST_CONTROL/staged-sdk")', not the release's SDK"
+  # Stamped after staging and before signing, both executables, keeping the
+  # deployment target the build gave them.
+  expected=$'unregister\nquit-gui\nstop\nstage\n'"stamp $GUI_EXECUTABLE 15.0 26.5"$'\n'"stamp $AGENT_EXECUTABLE 15.0 26.5"$'\nsign\nverify\nopen\nregister\nreopen'
+  [ "$(cat "$DEV_E2E_TEST_EVENTS")" = "$expected" ] || fail "incorrect order: $(cat "$DEV_E2E_TEST_EVENTS")"
+}
+
+case_toolchain_no_buildable_sdk() {
+  local output
+  owned_service
+  command_line_tools 27.0 >/dev/null
+  if output="$(up --fast 2>&1)"; then fail "staged with no SDK that can build the app"; fi
+  [[ "$output" == *"macOS 26 SDK is not installed"* ]] || fail "the refusal did not name the missing SDK: $output"
+  [ ! -s "$DEV_E2E_TEST_EVENTS" ] || fail "mutated before refusing for a missing SDK"
+}
+
+# An unfinished lifecycle record from the last run makes the opened GUI refuse
+# the registration, so `up` acknowledges it, after it has unregistered and
+# stopped everything itself and never before, and only the development
+# identity's own journal.
+case_interrupted_transaction() {
+  local installed
+  installed="$HOME/Library/Application Support/$(production_config support_directory_name)"
+  owned_service
+  mkdir -p "$installed"
+  printf '{"kind":"enable","phase":"mutate"}' >"$JOURNAL"
+  printf '{"kind":"restart","phase":"drain"}' >"$installed/lifecycle-journal.json"
+  up --fast >/dev/null
+  [ ! -e "$JOURNAL" ] || fail "left the development identity's unfinished record in place"
+  [ -f "$installed/lifecycle-journal.json" ] || fail "removed the installed app's lifecycle journal"
+  [ "$(sed -n 1,3p "$DEV_E2E_TEST_EVENTS" | paste -sd, -)" = 'unregister,quit-gui,stop' ] ||
+    fail "acknowledged the record before unregistering and stopping"
+}
+
+# The operator has the app's background switch off in System Settings. macOS then
+# refuses every registration, so no job ever appears, and the loop says which
+# switch to turn on rather than reporting a bare "no job".
+case_agent_disallowed() {
+  local output
+  owned_service
+  cat >"$DEV_E2E_TEST_CONTROL/btm" <<BTM
+                 Name: FermixAgent
+          Disposition: [enabled, disallowed, notified] (0x9)
+           Identifier: 8.$AGENT_LABEL
+BTM
+  if output="$(up --fast 2>&1)"; then fail "reported up with the agent refused"; fi
+  [[ "$output" == *"Allow in the Background"* ]] || fail "the refusal did not name the switch: $output"
+  [[ "$output" == *"up --fast"* ]] || fail "the refusal did not say how to go on: $output"
+}
+
 if [ "${1:-}" = '--case' ]; then
   WORK_DIR="$(mktemp -d /private/tmp/fermix-dev-loop-test.XXXXXX)"
   trap 'rm -rf "$WORK_DIR"' EXIT
@@ -456,13 +558,19 @@ if [ "${1:-}" = '--case' ]; then
     profile_fresh_home) case_profile_fresh_home ;;
     profile_appended) case_profile_appended ;;
     profile_foreign) case_profile_foreign ;;
+    interrupted_transaction) case_interrupted_transaction ;;
+    agent_disallowed) case_agent_disallowed ;;
+    toolchain_xcode) case_toolchain_xcode ;;
+    toolchain_current_tools) case_toolchain_current_tools ;;
+    toolchain_newer_tools) case_toolchain_newer_tools ;;
+    toolchain_no_buildable_sdk) case_toolchain_no_buildable_sdk ;;
     *) fail "unknown test case: $2" ;;
   esac
   exit
 fi
 
 failed=0
-for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version development_identity installed_record_untouched installed_labels_untouched no_identity two_identities signed_with_identity version_owner version_foreign profile_fresh_home profile_appended profile_foreign; do
+for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version development_identity installed_record_untouched installed_labels_untouched no_identity two_identities signed_with_identity version_owner version_foreign profile_fresh_home profile_appended profile_foreign interrupted_transaction agent_disallowed toolchain_xcode toolchain_current_tools toolchain_newer_tools toolchain_no_buildable_sdk; do
   if bash "$0" --case "$scenario"; then echo "ok $scenario"; else failed=1; echo "FAILED $scenario" >&2; fi
 done
 exit "$failed"

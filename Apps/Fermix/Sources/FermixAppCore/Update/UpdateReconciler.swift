@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// What the management socket answered the one time the reconcile asked.
 public enum UpdateEngineAnswer: Equatable, Sendable {
