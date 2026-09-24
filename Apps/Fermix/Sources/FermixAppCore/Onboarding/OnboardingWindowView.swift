@@ -20,7 +20,8 @@ struct OnboardingWindowView: View {
         }
         // The primary window owns its size; the assistant fills its safe area.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The primary window paints the same system color for every page.
+        // The primary window paints one ambient ground for every page, and its
+        // titlebar is clear over it (`AppKitWindowHost.titlebarIsClear`).
         .fermixWindowEntrance()
         .animation(motion.animation(.stepCrossfade), value: model.stage)
         .toolbar {
@@ -90,6 +91,7 @@ extension View {
             // its column and reads as a second box here, where the form is a
             // fixed column on the window's own ground.
             .scrollContentBackground(.hidden)
+            .rowActions()
             // A grouped `Form` is a scroll view, so it takes every point the
             // stack offers and paints its container over the empty ones: four
             // rows sat at the top of a box twice their height. Fixed to its

@@ -173,6 +173,9 @@ public struct ManagementOverview: Decodable, Equatable, Sendable {
         public let enabled: Bool
         public let status: String?
         public let provider: String?
+        /// Which voice engine is selected, in the daemon's own word. Null while
+        /// voice is disabled, exactly like the provider and the model beside it.
+        public let engine: String?
         public let model: String?
         public let socketAlive: Bool?
         public let activeSessions: Int
@@ -180,7 +183,7 @@ public struct ManagementOverview: Decodable, Equatable, Sendable {
         public let companionConnected: Bool
 
         private enum CodingKeys: String, CodingKey {
-            case enabled, status, provider, model
+            case enabled, status, provider, engine, model
             case socketAlive = "socket_alive"
             case activeSessions = "active_sessions"
             case activeClients = "active_clients"

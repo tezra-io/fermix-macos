@@ -10,6 +10,9 @@ public enum DesignComponent: String, CaseIterable, Sendable {
     case primaryButton
     case secondaryButton
     case linkButton
+    /// The (i) a settings row draws beside its label where the daemon published
+    /// a longer explanation for it.
+    case infoButton
     case progressLadder
     case progressDots
     case emptyState
@@ -31,7 +34,7 @@ public enum DesignComponent: String, CaseIterable, Sendable {
     /// focus order and carry a label rather than an action.
     public var isInteractive: Bool {
         switch self {
-        case .primaryButton, .secondaryButton, .linkButton:
+        case .primaryButton, .secondaryButton, .linkButton, .infoButton:
             return true
         case .statusPill,
              .progressLadder, .progressDots, .emptyState, .surfaceEmptyState,

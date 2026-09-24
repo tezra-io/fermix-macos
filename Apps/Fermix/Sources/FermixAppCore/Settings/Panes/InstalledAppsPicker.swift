@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 /// One application this Mac has installed.
 public struct InstalledApp: Identifiable, Equatable, Sendable, Comparable {

@@ -9,9 +9,21 @@ import SwiftUI
 /// sidebar's own visibility is untouched, so leaving restores exactly what the
 /// user had.
 ///
-/// Fermix draws no container here in either presentation. The sidebar material,
-/// the toolbar, the inline title and every box inside a surface are the
-/// system's; the window paints no ground, no glass and no titlebar of its own.
+/// Fermix draws no container inside a surface: the toolbar, the inline title and
+/// every box a surface shows are the system's, and the window paints no glass
+/// and no titlebar of its own. What it does paint is three things, and all three
+/// are the window's own rather than any surface's: the one ambient ground behind
+/// everything (redlines §1.3), the black rail down its leading edge (§5.7), and
+/// the two leading corners that round the body into the window's shape.
+///
+/// The ground's intensity is decided here too, because this is the one view that
+/// holds both halves of the question: which presentation is up, and which route
+/// is showing inside it. The rule itself is `AmbientIntensity.forWindow`, so it
+/// can be walked over every route instead of read off a capture.
+///
+/// The rail is still the system's sidebar column, a `List` with a selection, so
+/// arrow keys, full keyboard access and VoiceOver reach it exactly as they did
+/// when it carried words. What changed is what a row draws.
 ///
 /// The sidebar is the chat-ready shell: a future Chat row is one more entry in
 /// `SidebarItem.mainWindow`, and the pinned Settings row below them is the slot
@@ -41,6 +53,11 @@ struct MainWindowView: View {
 
     var body: some View {
         presented
+            // One ground for the one window, behind the split view rather than
+            // inside its detail column, so every presentation sits over the same
+            // wash. It reaches under the titlebar because every window here is
+            // full size content. The rail paints its own black over it.
+            .background { AmbientGround(intensity: groundIntensity).ignoresSafeArea() }
             .onGeometryChange(for: Double.self) { proxy in
                 proxy.size.width
             } action: { width in
@@ -63,6 +80,7 @@ struct MainWindowView: View {
             .sheet(item: $model.instructionsShown) { instructions in
                 CoexistenceInstructionsSheet(instructions: instructions) { model.instructionsShown = nil }
             }
+            .lifecycleStatus(of: model)
     }
 
     /// Setup uses the existing assistant screens inside this same window.
@@ -74,7 +92,9 @@ struct MainWindowView: View {
     private var presented: some View {
         if presentation.isShowing {
             splitView
-                .toolbar { SettingsRestartControl(model: settings, router: router) }
+                .toolbar {
+                    SettingsRestartControl(model: settings, router: router, transaction: model.transactionInFlight)
+                }
                 .searchable(
                     text: $settings.searchText,
                     placement: .sidebar,
@@ -125,6 +145,7 @@ struct MainWindowView: View {
             // through, rather than in the banner: any pane can hold a view that
             // reports a minimum, and this is where the window's size wins.
             detailColumn.frame(minWidth: 0, minHeight: 0)
+                .overlay(alignment: .leading) { bodyCorners }
         }
     }
 
@@ -148,6 +169,7 @@ struct MainWindowView: View {
             // it is not honoured, and the toggle is still drawn above the pane
             // list on every pane.
             SettingsPaneColumn(model: settings)
+                .railColumn()
                 .toolbar(removing: .sidebarToggle)
         } else {
             appSidebar
@@ -164,18 +186,23 @@ struct MainWindowView: View {
     /// `List` in a bottom safe-area inset it was pinned but unreachable: two
     /// lists are two selection contexts, and arrow-key navigation from Pet
     /// stopped at Pet.
+    ///
+    /// The rows are the published four in their published order and nothing
+    /// else. For an afternoon the mascot mark stood at the head of the rail and
+    /// was the way to Pet; the owner withdrew both the same day ("the previous
+    /// icon was fine. The fermix mascot on the left pane isnt needed. And it
+    /// should be below the logs"), so Pet is its own symbol again, under Logs.
     private var appSidebar: some View {
         List(selection: selection) {
             ForEach(SidebarItem.mainWindow) { item in
-                Label(item.title, systemImage: item.systemImage)
+                railIcon(item.title, systemImage: item.systemImage)
                     .tag(item.id)
             }
 
             footerSpacer
 
             Button { router.perform(.openSettings) } label: {
-                Label(ProductStrings[.sidebarSettings], systemImage: "gearshape")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                railIcon(ProductStrings[.sidebarSettings], systemImage: "gearshape")
             }
             .buttonStyle(.plain)
             .contentShape(Rectangle())
@@ -188,16 +215,89 @@ struct MainWindowView: View {
             .selectionDisabled(false)
         }
         .coordinateSpace(.named(Self.sidebarSpace))
+        // The column's full height, which is not the height the list is handed.
+        // The list's size excludes the titlebar's safe area while its rows are
+        // laid out in the column's full-height coordinates, so measuring
+        // `size.height` alone left the gear 59 points short of the bottom edge:
+        // exactly the inset the proxy had already taken off. Adding the top
+        // inset back puts the two measurements in one coordinate space again.
+        //
+        // `railBottomInset` is what the gear then keeps clear of the edge, so it
+        // sits as far off the bottom as the traffic lights sit off the top.
         .onGeometryChange(for: Double.self) { proxy in
-            proxy.size.height
+            proxy.size.height + proxy.safeAreaInsets.top - WindowMetrics.railBottomInset
         } action: { height in
             sidebarHeight = height
         }
-        .navigationSplitViewColumnWidth(
-            min: WindowMetrics.sidebarMinWidth,
-            ideal: WindowMetrics.sidebarIdealWidth,
-            max: WindowMetrics.sidebarMaxWidth
-        )
+        .railColumn()
+        // With the spacer measured against the full height the list is exactly
+        // as tall as the window, so the system drew a scroll bar down the rail
+        // for the last point of it (owner, 2026-09-20: "I saw a scroll bar on
+        // the left pane"). The rail is five fixed rows and never scrolls in any
+        // way a person can use, and the settings pane column beside it already
+        // hides its indicators under §5.8's scroll rule.
+        .scrollIndicators(.never)
+        // The rail is one fixed width and never has to make room, so the
+        // system's toggle is not drawn over its head, where the traffic lights
+        // are. View > Hide Sidebar and its shortcut still hide it.
+        .toolbar(removing: .sidebarToggle)
+        .navigationSplitViewColumnWidth(WindowMetrics.railWidth)
+    }
+
+    /// Which ground this presentation sits on (redlines §1.3).
+    ///
+    /// The window asks; the recipe answers. Both facts the answer needs are
+    /// here and nowhere else, and the rule is a function rather than a branch
+    /// inside the body so that a route added later has to answer it.
+    private var groundIntensity: AmbientIntensity {
+        AmbientIntensity.forWindow(showingSettings: presentation.isShowing, route: model.route)
+    }
+
+    /// The body's two leading corners, cut to the window's own radius (owner,
+    /// 2026-09-20: "should we make the left pane or the body rounded edge like
+    /// the macOS window?").
+    ///
+    /// The rail already ends in the window's rounded corners, because the window
+    /// clips it. Where the body meets the rail it did not: the detail column's
+    /// leading corners were square against a column whose outer ones were round,
+    /// so the two read as one sheet with a black stripe painted down it rather
+    /// than as a body sitting inside a frame.
+    ///
+    /// What draws them is more of the rail's black, laid over the two corners at
+    /// `bodyCornerRadius`, which is this window's own measured radius.
+    /// Overlaid rather than clipped, because a clip is the inset panel
+    /// the owner removed earlier the same day ("Lets remove the border, it
+    /// doesnt fit well with the color of ours"): clipping costs the surface a
+    /// point of content on every edge and needs a ground of its own behind what
+    /// it cuts away, while an overlay takes nothing and paints only the corners.
+    ///
+    /// It is paint over live content, so it takes no clicks and says nothing.
+    private var bodyCorners: some View {
+        VStack(spacing: 0) {
+            FrameCorner().fill(WindowFrameRecipe.fill.color)
+                .frame(width: WindowMetrics.bodyCornerRadius, height: WindowMetrics.bodyCornerRadius)
+            Spacer(minLength: 0)
+            FrameCorner().fill(WindowFrameRecipe.fill.color)
+                .frame(width: WindowMetrics.bodyCornerRadius, height: WindowMetrics.bodyCornerRadius)
+                .scaleEffect(x: 1, y: -1)
+        }
+        .frame(maxHeight: .infinity)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// One rail destination: the symbol alone (owner directive of 2026-09-20:
+    /// "the premium icons instead of the icon + name").
+    ///
+    /// It is still a `Label`, so the row keeps its name for VoiceOver and for
+    /// full keyboard access, and the same name is the help tag a pointer gets.
+    private func railIcon(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .labelStyle(.iconOnly)
+            .font(.system(size: WindowMetrics.railSymbolSize))
+            .frame(maxWidth: .infinity, minHeight: WindowMetrics.railRowHeight)
+            .help(title)
     }
 
     /// The empty row that holds the Settings row down.
@@ -234,7 +334,24 @@ struct MainWindowView: View {
             SettingsDetailView(model: settings, router: router, openRecovery: openRecovery)
                 .toolbar { SettingsBackControl(back: leaveSettings) }
         } else {
-            detail
+            detail.toolbar { toolbarKeeper }
+        }
+    }
+
+    /// One empty item every app surface carries, so the window always has a
+    /// toolbar to size its titlebar by.
+    ///
+    /// The system's sidebar toggle used to be that item. The rail removed it,
+    /// and a surface with no toolbar of its own, which is Pet, then dropped the
+    /// window to the short titlebar: the traffic lights and the title jumped
+    /// eleven points every time the selection crossed it. Zero sized, because a
+    /// one point item drew as a sliver of toolbar glass.
+    @ToolbarContentBuilder
+    private var toolbarKeeper: some ToolbarContent {
+        ToolbarItem(placement: .status) {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
         }
     }
 
@@ -367,6 +484,10 @@ struct UpdateSurfaceView: View {
             }
         }
         .formStyle(.grouped)
+        .showsAmbientGround()
+        .rowActions()
+        .scrollIndicators(.never)
+        .paneScrollEdges()
         .navigationTitle(ProductStrings[.updateTitle])
     }
 }

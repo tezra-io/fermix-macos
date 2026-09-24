@@ -8,8 +8,8 @@
 #                                  point the app at the dev home, open the app,
 #                                  register its agent, refresh the live window
 #   scripts/dev_e2e.sh up --fast   same, but reuse the already-built engine
-#   scripts/dev_e2e.sh down        quit the app, stop the engine, remove the
-#                                  dev-home record (restoring any original)
+#   scripts/dev_e2e.sh down        quit the app, unregister its agent, stop the
+#                                  engine (the dev identity keeps its record)
 #   scripts/dev_e2e.sh status      what is running, and where
 #
 # Fixed dev-loop facts (constants, not knobs): home ~/.fermix-macos, port
@@ -30,7 +30,9 @@
 # compiles into debug builds only. It means activation does not ask the three
 # refusals that name an installed copy — the bundle is in a build directory,
 # your Homebrew launch agent is registered, and a second copy exists — and
-# registers the bundled background agent. Its staged plist pins PORT=4530
+# registers the bundled background agent. (The last of those could not fire
+# under the development identity anyway: the preflight counts copies of this
+# bundle's own identifier, and an installed Fermix.app carries another one.) Its staged plist pins PORT=4530
 # before signing, so launchd restarts use the same isolated port as first boot.
 # The normal production plist and the GUI's login preference are unchanged.
 #
@@ -46,19 +48,50 @@
 # docs/design/M34_MACOS_APP_RCA_2026-09-05.md. The identity is resolved before
 # anything is touched, and `up` refuses without exactly one.
 #
-# IT REWRITES THIS ACCOUNT'S BOOTSTRAP RECORD. There is one launcher.json per
-# account (~/Library/Application Support/Fermix/launcher.json) and no override
-# for it: the app resolves the account from getpwuid(geteuid()) on purpose, so
-# a dev loop cannot be given a record of its own. `up` therefore moves the
-# existing record aside and writes one pointing at the dev home, and `down`
-# puts it back. While the loop is up, anything that reads the record reads the
-# dev home — so a registered Fermix background item would follow this loop's
-# home on its next relaunch, and a crash between `up` and `down` would leave it
-# pointing there. `up` refuses any registered item owned by another bundle.
-# This loop's own item is unregistered before its bundle or record is replaced.
+# THE BUNDLE IT STAGES IS A DIFFERENT APP TO macOS. The whole run reads the
+# product configuration through the development overlay
+# (scripts/product.dev.json, see scripts/product_config.sh), so the staged
+# bundle is "Fermix Dev.app", identifier io.tezra.FermixPet.dev, agent label
+# io.tezra.FermixPet.dev.agent, url scheme fermix-dev, and its support folder is
+# ~/Library/Application Support/Fermix Dev. macOS keys the launchd job on the
+# label, the login item, the TCC grants and the copy count on the identifier,
+# and there is one launcher.json per support folder — so the development
+# identity has a bootstrap record OF ITS OWN and this loop never touches the
+# installed app's record, its grants, its agent or its home. It refuses a
+# registered service under the DEVELOPMENT label that belongs to another
+# bundle, and unregisters its own before replacing its bundle. The installed
+# app, if there is one, is not inspected and not changed.
+#
+# The one thing the two identities still share is the login keychain, which is
+# why the dev home carries its own secret profile (below).
+#
+# THE APP IS BUILT AGAINST THE SDK THE RELEASE IS BUILT AGAINST. The runners
+# select Xcode 26 (.github/workflows/fermix-app.yml), and a Mac with a selected
+# Xcode builds with that Xcode's own SDK and is left alone. A Mac with only the
+# Command Line Tools takes whichever SDK they installed last as its default,
+# and since their update of 2026-09-20 that is the macOS 27 SDK, where SwiftUI's
+# property wrappers are macros whose plugin ships with Xcode and not with the
+# Command Line Tools: every `@State` in the tree fails with "plugin for module
+# 'SwiftUIMacros' not found" and staging never produces a binary. The Command
+# Line Tools keep the macOS 26 SDK beside the new one, so on such a Mac the
+# staging build is pointed at it through SDKROOT. That is resolved before
+# anything is touched, and `up` refuses, saying what to install, where that SDK
+# is missing too.
+#
+# A build pointed at an SDK that way has `sdk 15.0` recorded in both
+# executables by the linker, where it should record the SDK's own version, and
+# macOS reads that field to decide which design a process is drawn in: left
+# alone, the dev app gets the controls from before Liquid Glass and is not the
+# app the release ships. So both executables are restamped with the SDK's real
+# version, before they are signed.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The development identity, for this process and every script it runs: staging,
+# both plist renderers, signing and verification are separate processes and all
+# of them have to read the same identity, so the overlay is exported rather
+# than passed.
+export PRODUCT_CONFIG_OVERLAY="$ROOT_DIR/scripts/product.dev.json"
 # shellcheck source=scripts/product_config.sh
 source "$ROOT_DIR/scripts/product_config.sh"
 FERMIX_REPO="${FERMIX_REPO:-$HOME/projects/fermix}"
@@ -78,13 +111,22 @@ SECRET_PROFILE="fermix-macos"
 APP_BUNDLE_NAME="$(product_config app_bundle_name)"
 APP="$ROOT_DIR/Apps/Fermix/dist-e2e/$APP_BUNDLE_NAME"
 GUI_EXECUTABLE="$(product_config gui_executable_name)"
+AGENT_EXECUTABLE="$(product_config agent_executable_name)"
 DEV_FLAG="--development-engine"
+# The major version of the SDK the release is built with (see the header).
+APP_SDK_MAJOR=26
 ENGINE_TREE="$ENGINE_SRC/_build/prod/rel/fermix_app_engine"
-RECORD_DIR="$HOME/Library/Application Support/Fermix"
+# The development identity's own support folder, which is where its one
+# bootstrap record lives. The installed app's folder is a different name and
+# nothing here computes it.
+RECORD_DIR="$HOME/Library/Application Support/$(product_config support_directory_name)"
 RECORD="$RECORD_DIR/launcher.json"
-RECORD_BACKUP="$RECORD_DIR/launcher.json.pre-dev"
-# The two principals an installed Fermix registers with SMAppService. Both
-# resolve the Fermix home through the record this loop swaps.
+# The development identity's lifecycle journal, beside its record. The file is
+# there exactly while a transaction is unfinished: the app removes it on the
+# way out of every transaction that completes.
+JOURNAL="$RECORD_DIR/lifecycle-journal.json"
+# The two principals this bundle registers with SMAppService, under the
+# development identity. Both resolve the Fermix home through the record above.
 AGENT_LABEL="$(product_config agent_service_label)"
 APP_LABEL="$(product_config bundle_identifier)"
 
@@ -181,12 +223,37 @@ engine_tree_state() {
   fi
 }
 
+# The engine's release runs the asset tools the tailwind and esbuild packages
+# download into _build. Tailwind's standalone binary, as published for Apple
+# silicon, carries an ad hoc signature that does not cover the file, and macOS 27
+# kills it at launch for that: the release died with "`mix tailwind fermix_web
+# --minify` exited with 137" (2026-09-20). The package reads a tool's version by
+# running it, so it then downloads the same bytes again on every build and
+# nothing ever repairs itself. Signing the file again ad hoc covers it as it
+# stands, which is all a local build tool needs.
+#
+# The release's own first step installs the tools, so it is run here ahead of
+# the release: a clean worktree is repaired before its first build rather than
+# after a failed one. A tool whose signature verifies is left exactly as it is.
+make_asset_tools_runnable() {
+  local tool
+  (cd "$ENGINE_SRC/apps/fermix_web" && MIX_ENV=prod mix assets.setup >/dev/null)
+  for tool in "$ENGINE_SRC"/_build/tailwind-* "$ENGINE_SRC"/_build/esbuild-*; do
+    [ -f "$tool" ] || continue
+    codesign --verify "$tool" 2>/dev/null && continue
+
+    echo "dev_e2e: $(basename "$tool") cannot run as downloaded (its signature does not verify); signing it ad hoc"
+    codesign --force --sign - "$tool" 2>/dev/null || fail "cannot sign $tool"
+  done
+}
+
 build_engine() {
   require_engine_source
   echo "dev_e2e: building the app engine from $ENGINE_SRC ($(engine_branch) at $(engine_commit | cut -c1-12), $(engine_tree_state) tree, as it stands)..."
   (
     cd "$ENGINE_SRC"
     mix deps.get --only prod >/dev/null
+    make_asset_tools_runnable
     # BuildInfo recompiles itself when these inputs change (__mix_recompile__?),
     # so no manual invalidation is needed. The source commit is the worktree's
     # real HEAD: a bundle stamped with zeroes could not say which revision it
@@ -226,13 +293,67 @@ except (OSError, ValueError, TypeError, KeyError, plistlib.InvalidFileException)
 PY
 }
 
+# The SDK to point the staging build at, or nothing where this Mac's own default
+# builds the app (see the header). It can refuse, so `up` asks before it
+# touches anything.
+buildable_sdk() {
+  local developer default_version sdk
+  developer="$(xcode-select -p)" || fail "no developer directory is selected; run xcode-select --install"
+  # A selected Xcode carries the macro plugins for its own SDK.
+  case "$developer" in
+    */CommandLineTools) ;;
+    *) return 0 ;;
+  esac
+
+  default_version="$(xcrun --show-sdk-version)"
+  case "$default_version" in
+    '' | *[!0-9.]*) fail "cannot read the default SDK version (xcrun --show-sdk-version said '$default_version')" ;;
+  esac
+  [ "${default_version%%.*}" -gt "$APP_SDK_MAJOR" ] || return 0
+
+  sdk="$developer/SDKs/MacOSX$APP_SDK_MAJOR.sdk"
+  [ -d "$sdk" ] || fail "$(
+    cat <<REFUSAL
+the Command Line Tools default to the macOS $default_version SDK, which cannot compile
+SwiftUI without Xcode, and the macOS $APP_SDK_MAJOR SDK is not installed beside it at
+$sdk.
+Install Xcode and select it (sudo xcode-select -s /Applications/Xcode.app), or
+install Command Line Tools that carry the macOS $APP_SDK_MAJOR SDK.
+REFUSAL
+  )"
+  printf '%s\n' "$sdk"
+}
+
+# Records the SDK's real version in both executables (see the header). vtool
+# rewrites the load command in place and warns that the signature is now
+# invalid, which is what is wanted here: signing is the next step.
+stamp_sdk() {
+  local sdk="${1:?stamp_sdk <sdk>}" version name binary minos
+  version="$(xcrun --sdk "$sdk" --show-sdk-version)"
+  for name in "$GUI_EXECUTABLE" "$AGENT_EXECUTABLE"; do
+    binary="$APP/Contents/MacOS/$name"
+    minos="$(xcrun vtool -show-build "$binary" | awk '$1 == "minos" { print $2; exit }')"
+    [ -n "$minos" ] || fail "cannot read the deployment target of $binary"
+    xcrun vtool -set-build-version macos "$minos" "$version" -replace -output "$binary" "$binary" 2>/dev/null ||
+      fail "cannot record SDK $version in $binary"
+  done
+}
+
 stage_and_sign() {
-  local identity="${1:?stage_and_sign <signing-identity>}" build_number
+  local identity="${1:?stage_and_sign <signing-identity> [sdk]}" sdk="${2:-}" build_number
   build_number="$(next_dev_build_number)" || return 1
+  if [ -n "$sdk" ]; then
+    echo "dev_e2e: the default SDK here cannot build SwiftUI without Xcode; building against $sdk"
+    export SDKROOT="$sdk"
+  fi
   echo "dev_e2e: staging and signing the app (debug build $build_number, $identity)..."
   "$ROOT_DIR/scripts/stage_app.sh" 0.1.0 "$build_number" "$APP" native --configuration debug \
     --engine "$ENGINE_TREE" --cosign "$(command -v cosign)" >/dev/null
-  plutil -insert EnvironmentVariables -json "{\"PORT\":\"$PORT\"}" \
+  [ -z "$sdk" ] || stamp_sdk "$sdk"
+  # Into the dict the renderer already writes, beside the PATH it declares: a
+  # whole-dict insert would refuse the key that is there, and replacing the dict
+  # would drop the PATH the agent refuses to launch without.
+  plutil -insert EnvironmentVariables.PORT -string "$PORT" \
     "$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
   "$ROOT_DIR/scripts/sign_app.sh" "$APP" "$identity" >/dev/null
   "$ROOT_DIR/scripts/verify_staged_app.sh" "$APP" native signed development >/dev/null
@@ -351,22 +472,15 @@ unregister_dev_services() {
   fail "dev login items remained registered after 20s; the bundle and bootstrap record were kept"
 }
 
-# Decode the JSON string: BootstrapStore may escape its path separators.
-record_uses_dev_home() {
-  local stored_path
-  stored_path="$(plutil -extract fermix_home raw -expect string -o - "$RECORD" 2>/dev/null)" ||
-    fail "could not parse fermix_home from $RECORD; the record was kept"
-  [[ "$stored_path" = /* ]] || fail "$RECORD does not name an absolute Fermix home; the record was kept"
-  [ "$stored_path" = "$DEV_HOME" ]
-}
-
-point_record_at_dev_home() {
+# The development identity's bootstrap record, pointed at the dev home.
+#
+# Written rather than swapped: this record is in the development identity's own
+# support folder, so there is nothing of the installed app's to move aside and
+# nothing to put back. The app resolves the account from getpwuid(geteuid()) and
+# reads no FERMIX_HOME, so this file is the only way to name a home, and the
+# development configuration refuses to register unless it names the dev home.
+write_dev_record() {
   mkdir -p "$DEV_HOME" "$RECORD_DIR"
-  if [ -f "$RECORD" ] && ! record_uses_dev_home; then
-    [ -f "$RECORD_BACKUP" ] && fail "both $RECORD and $RECORD_BACKUP exist; resolve by hand"
-    mv "$RECORD" "$RECORD_BACKUP"
-    echo "dev_e2e: existing launcher.json saved to launcher.json.pre-dev"
-  fi
   printf '{"fermix_home":"%s","schema_version":1}' "$DEV_HOME" >"$RECORD"
 }
 
@@ -391,6 +505,37 @@ agent_job_state() {
     sed -n -E 's/^[[:space:]]*(job state|last exit code) = (.*)$/\1 \2/p' | paste -sd ';' - || true
 }
 
+# A lifecycle transaction the last run left unfinished. The product opens
+# Recovery on one and starts nothing until the person acknowledges it, which is
+# right for an installed app and a dead end here: the GUI this loop opens answers
+# `--register-background-service` with recoveryPending, registers nothing, and
+# `up` waits a minute for an agent nobody asked launchd for (2026-09-20, after
+# macOS had refused the agent once and left an enable at its mutate phase).
+#
+# By the time this runs the loop has itself unregistered both principals, quit
+# the app and stopped the engine, so whatever the record was guarding is undone.
+# Removing it is this loop's acknowledgement, and it is the development
+# identity's own journal: the installed app's is in another folder.
+acknowledge_interrupted_transaction() {
+  [ -f "$JOURNAL" ] || return 0
+  echo "dev_e2e: the last run left a lifecycle transaction unfinished ($(tr -d '\n' <"$JOURNAL" | cut -c1-120)); acknowledging it"
+  rm -f "$JOURNAL"
+}
+
+# Whether macOS is refusing the agent on the operator's own say-so. System
+# Settings > General > Login Items & Extensions carries one Allow in the
+# Background switch per app. While it is off SMAppService answers every
+# registration with "Operation not permitted", launchd never gets a job, and
+# nothing this loop or the app can do turns it back on: on 2026-09-20 that read
+# as "launchd: no job" and cost an hour looking at the build. Background Task
+# Management records the switch as `disallowed` on the agent's own item, where
+# the disposition line comes before the identifier line.
+agent_disallowed() {
+  sfltool dumpbtm 2>/dev/null |
+    awk -v label="$AGENT_LABEL" '/Disposition:/ { disposition = $0 } /Identifier:/ && index($0, label) { print disposition; exit }' |
+    grep -q disallowed
+}
+
 start_engine() {
   # Registration runs through the opened GUI's journaled lifecycle.
   local state
@@ -398,21 +543,33 @@ start_engine() {
     if live && [ -S "$DEV_HOME/daemon.sock" ]; then return 0; fi
     sleep 1
   done
+  if agent_disallowed; then
+    fail "$(
+      cat <<REFUSAL
+macOS is not allowing ${APP_BUNDLE_NAME%.app} to run in the background, so it refused the
+agent ("Operation not permitted") and no engine started. The build is fine.
+Turn ${APP_BUNDLE_NAME%.app} on under System Settings > General > Login Items & Extensions >
+Allow in the Background, then run: scripts/dev_e2e.sh up --fast
+REFUSAL
+    )"
+  fi
   state="$(agent_job_state)"
   fail "the bundled agent did not bring up $DEV_HOME/daemon.sock and port $PORT within 60s (launchd: ${state:-no job}; logs: $DEV_HOME/logs/)"
 }
 
 up() {
-  local fast="${1:-}" identity
+  local fast="${1:-}" identity sdk
   identity="$(signing_identity)" || return 1
+  sdk="$(buildable_sdk)" || return 1
   ensure_secret_profile || return 1
   unregister_dev_services
   quit_app
   stop_engine
   live && fail "port $PORT is still occupied; refusing to start a second engine"
+  acknowledge_interrupted_transaction
   [ "$fast" = "--fast" ] || build_engine
-  stage_and_sign "$identity"
-  point_record_at_dev_home
+  stage_and_sign "$identity" "$sdk"
+  write_dev_record
   # The opened GUI registers its helper through its journaled lifecycle, the
   # same path the product takes. (The spawn refusals seen on 2026-09-05 were
   # the ad-hoc identity, not which process registered; see the header.)
@@ -423,7 +580,9 @@ up() {
   cat <<DONE
 dev_e2e: up.
   app     $APP  ($DEV_FLAG)
+  bundle  $APP_LABEL, agent $AGENT_LABEL
   home    $DEV_HOME
+  record  $RECORD
   source  $ENGINE_SRC ($(engine_branch))
   engine  http://127.0.0.1:$PORT  (health, setup)
   signed  $identity
@@ -442,14 +601,7 @@ down() {
   else
     echo "dev_e2e: engine was not running"
   fi
-  if [ -f "$RECORD_BACKUP" ]; then
-    mv "$RECORD_BACKUP" "$RECORD"
-    echo "dev_e2e: original launcher.json restored"
-  elif [ -f "$RECORD" ] && record_uses_dev_home; then
-    rm "$RECORD"
-    echo "dev_e2e: dev-home record removed"
-  fi
-  echo "dev_e2e: down. ($DEV_HOME is kept; delete it yourself for a fresh start)"
+  echo "dev_e2e: down. ($DEV_HOME and $RECORD are kept; delete them yourself for a fresh start)"
 }
 
 status() {
@@ -472,7 +624,11 @@ status() {
   else
     echo "app      running without $DEV_FLAG, so activation will refuse. Run up again."
   fi
-  if [ -f "$RECORD" ]; then echo "record   $(cat "$RECORD")"; else echo "record   absent (defaults to ~/.fermix)"; fi
+  if [ -f "$RECORD" ]; then
+    echo "record   $RECORD: $(cat "$RECORD")"
+  else
+    echo "record   absent at $RECORD, so the development configuration refuses to register. Run up."
+  fi
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

@@ -17,6 +17,10 @@ struct DoctorView: View {
             checkList
         }
         .formStyle(.grouped)
+        .showsAmbientGround()
+        .rowActions()
+        .scrollIndicators(.never)
+        .paneScrollEdges()
         .navigationTitle(ProductStrings[.doctorTitle])
         .toolbar {
             SurfaceToolbar(

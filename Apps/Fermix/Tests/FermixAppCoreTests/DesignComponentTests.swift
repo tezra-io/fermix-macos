@@ -25,7 +25,7 @@ struct DesignComponentTests {
     func interactiveComponentsAreClassified() {
         let interactive = Set(DesignComponent.allCases.filter(\.isInteractive))
 
-        #expect(interactive == [.primaryButton, .secondaryButton, .linkButton])
+        #expect(interactive == [.primaryButton, .secondaryButton, .linkButton, .infoButton])
     }
 
     /// M34 §6 deleted the containers the app drew for itself, so the inventory
@@ -326,12 +326,30 @@ struct DesignKeyboardTests {
         #expect(applied.first?.path.hasSuffix("Design/Components/FermixButtons.swift") == true)
     }
 
-    @Test("the one primary action carries the default keyboard shortcut")
+    /// The primary action is the default button wherever a surface has one thing
+    /// to confirm, which is every surface but one: the toolbar's action stands
+    /// beside whatever the surface is asking rather than confirming it, so it
+    /// would steal Return from the surface's own action.
+    ///
+    /// The waiver is a parameter that defaults to taking Return, so a caller has
+    /// to ask to give it up, and the gate counts the callers that do. One, and
+    /// it is the toolbar. That is what keeps "the primary action is the default
+    /// button" true by construction rather than by memory.
+    @Test("the one primary action carries the default keyboard shortcut unless the toolbar waives it")
     func primaryActionIsTheDefaultButton() throws {
         let buttons = try SourceTree.swiftFiles(matching: "Design/Components/FermixButtons.swift")
 
         #expect(buttons.count == 1)
-        #expect(buttons.first?.text.contains("keyboardShortcut(.defaultAction)") == true)
+        let text = try #require(buttons.first?.text)
+        #expect(text.contains("keyboardShortcut(isDefault ? .defaultAction : nil)"))
+        #expect(text.contains("isDefault: Bool = true"), "a caller no longer has to ask to give up Return")
+
+        let waiving = try SourceTree.swiftFiles(under: "", excluding: false)
+            .filter { $0.text.contains("isDefault: false") }
+            .map(\.path)
+
+        #expect(waiving.count == 1, "Return is waived in: \(waiving)")
+        #expect(waiving.first?.hasSuffix("Design/Components/SurfaceToolbar.swift") == true)
     }
 }
 
@@ -493,19 +511,41 @@ struct FermixWordmarkTests {
         #expect(tinting.first?.hasSuffix("App/AppKitWindowHost.swift") == true, "tinted in: \(tinting)")
     }
 
-    /// The toolbar's prominent action states the style and nothing else.
-    @Test("the toolbar's prominent button takes the root tint")
-    func toolbarPrimaryTakesTheRootTint() throws {
+    /// The toolbar's prominent action is the product's own primary action, at
+    /// the row size, and there is no second drawing of one.
+    ///
+    /// It was the system's prominent style taking the tint above, which made it
+    /// the one blue-filled button on the surface. §4.4 took the blue off the
+    /// primary action (owner, 2026-09-20: the blue on `Continue setup` "doesnt
+    /// match with the theme"), and once the fill is the product's own monochrome
+    /// no system style draws it: `glassProminent` and `borderedProminent` would
+    /// each put the macOS accent back, so both are banned by name here rather
+    /// than merely unused.
+    ///
+    /// Two halves follow from that and are asserted with it. The button waives
+    /// Return, because a toolbar action stands beside whatever the surface is
+    /// asking rather than confirming it. And on macOS 26 the toolbar's shared
+    /// glass is hidden behind it, because a capsule that draws its own
+    /// background inside one that draws another is two rings.
+    @Test("the toolbar's prominent action is the product's own primary action")
+    func toolbarPrimaryIsTheProductAction() throws {
         let source = try SourceTree.swiftFiles(matching: "Design/Components/SurfaceToolbar.swift")
         let text = try #require(source.first?.text)
 
         #expect(!text.contains(".tint("), "the button sets a tint of its own")
-        #expect(text.contains(".glassProminent"))
-        #expect(text.contains(".borderedProminent"))
+        // At the in-window size, which is the toolbar's own control height. At
+        // the row size it was ten points shorter than the system controls beside
+        // it, and the owner saw it at once ("did you make the continue setup
+        // button smaller?").
+        #expect(text.contains("PrimaryAction(title, size: .inWindow, isDefault: false, action: action)"))
+        #expect(ButtonRecipe.primary(.inWindow).height == HitTarget.button)
+        #expect(!text.contains(".glassProminent"), "a system prominent style puts the macOS accent back")
+        #expect(!text.contains(".borderedProminent"), "a system prominent style puts the macOS accent back")
+        #expect(text.contains(".sharedBackgroundVisibility(.hidden)"))
 
-        // The accent stays scheme independent, because lightening it is what
-        // would break the label: white on #2b5cff clears the 4.5:1 floor and
-        // white on the only lighter accent in the ramp does not.
+        // The accent is still the one blue, and still one colour in both
+        // appearances: what carries it now is the selection, the switches, the
+        // focus ring and the progress dots, which are fills rather than text.
         #expect(Palette.accent.light == Palette.accent.dark)
         #expect(Palette.accent.light == SRGBColor(hex: "#2b5cff"))
     }

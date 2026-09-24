@@ -234,12 +234,18 @@ extension FakeDaemonGateway {
         try answer(.pluginsDisconnect, "plugins_disconnect")
     }
 
+    /// The region is recorded because it is the call: the daemon requires one
+    /// exactly where the client row offers regions and refuses it where it does
+    /// not, so a sheet that sent the wrong thing would be refused live.
     func setOAuthClient(
         provider: String,
         clientId: String,
-        redirectPort: Int?
+        redirectPort: Int?,
+        region: String?
     ) async throws -> ManagementPluginOAuthClientRow {
-        try answer(.pluginsOAuthClientSet, "plugins_oauth_client_set")
+        oauthClientRegions.append(region)
+
+        return try answer(.pluginsOAuthClientSet, "plugins_oauth_client_set")
     }
 
     func setPluginSetting(

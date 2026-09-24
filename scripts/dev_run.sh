@@ -4,10 +4,17 @@
 #
 # This is the dev loop's equivalent of a release: the same stage_app.sh,
 # sign_app.sh, and verify_staged_app.sh a signed release runs, differing only in
-# the two places a dev machine must differ — the architecture is this machine's
-# slice instead of universal2, and the identity is ad-hoc rather than a
-# Developer ID. Nothing else is a separate code path, so a bundle that opens
-# here is the bundle a release produces.
+# the three places a dev machine must differ — the architecture is this
+# machine's slice instead of universal2, the signature is ad-hoc rather than a
+# Developer ID, and the product identity is the development one
+# (scripts/product.dev.json). Nothing else is a separate code path, so a bundle
+# that stages here is the bundle a release produces.
+#
+# The development identity is why this bundle is "Fermix Dev.app" with its own
+# bundle identifier: LaunchServices registers every bundle it sees, and a staged
+# copy carrying the installed app's identifier is a SECOND COPY to the
+# coexistence preflight, which then refuses activation in the installed app. A
+# build directory must not be able to do that.
 #
 # It does not launch anything. The `open` command is printed for the operator to
 # run deliberately, because launching the GUI is what triggers the microphone
@@ -24,6 +31,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The development identity, for this process and every script it runs.
+export PRODUCT_CONFIG_OVERLAY="$ROOT_DIR/scripts/product.dev.json"
 # shellcheck source=scripts/product_config.sh
 source "$ROOT_DIR/scripts/product_config.sh"
 
@@ -37,8 +46,9 @@ DIST_DIR="$ROOT_DIR/Apps/Fermix/dist"
 APP="$DIST_DIR/$APP_BUNDLE_NAME"
 
 # The bootstrap record the GUI and the agent read. Production code reads no
-# FERMIX_HOME, so this file is the only way to point either at a home.
-BOOTSTRAP_RECORD="\$HOME/Library/Application Support/Fermix/launcher.json"
+# FERMIX_HOME, so this file is the only way to point either at a home, and it
+# lives in this identity's own support folder.
+BOOTSTRAP_RECORD="\$HOME/Library/Application Support/$(product_config support_directory_name)/launcher.json"
 
 mkdir -p "$DIST_DIR"
 "$ROOT_DIR/scripts/stage_app.sh" "$VERSION" "$BUILD_NUMBER" "$APP" native

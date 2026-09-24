@@ -104,6 +104,8 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var appliedSettings: [SettingsWrite] = []
     var storedSecrets: [SecretWrite] = []
     var readSections: [String] = []
+    /// The account region each `plugins.oauth_client.set` carried, in order.
+    var oauthClientRegions: [String?] = []
     /// What each `setup.detect` asked about, in order.
     var detectedTargets: [[ManagementDetectTarget]] = []
     var polledJobs: [String] = []

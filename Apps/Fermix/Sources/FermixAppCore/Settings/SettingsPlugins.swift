@@ -18,9 +18,21 @@ extension SettingsModel {
         }
     }
 
-    /// Auth and checks publish new connection facts when their jobs end.
+    /// The jobs whose end republishes facts on the plugin row.
+    ///
+    /// Auth and checks move the connection, and the two workspace jobs move the
+    /// row itself: the daemon republishes a discovery's workspaces and a
+    /// binding's label on the plugin, not on the job. The workspace pair was
+    /// re-read by the surface that started them, which held only while that
+    /// surface stayed up; the detail now leaves its workspace page as soon as a
+    /// binding starts, so the rule lives here with the other two.
+    public static let jobsRepublishingPlugins: Set<ManagementJobKind> = [
+        .auth, .pluginCheck, .pluginWorkspacesDiscover, .pluginWorkspaceSelect
+    ]
+
+    /// A plugin job ended, so the catalogue it moved is read back.
     public func pluginJobFinished(_ job: ManagementJob) async {
-        guard job.status.isTerminal, job.kind == .auth || job.kind == .pluginCheck else { return }
+        guard job.status.isTerminal, Self.jobsRepublishingPlugins.contains(job.kind) else { return }
 
         if job.kind == .auth { await signInFinished() }
         await refreshPlugins()
@@ -38,8 +50,8 @@ extension SettingsModel {
     ) async -> String? {
         precondition(!name.isEmpty, "an integration action names its plugin")
         precondition(
-            !action.isAnsweredBySheet,
-            "\(action.wireValue) is answered by a sheet, never performed"
+            !action.isAnsweredInPlace,
+            "\(action.wireValue) is answered inside the detail, never performed"
         )
 
         switch action {
@@ -58,7 +70,7 @@ extension SettingsModel {
         case .signIn:
             return await startPluginSignIn(name: name, runner: runner)
         case .addToken, .replaceToken, .setUpClient, .chooseWorkspace:
-            preconditionFailure("\(action.wireValue) is answered by a sheet, never performed")
+            preconditionFailure("\(action.wireValue) is answered inside the detail, never performed")
         // A row from a newer daemon can carry an id this build has no method
         // for. Nothing draws a button for it, so reaching this is a defect at
         // the call site rather than a button that quietly does nothing.
@@ -209,10 +221,14 @@ extension SettingsModel {
         return await write { try await self.gateway.setPluginSetting(name: name, key: key, value: value) }
     }
 
+    /// Registers one sign-in client. The region is sent exactly where the
+    /// client row publishes regions to choose from: the daemon refuses one for
+    /// a provider that serves a single region, so nil is what that means here.
     public func setOAuthClient(
         provider: String,
         clientId: String,
-        redirectPort: Int?
+        redirectPort: Int?,
+        region: String?
     ) async -> String? {
         precondition(!provider.isEmpty, "an OAuth client names its provider")
         precondition(!clientId.isEmpty, "an OAuth client needs its identifier")
@@ -223,7 +239,8 @@ extension SettingsModel {
             _ = try await gateway.setOAuthClient(
                 provider: provider,
                 clientId: clientId,
-                redirectPort: redirectPort
+                redirectPort: redirectPort,
+                region: region
             )
             await refreshPlugins()
             return nil

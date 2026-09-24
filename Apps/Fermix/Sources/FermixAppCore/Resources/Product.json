@@ -7,13 +7,15 @@
   "gui_executable_name": "Fermix",
   "agent_executable_name": "FermixAgent",
   "agent_service_label": "io.tezra.FermixPet.agent",
+  "agent_search_path": "/usr/bin:/bin:/usr/sbin:/sbin",
+  "support_directory_name": "Fermix",
   "minimum_system_version": "15.0",
   "supported_architectures": [
     "arm64",
     "x86_64"
   ],
-  "marketing_version": "0.1.3",
-  "build_number": "4",
+  "marketing_version": "0.2.0",
+  "build_number": "5",
   "icon_file": "Fermix",
   "swift_resource_bundle_name": "Fermix_FermixAppCore.bundle",
   "engine_relative_path": "Contents/Resources/Engine",

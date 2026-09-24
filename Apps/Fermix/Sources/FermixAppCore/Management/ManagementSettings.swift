@@ -100,6 +100,16 @@ public struct ManagementSettingRow: Decodable, Equatable, Sendable {
     public let kind: ManagementSettingKind
     public let label: String
     public let footer: String?
+    /// The longer explanation a surface keeps behind an info control rather than
+    /// showing inline. Null on nearly every row: a footer is the sentence that
+    /// always sits under a control, and this is the paragraph a person asks for.
+    ///
+    /// The contract publishes the key on every row, as a string or null. It is
+    /// still decoded as an optional, which is `decodeIfPresent`: the field
+    /// arrived inside protocol 2 without moving a method minimum, so an engine
+    /// inside the window that predates it omits the key, and that engine's rows
+    /// have to decode exactly as they did before.
+    public let info: String?
     public let value: ManagementSettingValue
     /// Whether a secret sits at the key's path. Nil on every other kind.
     public let present: Bool?
@@ -132,7 +142,7 @@ public struct ManagementSettingRow: Decodable, Equatable, Sendable {
     public let format: ManagementNumberFormat?
 
     private enum CodingKeys: String, CodingKey {
-        case key, kind, label, footer, value, present, options, min, max, step, restart
+        case key, kind, label, footer, info, value, present, options, min, max, step, restart
         case suggestions, unit, format
         case readOnly = "read_only"
     }

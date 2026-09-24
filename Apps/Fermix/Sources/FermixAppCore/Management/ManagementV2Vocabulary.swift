@@ -372,6 +372,29 @@ public enum ManagementPluginRuntimeKind: ManagementVocabulary, Hashable {
     }
 }
 
+/// Which control one plugin setting is (`x-plugin-vocabulary.setting_kinds`).
+///
+/// `boolean` is a switch whose value is the string `true` or `false` and
+/// nothing else; `text` is a free-text field. Absent on the wire is `text`,
+/// which is what an older protocol-2 engine meant by publishing no kind: a
+/// switch drawn as a text field is how an operator turns a tool on by typing
+/// `TRUE` and finds it still off.
+public enum ManagementPluginSettingKind: ManagementVocabulary, Hashable {
+    case text
+    case boolean
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = [
+        "text": .text,
+        "boolean": .boolean
+    ]
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+}
+
 /// The credential kind behind a plugin (`x-plugin-vocabulary.auth_kinds`). Null
 /// on the wire is a plugin that needs none.
 public enum ManagementPluginAuthKind: ManagementVocabulary, Hashable {

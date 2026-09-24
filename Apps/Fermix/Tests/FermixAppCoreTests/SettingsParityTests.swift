@@ -41,6 +41,92 @@ struct OAuthClientEditingTests {
         draft.port = port
         #expect(try draft.validatedPort() == Int(port.trimmingCharacters(in: .whitespaces)))
     }
+
+    /// A provider that serves one region publishes none, and the daemon refuses
+    /// a region for it, so the sheet sends nothing at all.
+    @Test("a provider offering no regions sends no region")
+    func noRegionsSendsNothing() throws {
+        var draft = OAuthClientDraft(client: nil)
+        draft.region = "eu"
+
+        #expect(try draft.validatedRegion(offered: []) == nil)
+    }
+
+    /// Where the provider offers regions the daemon requires one of them, so
+    /// the sheet refuses before the call rather than after it.
+    @Test("an offered region is sent and anything else is refused")
+    func offeredRegionsAreRequired() throws {
+        let offered = try OAuthClientEditingTests.regions()
+        var draft = OAuthClientDraft(client: nil)
+
+        #expect(draft.region.isEmpty, "nothing is chosen until the picker is used")
+        #expect(throws: OAuthClientDraft.ValidationError.missingRegion) {
+            try draft.validatedRegion(offered: offered)
+        }
+
+        draft.region = "cn"
+        #expect(throws: OAuthClientDraft.ValidationError.missingRegion) {
+            try draft.validatedRegion(offered: offered)
+        }
+
+        draft.region = "eu"
+        #expect(try draft.validatedRegion(offered: offered) == "eu")
+    }
+
+    /// The draft opens on the region the daemon last published, so reopening the
+    /// sheet to change a port does not silently re-answer the region question.
+    @Test("editing a client preserves the region it is bound to")
+    func preservesExistingRegion() throws {
+        let client = try JSONDecoder().decode(ManagementPluginOAuthClient.self, from: Data("""
+        {"provider":"tesla","configured":true,"client_id":"existing-client",
+         "redirect_port":null,"region":"eu",
+         "regions":[{"id":"na","label":"North America"},{"id":"eu","label":"Europe"}]}
+        """.utf8))
+        let draft = OAuthClientDraft(client: client)
+
+        #expect(draft.region == "eu")
+        #expect(try draft.validatedRegion(offered: client.regions) == "eu")
+    }
+
+    /// The region rides on the wire only when there is one: an absent key is
+    /// what a provider serving a single region is asked for, and a null would
+    /// be a value the schema does not take.
+    @Test("the client parameters omit the region key when none was chosen")
+    func regionIsOmittedWhenAbsent() throws {
+        let withRegion = try Self.encode(
+            ManagementOAuthClientParams(
+                provider: "tesla",
+                clientId: "client-1",
+                redirectPort: nil,
+                region: "eu"
+            )
+        )
+        let without = try Self.encode(
+            ManagementOAuthClientParams(
+                provider: "google",
+                clientId: "client-2",
+                redirectPort: 1455,
+                region: nil
+            )
+        )
+
+        #expect(withRegion["region"] as? String == "eu")
+        #expect(withRegion["redirect_port"] == nil)
+        #expect(without["region"] == nil)
+        #expect(without["redirect_port"] as? Int == 1455)
+    }
+
+    static func regions() throws -> [ManagementPluginOAuthRegion] {
+        try JSONDecoder().decode([ManagementPluginOAuthRegion].self, from: Data("""
+        [{"id":"na","label":"North America"},{"id":"eu","label":"Europe"}]
+        """.utf8))
+    }
+
+    private static func encode(_ params: ManagementOAuthClientParams) throws -> [String: Any] {
+        let object = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(params))
+
+        return try #require(object as? [String: Any])
+    }
 }
 
 @Suite("Coding agent availability")

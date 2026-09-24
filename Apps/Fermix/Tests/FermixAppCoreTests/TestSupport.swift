@@ -37,6 +37,21 @@ final class AsyncGate: @unchecked Sendable {
     }
 }
 
+/// VoiceOver, recorded. The shipped announcer posts to the key window, which a
+/// test never has, so every coordinator a harness builds speaks into this.
+final class RecordingAnnouncer: AccessibilityAnnouncing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var spoken: [String] = []
+
+    func announce(_ sentence: String) {
+        lock.withLock { spoken.append(sentence) }
+    }
+
+    var sentences: [String] {
+        lock.withLock { spoken }
+    }
+}
+
 /// Thread-safe holder for a value captured from a socket-queue callback.
 final class ValueBox<Value>: @unchecked Sendable {
     private let lock = NSLock()
@@ -204,6 +219,7 @@ enum ProductFixture {
               "gui_executable_name": "Fermix",
               "agent_executable_name": "FermixAgent",
               "agent_service_label": "io.tezra.FermixPet.agent",
+              "support_directory_name": "Fermix",
               "minimum_system_version": "15.0",
               "supported_architectures": [\(architectureList)],
               "marketing_version": "0.1.0",

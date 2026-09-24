@@ -11,6 +11,10 @@ public enum StatusLine: Equatable, Sendable {
     case setupRequired
     case restartPending
     case notRunning
+    /// A lifecycle transaction this app started is running. The line says so
+    /// for as long as it does, in the sentence the window's toolbar and Home's
+    /// Status row say it in.
+    case transaction(LifecycleTransactionKind)
 
     public var text: String {
         switch self {
@@ -29,6 +33,8 @@ public enum StatusLine: Equatable, Sendable {
             return ProductStrings[.statusMenuRestartPending]
         case .notRunning:
             return ProductStrings[.daemonStateNotRunning]
+        case .transaction(let kind):
+            return LifecycleActivity.sentence(for: kind)
         }
     }
 }
@@ -60,6 +66,10 @@ public struct StatusMenuSource {
     public func line() -> StatusLine {
         let home = snapshot()
 
+        // First, because the daemon is away for the length of a restart: a menu
+        // opened in those seconds reads it, finds nothing answering, and would
+        // say Fermix isn't running about a restart the person just asked for.
+        if let kind = model.transactionInFlight { return .transaction(kind) }
         if model.daemon == .stopped || home.unreachable { return .notRunning }
         if model.daemon == .starting { return .starting }
         if reconcile().isPending { return .restartPending }

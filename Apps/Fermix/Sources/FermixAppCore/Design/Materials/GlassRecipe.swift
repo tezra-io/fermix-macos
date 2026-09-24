@@ -23,17 +23,22 @@ public struct GlassShadow: Equatable, Sendable {
     public var radius: Double { cssBlur / 2 }
 }
 
-/// How much room a control has: an onboarding call to action or an in-window
-/// button.
+/// How much room a control has: an onboarding call to action, an in-window
+/// button, or the action at the trailing edge of a form row.
 public enum ControlSize: String, CaseIterable, Sendable {
     case onboarding
     case inWindow
+    /// A grouped-form row is a line of text, so its action is the height of a
+    /// system row control rather than the 36 points a free-standing button
+    /// takes: taller, and the button sets the row's height instead of sitting
+    /// inside it.
+    case row
 }
 
-/// One button's geometry.
+/// One button's geometry. The shape is not here: every button is the one
+/// capsule `ButtonRecipe.shape` names, whatever its size.
 public struct ButtonGeometry: Equatable, Sendable {
     public let height: Double
-    public let cornerRadius: Double
     public let horizontalPadding: Double
     public let labelStyle: TypeStyle
 }
@@ -43,23 +48,30 @@ public struct ButtonGeometry: Equatable, Sendable {
 /// The primary button is the only control inside a window that carries a
 /// shadow; depth 0 is the rule for everything else.
 public enum ButtonRecipe {
-    public static let primaryFill = Palette.accent
+    /// Every button the app draws is a capsule, which is the shape the system
+    /// gives its own toolbar buttons and, through the window root's border
+    /// shape, every bordered button beside them. Radius 10 and 9 were the
+    /// artboards' rounded rectangles, and beside system capsules they read as
+    /// controls from another app.
+    public static let shape = Capsule(style: .continuous)
+
+    public static let primaryFill = Palette.ink
     /// The pointer-over fill. Pressed wins over hover, because the pointer is
     /// necessarily over the button while it is down.
-    public static let primaryHoverFill = Palette.accentHover
-    public static let primaryPressedFill = Palette.accentPressed
-    public static let primaryLabel = ThemedColor(uniform: SRGBColor(hex: "#ffffff"))
+    public static let primaryHoverFill = ThemedColor(lightHex: "#2c2c33", darkHex: "#ffffff")
+    public static let primaryPressedFill = ThemedColor(lightHex: "#000000", darkHex: "#d5d8de")
+    public static let primaryLabel = ThemedColor(lightHex: "#ffffff", darkHex: "#16161a")
     public static let primaryInnerHighlight = SRGBColor.rgba(255, 255, 255, 0.25)
 
     public static let primaryShadow = GlassShadow(
         cssBlur: 18,
         yOffset: 6,
-        color: ThemedColor(uniform: .rgba(43, 92, 255, 0.35))
+        color: ThemedColor(uniform: .rgba(0, 0, 0, 0.28))
     )
     public static let primaryPressedShadow = GlassShadow(
         cssBlur: 10,
         yOffset: 3,
-        color: ThemedColor(uniform: .rgba(43, 92, 255, 0.35))
+        color: ThemedColor(uniform: .rgba(0, 0, 0, 0.28))
     )
 
     public static let secondaryFill = Palette.buttonFill
@@ -77,15 +89,19 @@ public enum ButtonRecipe {
         case .onboarding:
             return ButtonGeometry(
                 height: HitTarget.onboardingCTA,
-                cornerRadius: Radius.control,
                 horizontalPadding: 28,
                 labelStyle: Typography.style(.body).weight(.semibold)
             )
         case .inWindow:
             return ButtonGeometry(
                 height: HitTarget.button,
-                cornerRadius: 9,
                 horizontalPadding: 14,
+                labelStyle: Typography.style(.callout).weight(.semibold)
+            )
+        case .row:
+            return ButtonGeometry(
+                height: HitTarget.rowAction,
+                horizontalPadding: 12,
                 labelStyle: Typography.style(.callout).weight(.semibold)
             )
         }
@@ -96,15 +112,19 @@ public enum ButtonRecipe {
         case .onboarding:
             return ButtonGeometry(
                 height: HitTarget.onboardingCTA,
-                cornerRadius: Radius.control,
                 horizontalPadding: 22,
                 labelStyle: Typography.style(.body).weight(.medium)
             )
         case .inWindow:
             return ButtonGeometry(
                 height: HitTarget.button,
-                cornerRadius: 9,
                 horizontalPadding: 14,
+                labelStyle: Typography.style(.callout).weight(.medium)
+            )
+        case .row:
+            return ButtonGeometry(
+                height: HitTarget.rowAction,
+                horizontalPadding: 12,
                 labelStyle: Typography.style(.callout).weight(.medium)
             )
         }

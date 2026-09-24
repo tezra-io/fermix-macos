@@ -20,6 +20,10 @@ struct HomeView: View {
             runtime
         }
         .formStyle(.grouped)
+        .showsAmbientGround()
+        .rowActions()
+        .scrollIndicators(.never)
+        .paneScrollEdges()
         .navigationTitle(ProductStrings[.sidebarHome])
         .toolbar {
             SurfaceToolbar(
@@ -36,9 +40,16 @@ struct HomeView: View {
     private var background: some View {
         Section(ProductStrings[.sectionHeaderBackground]) {
             LabeledContent(ProductStrings[.homeStatusLabel]) {
-                Text(model.snapshot.statusTitle)
-                    .foregroundStyle(Palette.secondary.color)
-                    .accessibilityAddTraits(.updatesFrequently)
+                HStack(spacing: Spacing.xs) {
+                    // Decorative: the sentence beside it says what is running.
+                    if model.status.inProgress {
+                        ActivityMark().accessibilityHidden(true)
+                    }
+
+                    Text(model.status.title)
+                        .foregroundStyle(Palette.secondary.color)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
             }
 
             Toggle(
@@ -92,7 +103,7 @@ struct HomeView: View {
                 }
             }
 
-            if let message = model.actionMessage {
+            if let message = model.attentionMessage {
                 Text(message)
                     .fermixType(Typography.style(.calloutSmall))
                     .foregroundStyle(Palette.warning.color)

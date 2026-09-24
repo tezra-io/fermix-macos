@@ -357,7 +357,7 @@ struct SettingsModelTests {
     /// until something else happened to refresh the page.
     @Test("a plugin or client secret re-reads the catalogue that reports it")
     func pluginSecretsReReadTheCatalogue() async throws {
-        for id in [SettingsModel.pluginSecretId("gmail"), OAuthClientSheet.secretId(for: "google")] {
+        for id in [SettingsModel.pluginSecretId("gmail"), OAuthClientEditor.secretId(for: "google")] {
             let harness = try SettingsHarness()
 
             #expect(await harness.model.setSecret(id: id, value: "not-a-real-secret") == nil)

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 
 /// Quitting, behind a seam. `NSApp.terminate` is the one thing a test must
@@ -59,6 +60,10 @@ public final class AppCoordinator {
     /// it, and nothing else compares an update transaction with the machine.
     private let updates: any UpdateReconciling
     private let bootstrap: () -> BootstrapCondition
+    /// Which build wrote the agent registration this account carries, read per
+    /// launch through the store rather than held, for the same reason the
+    /// bootstrap condition is.
+    private let registrationBuild: () -> AgentRegistrationBuild
     private let termination: any TerminationRequesting
     /// The one settings model, so opening a pane by url and opening it from the
     /// sidebar write the same selection.
@@ -72,6 +77,10 @@ public final class AppCoordinator {
     /// update transaction all take it, so two of them can never mutate the
     /// account at once.
     private let gate: ServiceMutationGate
+    /// Tells VoiceOver a transaction the person asked for has finished. The
+    /// sentence on screen simply goes away when it does, and focus is wherever
+    /// the person left it, so the end has to be spoken to be heard at all.
+    private let announcer: any AccessibilityAnnouncing
     private let log = AppLog.logger(.app)
     private var transaction: Task<Void, Never>?
     /// The quit in flight. Quitting can have work to finish first, so it is a
@@ -90,6 +99,10 @@ public final class AppCoordinator {
     /// What the last transaction ended as, so a caller that waited can be told
     /// whether it worked rather than inferring it from the model.
     private var lastOutcome: LifecycleOutcome?
+    /// Whether this process has already rebuilt the registration a replaced
+    /// bundle left behind. The receipt is what stops the *next* launch; this is
+    /// what stops the second launch path entered inside this one.
+    private var registrationRebuilt = false
 
     public init(
         model: AppModel,
@@ -99,9 +112,11 @@ public final class AppCoordinator {
         updates: any UpdateReconciling,
         gate: ServiceMutationGate,
         bootstrap: @escaping () -> BootstrapCondition,
+        registrationBuild: @escaping () -> AgentRegistrationBuild,
         termination: any TerminationRequesting,
         settings: SettingsModel,
-        presentation: SettingsPresentation
+        presentation: SettingsPresentation,
+        announcer: any AccessibilityAnnouncing
     ) {
         self.model = model
         self.windows = windows
@@ -110,9 +125,11 @@ public final class AppCoordinator {
         self.updates = updates
         self.gate = gate
         self.bootstrap = bootstrap
+        self.registrationBuild = registrationBuild
         self.termination = termination
         self.settings = settings
         self.presentation = presentation
+        self.announcer = announcer
     }
 
     /// What the recovery journal says about the last transaction. A journal that
@@ -233,6 +250,7 @@ public final class AppCoordinator {
             self.setupRouting?.cancel()
             self.setupRouting = nil
             await self.reconcileUpdate()
+            await self.rebuildRegistrationLeftByAnotherBuild()
             self.presentLaunch(reason)
         }
     }
@@ -496,7 +514,7 @@ public final class AppCoordinator {
     /// Restarts the daemon as a journaled lifecycle transaction. Only the
     /// Restart sheet and the assistant's own ladder call it.
     public func restartDaemon() {
-        runTransaction { try await self.lifecycle.restartDaemon() }
+        runTransaction(.restart) { try await self.lifecycle.restartDaemon() }
     }
 
     /// Shows or clears Doctor's uninstall notice.
@@ -538,7 +556,7 @@ public final class AppCoordinator {
     /// so the surfaces state the target and this decides which transaction that
     /// is.
     public func setBackgroundService(enabled: Bool) {
-        runTransaction {
+        runTransaction(enabled ? .enable : .disable) {
             enabled
                 ? try await self.lifecycle.enableBackgroundService()
                 : try await self.lifecycle.disableBackgroundService()
@@ -555,18 +573,46 @@ public final class AppCoordinator {
     /// bundle about to be swapped.
     public var isRunningTransaction: Bool { gate.isHeld || transaction != nil }
 
+    /// The transaction the person asked for that is running right now, which is
+    /// what a surface says in place of the daemon's last known state. Read
+    /// through to the model, exactly as the refusal below is: the transaction is
+    /// this coordinator's, and a copy kept on a surface would drift from it.
+    public var transactionInFlight: LifecycleTransactionKind? { model.transactionInFlight }
+
+    /// That same fact as it changes, for a surface that reads it through this
+    /// coordinator and so publishes nothing of its own when it moves. A
+    /// transaction starts from the Restart sheet, the status item and the Daemon
+    /// menu as well as from Home, so Home cannot know to redraw by itself.
+    public var transactionChanges: Published<LifecycleTransactionKind?>.Publisher {
+        model.$transactionInFlight
+    }
+
+    /// What the last lifecycle transaction refused with, where this build has a
+    /// sentence for it. Cleared when the next one starts, so a surface reading
+    /// it is reading the outcome of the request the person just made.
+    public var transactionRefusal: String? { model.restartRefusal }
+
     // MARK: - Transactions
 
     /// One lifecycle transaction at a time. A second request while one is in
     /// flight is refused rather than queued: two overlapping drains of the same
     /// daemon is exactly what the journal exists to prevent.
-    private func runTransaction(_ work: @escaping () async throws -> LifecycleOutcome) {
+    ///
+    /// The kind is published for exactly as long as the task below lives, which
+    /// is the one owner of "a restart this app started is in flight": it begins
+    /// when the transaction is actually taken, so `Restart when idle` claims
+    /// nothing while it is still waiting, and every way out of the task clears
+    /// it, whether that is a completion, a refusal at the gate or a failure.
+    private func runTransaction(
+        _ kind: LifecycleTransactionKind,
+        _ work: @escaping () async throws -> LifecycleOutcome
+    ) {
         guard transaction == nil else {
             log.log("a lifecycle transaction is already running")
             return
         }
 
-        model.transactionInFlight = true
+        model.transactionInFlight = kind
         model.restartRefusal = nil
         // The launch reconcile can re-register the service, and it runs on
         // every launch and every route. A transaction the person asked for
@@ -580,7 +626,7 @@ public final class AppCoordinator {
 
             defer {
                 self?.transaction = nil
-                self?.model.transactionInFlight = false
+                self?.model.transactionInFlight = nil
                 // Home reads registration through ServiceController, so it
                 // needs its own refresh after every outcome, including failure.
                 self?.readDaemonCondition?()
@@ -613,6 +659,9 @@ public final class AppCoordinator {
 
     private func apply(_ outcome: LifecycleOutcome) {
         lastOutcome = outcome
+        // Only a transaction that worked is announced. A refusal keeps the path
+        // it already had: its sentence is drawn where the person asked.
+        announcer.announce(LifecycleActivity.completion(of: outcome))
 
         switch outcome {
         case .enabled:
@@ -688,6 +737,46 @@ public final class AppCoordinator {
         log.error(
             "\(self.gate.holder?.rawValue ?? "another owner", privacy: .public) holds the service, so no record was read"
         )
+    }
+
+    /// Rebuilds the agent registration once, on the first launch by a build
+    /// that did not write the one this account carries (M34 §7.2).
+    ///
+    /// `brew upgrade --cask fermix` replaces the bundle under a registered
+    /// agent and never calls back into the app. The launchd job survives with a
+    /// stale parent bundle version, macOS marks it as needing an LWCR update,
+    /// and in that state launchd spawns the agent without its default
+    /// environment at all: no PATH, and `AgentLauncher.plan` refuses every
+    /// launch (owner report of 2026-09-17, 95 refusals). Turning the Home
+    /// switch off and on again fixed it, which is exactly the transaction this
+    /// takes on the person's behalf.
+    ///
+    /// It runs after the update reconcile and asks the receipt rather than the
+    /// reconcile's outcome: a launch on which the reconcile re-registered has
+    /// already written this build's receipt, so there is nothing left to
+    /// rebuild and no second owner of that decision.
+    private func rebuildRegistrationLeftByAnotherBuild() async {
+        guard !registrationRebuilt, registrationBuild() == .anotherBuild else { return }
+
+        guard gate.acquire(.lifecycle) else {
+            log.error(
+                "\(self.gate.holder?.rawValue ?? "another owner", privacy: .public) holds the service, so the registration was not rebuilt"
+            )
+            return
+        }
+        defer { gate.release(.lifecycle) }
+
+        // Set once the transaction is actually this launch's to run, and never
+        // unset: a rebuild that failed is not repeated behind the person's back,
+        // and the Home switch is the way to ask for another.
+        registrationRebuilt = true
+
+        log.log("this build did not register the background agent on this account, so the job is being rebuilt")
+        do {
+            _ = try await lifecycle.enableBackgroundService()
+        } catch {
+            transactionFailed(error)
+        }
     }
 
     /// What the reconcile found. Only the recovery outcome puts anything on

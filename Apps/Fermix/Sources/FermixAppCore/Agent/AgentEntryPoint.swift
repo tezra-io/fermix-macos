@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Where the agent writes its one kind of line.
 ///

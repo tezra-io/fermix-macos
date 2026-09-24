@@ -17,6 +17,14 @@
 # different pid back, while `disable background service` unregisters the job
 # *before* committing the shutdown, so nothing is left to relaunch.
 #
+# EnvironmentVariables declares the agent's PATH rather than trusting launchd to
+# hand one down. launchd supplies its default environment only while the
+# registration is clean, and a bundle replaced under a registered agent leaves
+# one that is not: on 2026-09-17 a cask upgrade left the job needing an LWCR
+# update, every spawn arrived with no PATH at all, and AgentLauncher refused all
+# 95 of them. The value is the launchd baseline the launcher already expects,
+# and it is declared once, in Product.json.
+#
 # Usage: render_launch_agent_plist.sh <out_plist_path>
 set -euo pipefail
 
@@ -32,6 +40,7 @@ xml_escape() {
 LABEL="$(xml_escape "$(product_config agent_service_label)")"
 BUNDLE_ID="$(xml_escape "$(product_config bundle_identifier)")"
 AGENT_EXECUTABLE="$(xml_escape "$(product_config agent_executable_name)")"
+SEARCH_PATH="$(xml_escape "$(product_config agent_search_path)")"
 
 cat >"$OUT" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -43,6 +52,10 @@ cat >"$OUT" <<PLIST
     <string>$BUNDLE_ID</string>
   </array>
   <key>BundleProgram</key><string>Contents/MacOS/$AGENT_EXECUTABLE</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>$SEARCH_PATH</string>
+  </dict>
   <key>KeepAlive</key><true/>
   <key>Label</key><string>$LABEL</string>
   <key>ProcessType</key><string>Adaptive</string>

@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 
 /// The bundled agent plist, as bytes to compare a registration against.
 ///

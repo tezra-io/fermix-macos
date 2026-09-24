@@ -93,6 +93,13 @@ enum ManagementV2Calls {
             )
         },
         "secret_clear": { _ = try await $0.clearSecret(id: "openai_api_key") },
+        // The fifth secret family, a sandbox environment variable. The id is
+        // the sandbox section's own row key, `env:<NAME>`, so the row that
+        // publishes a name is the row that stores and forgets its value.
+        "secret_set_external_env": {
+            _ = try await $0.setSecret(id: "env:ALPACA_API_KEY", value: "alpaca-fixture-not-a-real-key")
+        },
+        "secret_clear_external_env": { _ = try await $0.clearSecret(id: "env:ALPACA_API_KEY") },
         "providers_set_primary": { _ = try await $0.setPrimaryProvider("anthropic") },
         "providers_models_list": {
             _ = try await $0.providerModels(
@@ -113,11 +120,11 @@ enum ManagementV2Calls {
         "plugins_install_start": { _ = try await $0.startPluginInstall(name: "notion") },
         "plugins_check_start": { _ = try await $0.startPluginCheck(name: "gmail") },
         "plugins_workspaces_discover_start": {
-            _ = try await $0.startWorkspaceDiscovery(name: "eden")
+            _ = try await $0.startWorkspaceDiscovery(name: "acme")
         },
         "plugins_workspace_select_start": {
             _ = try await $0.startWorkspaceSelection(
-                name: "eden",
+                name: "acme",
                 profile: "retrieval",
                 workspaceId: "ws_studio",
                 label: "Studio"

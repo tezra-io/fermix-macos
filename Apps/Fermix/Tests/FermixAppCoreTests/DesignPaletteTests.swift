@@ -37,6 +37,9 @@ struct DesignPaletteTests {
             ("accent", Palette.accent, "#2b5cff", "#2b5cff"),
             ("accentHover", Palette.accentHover, "#4a73ff", "#4a73ff"),
             ("accentPressed", Palette.accentPressed, "#1e46d6", "#1e46d6"),
+            // The accent as text, which is the one place it needs a dark value:
+            // §9's floor is for text, and `#2b5cff` is 3.47:1 on a dark card.
+            ("accentText", Palette.accentText, "#2b5cff", "#7f9dff"),
             ("success", Palette.success, "#1f7a4d", "#4cc38a"),
             ("warning", Palette.warning, "#9a6b1f", "#e0b35c"),
             ("error", Palette.error, "#b3423a", "#e5766c"),
@@ -75,10 +78,19 @@ struct DesignPaletteTests {
 
     /// `#2b5cff` is authored as hex and never round-tripped through oklch, so
     /// the accent must be byte-identical in both schemes.
+    ///
+    /// It stays that way now that the primary action is monochrome (§4.4): what
+    /// still carries the accent is the selection, the switches, the focus ring
+    /// and the progress dots, and every one of those is a fill drawn the same
+    /// way in both appearances. `accentText` is the one token that splits, and
+    /// it splits because text is read against whatever it lands on.
     @Test("the one blue is the same colour in both schemes")
     func accentIsSchemeIndependent() {
         #expect(Palette.accent.light == Palette.accent.dark)
         #expect(Palette.accentPressed.light == Palette.accentPressed.dark)
+        #expect(Palette.accentHover.light == Palette.accentHover.dark)
+        #expect(Palette.accentText.light == Palette.accent.light, "the light accent was lightened too")
+        #expect(Palette.accentText.dark != Palette.accent.dark, "the dark accent text is not lifted")
     }
 
     /// The redline gives `linkHoverDark` a dark value only; light links reuse

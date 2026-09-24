@@ -4,8 +4,8 @@ import SwiftUI
 ///
 /// The leading side is the system's: the sidebar toggle and the inline title
 /// come from `NavigationSplitView` and the window, not from here. What this
-/// draws is the trailing side, in the published order — one tinted primary
-/// action while its condition holds, one secondary group, one overflow menu —
+/// draws is the trailing side, in the published order: one prominent primary
+/// action while its condition holds, one secondary group, one overflow menu,
 /// and a status item whose text never sits on glass.
 struct SurfaceToolbar: ToolbarContent {
     let spec: ToolbarSpec
@@ -14,19 +14,17 @@ struct SurfaceToolbar: ToolbarContent {
     var statusText: String?
 
     var body: some ToolbarContent {
-        statusItem
+        if let statusText {
+            ToolbarStatus(text: statusText)
+        }
 
-        // The tinted action exists only while its condition holds (M34 §3.2).
+        // The prominent action exists only while its condition holds (M34 §3.2).
         // The table decides whether the surface carries one at all; this is the
         // second half of the same rule, for a command whose own condition has
         // stopped holding. Neither draws it dimmed: a permanently dead
         // prominent button is worse than no button.
         if let primary = spec.primary, router.canPerform(primary) {
-            ToolbarItem(placement: .primaryAction) {
-                PrimaryToolbarButton(title: router.toolbarTitle(of: primary)) {
-                    router.perform(primary)
-                }
-            }
+            primaryItem(primary)
         }
 
         if !spec.secondary.isEmpty {
@@ -58,26 +56,29 @@ struct SurfaceToolbar: ToolbarContent {
         }
     }
 
-    /// Status text sits beside the toolbar's glass groups, never on one: on
-    /// macOS 26 that is `sharedBackgroundVisibility(.hidden)`, and on macOS 15
-    /// it is a plain `Text` with no background modifier at all.
+    /// The one prominent action, and the one place the toolbar's shared glass is
+    /// turned off behind a control.
+    ///
+    /// The action draws its own capsule now (§4.4), so on macOS 26 the toolbar's
+    /// shared background is exactly one ring too many: left in, it drew a
+    /// second, larger capsule of glass around the button's own. Hiding it is the
+    /// same modifier, for the same reason, that keeps the status sentence off
+    /// glass below.
+    ///
+    /// The macOS 15 form is the same item without the modifier, because the
+    /// floor has no shared background to hide.
     @ToolbarContentBuilder
-    private var statusItem: some ToolbarContent {
-        if let statusText {
-            if #available(macOS 26.0, *) {
-                ToolbarItem(placement: .status) { statusLabel(statusText) }
-                    .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .status) { statusLabel(statusText) }
-            }
+    private func primaryItem(_ primary: AppCommand) -> some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            ToolbarItem(placement: .primaryAction) { primaryButton(primary) }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .primaryAction) { primaryButton(primary) }
         }
     }
 
-    private func statusLabel(_ text: String) -> some View {
-        Text(text)
-            .fermixType(Typography.style(.calloutSmall))
-            .foregroundStyle(Palette.secondary.color)
-            .accessibilityAddTraits(.updatesFrequently)
+    private func primaryButton(_ primary: AppCommand) -> some View {
+        PrimaryToolbarButton(title: router.toolbarTitle(of: primary)) { router.perform(primary) }
     }
 
     /// A secondary or overflow control. Both are plain buttons: the system
@@ -105,21 +106,65 @@ struct SurfaceToolbar: ToolbarContent {
     }
 }
 
-/// The one tinted action a surface may carry: prominent glass on macOS 26, and
-/// `borderedProminent` on the macOS 15 floor.
+/// A sentence about what is happening right now, in the toolbar's status
+/// placement.
 ///
-/// It sets no tint of its own. The product accent reaches it from the window's
-/// root (`ProductTinted`), which is what keeps this button, the switches under
-/// it and the list selection beside it all one blue.
+/// One drawing for every such sentence, so a surface's own (`Running checks`)
+/// and the window's (`Restarting Fermix`) are the same type, ink and placement.
+/// Status text sits beside the toolbar's glass groups, never on one: on macOS 26
+/// that is `sharedBackgroundVisibility(.hidden)`, and on macOS 15 it is a plain
+/// label with no background modifier at all.
+struct ToolbarStatus: ToolbarContent {
+    let text: String
+    /// Whether the sentence names work that is still running, which puts the
+    /// activity mark in front of it. The mark is decorative: the sentence is
+    /// what VoiceOver reads.
+    var showsProgress = false
+
+    var body: some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            ToolbarItem(placement: .status) { label }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .status) { label }
+        }
+    }
+
+    private var label: some View {
+        HStack(spacing: Spacing.xs) {
+            if showsProgress {
+                ActivityMark().accessibilityHidden(true)
+            }
+
+            Text(text)
+                .fermixType(Typography.style(.calloutSmall))
+                .foregroundStyle(Palette.secondary.color)
+                .accessibilityAddTraits(.updatesFrequently)
+        }
+    }
+}
+
+/// The one prominent action a surface may carry: the product's own primary
+/// action, at the in-window size, drawn exactly as a surface's own primary
+/// action is. That size is the toolbar's own control height: at the row size it
+/// stood ten points shorter than the system controls beside it.
+///
+/// It was the system's prominent style taking the window's root tint, which made
+/// it the one blue-filled button in the toolbar. §4.4 took the blue off the
+/// primary action altogether (owner, 2026-09-20: the blue on `Continue setup`
+/// "doesnt match with the theme"), and once the fill is the product's own
+/// monochrome there is no longer a system style that draws it: the app's
+/// component is the only drawing of a primary action there is, so the toolbar
+/// takes that one rather than a second copy of it.
+///
+/// `isDefault: false` is the one difference from a surface's. Return belongs to
+/// whatever the surface is asking, and a toolbar action stands beside that
+/// rather than confirming it, so this button never takes the key.
 struct PrimaryToolbarButton: View {
     let title: String
     let action: () -> Void
 
     var body: some View {
-        if #available(macOS 26.0, *) {
-            Button(title, action: action).buttonStyle(.glassProminent)
-        } else {
-            Button(title, action: action).buttonStyle(.borderedProminent)
-        }
+        PrimaryAction(title, size: .inWindow, isDefault: false, action: action)
     }
 }

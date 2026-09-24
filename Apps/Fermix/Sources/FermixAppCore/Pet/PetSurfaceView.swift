@@ -20,6 +20,10 @@ struct PetSurfaceView: View {
                         .accessibilityAddTraits(.updatesFrequently)
 
                     controls
+
+                    if model.callActive {
+                        liveCall
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, Spacing.s)
@@ -44,14 +48,53 @@ struct PetSurfaceView: View {
             }
         }
         .formStyle(.grouped)
+        .showsAmbientGround()
+        .rowActions()
+        .scrollIndicators(.never)
+        .paneScrollEdges()
         .navigationTitle(ProductStrings[.sidebarPet])
     }
 
     private var preview: some View {
-        MascotArtwork(size: 108)
+        PetMark()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(model.accessibilityLabel)
             .accessibilityValue(model.accessibilityValue)
+    }
+
+    /// What a live call reports beside its controls: the last caption line, what
+    /// the backend delegation is doing, and what the voice has cost so far.
+    /// Each row is drawn only where the daemon has actually sent it, and the
+    /// whole block only while a call is up.
+    @ViewBuilder private var liveCall: some View {
+        VStack(spacing: Spacing.xxs) {
+            if let caption = model.captionLine {
+                Text(caption)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+
+            if let task = model.taskStatusText {
+                Text(task)
+                    .fermixType(Typography.style(.caption))
+                    .foregroundStyle(Palette.faint.color)
+            }
+
+            if let cost = model.voiceCostText {
+                Text(cost)
+                    .fermixType(Typography.style(.caption))
+                    .foregroundStyle(Palette.faint.color)
+            }
+
+            if model.showsCancelTask {
+                Button(model.cancelTaskActionTitle) { model.cancelTask() }
+                    .buttonStyle(SecondaryButtonStyle(.inWindow))
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private var controls: some View {

@@ -532,6 +532,23 @@ expect_refusal "a LaunchAgents plist pointing elsewhere is refused" \
   "BundleProgram is 'Contents/MacOS/Elsewhere'" \
   "$VERIFY" "$app" universal unsigned
 
+# launchd hands a job its default environment only while its registration is
+# clean, and a bundle replaced under a registered agent leaves one that is not:
+# the agent is spawned with no PATH and refuses every launch. The plist carries
+# its own, so the value is declared rather than inherited.
+app="$(fresh_bundle agent-plist-without-a-path)"
+plutil -remove EnvironmentVariables "$app/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
+expect_refusal "a LaunchAgents plist declaring no PATH is refused" \
+  "has no EnvironmentVariables.PATH" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle agent-plist-with-another-path)"
+plutil -replace EnvironmentVariables.PATH -string "/opt/elsewhere" \
+  "$app/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
+expect_refusal "a LaunchAgents plist declaring another PATH is refused" \
+  "EnvironmentVariables.PATH is '/opt/elsewhere'" \
+  "$VERIFY" "$app" universal unsigned
+
 echo "verify_staged_app_test: vendored contracts and assets"
 
 app="$(fresh_bundle tampered-contract)"
@@ -639,9 +656,13 @@ adhoc_sign "$app"
 expect_pass "an ad-hoc signed bundle verifies" \
   "$VERIFY" "$app" universal signed
 
+# A sealed resource nothing else parses, so this row is about the signature and
+# not about the file: the staged product configuration and the vendored
+# contracts are both checked by content first, and a bundle whose Product.json
+# was appended to is refused as unreadable before its seal is ever asked about.
 app="$(fresh_bundle adhoc-then-modified)"
 adhoc_sign "$app"
-printf 'x' >>"$app/Contents/Resources/$RESOURCE_BUNDLE_NAME/Product.json"
+printf 'x' >>"$app/Contents/Resources/$RESOURCE_BUNDLE_NAME/en.lproj/Localizable.strings"
 expect_refusal "a bundle modified after signing is refused" \
   "staged bundle does not verify" \
   "$VERIFY" "$app" universal signed
@@ -863,5 +884,56 @@ plutil -replace CFBundleVersion -string "999" "$app/Contents/Info.plist"
 expect_refusal "a release build must match the product configuration" \
   "CFBundleVersion is" \
   "$VERIFY" "$app" universal unsigned release
+
+# The development identity (scripts/product.dev.json), which the dev loop stages
+# the app under so its bundle is a different app to macOS than the installed
+# one. Every value this gate judges comes from the same reader the overlay
+# feeds, so the whole verification moves with it; what is proven here is that it
+# actually moved, that the bundle's two halves agree under it, and that the
+# release audience refuses a bundle carrying it.
+echo "verify_staged_app_test: the development identity"
+
+(
+  export PRODUCT_CONFIG_OVERLAY="$ROOT_DIR/scripts/product.dev.json"
+  # shellcheck source=scripts/product_config.sh
+  source "$ROOT_DIR/scripts/product_config.sh"
+
+  # The three names macOS keys a bundle on. A development identity that shared
+  # any of them with the installed app would be the same app to launchd,
+  # LaunchServices or the account's Application Support folder, which is the
+  # whole reason the overlay exists.
+  [ "$(product_config app_bundle_name)" != "$APP_BUNDLE_NAME" ] ||
+    fail "the development overlay stages the installed app's bundle name"
+  [ "$(product_config bundle_identifier)" != "$(plutil -extract CFBundleIdentifier raw -o - "$REFERENCE/$APP_BUNDLE_NAME/Contents/Info.plist")" ] ||
+    fail "the development overlay carries the installed app's bundle identifier"
+  [ "$(product_config agent_service_label)" != "$AGENT_LABEL" ] ||
+    fail "the development overlay carries the installed app's agent label"
+
+  mkdir -p "$WORK_DIR/development-identity"
+  dev_app="$WORK_DIR/development-identity/$(product_config app_bundle_name)"
+  fake_app_build_bundle "$dev_app"
+
+  expect_pass "a bundle staged under the development identity verifies as a development bundle" \
+    "$VERIFY" "$dev_app" universal unsigned development
+
+  # The half a shared reader cannot catch on its own: the Info.plist is what
+  # macOS reads and Product.json is what the app reads, so a bundle staged
+  # under one identity carrying the other's configuration would advertise the
+  # development identifier and register the production agent label.
+  cp "$PRODUCT_CONFIG_FILE" "$dev_app/Contents/Resources/$RESOURCE_BUNDLE_NAME/Product.json"
+  expect_refusal "a development bundle carrying the installed app's configuration is refused" \
+    "the staged Product.json bundle_identifier is" \
+    "$VERIFY" "$dev_app" universal unsigned development
+
+  # A development identity must never leave this machine. The overlay declares
+  # no update feed and no key that can verify one, which is the refusal the
+  # release audience already has for a bundle that can never install an update.
+  fake_app_build_bundle "$dev_app"
+  with_release_identity "$dev_app"
+  build_argument_stub "$dev_app/Contents/MacOS/$GUI_EXECUTABLE" none
+  expect_refusal "a development-identity bundle is refused by the release audience" \
+    "carries the placeholder SUPublicEDKey" \
+    "$VERIFY" "$dev_app" universal unsigned release
+)
 
 echo "verify_staged_app_test: ok"

@@ -428,7 +428,7 @@ struct BootstrapStoreTests {
 
         #expect(try store.load().registeredAgentPlistSHA256 == nil)
 
-        _ = try store.recordAgentRegistration(plistSHA256: "aa11bb22")
+        _ = try store.recordAgentRegistration(plistSHA256: "aa11bb22", appBuild: "7")
 
         #expect(try store.load().registeredAgentPlistSHA256 == "aa11bb22")
     }
@@ -443,12 +443,107 @@ struct BootstrapStoreTests {
         let location = BootstrapLocation(homeDirectory: temporary.url)
         let store = BootstrapStore(location: location)
         _ = try store.save(fermixHome: location.defaultFermixHome)
-        _ = try store.recordAgentRegistration(plistSHA256: "aa11bb22")
+        _ = try store.recordAgentRegistration(plistSHA256: "aa11bb22", appBuild: "7")
 
         let saved = try store.save(fermixHome: location.defaultFermixHome)
 
         #expect(saved.registeredAgentPlistSHA256 == "aa11bb22")
         #expect(try store.load().registeredAgentPlistSHA256 == "aa11bb22")
+    }
+
+    /// The registration is a property of the bundle that made it, and a cask
+    /// upgrade replaces that bundle without touching launchd: the plist digest
+    /// is identical across two releases, so the build number is the only thing
+    /// that says the job belongs to a copy of the app that is gone.
+    @Test("the registration receipt carries the build that registered the agent")
+    func receiptCarriesTheAppBuild() throws {
+        let temporary = try TemporaryDirectory()
+        defer { temporary.remove() }
+        let location = BootstrapLocation(homeDirectory: temporary.url)
+        let store = BootstrapStore(location: location)
+        _ = try store.save(fermixHome: location.defaultFermixHome)
+
+        _ = try store.recordAgentRegistration(plistSHA256: "aa11bb22", appBuild: "7")
+
+        #expect(try store.load().registeredAppBuild == "7")
+        #expect(store.registrationBuild(matching: "7") == .thisBuild)
+        #expect(store.registrationBuild(matching: "8") == .anotherBuild)
+    }
+
+    /// Both halves of a receipt move together. A save that carried one forward
+    /// and dropped the other would publish a registration this build never made
+    /// as its own, which is the exact comparison the heal stands on.
+    @Test("recording a home carries the whole receipt forward")
+    func wholeReceiptSurvivesAnOrdinarySave() throws {
+        let temporary = try TemporaryDirectory()
+        defer { temporary.remove() }
+        let location = BootstrapLocation(homeDirectory: temporary.url)
+        let store = BootstrapStore(location: location)
+        _ = try store.save(fermixHome: location.defaultFermixHome)
+        _ = try store.recordAgentRegistration(plistSHA256: "aa11bb22", appBuild: "7")
+
+        let saved = try store.save(fermixHome: location.defaultFermixHome)
+
+        #expect(saved.registeredAppBuild == "7")
+        #expect(try store.load().registeredAppBuild == "7")
+    }
+
+    /// The written document, keys and all: a field the record gains has to reach
+    /// the file, sorted beside the two that were already there.
+    @Test("a receipt writes both of its fields into the record")
+    func receiptDocumentCarriesBothFields() throws {
+        let temporary = try TemporaryDirectory()
+        defer { temporary.remove() }
+        let location = BootstrapLocation(homeDirectory: temporary.url)
+        let store = BootstrapStore(location: location)
+        _ = try store.save(fermixHome: location.defaultFermixHome)
+
+        _ = try store.recordAgentRegistration(plistSHA256: "aa11bb22", appBuild: "7")
+
+        // The whole document, keys and order: the record is written with sorted
+        // keys, so this is the exact file a reader that is not this build sees.
+        // `JSONEncoder` escapes the path separators, which is what is on disk
+        // and therefore what is asserted.
+        let home = location.defaultFermixHome.path.replacingOccurrences(of: "/", with: "\\/")
+        let expected = "{\"fermix_home\":\"\(home)\","
+            + "\"registered_agent_plist_sha256\":\"aa11bb22\","
+            + "\"registered_app_build\":\"7\","
+            + "\"schema_version\":1}"
+
+        #expect(try String(contentsOf: location.recordURL, encoding: .utf8) == expected)
+    }
+
+    /// Every install made before this field existed carries a receipt with no
+    /// build, and that is a difference: it is the upgrade the heal exists for.
+    @Test("a receipt written before the build existed belongs to another build")
+    func receiptWithoutABuildIsAnotherBuild() throws {
+        let temporary = try TemporaryDirectory()
+        defer { temporary.remove() }
+        let location = BootstrapLocation(homeDirectory: temporary.url)
+        try Self.writeRaw(
+            """
+            {"schema_version": 1, "fermix_home": "\(location.defaultFermixHome.path)", \
+            "registered_agent_plist_sha256": "aa11bb22"}
+            """,
+            to: location
+        )
+        let store = BootstrapStore(location: location)
+
+        #expect(try store.load().registeredAppBuild == nil)
+        #expect(store.registrationBuild(matching: "7") == .anotherBuild)
+    }
+
+    /// A fresh account has no registration at all, which onboarding owns. A
+    /// heal there would register an agent nobody has asked for yet.
+    @Test("an account with no receipt has no registration to compare")
+    func noReceiptIsNoRegistration() throws {
+        let temporary = try TemporaryDirectory()
+        defer { temporary.remove() }
+        let location = BootstrapLocation(homeDirectory: temporary.url)
+        let store = BootstrapStore(location: location)
+        _ = try store.save(fermixHome: location.defaultFermixHome)
+
+        #expect(store.registrationBuild(matching: "7") == .unregistered)
     }
 
     /// A record written before the field existed reads back with none, which the

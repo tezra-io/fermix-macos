@@ -97,13 +97,21 @@ extension SettingsModel {
 
 /// One persistent action for all Settings panes. Details stay in the existing
 /// restart confirmation sheet instead of repeating above every form.
+///
+/// While a lifecycle transaction this app started is running the action steps
+/// aside: the window's status sentence says `Restarting Fermix` in its place,
+/// and offering `Restart…` again over a restart that is already under way is
+/// the one thing the control must not do. The fact arrives as a value from the
+/// window, which observes the model that publishes it, so nothing here keeps a
+/// second copy of whether a restart is pending or running.
 @MainActor
 struct SettingsRestartControl: ToolbarContent {
     @ObservedObject var model: SettingsModel
     let router: any CommandPerforming
+    let transaction: LifecycleTransactionKind?
 
     var body: some ToolbarContent {
-        if let title = model.bannerState.restartActionTitle {
+        if let title = actionTitle {
             ToolbarItem(id: AppCommand.restartDaemon.rawValue, placement: .primaryAction) {
                 Button(title, action: requestRestart)
                     .disabled(!router.canPerform(.restartDaemon))
@@ -113,8 +121,14 @@ struct SettingsRestartControl: ToolbarContent {
         }
     }
 
+    /// The action's title while there is one to offer, which is never while a
+    /// transaction is in flight.
+    var actionTitle: String? {
+        transaction == nil ? model.bannerState.restartActionTitle : nil
+    }
+
     func requestRestart() {
-        guard model.bannerState.restartActionTitle != nil, router.canPerform(.restartDaemon) else { return }
+        guard actionTitle != nil, router.canPerform(.restartDaemon) else { return }
 
         router.perform(.restartDaemon)
     }

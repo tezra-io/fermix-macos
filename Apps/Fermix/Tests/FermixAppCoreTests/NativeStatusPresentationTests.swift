@@ -31,7 +31,7 @@ struct NativeStatusPresentationTests {
     func toolbarRestartAsksFirst() throws {
         let harness = try RouterHarness()
         harness.settings.restart = try ManagementValueFixture.setupState().restart
-        let control = SettingsRestartControl(model: harness.settings, router: harness.router)
+        let control = SettingsRestartControl(model: harness.settings, router: harness.router, transaction: nil)
 
         control.requestRestart()
 
@@ -44,7 +44,7 @@ struct NativeStatusPresentationTests {
     func unavailableRestartDoesNothing() {
         let model = SettingsFixture.model(gateway: FakeDaemonGateway())
         let router = FakeCommandRouter()
-        let control = SettingsRestartControl(model: model, router: router)
+        let control = SettingsRestartControl(model: model, router: router, transaction: nil)
         control.requestRestart()
         #expect(router.performed.isEmpty)
 

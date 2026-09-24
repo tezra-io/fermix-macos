@@ -132,6 +132,14 @@ public enum VendorMarks {
                 dark: .init("providers", "openrouter-volt", "svg")
             )
         ),
+        VendorMark(
+            .provider,
+            "venice",
+            .pair(
+                light: .init("providers", "venice-deep-blue", "svg"),
+                dark: .init("providers", "venice-off-white", "svg")
+            )
+        ),
         VendorMark(.provider, "xai", .template(.init("providers", "xai-mono", "png"))),
 
         // Channels.
@@ -149,7 +157,6 @@ public enum VendorMarks {
         VendorMark(.plugin, "agentmail", .file(.init("plugins", "agentmail-color", "png")), plate: .bleed),
         VendorMark(.plugin, "computer_use_sidecar", .file(.init("features", "computer-use-color", "svg"))),
         VendorMark(.plugin, "discord", .file(.init("plugins", "discord-color", "svg"))),
-        VendorMark(.plugin, "eden", .file(.init("plugins", "eden-color", "svg")), plate: .bleed),
         VendorMark(
             .plugin,
             "github",
@@ -174,6 +181,7 @@ public enum VendorMarks {
         VendorMark(.plugin, "notion", .file(.init("plugins", "notion-color", "svg"))),
         VendorMark(.plugin, "obsidian", .file(.init("plugins", "obsidian-color", "png")), plate: .bleed),
         VendorMark(.plugin, "slack", .file(.init("plugins", "slack-color", "svg")), plate: .bleed),
+        VendorMark(.plugin, "tesla", .file(.init("plugins", "tesla-color", "png"))),
         VendorMark(.plugin, "x", .file(.init("plugins", "x-color", "svg")), plate: .bleed),
 
         // The three native drivers the Integrations page counts under Features.

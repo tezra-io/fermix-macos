@@ -355,6 +355,26 @@ public struct HomeSnapshot: Equatable, Sendable {
     }
 }
 
+/// Home's Status row: the sentence, and whether it names work still running.
+///
+/// A transaction this app started outranks the last read of the daemon. The
+/// daemon is away for the length of a restart, so a refresh in those seconds
+/// finds nothing answering, and `Fermix isn't running` under a restart the
+/// person just asked for reads as a failure (owner report of 2026-09-20). The
+/// transaction is the app's own lifecycle fact, which is the only reason the
+/// row may state it; with none in flight the row is the snapshot's own title,
+/// so nothing the daemon publishes is decided twice.
+public struct HomeStatus: Equatable, Sendable {
+    public let title: String
+    /// Whether the row draws the activity mark beside the sentence.
+    public let inProgress: Bool
+
+    public init(transaction: LifecycleTransactionKind?, snapshot: HomeSnapshot) {
+        title = transaction.map(LifecycleActivity.sentence(for:)) ?? snapshot.statusTitle
+        inProgress = transaction != nil
+    }
+}
+
 /// One Home read, as the menu bar reads it.
 ///
 /// The badge is the Attention section itself — exactly the rows Home draws, so

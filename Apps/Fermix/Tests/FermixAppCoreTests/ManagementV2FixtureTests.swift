@@ -91,10 +91,11 @@ struct ManagementV2FixtureTests {
             ("model source", Array(ManagementModelSource.publishedValues.keys)),
             ("plugin action", Array(ManagementPluginAction.publishedValues.keys)),
             ("plugin runtime kind", Array(ManagementPluginRuntimeKind.publishedValues.keys)),
-            ("plugin auth kind", Array(ManagementPluginAuthKind.publishedValues.keys))
+            ("plugin auth kind", Array(ManagementPluginAuthKind.publishedValues.keys)),
+            ("plugin setting kind", Array(ManagementPluginSettingKind.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 15)
+        #expect(modelled.count == 16)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),
@@ -200,7 +201,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 67, "every success record was decoded")
+        #expect(seen.count == 70, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -323,7 +324,7 @@ struct ManagementV2FixtureTests {
     // MARK: - Plugin rows
 
     /// A word is not a routing key. Every button an integration row can draw
-    /// runs the id the daemon published beside the word, so the eden row can no
+    /// runs the id the daemon published beside the word, so the acme row can no
     /// longer draw `Choose workspace` on a button that runs
     /// `plugins.check.start`.
     @Test("every plugin row's buttons run the action the daemon published")
@@ -593,6 +594,22 @@ struct ManagementV2FixtureTests {
         )
 
         #expect(!schema.contains("\"attention\""))
+    }
+
+    /// The selected voice engine is a fact the daemon publishes beside the
+    /// provider and the model, null while voice is disabled rather than absent.
+    /// A decoder that dropped it would leave the app unable to say which engine
+    /// answered a call it is already showing.
+    @Test("the overview reports which voice engine is selected")
+    func overviewCarriesTheVoiceEngine() throws {
+        let overview: ManagementOverview = try FakeDaemonGateway.fixtureResult(
+            named: "overview_get",
+            as: ManagementOverview.self
+        )
+
+        #expect(overview.realtime.engine == "openai_realtime")
+        #expect(overview.realtime.provider == "openai")
+        #expect(overview.realtime.model == "gpt-realtime")
     }
 
     /// Personalization gates. The failure carries `gating` on the wire and the

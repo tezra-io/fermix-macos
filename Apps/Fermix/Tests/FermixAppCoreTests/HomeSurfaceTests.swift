@@ -417,7 +417,9 @@ struct HomeSurfaceTests {
             (.providerInvalidAuthMode, .providers),
             (.providerCredentials(provider: "anthropic"), .providers),
             (.channel(name: "telegram"), .channels),
-            (.voiceRealtime, .voice)
+            (.voiceRealtime, .voice),
+            (.sandboxEnvMissing, .sandbox),
+            (.sandboxEnvHelperFailed, .sandbox)
         ]
 
         for (detail, pane) in expected {
@@ -440,6 +442,55 @@ struct HomeSurfaceTests {
         for detail in [AttentionDetail.configUnreadable, .legacyServiceUnit, .secretACLRestricted] {
             #expect(AttentionCatalogue.action(for: detail) != nil, "\(detail.wireKey)")
         }
+    }
+
+    /// The two failures the sandbox environment check can raise, in the shape
+    /// PROTOCOL.md gives them: one per cause however many variables share it,
+    /// pane `sandbox`, never gating. The golden home raises neither, so they are
+    /// written into its own `setup.state.get` rather than into a state built by
+    /// hand, and the status is the one the contract gives a home with only
+    /// advisory failures standing.
+    ///
+    /// The wire names no variable, so neither does the row: the link lands on
+    /// the pane whose own rows say which name is in which state.
+    @Test("a sandbox variable the daemon cannot read is an advisory row that opens Sandbox")
+    func sandboxEnvironmentRows() throws {
+        let record = try #require(
+            try ManagementFixtures.load(.success, from: .management).first { $0.name == "setup_state_get" }
+        )
+        var published = try #require(try record.object("response")["result"] as? [String: Any])
+        published["readiness"] = [
+            "status": "ready",
+            "failures": [
+                [
+                    "component": "sandbox:env:missing", "gating": false,
+                    "pane": "sandbox", "detail_key": "sandbox:env_missing"
+                ],
+                [
+                    "component": "sandbox:env:helper_failed", "gating": false,
+                    "pane": "sandbox", "detail_key": "sandbox:env_helper_failed"
+                ]
+            ]
+        ]
+        let state = try JSONDecoder().decode(
+            ManagementSetupState.self,
+            from: try JSONSerialization.data(withJSONObject: published)
+        )
+        let rows = AttentionProjection.rows(for: state)
+
+        #expect(state.readiness.gating.isEmpty, "a sandbox variable never holds setup open")
+        #expect(state.readiness.failures.allSatisfy { $0.pane == .sandbox })
+
+        let missing = try #require(rows.first { $0.id == "sandbox:env_missing" })
+        let helper = try #require(rows.first { $0.id == "sandbox:env_helper_failed" })
+
+        for row in [missing, helper] {
+            #expect(row.action == .openSettings(.sandbox), "\(row.id)")
+            #expect(row.title != row.id, "\(row.id) renders its raw wire key as a title")
+            #expect(row.body != ProductStrings[.attentionUnrecognizedBody], "\(row.id) has no copy")
+        }
+        #expect(missing.title != helper.title, "one cause, one sentence")
+        #expect(missing.body != helper.body, "one cause, one sentence")
     }
 
     /// The removal sheet is built from the unit the DAEMON reported, not from a
@@ -873,6 +924,35 @@ struct HomeSurfaceTests {
     }
 }
 
+/// What Home says when the background service did not come up.
+@Suite("Home states a refused background service")
+@MainActor
+struct HomeBackgroundRefusalTests {
+    /// Turning the switch on and watching the window sit there was the whole of
+    /// the incident: the transaction failed at verify, logged one line, and put
+    /// nothing in front of the person who asked for it.
+    @Test("a background service that never answered is stated under Attention")
+    func failedEnableIsStated() async throws {
+        let harness = try HomeHarness()
+        harness.lifecycle.stageFailure(.socketNeverAppeared(path: "/tmp/daemon.sock"))
+
+        harness.model.setBackgroundService(true)
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.model.attentionMessage == ProductStrings[.lifecycleServiceNeverAnswered])
+    }
+
+    @Test("a background service that came up states nothing")
+    func successfulEnableStatesNothing() async throws {
+        let harness = try HomeHarness()
+
+        harness.model.setBackgroundService(true)
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.model.attentionMessage == nil)
+    }
+}
+
 @MainActor
 final class HomeHarness {
     let gateway = FakeDaemonGateway()
@@ -904,9 +984,11 @@ final class HomeHarness {
             updates: FakeUpdateReconciler(),
             gate: ServiceMutationGate(),
             bootstrap: { .present },
+            registrationBuild: { .thisBuild },
             termination: FakeTerminationRequester(),
             settings: settings,
-            presentation: SettingsPresentation()
+            presentation: SettingsPresentation(),
+            announcer: RecordingAnnouncer()
         )
         menuBar = MenuBarController(model: appModel, item: statusItem)
         model = HomeModel(

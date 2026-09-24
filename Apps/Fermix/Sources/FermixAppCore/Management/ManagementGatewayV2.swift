@@ -154,12 +154,14 @@ extension ManagementGateway {
     public func setOAuthClient(
         provider: String,
         clientId: String,
-        redirectPort: Int?
+        redirectPort: Int?,
+        region: String?
     ) async throws -> ManagementPluginOAuthClientRow {
         try await negotiated().setOAuthClient(
             provider: provider,
             clientId: clientId,
-            redirectPort: redirectPort
+            redirectPort: redirectPort,
+            region: region
         )
     }
 

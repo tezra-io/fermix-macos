@@ -201,7 +201,11 @@ fake_app_build_bundle() {
   mkdir -p "$resources/en.lproj"
   cp -R "$FAKE_APP_RESOURCES/Contracts" "$resources/Contracts"
   cp -R "$FAKE_APP_RESOURCES/VendorMarks" "$resources/VendorMarks"
-  cp "$FAKE_APP_RESOURCES/Product.json" "$resources/Product.json"
+  # The configuration these scripts read, exactly as stage_app.sh stages it:
+  # the fixture bundle is the identity the harness is running under, so a
+  # development-identity case gets a coherent bundle rather than one whose
+  # Product.json and Info.plist disagree.
+  printf '%s\n' "$PRODUCT_CONFIG_DOCUMENT" >"$resources/Product.json"
   cp "$FAKE_APP_RESOURCES/en.lproj/Localizable.strings" "$resources/en.lproj/Localizable.strings"
   cp "$FAKE_APP_RESOURCES/MenuBarTemplate/FermixMarkTemplate.png" "$resources/FermixMarkTemplate.png"
   cp "$FAKE_APP_RESOURCES/$(product_config icon_file).icns" \

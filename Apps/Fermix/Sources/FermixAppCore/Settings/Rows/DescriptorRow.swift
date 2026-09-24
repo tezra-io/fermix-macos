@@ -5,6 +5,12 @@ import SwiftUI
 /// Every apply is optimistic in the control and confirmed by the daemon; a
 /// refusal reverts the control and shows the daemon's sentence under the row.
 /// The footer is the daemon's and doubles as the control's accessibility hint.
+///
+/// A row that also carries an `info` paragraph draws it behind the (i) beside
+/// its label rather than inline: the footer's one line stays where it is, and
+/// the paragraph is there for whoever asks. Every control resolves its label
+/// through `DescriptorRowLabel`, so a row that gains an explanation later gets
+/// the control whatever kind it is.
 struct DescriptorRow: View {
     @ObservedObject var model: SettingsModel
     let section: String
@@ -35,11 +41,15 @@ struct DescriptorRow: View {
         SettingsDraftKey(section: section, key: row.key)
     }
 
+    /// The explanation this row keeps behind its info control, read once so
+    /// every control below asks the same question the same way.
+    private var info: String? { row.explanation }
+
     @ViewBuilder
     private var control: some View {
         switch projection.control {
         case .toggle(let isOn):
-            Toggle(row.label, isOn: binding(isOn) { .flag($0) })
+            Toggle(isOn: binding(isOn) { .flag($0) }) { rowLabel }
         case .choice(let selected, let options):
             choice(selected: selected, options: options)
         case .suggestion(let value, let options):
@@ -53,7 +63,8 @@ struct DescriptorRow: View {
                 value: value,
                 model: model,
                 key: draftKey,
-                commit: commit
+                commit: commit,
+                info: info
             )
         case .stepper(let value, let minimum, let maximum, let step, let measure):
             DescriptorNumberRow(
@@ -63,7 +74,8 @@ struct DescriptorRow: View {
                 maximum: maximum,
                 step: step,
                 measure: measure,
-                commit: commit
+                commit: commit,
+                info: info
             )
         case .slider(let value, let minimum, let maximum, let step, let measure):
             DescriptorSliderRow(
@@ -73,15 +85,18 @@ struct DescriptorRow: View {
                 maximum: maximum,
                 step: step,
                 measure: measure,
-                commit: commit
+                commit: commit,
+                info: info
             )
         case .secret(let present):
-            SecretRow(label: row.label, identifier: row.key, present: present, model: model)
+            SecretRow(label: row.label, identifier: row.key, present: present, model: model, info: info)
         case .list(let items):
-            DescriptorListRow(label: row.label, items: items, commit: commitList)
+            DescriptorListRow(label: row.label, items: items, commit: commitList, info: info)
         case .readOnly(let value):
-            LabeledContent(row.label) {
+            LabeledContent {
                 Text(value).foregroundStyle(Palette.secondary.color)
+            } label: {
+                rowLabel
             }
         // The opposite condition from the one beside it: an unknown row kind
         // means the daemon published something this build has no control for,
@@ -89,16 +104,23 @@ struct DescriptorRow: View {
         // sentence sent the operator to restart into the bundle they are
         // already running (M34 §7.1, §7.7).
         case .unsupported:
-            LabeledContent(row.label) {
+            LabeledContent {
                 Text(ProductStrings[.settingsRowUnsupported])
                     .foregroundStyle(Palette.secondary.color)
+            } label: {
+                rowLabel
             }
         }
     }
 
+    /// The row's own label, with the (i) beside it where there is one to draw.
+    private var rowLabel: DescriptorRowLabel {
+        DescriptorRowLabel(row.label, info: info)
+    }
+
     @ViewBuilder
     private func choice(selected: String?, options: [ManagementSettingOption]) -> some View {
-        Picker(row.label, selection: binding(selected ?? "") { .text($0) }) {
+        Picker(selection: binding(selected ?? "") { .text($0) }) {
             // A value the options do not carry has no tag to select, so the
             // popup draws blank. An empty value is the honest case of that —
             // nothing has been chosen — and it gets a row that says so rather
@@ -112,6 +134,8 @@ struct DescriptorRow: View {
                     .help(option.hint ?? "")
                     .disabled(option.disabled)
             }
+        } label: {
+            rowLabel
         }
     }
 
@@ -131,13 +155,14 @@ struct DescriptorRow: View {
             model: model,
             key: draftKey,
             commit: commit,
-            suggestions: options
+            suggestions: options,
+            info: info
         )
     }
 
     /// The time zone, chosen the way macOS chooses one.
     private func timeZone(_ identifier: String) -> some View {
-        LabeledContent(row.label) {
+        LabeledContent {
             HStack(spacing: Spacing.xs) {
                 Text(
                     identifier.isEmpty
@@ -148,6 +173,8 @@ struct DescriptorRow: View {
 
                 Button(ProductStrings[.aboutYouTimezoneChange]) { choosingTimeZone = true }
             }
+        } label: {
+            rowLabel
         }
         .sheet(isPresented: $choosingTimeZone) {
             TimeZoneSheet(
@@ -235,12 +262,14 @@ struct DescriptorTextRow: View {
     /// one thing that does.
     var accessory: AnyView?
     var suggestions: [ManagementSettingOption] = []
+    /// The row's longer explanation, drawn behind the (i) beside the label.
+    var info: String?
 
     @State private var draft = DescriptorTextDraft()
     @FocusState private var focused: Bool
 
     var body: some View {
-        LabeledContent(label) { entry }
+        LabeledContent { entry } label: { DescriptorRowLabel(label, info: info) }
     }
 
     private var entry: some View {
@@ -341,12 +370,14 @@ struct DescriptorNumberRow: View {
     let step: Double
     let measure: NumberMeasure
     let commit: (ManagementSettingValue) -> Void
+    /// The row's longer explanation, drawn behind the (i) beside the label.
+    var info: String?
 
     @State private var draft = ""
     @FocusState private var focused: Bool
 
     var body: some View {
-        LabeledContent(label) {
+        LabeledContent {
             HStack(spacing: Spacing.xs) {
                 TextField(label, text: $draft)
                     .labelsHidden()
@@ -378,6 +409,8 @@ struct DescriptorNumberRow: View {
                     .accessibilityLabel(label)
                     .accessibilityValue(measure.text(value, step: step))
             }
+        } label: {
+            DescriptorRowLabel(label, info: info)
         }
         .onAppear { draft = NumberRowFormat.text(value, step: step) }
         .onChange(of: value) { _, latest in
@@ -425,11 +458,13 @@ struct DescriptorSliderRow: View {
     let step: Double
     let measure: NumberMeasure
     let commit: (ManagementSettingValue) -> Void
+    /// The row's longer explanation, drawn behind the (i) beside the label.
+    var info: String?
 
     @State private var live: Double = 0
 
     var body: some View {
-        LabeledContent(label) {
+        LabeledContent {
             HStack(spacing: Spacing.xs) {
                 Text(measure.text(live, step: step))
                     .foregroundStyle(Palette.secondary.color)
@@ -444,6 +479,8 @@ struct DescriptorSliderRow: View {
                 .accessibilityLabel(label)
                 .accessibilityValue(measure.text(live, step: step))
             }
+        } label: {
+            DescriptorRowLabel(label, info: info)
         }
         .onAppear { live = value }
         .onChange(of: value) { _, latest in live = latest }
@@ -461,12 +498,14 @@ struct DescriptorListRow: View {
     let label: String
     let items: [String]
     let commit: ([String]) -> Void
+    /// The row's longer explanation, drawn behind the (i) beside the label.
+    var info: String?
 
     @State private var entry = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsRowMetrics.stackGap) {
-            Text(label)
+            DescriptorRowLabel(label, info: info)
 
             if !items.isEmpty {
                 VStack(alignment: .leading, spacing: SettingsRowMetrics.entryGap) {

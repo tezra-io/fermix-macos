@@ -203,14 +203,14 @@ struct AgentLaunchTests {
 
     @Test("an engine whose realtime window excludes this app is refused")
     func refusesAnIncompatibleRealtimeWindow() throws {
-        let bundle = try stage(manifest: EngineManifestFixture.document(realtimeRange: (2, 2, 2)))
+        let bundle = try stage(manifest: EngineManifestFixture.document(realtimeRange: (3, 3, 4)))
 
         #expect(
             throws: EngineManifestDefect.protocolUnsupported(
                 name: "realtime",
                 declared: RealtimeProtocol.version,
-                minimum: 2,
-                maximum: 2
+                minimum: 3,
+                maximum: 4
             )
         ) {
             _ = try plan(bundle)
@@ -322,13 +322,22 @@ struct AgentEntryPointTests {
 
     /// An engine tree that is not there fails before anything is executed, and
     /// the diagnostic names the path that was inspected.
+    ///
+    /// The absent bundle is a fresh path under the temporary directory, never
+    /// `/Applications/Fermix.app`: on a Mac that has the app installed, that
+    /// root is a real staged engine, so the case read the host's own bundle and
+    /// proved nothing about an unstaged one.
     @Test("an unstaged engine exits non-zero naming the absent path")
     func unstagedEngineIsReported() {
         let output = RecordingAgentOutput()
+        let absent = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("fermix-agent-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("Fermix.app", isDirectory: true)
 
         let status = AgentEntryPoint.main(
             arguments: ["FermixAgent"],
-            bundleRoot: URL(fileURLWithPath: "/Applications/Fermix.app"),
+            bundleRoot: absent,
             architecture: "arm64",
             output: output,
             home: { URL(fileURLWithPath: "/Users/tester/.fermix", isDirectory: true) },
@@ -337,7 +346,7 @@ struct AgentEntryPointTests {
 
         #expect(status == AgentEntryPoint.preflightFailureStatus)
         #expect(output.diagnostics.contains {
-            $0.contains("/Applications/Fermix.app/Contents/Resources/Engine/arm64")
+            $0.contains(absent.appendingPathComponent("Contents/Resources/Engine/arm64").path)
         })
     }
 }
@@ -413,7 +422,7 @@ enum EngineManifestFixture {
         manifestArchitecture: String? = nil,
         distribution: String = "macos_app",
         managementRange: (Int, Int, Int) = (2, 1, 2),
-        realtimeRange: (Int, Int, Int) = (1, 1, 1)
+        realtimeRange: (Int, Int, Int) = (2, 1, 2)
     ) -> [String: Any] {
         let declared = manifestArchitecture ?? architecture
         return [

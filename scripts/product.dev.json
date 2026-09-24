@@ -1,0 +1,10 @@
+{
+  "product_name": "Fermix Dev",
+  "bundle_identifier": "io.tezra.FermixPet.dev",
+  "url_scheme": "fermix-dev",
+  "app_bundle_name": "Fermix Dev.app",
+  "agent_service_label": "io.tezra.FermixPet.dev.agent",
+  "support_directory_name": "Fermix Dev",
+  "sparkle_feed_url": "http://localhost/appcast-not-served.xml",
+  "sparkle_public_ed_key": "replace-with-the-production-sparkle-public-key"
+}

@@ -1,24 +1,24 @@
 {
   "schema_version": 2,
-  "recorded_on": "2026-09-10",
+  "recorded_on": "2026-09-23",
   "note": "The vendored roster snapshot. PROVENANCE.json must carry one record per key here, and roster_source.roster_sha256 pins these bytes, so a vendor cannot be dropped from either file alone. The upstream cross-check (vendor_marks.py check --fermix-repo <checkout>) is what re-vendors it when fermix moves.",
   "source": {
     "repository": "https://github.com/tezra-io/fermix",
     "providers": {
       "path": "apps/fermix_core/lib/fermix_core/providers/descriptor.ex",
       "symbol": "Providers.Descriptor.all/0",
-      "sha256": "e5b70c75fa66d1e5471838ecc760e506554c1b5acbfc23d1ff143cdce4a91288"
+      "sha256": "f27b0c452c665ded635c6452b9968d4aeaba4f0104663b1e3e1ae1077a295371"
     },
     "channels": {
       "path": "apps/fermix_web/lib/fermix_web_web/live/setup_live.ex",
       "symbol": "the channels form map",
-      "sha256": "10e3eec064933e5e7d95724708207ba2c7f0709eda6cc162d60602ea511051a7"
+      "sha256": "5c5eaea2f241dcbfaf8878d23ed33b779d2728224ca506954ffacc2090100154"
     },
     "plugins": {
       "path": "apps/fermix_core/priv/plugins/index.json",
       "symbol": "the static plugin catalog",
-      "sha256": "4dfda7e0ee51873e5d8b5a2ad11227decbcc8ee76c14b85e87e307fba0cd3ed1",
-      "generated_at": "2026-08-04T02:49:35Z",
+      "sha256": "cbc0a89c6105642c73815291417387162236d1fbf0bf013903f12760597514e4",
+      "generated_at": "2026-09-22T01:48:43Z",
       "bundled": {
         "path": "apps/fermix_core/priv/plugins/catalog.json",
         "symbol": "the plugins the engine ships inside itself, which Registry.list unions into every install",
@@ -47,6 +47,7 @@
     "openai",
     "openai_codex",
     "openrouter",
+    "venice",
     "xai"
   ],
   "channels": [
@@ -60,7 +61,6 @@
     "agentmail",
     "computer_use_sidecar",
     "discord",
-    "eden",
     "github",
     "gmail",
     "google_calendar",
@@ -68,6 +68,7 @@
     "notion",
     "obsidian",
     "slack",
+    "tesla",
     "x"
   ],
   "features": [

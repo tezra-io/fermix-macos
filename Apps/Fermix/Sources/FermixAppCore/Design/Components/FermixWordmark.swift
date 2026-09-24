@@ -128,8 +128,8 @@ public struct FermixWordmarkLetters: Shape {
 /// The Fermix wordmark: the letters in one tint, and the two accent eye-dots.
 ///
 /// This is the brand mark everywhere the mascot used to stand in for one; the
-/// Pet surface keeps `MascotArtwork`, because there the mascot is the content
-/// rather than branding.
+/// Pet surface keeps a mascot of its own (`PetMark`), because there the mascot
+/// is the content rather than branding.
 public struct FermixWordmark: View {
     /// Width over height of the glyph space: 384 / 100.
     public static let aspectRatio: Double = 3.84

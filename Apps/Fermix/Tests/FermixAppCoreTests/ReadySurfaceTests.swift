@@ -164,10 +164,12 @@ struct ReadySurfaceTests {
         #expect(mascotOwners.map(\.path).allSatisfy { $0.contains("/Pet/") }, "\(mascotOwners.map(\.path))")
         #expect(mascotOwners.count == 1)
 
-        // Every still mascot in the product is that one component: Ready and
-        // the Pet tab. A surface that hand-composed the layers again
-        // is how the Pet tab ended up drawing a different frame from the app's
-        // own icon, so the drawing is asserted to happen in exactly one file.
+        // The painted still mascot is that one component wherever it is drawn,
+        // which since 2026-09-20 is Ready alone: the Pet tab draws the one-ink
+        // mark in its place, on the owner's word. A surface that hand-composed
+        // the layers again is how the Pet tab once ended up drawing a different
+        // frame from the app's own icon, so the drawing is asserted to happen
+        // in exactly one file.
         let composers = try SourceTree
             .swiftFiles(under: "", excluding: false)
             .filter { $0.text.contains("layerAssetName(") }
@@ -181,7 +183,7 @@ struct ReadySurfaceTests {
             .map { URL(fileURLWithPath: $0.path).lastPathComponent }
             .sorted()
 
-        #expect(users == ["PetSurfaceView.swift", "ReadySurface.swift"], "\(users)")
+        #expect(users == ["ReadySurface.swift"], "\(users)")
     }
 
     /// Ready asks the daemon whether the install is live.

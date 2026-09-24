@@ -110,7 +110,7 @@ private struct CodingAgentChoiceRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
-            Picker(row.label, selection: selection) {
+            Picker(selection: selection) {
                 if !row.options.contains(where: { $0.value == selected }) {
                     Text(selected.isEmpty ? ProductStrings[.settingsChoiceNotSet] : selected)
                         .tag(selected).disabled(true)
@@ -119,6 +119,8 @@ private struct CodingAgentChoiceRow: View {
                     Text(label(for: option)).tag(option.value)
                         .disabled(option.disabled || !availability.canSelect(option.value))
                 }
+            } label: {
+                DescriptorRowLabel(row.label, info: row.explanation)
             }
             if let footer = row.footer {
                 Text(footer).fermixType(Typography.style(.calloutSmall))

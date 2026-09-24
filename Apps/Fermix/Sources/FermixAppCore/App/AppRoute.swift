@@ -42,7 +42,12 @@ public enum AppRoute: String, CaseIterable, Sendable {
     /// update, or `fermix://recovery`.
     case recovery
 
-    public static let scheme = "fermix"
+    /// The url scheme this build parses, which is the one its Info.plist
+    /// registers: both come from the product configuration, because a bundle
+    /// that advertised one scheme and parsed another would refuse every url it
+    /// was opened with. The development bundle registers its own scheme, so a
+    /// `fermix://` url from the installed app never reaches it.
+    public static let scheme = ProductConfiguration.forThisBundle().urlScheme
 
     public var url: URL {
         guard let url = URL(string: "\(Self.scheme)://\(rawValue)") else {

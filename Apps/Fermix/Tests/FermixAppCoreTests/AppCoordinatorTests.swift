@@ -281,6 +281,75 @@ struct AppCoordinatorTests {
         #expect(harness.termination.completed == 0, "the reply comes from the termination hook, not from Quit")
     }
 
+    // MARK: - The registration a replaced bundle leaves behind
+
+    /// `brew upgrade --cask fermix` replaces the bundle under a registered
+    /// agent and never calls back into the app, so the launchd job that
+    /// survives it belongs to a copy that is gone: on 2026-09-17 it spawned the
+    /// agent with no PATH and refused 95 launches. The receipt names the build
+    /// that registered, and a launch by another one rebuilds the job before
+    /// anything reads the daemon.
+    @Test("a launch by a build that did not write the registration rebuilds it")
+    func launchRebuildsARegistrationAnotherBuildWrote() async throws {
+        let harness = try CoordinatorHarness(bootstrap: .present, registrationBuild: .anotherBuild)
+
+        harness.coordinator.start(reason: .user)
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.lifecycle.calls == [.enable])
+    }
+
+    /// Exactly once per new build: the enable writes the receipt, and a second
+    /// launch in the same process must not register again on top of it.
+    @Test("the rebuild runs once, however many times the launch path is entered")
+    func rebuildRunsOncePerProcess() async throws {
+        let harness = try CoordinatorHarness(bootstrap: .present, registrationBuild: .anotherBuild)
+
+        harness.coordinator.start(reason: .user)
+        try await harness.coordinator.drainPendingWork()
+        harness.coordinator.reopen()
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.lifecycle.calls == [.enable])
+    }
+
+    @Test("a launch by the build that wrote the registration changes nothing")
+    func launchLeavesItsOwnRegistrationAlone() async throws {
+        let harness = try CoordinatorHarness(bootstrap: .present, registrationBuild: .thisBuild)
+
+        harness.coordinator.start(reason: .user)
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.lifecycle.calls.isEmpty)
+    }
+
+    /// A fresh account has no registration at all, and registering one behind
+    /// the person's back is what onboarding exists to ask about.
+    @Test("a launch on an account with no registration registers nothing")
+    func launchOnAFreshAccountRegistersNothing() async throws {
+        let harness = try CoordinatorHarness(bootstrap: .absent, registrationBuild: .unregistered)
+
+        harness.coordinator.start(reason: .user)
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.lifecycle.calls.isEmpty)
+        #expect(harness.model.onboardingStage == .welcome)
+    }
+
+    /// The reconcile owns the service while it runs, and it is the one that
+    /// re-registers after an in-app update. A rebuild that took the gate from
+    /// it would be two owners registering the same agent.
+    @Test("the rebuild is skipped while another owner holds the service")
+    func rebuildIsSkippedWhileAnotherOwnerHoldsTheService() async throws {
+        let harness = try CoordinatorHarness(bootstrap: .present, registrationBuild: .anotherBuild)
+        #expect(harness.gate.acquire(.update))
+
+        harness.coordinator.start(reason: .user)
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.lifecycle.calls.isEmpty)
+    }
+
     /// M34 §6 requires the update transaction to be serialized with ordinary
     /// lifecycle actions. The gate is how: an update holds it from the person's
     /// Install until the bundle is replaced, and a restart taken in that window
@@ -457,6 +526,8 @@ final class CoordinatorHarness {
     let voice = FakeVoiceController()
     let lifecycle = FakeLifecycleController()
     let termination = FakeTerminationRequester()
+    /// What the coordinator told VoiceOver, in order.
+    let announcer = RecordingAnnouncer()
     let coordinator: AppCoordinator
     /// The launch reconcile, scripted. Every launch and every route asks it, so
     /// a harness that did not declare one would be asserting against a
@@ -472,7 +543,11 @@ final class CoordinatorHarness {
     /// presentation, not only to the window.
     let presentation: SettingsPresentation
 
-    init(bootstrap: BootstrapCondition) throws {
+    /// - Parameter registrationBuild: which build wrote the registration this
+    ///   account carries. The default is a fresh account, which no launch
+    ///   rebuilds, so a case that says nothing about the registration is
+    ///   asserting against a launch that performs none.
+    init(bootstrap: BootstrapCondition, registrationBuild: AgentRegistrationBuild = .unregistered) throws {
         windows = FakeWindowHost()
         settingsGateway = try SettingsFixture.gateway()
         settings = SettingsFixture.model(gateway: settingsGateway)
@@ -486,9 +561,11 @@ final class CoordinatorHarness {
             updates: updates,
             gate: gate,
             bootstrap: { bootstrap },
+            registrationBuild: { registrationBuild },
             termination: termination,
             settings: settings,
-            presentation: presentation
+            presentation: presentation,
+            announcer: announcer
         )
     }
 }
@@ -501,6 +578,7 @@ final class FakeVoiceController: VoiceControlling {
     func toggleCall() { toggleCallCount += 1 }
     func setMuted(_ muted: Bool) {}
     func interrupt() {}
+    func cancelTask() {}
     func shutdown() { shutdownCount += 1 }
 }
 
@@ -536,6 +614,9 @@ final class FakeLifecycleController: DaemonLifecycleControlling, @unchecked Send
     /// Parks the disable until a case releases it, so an interruption can be
     /// observed from inside the step rather than after it.
     var holdDisable: AsyncGate?
+    /// Parks the restart the same way, so a case can read what the app says
+    /// while one is actually running.
+    var holdRestart: AsyncGate?
 
     func stageFailure(_ failure: LifecycleFailure) {
         lock.lock()
@@ -601,6 +682,7 @@ final class FakeLifecycleController: DaemonLifecycleControlling, @unchecked Send
 
     func restartDaemon() async throws -> LifecycleOutcome {
         try record(.restart)
+        await holdRestart?.wait()
         return .restarted(previousPid: 1, currentPid: 2)
     }
 

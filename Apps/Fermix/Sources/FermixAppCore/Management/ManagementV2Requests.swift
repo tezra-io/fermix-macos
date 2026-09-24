@@ -77,9 +77,13 @@ struct ManagementOAuthClientParams: Encodable {
     let provider: String
     let clientId: String
     let redirectPort: Int?
+    /// The account region, required exactly where the client row publishes a
+    /// non-empty `regions` and refused where it publishes none. Nil omits the
+    /// key, so a provider that serves one region is asked for nothing.
+    let region: String?
 
     private enum CodingKeys: String, CodingKey {
-        case provider
+        case provider, region
         case clientId = "client_id"
         case redirectPort = "redirect_port"
     }

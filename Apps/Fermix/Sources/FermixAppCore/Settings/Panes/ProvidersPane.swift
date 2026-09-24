@@ -98,10 +98,7 @@ struct ProvidersPane: View {
             signingIn: model.signingInProvider,
             // Where a provider's key slot is named. The shared model owns the
             // lookup, so this pane and the assistant read one answer.
-            descriptorRows: model.providerDescriptorRows(for: published),
-            selectedAuthModes: Dictionary(uniqueKeysWithValues: published.compactMap { provider in
-                model.providerAuthMode(provider.id).map { (provider.id, $0) }
-            })
+            descriptorRows: model.providerDescriptorRows(for: published)
         )
     }
 
@@ -424,19 +421,22 @@ struct ModelChoiceRow: View {
             value: DescriptorValue.text(model.value(of: row, in: section)),
             model: model, key: key,
             commit: { value in Task { await model.apply(section: section, key: row.key, value: value) } },
-            accessory: AnyView(chooser)
+            accessory: AnyView(chooser),
+            info: row.explanation
         )
     }
 
     private var key: SettingsDraftKey { SettingsDraftKey(section: section, key: row.key) }
 
     private var listedValue: some View {
-        LabeledContent(row.label) {
+        LabeledContent {
             HStack(spacing: Spacing.xs) {
                 Text(DescriptorValue.text(model.value(of: row, in: section)))
                     .foregroundStyle(Palette.secondary.color)
                 chooser
             }
+        } label: {
+            DescriptorRowLabel(row.label, info: row.explanation)
         }
     }
 

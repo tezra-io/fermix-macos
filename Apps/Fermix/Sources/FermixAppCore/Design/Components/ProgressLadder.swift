@@ -6,8 +6,6 @@ public struct ProgressLadder: View {
     private let model: ProgressLadderModel
     private let announcer: any AccessibilityAnnouncing
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     @State private var announced: ProgressLadderModel?
 
     public init(model: ProgressLadderModel, announcer: any AccessibilityAnnouncing = AppKitAccessibilityAnnouncer()) {
@@ -18,7 +16,7 @@ public struct ProgressLadder: View {
     public var body: some View {
         VStack(spacing: 0) {
             ForEach(model.rows) { row in
-                LadderRow(row: row, reduceMotion: reduceMotion)
+                LadderRow(row: row)
             }
         }
         .frame(maxWidth: WindowMetrics.ladderMaxWidth)
@@ -41,7 +39,6 @@ public struct ProgressLadder: View {
 
 private struct LadderRow: View {
     let row: LadderRowModel
-    let reduceMotion: Bool
 
     var body: some View {
         HStack(spacing: Spacing.s) {
@@ -69,13 +66,28 @@ private struct LadderRow: View {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(Palette.accent.color)
         case .active:
-            if reduceMotion {
-                Image(systemName: "circle.dotted").foregroundStyle(Palette.accent.color)
-            } else {
-                ProgressView().controlSize(.small)
-            }
+            ActivityMark()
         case .pending:
             Image(systemName: "circle").foregroundStyle(Palette.secondary.color)
+        }
+    }
+}
+
+/// Work that is running right now, as a mark beside the sentence that names it.
+///
+/// A small native `ProgressView`, and the static dotted circle under Reduce
+/// Motion (redlines §6). The substitution has this one owner, so the ladder's
+/// active row, the toolbar's status sentence and Home's Status row cannot
+/// answer Reduce Motion three ways. It is always decorative: the sentence
+/// beside it carries the meaning, so every caller hides it from accessibility.
+struct ActivityMark: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if reduceMotion {
+            Image(systemName: "circle.dotted").foregroundStyle(Palette.accent.color)
+        } else {
+            ProgressView().controlSize(.small)
         }
     }
 }

@@ -72,7 +72,8 @@ public protocol DaemonQuerying: Sendable {
     func setOAuthClient(
         provider: String,
         clientId: String,
-        redirectPort: Int?
+        redirectPort: Int?,
+        region: String?
     ) async throws -> ManagementPluginOAuthClientRow
     func setPluginSetting(
         name: String,

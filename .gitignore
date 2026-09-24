@@ -24,6 +24,10 @@ Casks/fermix.rb
 # macOS
 .DS_Store
 
+# Per-machine editor and agent tooling state: local settings and the scratch
+# worktrees it checks out. AGENTS.md is the one instruction file that is tracked.
+.claude/
+
 # Local e2e staging output (engine-embedded ad-hoc bundles)
 dist-e2e/
 

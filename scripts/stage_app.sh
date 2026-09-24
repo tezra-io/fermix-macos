@@ -128,6 +128,7 @@ stage() {
   # stable location across both build systems.
   cp "$APP_DIR/Sources/FermixAppCore/Resources/$ICON_NAME" "$OUT_APP/Contents/Resources/$ICON_NAME"
   cp -R "$RESOURCE_BUNDLE" "$OUT_APP/Contents/Resources/$RESOURCE_BUNDLE_NAME"
+  stage_product_configuration
   "$ROOT_DIR/scripts/render_info_plist.sh" "$VERSION" "$BUILD_NUMBER" "$OUT_APP/Contents/Info.plist"
   # SMAppService.agent(plistName:) reads this exact path out of the bundle.
   "$ROOT_DIR/scripts/render_launch_agent_plist.sh" \
@@ -138,6 +139,24 @@ stage() {
   # bug, an empty one is a deliberate state, and verify_staged_app.sh asserts
   # exactly that difference either way.
   mkdir -p "$OUT_APP/$ENGINE_RELATIVE_PATH" "$OUT_APP/$TOOLS_RELATIVE_PATH"
+}
+
+# The configuration the staged app reads at runtime.
+#
+# `FermixAppCore.ProductConfiguration.bundled()` reads Product.json out of the
+# resource bundle, so the copy the build produced is replaced by the document
+# these scripts themselves read (scripts/product_config.sh). Without this step a
+# bundle staged under a development overlay would carry an Info.plist with one
+# identity and a Product.json with another: the app would advertise the
+# development bundle identifier and register the PRODUCTION agent label, which
+# is the collision the overlay exists to remove. verify_staged_app.sh asserts
+# the two agree.
+stage_product_configuration() {
+  local resources
+  resources="$(product_config_resource_root "$OUT_APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
+  [ -f "$resources/Product.json" ] ||
+    fail "the built resource bundle carries no Product.json at $resources"
+  printf '%s\n' "$PRODUCT_CONFIG_DOCUMENT" >"$resources/Product.json"
 }
 
 # The updater framework, embedded where the GUI's runtime search path looks for

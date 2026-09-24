@@ -198,6 +198,180 @@ struct AppModelRoutingTests {
         #expect(model.voice.status == .refused("provider_unavailable"))
     }
 
+    /// `call_ready` is a fact about the call rather than a turn state: it says
+    /// what answered, and leaves the pet on whatever the daemon last reported.
+    @Test("call ready records the engine and the call without moving the mode")
+    func callReadyRecordsTheCall() {
+        let model = negotiatedModel()
+        model.voiceCallBegan()
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+
+        let effects = model.apply(
+            .callReady(
+                RealtimeCallReady(engine: "openai_live", callId: "voice_live:17", captions: true)
+            ),
+            audioIsPlaying: false
+        )
+
+        #expect(effects.isEmpty)
+        #expect(model.voice.engine == "openai_live")
+        #expect(model.voice.callId == "voice_live:17")
+        #expect(model.voice.mode == .listening)
+    }
+
+    /// Captions are concatenated as they arrive. Nothing trims a fragment or
+    /// inserts a space the daemon did not send, and the two speakers may
+    /// overlap, so they share one ordered history rather than two.
+    @Test("captions are appended verbatim, in the order they arrived")
+    func captionsAreAppendedVerbatim() {
+        let model = negotiatedModel()
+        model.voiceCallBegan()
+
+        _ = model.apply(
+            .caption(RealtimeCaption(speaker: .user, delta: "what is ", startMs: 0, endMs: 440)),
+            audioIsPlaying: false
+        )
+        let effects = model.apply(
+            .caption(RealtimeCaption(speaker: .assistant, delta: "the ", startMs: 300, endMs: 520)),
+            audioIsPlaying: false
+        )
+
+        #expect(effects.isEmpty)
+        #expect(model.voice.captions.map(\.delta) == ["what is ", "the "])
+        #expect(model.voice.captions.map(\.speaker) == [.user, .assistant])
+    }
+
+    /// A Live call emits captions for as long as it runs, so the history is
+    /// bounded. The tail is what a surface draws, so the head is what goes.
+    @Test("the caption history keeps the last fragments and drops the oldest")
+    func captionHistoryIsBounded() {
+        let model = negotiatedModel()
+        model.voiceCallBegan()
+
+        for index in 0..<(VoiceState.captionLimit + 5) {
+            _ = model.apply(
+                .caption(
+                    RealtimeCaption(speaker: .user, delta: "\(index) ", startMs: index, endMs: index)
+                ),
+                audioIsPlaying: false
+            )
+        }
+
+        #expect(model.voice.captions.count == VoiceState.captionLimit)
+        #expect(model.voice.captions.first?.delta == "5 ")
+        #expect(model.voice.captions.last?.delta == "\(VoiceState.captionLimit + 4) ")
+    }
+
+    /// A backend delegation reads like a tool call, because that is what it is
+    /// from this side.
+    @Test("a running task reads as tool use and a finished one returns to the microphone")
+    func taskDrivesTheMode() {
+        let model = negotiatedModel()
+        model.voiceCallBegan()
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+
+        let running = RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running)
+        _ = model.apply(.task(running), audioIsPlaying: false)
+        #expect(model.voice.mode == .toolUse)
+        #expect(model.voice.task == running)
+
+        let done = RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .completed, summary: "checked")
+        _ = model.apply(.task(done), audioIsPlaying: false)
+        #expect(model.voice.mode == .listening)
+        #expect(model.voice.task == done)
+    }
+
+    /// A failed delegation is still a delegation that stopped: the microphone
+    /// comes back, and the daemon's own summary is what says it went wrong.
+    @Test("a failed task returns to the microphone and keeps its summary")
+    func failedTaskReturnsToTheMicrophone() {
+        let model = negotiatedModel()
+        model.voiceCallBegan()
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+
+        let failed = RealtimeTask(
+            delegationId: "dg_01H9",
+            revision: 2,
+            status: .failed,
+            summary: "the calendar refused"
+        )
+        _ = model.apply(.task(failed), audioIsPlaying: false)
+
+        #expect(model.voice.mode == .listening)
+        #expect(model.voice.task?.summary == "the calendar refused")
+    }
+
+    /// Work whose status word this build cannot read is work nothing may claim
+    /// has finished, so the surface keeps reporting it as running.
+    @Test("a task status this build cannot read does not end the work")
+    func unknownTaskStatusKeepsWorking() {
+        let model = negotiatedModel()
+        model.voiceCallBegan()
+
+        _ = model.apply(
+            .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .unrecognized("paused"))),
+            audioIsPlaying: false
+        )
+
+        #expect(model.voice.mode == .toolUse)
+    }
+
+    /// A bill is a fact, not a state. What a cost ceiling does to a call
+    /// arrives as its own error, so a usage frame moves nothing, including the
+    /// one that reports the limit was reached.
+    @Test("a usage frame is recorded and changes no state")
+    func usageIsRecordedOnly() {
+        let model = negotiatedModel()
+        model.voiceCallBegan()
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+
+        let usage = RealtimeUsage(
+            status: "limit_reached",
+            voiceSeconds: 64.2,
+            voiceCostCents: 5.35,
+            backendTurns: 2,
+            backendCost: "unknown",
+            accounting: "complete"
+        )
+        let effects = model.apply(.usage(usage), audioIsPlaying: false)
+
+        #expect(effects.isEmpty)
+        #expect(model.voice.usage == usage)
+        #expect(model.voice.mode == .listening)
+        #expect(model.voice.callActive)
+    }
+
+    /// Everything the daemon reports about a call belongs to that call: the
+    /// next one starts with no transcript, no delegation and no bill of its
+    /// own, rather than showing the last call's.
+    @Test("a new call does not inherit the last call's captions, task, or bill")
+    func aNewCallStartsClean() {
+        let model = negotiatedModel()
+        model.voiceCallBegan()
+        _ = model.apply(
+            .callReady(RealtimeCallReady(engine: "openai_live", callId: "voice_live:17", captions: true)),
+            audioIsPlaying: false
+        )
+        _ = model.apply(
+            .caption(RealtimeCaption(speaker: .user, delta: "what is ", startMs: 0, endMs: 1)),
+            audioIsPlaying: false
+        )
+        _ = model.apply(
+            .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running)),
+            audioIsPlaying: false
+        )
+        _ = model.apply(.usage(RealtimeUsage(voiceCostCents: 5.35)), audioIsPlaying: false)
+        model.voiceCallEnded()
+
+        model.voiceCallBegan()
+
+        #expect(model.voice.engine == nil)
+        #expect(model.voice.callId == nil)
+        #expect(model.voice.captions.isEmpty)
+        #expect(model.voice.task == nil)
+        #expect(model.voice.usage == nil)
+    }
+
     @Test("a transcript delta changes no state")
     func transcriptDeltasAreInert() {
         let model = negotiatedModel()

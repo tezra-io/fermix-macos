@@ -134,9 +134,12 @@ struct StatusMenuTests {
             }
         }
 
+        // The three transaction lines are whole sentences the window also
+        // draws, so they are the ones most likely to outgrow the menu.
         let lines: [StatusLine] = [
             .running(uptimeSeconds: 3 * 24 * 60 * 60), .running(uptimeSeconds: nil),
-            .starting, .setupRequired, .restartPending, .notRunning
+            .starting, .setupRequired, .restartPending, .notRunning,
+            .transaction(.restart), .transaction(.enable), .transaction(.disable)
         ]
         for line in lines {
             #expect(line.text.count <= Self.rowCharacterCap, "\(line.text)")

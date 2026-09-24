@@ -14,10 +14,28 @@ curl() {
 ps() { cat "$DEV_E2E_TEST_CONTROL/executable"; }
 # The keychain listing: one Developer ID identity unless a case says otherwise.
 security() { cat "$DEV_E2E_TEST_CONTROL/identities"; }
+# Background Task Management's record, which is empty unless a case writes one.
+sfltool() { cat "$DEV_E2E_TEST_CONTROL/btm" 2>/dev/null || true; }
+# The toolchain this case's Mac has: a selected Xcode on the release's own SDK
+# unless a case says otherwise. vtool's two verbs are the whole of what the loop
+# asks of it, and the rewrite is an event so a case can prove where it falls.
+xcode-select() { cat "$DEV_E2E_TEST_CONTROL/developer-dir"; }
+xcrun() {
+  case "$*" in
+    '--show-sdk-version') cat "$DEV_E2E_TEST_CONTROL/default-sdk-version" ;;
+    '--sdk '*' --show-sdk-version') printf '26.5\n' ;;
+    'vtool -show-build '*) printf '    minos 15.0\n      sdk 15.0\n' ;;
+    'vtool -set-build-version macos '*) event "stamp ${!###*/} $4 $5" ;;
+    *) echo "unexpected xcrun $*" >&2; return 2 ;;
+  esac
+}
 IDENTITY='Developer ID Application: Fermix Test (TEAM123456)'
 
 launchctl() {
   local label="${2##*/}" file
+  # Every service this loop looks at, so a case can prove which identity's
+  # registrations it reads.
+  printf '%s\n' "$label" >>"$DEV_E2E_TEST_CONTROL/inspected"
   case "$label" in
     "$AGENT_LABEL") file="$DEV_E2E_TEST_CONTROL/agent" ;;
     "$APP_LABEL") file="$DEV_E2E_TEST_CONTROL/login" ;;
@@ -61,8 +79,9 @@ open() {
   event open
   rm -f "$DEV_E2E_TEST_CONTROL/health-checked"
   printf '%s %s\n' "$APP/Contents/MacOS/$GUI_EXECUTABLE" "$DEV_FLAG" >"$DEV_E2E_TEST_CONTROL/gui"
-  if [ "${4:-}" = '--register-background-service' ]; then
-    record_uses_dev_home || fail "GUI registration received the wrong bootstrap home"
+  if [ "${4:-}" = '--register-background-service' ] && [ ! -f "$DEV_E2E_TEST_CONTROL/btm" ]; then
+    [ "$(plutil -extract fermix_home raw -o - "$RECORD" 2>/dev/null)" = "$DEV_HOME" ] ||
+      fail "GUI registration received the wrong bootstrap home"
     event register
     printf 'program = %s/Contents/MacOS/FermixAgent\n' "$APP" >"$DEV_E2E_TEST_CONTROL/agent"
     python3 -c 'import socket,sys;s=socket.socket(socket.AF_UNIX);s.bind(sys.argv[1]);s.close()' "$DEV_HOME/daemon.sock"
@@ -70,24 +89,26 @@ open() {
   fi
 }
 
+# The heavy work replaced, and the paths pointed inside this case's work
+# directory. RECORD_DIR and RECORD are deliberately NOT overridden: they are
+# what the script derives from the product configuration and the account, and
+# the account is this case's own (see the --case entry below).
 setup_case() {
-  WORK_DIR="$(mktemp -d /private/tmp/fermix-dev-loop-test.XXXXXX)"
-  trap 'rm -rf "$WORK_DIR"' EXIT
   ROOT_DIR="$WORK_DIR/repo"
   APP="$ROOT_DIR/Apps/Fermix/dist-e2e/$APP_BUNDLE_NAME"
   DEV_HOME="$WORK_DIR/dev home"
   ENGINE_SRC="$WORK_DIR/engine"
   ENGINE_TREE="$ENGINE_SRC/_build/prod/rel/fermix_app_engine"
-  RECORD_DIR="$WORK_DIR/records"
-  RECORD="$RECORD_DIR/launcher.json"
-  RECORD_BACKUP="$RECORD_DIR/launcher.json.pre-dev"
   export DEV_E2E_TEST_CONTROL="$WORK_DIR/control" DEV_E2E_TEST_EVENTS="$WORK_DIR/events"
   export DEV_E2E_TEST_APP="$APP"
   export DEV_E2E_TEST_SOURCE="$TEST_SOURCE" DEV_E2E_TEST_LABEL="$AGENT_LABEL"
   export DEV_E2E_TEST_IDENTITY="$IDENTITY"
-  mkdir -p "$ROOT_DIR/scripts" "$DEV_E2E_TEST_CONTROL" "$RECORD_DIR" "$DEV_HOME" "$ENGINE_SRC/scripts/dev"
+  mkdir -p "$ROOT_DIR/scripts" "$DEV_E2E_TEST_CONTROL" "$DEV_HOME" "$ENGINE_SRC/scripts/dev"
   : >"$DEV_E2E_TEST_EVENTS"
+  : >"$DEV_E2E_TEST_CONTROL/inspected"
   write_identities "$IDENTITY"
+  printf '%s\n' /Applications/Xcode.app/Contents/Developer >"$DEV_E2E_TEST_CONTROL/developer-dir"
+  printf '26.5\n' >"$DEV_E2E_TEST_CONTROL/default-sdk-version"
   write_stubs
   "$ROOT_DIR/scripts/stage_app.sh"
   : >"$DEV_E2E_TEST_EVENTS"
@@ -123,6 +144,7 @@ STUB
 #!/usr/bin/env bash
 set -euo pipefail
 echo stage >>"$DEV_E2E_TEST_EVENTS"
+printf '%s\n' "${SDKROOT:-}" >"$DEV_E2E_TEST_CONTROL/staged-sdk"
 mkdir -p "$DEV_E2E_TEST_APP/Contents/MacOS" "$DEV_E2E_TEST_APP/Contents/Library/LaunchAgents"
 python3 -c 'import pathlib,plistlib,sys;pathlib.Path(sys.argv[1]).write_bytes(plistlib.dumps({"CFBundleVersion":sys.argv[2]}))' \
   "$DEV_E2E_TEST_APP/Contents/Info.plist" "${2:-1}"
@@ -159,9 +181,26 @@ owned_service() {
   printf '%s/Contents/MacOS/FermixAgent\n' "$APP" >"$DEV_E2E_TEST_CONTROL/helper"
   python3 -c 'import socket,sys;s=socket.socket(socket.AF_UNIX);s.bind(sys.argv[1]);s.close()' "$DEV_HOME/daemon.sock"
   touch "$DEV_E2E_TEST_CONTROL/live"
+  mkdir -p "$RECORD_DIR"
   printf '{"fermix_home":"%s","schema_version":1}' "$DEV_HOME" >"$RECORD"
 }
 
+# The installed app's value for a configuration key, read with the overlay
+# unset. Nothing here restates an identity: both halves come from the one
+# reader, so a case comparing them fails the day the overlay stops overriding
+# a key rather than the day someone edits a literal.
+production_config() {
+  (
+    unset PRODUCT_CONFIG_OVERLAY
+    # shellcheck source=scripts/product_config.sh
+    source "$TEST_SOURCE/scripts/product_config.sh"
+    product_config "$1"
+  )
+}
+
+# A service registered under the DEVELOPMENT label that some other bundle owns.
+# The installed app's own label is never looked at, so this is the only
+# ownership question the loop can ask.
 case_foreign() {
   printf 'program = /Applications/Fermix.app/Contents/MacOS/FermixAgent\n' >"$DEV_E2E_TEST_CONTROL/agent"
   if (up --fast) >"$WORK_DIR/refusal" 2>&1; then fail "accepted another bundle's service"; fi
@@ -228,19 +267,40 @@ case_manual_open() {
 
 case_down() {
   owned_service
-  printf 'original record' >"$RECORD_BACKUP"
   down >/dev/null
   [ "$(cat "$DEV_E2E_TEST_EVENTS")" = $'unregister\nquit-gui\nstop' ] || fail "down did not unregister before shutdown"
-  [ "$(cat "$RECORD")" = 'original record' ] || fail "original record was not restored"
+  # The record is the development identity's own file. There is nothing of
+  # anyone else's to put back and nothing to remove, so the bundle can be
+  # opened again without another up.
+  [ "$(plutil -extract fermix_home raw -o - "$RECORD")" = "$DEV_HOME" ] ||
+    fail "down changed the development identity's own record"
 }
 
+# The port is written into the staged development plist and nowhere else. The
+# comparison is the installed app's own plist, rendered with the overlay unset,
+# because that is the file this loop must not have changed the shape of.
+#
+# The PATH is the opposite case: it is rendered into every agent plist, so the
+# development bundle keeps it while it adds its port, and the installed one
+# carries it without one.
 case_port() {
   stage_and_sign "$IDENTITY" >/dev/null
-  local production="$WORK_DIR/production.plist"
-  "$TEST_SOURCE/scripts/render_launch_agent_plist.sh" "$production"
+  local production="$WORK_DIR/production.plist" expected_path
+  expected_path="$(product_config agent_search_path)"
+  [ "$(plutil -extract EnvironmentVariables.PORT raw -o - \
+        "$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist")" = "$PORT" ] ||
+    fail "the development agent plist lost its port"
+  [ "$(plutil -extract EnvironmentVariables.PATH raw -o - \
+        "$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist")" = "$expected_path" ] ||
+    fail "the development agent plist lost its PATH when the port was added"
+  ( unset PRODUCT_CONFIG_OVERLAY; "$TEST_SOURCE/scripts/render_launch_agent_plist.sh" "$production" )
   if plutil -extract EnvironmentVariables.PORT raw -o - "$production" >/dev/null 2>&1; then
     fail "the production agent inherited the development port"
   fi
+  [ "$(plutil -extract EnvironmentVariables.PATH raw -o - "$production")" = "$expected_path" ] ||
+    fail "the installed app's agent plist declares no PATH"
+  [ "$(plutil -extract Label raw -o - "$production")" != "$AGENT_LABEL" ] ||
+    fail "the installed app's agent plist carries the development label"
 }
 
 case_build_version() {
@@ -320,40 +380,156 @@ case_profile_foreign() {
   [ "$(cat "$DEV_HOME/config.toml")" = $'[fermix_core]\nprofile = "general"' ] || fail "edited the refused config"
 }
 
-write_escaped_dev_record() {
-  python3 -c 'import json,sys;print(json.dumps({"fermix_home":sys.argv[1],"schema_version":1}).replace("/", "\\/"))' \
-    "$DEV_HOME" >"$RECORD"
+# The bundle this loop stages is a different app to macOS than the installed
+# one: a different bundle name, and a launchd plist that registers a different
+# label for a different bundle identifier. Every value is compared with the
+# installed app's own, so this fails the day the overlay stops overriding one.
+case_development_identity() {
+  local plist
+  stage_and_sign "$IDENTITY" >/dev/null
+  plist="$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
+
+  [ "$(basename "$APP")" != "$(production_config app_bundle_name)" ] ||
+    fail "staged the installed app's bundle name"
+  [ "$APP_LABEL" != "$(production_config bundle_identifier)" ] ||
+    fail "staged the installed app's bundle identifier"
+  [ "$AGENT_LABEL" != "$(production_config agent_service_label)" ] ||
+    fail "staged the installed app's agent label"
+  [ "$(plutil -extract Label raw -o - "$plist")" = "$AGENT_LABEL" ] ||
+    fail "the staged agent plist registers another label"
+  [ "$(plutil -extract AssociatedBundleIdentifiers.0 raw -o - "$plist")" = "$APP_LABEL" ] ||
+    fail "the staged agent plist names another bundle"
 }
 
-case_escaped_record() {
-  write_escaped_dev_record
-  point_record_at_dev_home >/dev/null
-  [ ! -e "$RECORD_BACKUP" ] || fail "mistook escaped dev-home JSON for another home"
-  printf 'original record' >"$RECORD_BACKUP"
-  write_escaped_dev_record
-  point_record_at_dev_home >/dev/null
-  [ "$(cat "$RECORD_BACKUP")" = 'original record' ] || fail "replaced the original backup"
+# There is one launcher.json per support folder and the development identity
+# has its own, so the installed app's record is a file this loop has no name
+# for: `up` writes only inside its own folder and leaves the other untouched.
+case_installed_record_untouched() {
+  local installed
+  installed="$HOME/Library/Application Support/$(production_config support_directory_name)/launcher.json"
+  mkdir -p "$(dirname "$installed")"
+  printf 'the installed app record' >"$installed"
+  owned_service
+  up --fast >/dev/null
+
+  [ "$RECORD" != "$installed" ] || fail "the loop writes the installed app's record"
+  [ "$(cat "$installed")" = 'the installed app record' ] || fail "rewrote the installed app's record"
+  [ "$(plutil -extract fermix_home raw -o - "$RECORD")" = "$DEV_HOME" ] ||
+    fail "the development identity's record does not name the dev home"
 }
 
-case_escaped_down() {
-  write_escaped_dev_record
-  down >/dev/null
-  [ ! -e "$RECORD" ] || fail "left an escaped dev-home record behind"
+# Which registrations the loop reads. Both development principals are
+# inspected, so the assertion is not vacuous, and neither installed one is: a
+# loop that reads another bundle's registration is a loop that can act on it.
+case_installed_labels_untouched() {
+  local inspected
+  owned_service
+  up --fast >/dev/null
+  inspected="$(sort -u "$DEV_E2E_TEST_CONTROL/inspected")"
+
+  printf '%s\n' "$inspected" | grep -Fqx "$AGENT_LABEL" ||
+    fail "the development agent was never inspected"
+  printf '%s\n' "$inspected" | grep -Fqx "$APP_LABEL" ||
+    fail "the development login item was never inspected"
+  ! printf '%s\n' "$inspected" | grep -Fqx "$(production_config agent_service_label)" ||
+    fail "inspected the installed app's agent"
+  ! printf '%s\n' "$inspected" | grep -Fqx "$(production_config bundle_identifier)" ||
+    fail "inspected the installed app's login item"
 }
 
-case_invalid_record() {
-  local malformed
-  for malformed in '{invalid' '{"fermix_home":27,"schema_version":1}'; do
-    printf '%s' "$malformed" >"$RECORD"
-    if (point_record_at_dev_home) >"$WORK_DIR/refusal" 2>&1; then fail "accepted a malformed bootstrap record"; fi
-    [ "$(cat "$RECORD")" = "$malformed" ] || fail "changed the malformed record"
-    [ ! -e "$RECORD_BACKUP" ] || fail "backed up malformed JSON as another home"
-    if (down) >"$WORK_DIR/refusal" 2>&1; then fail "down ignored a malformed bootstrap record"; fi
-    [ "$(cat "$RECORD")" = "$malformed" ] || fail "removed malformed JSON"
-  done
+# The SDK the app is staged against. A Mac with only the Command Line Tools, once
+# they default to an SDK newer than the release's, cannot compile SwiftUI at
+# all, so staging is pointed at the release's SDK beside it and both executables
+# are restamped before signing; every other Mac is left exactly as it was.
+command_line_tools() {
+  local tools="$WORK_DIR/CommandLineTools"
+  mkdir -p "$tools/SDKs"
+  printf '%s\n' "$tools" >"$DEV_E2E_TEST_CONTROL/developer-dir"
+  printf '%s\n' "$1" >"$DEV_E2E_TEST_CONTROL/default-sdk-version"
+  printf '%s\n' "$tools"
+}
+
+case_toolchain_xcode() {
+  owned_service
+  up --fast >/dev/null
+  [ -z "$(cat "$DEV_E2E_TEST_CONTROL/staged-sdk")" ] || fail "a selected Xcode was pointed at another SDK"
+  ! grep -q '^stamp ' "$DEV_E2E_TEST_EVENTS" || fail "restamped executables a selected Xcode built"
+}
+
+case_toolchain_current_tools() {
+  owned_service
+  command_line_tools 26.5 >/dev/null
+  up --fast >/dev/null
+  [ -z "$(cat "$DEV_E2E_TEST_CONTROL/staged-sdk")" ] || fail "overrode a default SDK that builds the app"
+  ! grep -q '^stamp ' "$DEV_E2E_TEST_EVENTS" || fail "restamped executables built on the default SDK"
+}
+
+case_toolchain_newer_tools() {
+  local tools expected
+  owned_service
+  tools="$(command_line_tools 27.0)"
+  mkdir -p "$tools/SDKs/MacOSX26.sdk"
+  up --fast >/dev/null
+  [ "$(cat "$DEV_E2E_TEST_CONTROL/staged-sdk")" = "$tools/SDKs/MacOSX26.sdk" ] ||
+    fail "staged against '$(cat "$DEV_E2E_TEST_CONTROL/staged-sdk")', not the release's SDK"
+  # Stamped after staging and before signing, both executables, keeping the
+  # deployment target the build gave them.
+  expected=$'unregister\nquit-gui\nstop\nstage\n'"stamp $GUI_EXECUTABLE 15.0 26.5"$'\n'"stamp $AGENT_EXECUTABLE 15.0 26.5"$'\nsign\nverify\nopen\nregister\nreopen'
+  [ "$(cat "$DEV_E2E_TEST_EVENTS")" = "$expected" ] || fail "incorrect order: $(cat "$DEV_E2E_TEST_EVENTS")"
+}
+
+case_toolchain_no_buildable_sdk() {
+  local output
+  owned_service
+  command_line_tools 27.0 >/dev/null
+  if output="$(up --fast 2>&1)"; then fail "staged with no SDK that can build the app"; fi
+  [[ "$output" == *"macOS 26 SDK is not installed"* ]] || fail "the refusal did not name the missing SDK: $output"
+  [ ! -s "$DEV_E2E_TEST_EVENTS" ] || fail "mutated before refusing for a missing SDK"
+}
+
+# An unfinished lifecycle record from the last run makes the opened GUI refuse
+# the registration, so `up` acknowledges it, after it has unregistered and
+# stopped everything itself and never before, and only the development
+# identity's own journal.
+case_interrupted_transaction() {
+  local installed
+  installed="$HOME/Library/Application Support/$(production_config support_directory_name)"
+  owned_service
+  mkdir -p "$installed"
+  printf '{"kind":"enable","phase":"mutate"}' >"$JOURNAL"
+  printf '{"kind":"restart","phase":"drain"}' >"$installed/lifecycle-journal.json"
+  up --fast >/dev/null
+  [ ! -e "$JOURNAL" ] || fail "left the development identity's unfinished record in place"
+  [ -f "$installed/lifecycle-journal.json" ] || fail "removed the installed app's lifecycle journal"
+  [ "$(sed -n 1,3p "$DEV_E2E_TEST_EVENTS" | paste -sd, -)" = 'unregister,quit-gui,stop' ] ||
+    fail "acknowledged the record before unregistering and stopping"
+}
+
+# The operator has the app's background switch off in System Settings. macOS then
+# refuses every registration, so no job ever appears, and the loop says which
+# switch to turn on rather than reporting a bare "no job".
+case_agent_disallowed() {
+  local output
+  owned_service
+  cat >"$DEV_E2E_TEST_CONTROL/btm" <<BTM
+                 Name: FermixAgent
+          Disposition: [enabled, disallowed, notified] (0x9)
+           Identifier: 8.$AGENT_LABEL
+BTM
+  if output="$(up --fast 2>&1)"; then fail "reported up with the agent refused"; fi
+  [[ "$output" == *"Allow in the Background"* ]] || fail "the refusal did not name the switch: $output"
+  [[ "$output" == *"up --fast"* ]] || fail "the refusal did not say how to go on: $output"
 }
 
 if [ "${1:-}" = '--case' ]; then
+  WORK_DIR="$(mktemp -d /private/tmp/fermix-dev-loop-test.XXXXXX)"
+  trap 'rm -rf "$WORK_DIR"' EXIT
+  # The account this case runs in. dev_e2e.sh derives the development
+  # identity's support folder from the account at source time, so the fake
+  # account exists before it is sourced and every case then reads the record
+  # path the script really computes rather than one the harness chose.
+  export HOME="$WORK_DIR/account"
+  mkdir -p "$HOME"
   # shellcheck source=scripts/dev_e2e.sh
   source "$TEST_SOURCE/scripts/dev_e2e.sh"
   # Source defines these boundaries; the test replaces their heavy work.
@@ -371,9 +547,9 @@ if [ "${1:-}" = '--case' ]; then
     port) case_port ;;
     build_version) case_build_version ;;
     invalid_version) case_invalid_version ;;
-    escaped_record) case_escaped_record ;;
-    escaped_down) case_escaped_down ;;
-    invalid_record) case_invalid_record ;;
+    development_identity) case_development_identity ;;
+    installed_record_untouched) case_installed_record_untouched ;;
+    installed_labels_untouched) case_installed_labels_untouched ;;
     no_identity) case_no_identity ;;
     two_identities) case_two_identities ;;
     signed_with_identity) case_signed_with_identity ;;
@@ -382,13 +558,19 @@ if [ "${1:-}" = '--case' ]; then
     profile_fresh_home) case_profile_fresh_home ;;
     profile_appended) case_profile_appended ;;
     profile_foreign) case_profile_foreign ;;
+    interrupted_transaction) case_interrupted_transaction ;;
+    agent_disallowed) case_agent_disallowed ;;
+    toolchain_xcode) case_toolchain_xcode ;;
+    toolchain_current_tools) case_toolchain_current_tools ;;
+    toolchain_newer_tools) case_toolchain_newer_tools ;;
+    toolchain_no_buildable_sdk) case_toolchain_no_buildable_sdk ;;
     *) fail "unknown test case: $2" ;;
   esac
   exit
 fi
 
 failed=0
-for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version escaped_record escaped_down invalid_record no_identity two_identities signed_with_identity version_owner version_foreign profile_fresh_home profile_appended profile_foreign; do
+for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version development_identity installed_record_untouched installed_labels_untouched no_identity two_identities signed_with_identity version_owner version_foreign profile_fresh_home profile_appended profile_foreign interrupted_transaction agent_disallowed toolchain_xcode toolchain_current_tools toolchain_newer_tools toolchain_no_buildable_sdk; do
   if bash "$0" --case "$scenario"; then echo "ok $scenario"; else failed=1; echo "FAILED $scenario" >&2; fi
 done
 exit "$failed"

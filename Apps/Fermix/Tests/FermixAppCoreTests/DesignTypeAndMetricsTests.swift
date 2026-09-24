@@ -206,15 +206,69 @@ struct DesignTypeAndMetricsTests {
         #expect(OnboardingMetrics.horizontalPadding == 100)
     }
 
-    /// M34 §3.1: the sidebar column is a range the system lays out, not a fixed
-    /// width the app draws.
-    @Test("the sidebar column is 180 minimum, 200 ideal, 260 maximum")
-    func sidebarColumn() {
-        #expect(WindowMetrics.sidebarMinWidth == 180)
-        #expect(WindowMetrics.sidebarIdealWidth == 200)
-        #expect(WindowMetrics.sidebarMaxWidth == 260)
-        #expect(WindowMetrics.sidebarMinWidth < WindowMetrics.sidebarIdealWidth)
-        #expect(WindowMetrics.sidebarIdealWidth < WindowMetrics.sidebarMaxWidth)
+    /// Redlines §5.7: the app sidebar is the rail, one fixed column of symbols.
+    /// It has to clear the window's traffic lights, which sit over its head, and
+    /// the mark and a symbol have to fit inside it with room to spare.
+    ///
+    /// 96 rather than the first cut's 76 (owner, 2026-09-20: the lights "feel
+    /// cutoff because of the reduced left pane width"). Measured on the running
+    /// window the cluster spans x 19 to x 78, so at 76 the green light straddled
+    /// the rail's trailing edge and was drawn half on black and half on the
+    /// ground. Clearing the lights is therefore not enough on its own, and the
+    /// gate asserts what the owner actually saw: the cluster has to sit on the
+    /// black with the same margin either side of it.
+    static let trafficLights = (leading: 19.0, trailing: 78.0)
+
+    @Test("the rail is one fixed 96 point column that centres the traffic lights on it")
+    func railColumn() {
+        #expect(WindowMetrics.railWidth == 96)
+        #expect(WindowMetrics.railSymbolSize == 17)
+        #expect(WindowMetrics.railRowHeight == 30)
+
+        let clearance = WindowMetrics.railWidth - Self.trafficLights.trailing
+        #expect(clearance > 0, "the rail is narrower than the traffic lights over it")
+        #expect(abs(clearance - Self.trafficLights.leading) <= 1, "the cluster is off centre by \(clearance - 19)")
+
+        #expect(WindowMetrics.railSymbolSize < WindowMetrics.railRowHeight)
+    }
+
+    /// What the rail keeps clear at its foot, and the radius the body's two
+    /// leading corners are cut to (redlines §5.7).
+    ///
+    /// The gear is pinned by a spacer measured against the column's *full*
+    /// height. Measured against the height the list is handed it sat 59 points
+    /// short of the bottom edge, which is the titlebar safe-area inset the proxy
+    /// had already taken off; measured against the full height with no inset it
+    /// would sit on the edge itself. 12 leaves it 19 points clear, which is what
+    /// the traffic lights sit off the top, so the column has one margin at both
+    /// ends.
+    ///
+    /// The corner radius is this window's own, measured, and deliberately not
+    /// `Radius.window`: 14 is the artboards' number for a drawn panel, and these
+    /// two corners sit on the window's own top and bottom edges one rail width
+    /// in from the corners macOS rounds there. Two curves on one edge read as a
+    /// mistake.
+    @Test("the rail's foot and the body's corners take the window's own measurements")
+    func railFootAndBodyCorners() throws {
+        #expect(WindowMetrics.railBottomInset == 12)
+        #expect(WindowMetrics.railBottomInset > 0, "the pinned row sits on the column's bottom edge")
+        #expect(
+            WindowMetrics.railBottomInset < WindowMetrics.railRowHeight,
+            "the inset is deeper than a row, so it hides the row rather than clearing the edge"
+        )
+
+        // The number only means anything where the column is measured, so the
+        // gate follows it there: the full height, with this taken back off.
+        let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
+        let text = try #require(window.first?.text)
+        #expect(text.contains("proxy.size.height + proxy.safeAreaInsets.top - WindowMetrics.railBottomInset"))
+
+        #expect(WindowMetrics.bodyCornerRadius == 20)
+        #expect(WindowMetrics.bodyCornerRadius != Radius.window, "the body took the artboards' panel radius")
+        #expect(
+            WindowMetrics.bodyCornerRadius < WindowMetrics.railWidth,
+            "a corner wider than the rail would round away part of the body's own edge"
+        )
     }
 
     /// One floor, not the pair a separate settings window allowed: decision D3
@@ -226,7 +280,7 @@ struct DesignTypeAndMetricsTests {
         // The floor has to clear the settings pane column plus a content column
         // narrower than its own 640 pt ceiling.
         #expect(WindowMetrics.mainMinimumSize.width > WindowMetrics.settingsSidebarWidth + 400)
-        #expect(WindowMetrics.mainMinimumSize.width > WindowMetrics.sidebarMaxWidth)
+        #expect(WindowMetrics.mainMinimumSize.width > WindowMetrics.railWidth + 400)
         #expect(WindowMetrics.mainDefaultSize.width > WindowMetrics.mainMinimumSize.width)
         #expect(WindowMetrics.mainDefaultSize.height > WindowMetrics.mainMinimumSize.height)
     }

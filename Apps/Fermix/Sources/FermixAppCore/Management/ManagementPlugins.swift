@@ -11,6 +11,23 @@ public struct ManagementPluginSetting: Decodable, Equatable, Sendable {
     public let label: String
     public let value: String?
     public let required: Bool
+    /// Which control the manifest asked for. Absent on the wire is `text`: an
+    /// older protocol-2 engine published no kind and meant a free-text field.
+    public let kind: ManagementPluginSettingKind
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        key = try container.decode(String.self, forKey: .key)
+        label = try container.decode(String.self, forKey: .label)
+        value = try container.decodeIfPresent(String.self, forKey: .value)
+        required = try container.decode(Bool.self, forKey: .required)
+        kind = try container.decodeIfPresent(ManagementPluginSettingKind.self, forKey: .kind) ?? .text
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key, label, value, required, kind
+    }
 }
 
 /// One access profile the plugin's manifest publishes (M34 §5.6).
@@ -104,6 +121,13 @@ public struct ManagementPlugin: Decodable, Equatable, Sendable {
     }
 }
 
+/// One account region a sign-in client can be bound to, with the daemon's own
+/// label for it. The id is what `plugins.oauth_client.set` takes back.
+public struct ManagementPluginOAuthRegion: Decodable, Equatable, Sendable {
+    public let id: String
+    public let label: String
+}
+
 /// An OAuth client the operator registered for a provider. The client secret is
 /// never here: only its independent presence accompanies the public client ID.
 public struct ManagementPluginOAuthClient: Decodable, Equatable, Identifiable, Sendable {
@@ -113,13 +137,24 @@ public struct ManagementPluginOAuthClient: Decodable, Equatable, Identifiable, S
     public let clientId: String?
     /// Nil means an earlier protocol-2 engine did not publish this fact.
     public let secretPresent: Bool?
+    /// The account region this client signs in to, or nil while none is chosen.
+    /// It is part of the client rather than something a first call discovers,
+    /// because it selects the token audience.
+    public let region: String?
+    /// The regions this provider offers, with the daemon's own labels. Empty is
+    /// a provider that serves one region, which is also what an older
+    /// protocol-2 engine publishing no list means: never a picker that failed
+    /// to arrive.
+    public let regions: [ManagementPluginOAuthRegion]
 
     public init(
         provider: String,
         configured: Bool,
         redirectPort: Int?,
         clientId: String? = nil,
-        secretPresent: Bool? = nil
+        secretPresent: Bool? = nil,
+        region: String? = nil,
+        regions: [ManagementPluginOAuthRegion] = []
     ) {
         precondition(!provider.isEmpty, "an OAuth client names its provider")
         self.provider = provider
@@ -127,14 +162,42 @@ public struct ManagementPluginOAuthClient: Decodable, Equatable, Identifiable, S
         self.redirectPort = redirectPort
         self.clientId = clientId
         self.secretPresent = secretPresent
+        self.region = region
+        self.regions = regions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        self.init(
+            provider: try container.decode(String.self, forKey: .provider),
+            configured: try container.decode(Bool.self, forKey: .configured),
+            redirectPort: try container.decodeIfPresent(Int.self, forKey: .redirectPort),
+            clientId: try container.decodeIfPresent(String.self, forKey: .clientId),
+            secretPresent: try container.decodeIfPresent(Bool.self, forKey: .secretPresent),
+            region: try container.decodeIfPresent(String.self, forKey: .region),
+            regions: try container.decodeIfPresent(
+                [ManagementPluginOAuthRegion].self,
+                forKey: .regions
+            ) ?? []
+        )
     }
 
     /// The provider, which is what a client is addressed by everywhere: the
     /// list, `plugins.oauth_client.set`, and the sheet the row opens.
     public var id: String { provider }
 
+    /// The daemon's own label for the region this client is bound to, where the
+    /// offered list names one. Written once because both places a client's
+    /// state is drawn say it, and two lookups could disagree.
+    public var regionLabel: String? {
+        guard let region else { return nil }
+
+        return regions.first { $0.id == region }?.label
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case provider, configured
+        case provider, configured, region, regions
         case redirectPort = "redirect_port"
         case clientId = "client_id"
         case secretPresent = "secret_present"
