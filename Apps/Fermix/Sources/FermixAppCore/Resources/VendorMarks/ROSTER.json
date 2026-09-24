@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "recorded_on": "2026-09-20",
+  "recorded_on": "2026-09-23",
   "note": "The vendored roster snapshot. PROVENANCE.json must carry one record per key here, and roster_source.roster_sha256 pins these bytes, so a vendor cannot be dropped from either file alone. The upstream cross-check (vendor_marks.py check --fermix-repo <checkout>) is what re-vendors it when fermix moves.",
   "source": {
     "repository": "https://github.com/tezra-io/fermix",
@@ -12,13 +12,13 @@
     "channels": {
       "path": "apps/fermix_web/lib/fermix_web_web/live/setup_live.ex",
       "symbol": "the channels form map",
-      "sha256": "5e24466c31d2c75503b9b11c27d6dfda5f790640453f506230c266ac91c9fc42"
+      "sha256": "5c5eaea2f241dcbfaf8878d23ed33b779d2728224ca506954ffacc2090100154"
     },
     "plugins": {
       "path": "apps/fermix_core/priv/plugins/index.json",
       "symbol": "the static plugin catalog",
-      "sha256": "37c907a1dfb54473856619602d84802e31d02515e9cf14e79858e1bcc59b7988",
-      "generated_at": "2026-09-19T15:17:56Z",
+      "sha256": "cbc0a89c6105642c73815291417387162236d1fbf0bf013903f12760597514e4",
+      "generated_at": "2026-09-22T01:48:43Z",
       "bundled": {
         "path": "apps/fermix_core/priv/plugins/catalog.json",
         "symbol": "the plugins the engine ships inside itself, which Registry.list unions into every install",
