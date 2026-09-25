@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -105,6 +106,24 @@ struct AppModelRoutingTests {
         #expect(effects == [.play(base64: "AAAA")])
         #expect(model.voice.mode == .speaking)
         #expect(model.voice.audioActive)
+    }
+
+    /// A reply arrives as tens of chunks a second, and every publish redraws the
+    /// window, the status item and the pet. Only the first chunk changes the
+    /// voice state, so only the first may publish.
+    @Test("audio chunks after the first publish nothing")
+    func laterAudioDeltasPublishNothing() {
+        let model = negotiatedModel()
+        model.voiceCallBegan()
+        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+
+        var published = 0
+        let subscription = model.objectWillChange.sink { _ in published += 1 }
+        defer { subscription.cancel() }
+        let effects = model.apply(.audioDelta(base64: "BBBB"), audioIsPlaying: true)
+
+        #expect(effects == [.play(base64: "BBBB")])
+        #expect(published == 0)
     }
 
     /// The daemon returns to listening as soon as it stops generating, while

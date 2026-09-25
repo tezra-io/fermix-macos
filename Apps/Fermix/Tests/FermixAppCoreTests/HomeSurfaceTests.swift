@@ -748,6 +748,33 @@ struct HomeSurfaceTests {
         #expect(!harness.model.openAtLogin)
     }
 
+    /// Home appearing, every other route opening and every finished
+    /// transaction each ask for a refresh, and quick clicks used to stack a
+    /// full set of daemon reads per click. Requests that arrive while one runs
+    /// share one more read, which starts after they asked, so none of them is
+    /// answered with data read before its request.
+    @Test("refreshes asked for while one runs share one more read")
+    func overlappingRefreshesCoalesce() async throws {
+        let harness = try HomeHarness()
+        let reply = PausedSetupReply()
+        harness.gateway.setupStateGate = { await reply.wait() }
+        defer { reply.released = true }
+
+        let first = Task { await harness.model.refresh() }
+        try await reply.waitUntilEntered()
+        let second = Task { await harness.model.refresh() }
+        let third = Task { await harness.model.refresh() }
+        for _ in 0..<50 { await Task.yield() }
+
+        harness.gateway.setupStateGate = nil
+        reply.released = true
+        await first.value
+        await second.value
+        await third.value
+
+        #expect(harness.gateway.calls.filter { $0 == .negotiate }.count == 2)
+    }
+
     /// Drawing the switches asks macOS nothing (2026-09-24). Each status read is
     /// an XPC round trip of about 70 ms in which macOS re-verifies the app's
     /// signature, and a switch binding reads its value several times per

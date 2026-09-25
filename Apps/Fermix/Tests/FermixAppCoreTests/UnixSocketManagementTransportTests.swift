@@ -136,6 +136,29 @@ struct UnixSocketManagementTransportTests {
         #expect(sent["method"] as? String == "hello")
     }
 
+    /// Exchanges run side by side: each owns its connection, and the protocol
+    /// is one request per connection. Queued one behind another, a slow write
+    /// or a probing `setup.detect` held the next page's first read for as long
+    /// as it ran. Here a two second exchange is in flight when a 200 ms one
+    /// starts, and the short one has its answer long before the long one ends.
+    @Test("a slow exchange does not hold the next one")
+    func exchangesRunSideBySide() async throws {
+        let peer = try ManagementSocketTestPeer(behavior: .silence)
+        defer { peer.shutdown() }
+
+        let transport = UnixSocketManagementTransport(socketPath: peer.path, limits: limits)
+        let payload = Data(#"{"a":1}"#.utf8)
+        _ = Task { try await transport.exchange(payload, timeout: .seconds(2)) }
+        try #require(peer.requestPayload(timeout: 1) != nil, "the slow exchange never reached the peer")
+
+        let started = ContinuousClock.now
+        await #expect(throws: ManagementTransportFailure.timedOut(after: .milliseconds(200))) {
+            _ = try await transport.exchange(payload, timeout: .milliseconds(200))
+        }
+
+        #expect(ContinuousClock.now - started < .milliseconds(1500), "the short exchange waited for the long one")
+    }
+
     @Test("a peer that never answers hits the injected deadline")
     func silentPeerTimesOut() async throws {
         let peer = try ManagementSocketTestPeer(behavior: .silence)

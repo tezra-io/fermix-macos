@@ -154,6 +154,10 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
 
     func focus(_ kind: WindowKind) {
         guard let window = windows[kind] else { return }
+        // Every click in the rail routes through here, into the window that is
+        // already in front, and activating an active app is a round trip to the
+        // window server for nothing.
+        guard !(NSApp.isActive && window.isKeyWindow) else { return }
 
         // The app is an accessory, so it has to ask for activation explicitly:
         // ordering a window front without it leaves the window behind whatever
@@ -208,7 +212,11 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
         guard let frame = WindowGrowth.frame(growing: window.frame, toAtLeast: wanted, within: visible)
         else { return }
 
-        window.setFrame(frame, display: true, animate: true)
+        // Through the animator, which returns at once. `setFrame(_:display:
+        // animate:)` does not return until the animation ends, so entering
+        // settings from a small window held the main thread for the whole
+        // resize, relaying out the new columns at every step.
+        window.animator().setFrame(frame, display: true)
     }
 
     /// Fed by the app delegate's occlusion observer, which sees every window in

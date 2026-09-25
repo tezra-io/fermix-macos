@@ -85,6 +85,14 @@ struct SettingsPaneColumn: View {
             max: WindowMetrics.settingsSidebarWidth
         )
         .frame(width: WindowMetrics.settingsSidebarWidth)
+        // The field belongs to this column and to nothing else, so it is
+        // applied here: the window keeps one split view in and out of settings,
+        // and this column is what enters and leaves with them.
+        .searchable(
+            text: $model.searchText,
+            placement: .sidebar,
+            prompt: Text(ProductStrings[.settingsSearchPrompt])
+        )
     }
 
     /// The column selects a pane and never nothing: clearing the selection
@@ -116,6 +124,9 @@ struct SettingsDetailView: View {
     var body: some View {
         SettingsPaneView(pane: model.selectedPane, model: model, router: router)
             .settingsBanners(model: model, openRecovery: openRecovery)
+            // The first read on entering settings. It is here because this is
+            // the view that appears when settings does.
+            .task { await model.windowAppeared() }
             .task(id: model.selectedPane) { await model.paneAppeared(model.selectedPane) }
     }
 }

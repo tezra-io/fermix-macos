@@ -53,6 +53,13 @@ public final class HomeModel: ObservableObject {
     /// through rather than holding a copy, so this is only what tells the view
     /// to read it again.
     private var transactionChanges: AnyCancellable?
+    /// The refresh in flight, and whether someone asked for another while it
+    /// ran. Home appearing, every other route opening and every finished
+    /// transaction all ask, so quick clicks used to stack a full set of daemon
+    /// reads per click. Now one runs at a time, and a request that arrives
+    /// during it gets one more read that starts after it asked.
+    private var refreshing: Task<Void, Never>?
+    private var refreshAgain = false
     /// The app coming to the front, which is when a change made in System
     /// Settings, the registrations' other writer, can first be seen.
     private var activations: AnyCancellable?
@@ -139,8 +146,31 @@ public final class HomeModel: ObservableObject {
     }
 
     public func refresh() async {
+        guard let refreshing else {
+            let task = Task { await refreshUntilSettled() }
+            self.refreshing = task
+            await task.value
+            return
+        }
+
+        refreshAgain = true
+        await refreshing.value
+    }
+
+    private func refreshUntilSettled() async {
+        repeat {
+            refreshAgain = false
+            await refreshOnce()
+        } while refreshAgain
+        refreshing = nil
+    }
+
+    private func refreshOnce() async {
         let update = updates.availability()
-        snapshot = await read(update: update)
+        let read = await read(update: update)
+        // Published only where it moved: an unchanged answer redrew Home and
+        // everything observing it on every refresh.
+        if read != snapshot { snapshot = read }
         await refreshRegistrations()
         // This is the only read of the daemon an ordinary launch makes, so it
         // is also what moves the menu bar glyph and the status line off

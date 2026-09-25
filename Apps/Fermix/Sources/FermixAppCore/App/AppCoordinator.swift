@@ -286,9 +286,13 @@ public final class AppCoordinator {
     /// transaction badges the glyph until the next read says otherwise, and a
     /// read that finds the daemon gone mid-restart says so, because it is true
     /// while it lasts.
+    ///
+    /// Written only where the answer moved. Every write publishes, and the
+    /// window, the status item and the pet all redraw for it, so an unchanged
+    /// answer arriving on every refresh cost three redraws for nothing.
     public func daemonObserved(_ observation: DaemonObservation) {
-        model.daemon = observation.condition
-        model.needsAttention = observation.needsAttention
+        if model.daemon != observation.condition { model.daemon = observation.condition }
+        if model.needsAttention != observation.needsAttention { model.needsAttention = observation.needsAttention }
     }
 
     /// Handles a `fermix://` url. An unknown one is refused: opening Home

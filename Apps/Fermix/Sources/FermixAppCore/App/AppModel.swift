@@ -322,9 +322,14 @@ public final class AppModel: ObservableObject {
         case .state(let turnState):
             return applyTurnState(turnState, audioIsPlaying: audioIsPlaying)
         case .audioDelta(let base64):
-            voice.mode = .speaking
-            voice.status = .speaking
-            voice.audioActive = true
+            // Every chunk of a reply lands here, tens a second. Only the first
+            // changes anything, and each write publishes, so the window, the
+            // status item and the pet redrew three times per chunk.
+            var speaking = voice
+            speaking.mode = .speaking
+            speaking.status = .speaking
+            speaking.audioActive = true
+            if speaking != voice { voice = speaking }
             return [.play(base64: base64)]
         case .playbackStop:
             return applyPlaybackStop()

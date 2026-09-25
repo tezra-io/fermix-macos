@@ -39,9 +39,11 @@ struct MainWindowView: View {
     /// row on the bottom edge; see `footerGap`.
     @State private var sidebarHeight: Double = 0
     @State private var settingsRowBottom: Double = 0
-    /// The one settings model, held here so the pane column's search field can
-    /// bind to it. It is the same instance `surfaces.settings` carries.
-    @ObservedObject var settings: SettingsModel
+    /// The one settings model, handed to the settings columns. It is held and
+    /// not observed: the window's own body reads nothing from it, and observing
+    /// it redrew the whole window, rail and ground included, on every one of its
+    /// twenty published changes. The views that draw it observe it themselves.
+    let settings: SettingsModel
     /// Leaving settings, which the coordinator owns: the back control, Escape
     /// and a command all take the one path out.
     let leaveSettings: () -> Void
@@ -68,10 +70,9 @@ struct MainWindowView: View {
             // Daemon menu and the status item all ask for it too and only this
             // window can host one.
             .sheet(isPresented: $model.restartSheetShown) {
-                RestartSheet(
-                    model: settings,
+                RestartSheetHost(
+                    settings: settings,
                     restart: restart,
-                    isFinishingUpdate: settings.engineReconcile.isFinishingUpdate,
                     refusal: model.restartRefusal
                 ) { model.restartSheetShown = false }
             }
@@ -85,21 +86,20 @@ struct MainWindowView: View {
 
     /// Setup uses the existing assistant screens inside this same window.
     ///
-    /// The search field and the removed sidebar toggle belong to settings and
-    /// to nothing else, so they are applied on that branch rather than bound to
-    /// a flag the app presentation would have to ignore.
+    /// The app surfaces and settings share one split view: entering or leaving
+    /// settings changes what its two columns hold, never the split view itself.
+    /// Built as two branches, crossing between them tore down and rebuilt the
+    /// split view, its toolbar, both lists and every task under them on each
+    /// Back, gear click and Escape (2026-09-24). What only settings has sits on
+    /// its own columns: the search field on the pane column, the Restart
+    /// control beside the back control, and the first read on the detail.
     @ViewBuilder
     private var presented: some View {
-        if presentation.isShowing {
+        if !presentation.isShowing, model.route == .setup || model.route == .recovery {
+            OnboardingWindowView(model: surfaces.onboarding)
+                .navigationTitle(ProductStrings[.windowOnboardingTitle])
+        } else {
             splitView
-                .toolbar {
-                    SettingsRestartControl(model: settings, router: router, transaction: model.transactionInFlight)
-                }
-                .searchable(
-                    text: $settings.searchText,
-                    placement: .sidebar,
-                    prompt: Text(ProductStrings[.settingsSearchPrompt])
-                )
                 // Escape returns, exactly as the back control does. It sits on
                 // the whole split view rather than on the detail column, so it
                 // answers with focus in the pane list or the search field too:
@@ -107,20 +107,15 @@ struct MainWindowView: View {
                 // and those two are siblings of the detail, not descendants. A
                 // sheet never reaches this — a presented sheet is the key
                 // window, so its own cancel action consumes the key first
-                // (§5.8).
+                // (§5.8). Outside settings there is nothing to leave, so it
+                // answers nothing.
                 //
                 // A field being edited owns Escape first, which is what Escape
                 // means on the Mac: it puts the daemon's value back and gives up
                 // focus, and only Escape with nothing being edited leaves. Every
                 // descriptor field commits on focus loss, so without this the
                 // gesture read as "save this and leave" (§3.1).
-                .onExitCommand(perform: exitCommand)
-                .task { await settings.windowAppeared() }
-        } else if model.route == .setup || model.route == .recovery {
-            OnboardingWindowView(model: surfaces.onboarding)
-                .navigationTitle(ProductStrings[.windowOnboardingTitle])
-        } else {
-            splitView
+                .onExitCommand(perform: presentation.isShowing ? exitCommand : nil)
         }
     }
 
@@ -201,7 +196,14 @@ struct MainWindowView: View {
 
             footerSpacer
 
-            Button { router.perform(.openSettings) } label: {
+            // One click reaches this row twice: the list selects it on the way
+            // down, which routes through `selection`, and the button fires on
+            // the way up. Whichever lands second finds settings already up.
+            Button {
+                guard !presentation.isShowing else { return }
+
+                router.perform(.openSettings)
+            } label: {
                 railIcon(ProductStrings[.sidebarSettings], systemImage: "gearshape")
             }
             .buttonStyle(.plain)
@@ -332,7 +334,10 @@ struct MainWindowView: View {
     private var detailColumn: some View {
         if presentation.isShowing {
             SettingsDetailView(model: settings, router: router, openRecovery: openRecovery)
-                .toolbar { SettingsBackControl(back: leaveSettings) }
+                .toolbar {
+                    SettingsBackControl(back: leaveSettings)
+                    SettingsRestartControl(model: settings, router: router, transaction: model.transactionInFlight)
+                }
         } else {
             detail.toolbar { toolbarKeeper }
         }
@@ -439,6 +444,26 @@ struct MainWindowView: View {
             // Uninstall resolves to Doctor before this view is reached.
             preconditionFailure("\(model.route.rawValue) has no sidebar detail")
         }
+    }
+}
+
+/// The Restart sheet as the window hosts it. It observes the settings model the
+/// window itself only holds, so the sheet's title follows `isFinishingUpdate`
+/// while it is up without the whole window redrawing for it.
+private struct RestartSheetHost: View {
+    @ObservedObject var settings: SettingsModel
+    let restart: () -> Void
+    let refusal: String?
+    let dismiss: () -> Void
+
+    var body: some View {
+        RestartSheet(
+            model: settings,
+            restart: restart,
+            isFinishingUpdate: settings.engineReconcile.isFinishingUpdate,
+            refusal: refusal,
+            dismiss: dismiss
+        )
     }
 }
 

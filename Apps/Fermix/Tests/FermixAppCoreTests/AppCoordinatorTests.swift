@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -10,6 +11,25 @@ import Testing
 struct AppCoordinatorTests {
     private func makeCoordinator(bootstrap: BootstrapCondition = .present) throws -> CoordinatorHarness {
         try CoordinatorHarness(bootstrap: bootstrap)
+    }
+
+    /// Every refresh reports what it saw, and every write publishes: the
+    /// window, the status item and the pet redraw for it. The same answer twice
+    /// is one redraw, not two.
+    @Test("an unchanged daemon answer publishes nothing")
+    func unchangedObservationPublishesNothing() throws {
+        let harness = try makeCoordinator()
+        let observation = DaemonObservation(condition: .running, needsAttention: true)
+        harness.coordinator.daemonObserved(observation)
+
+        var published = 0
+        let subscription = harness.model.objectWillChange.sink { _ in published += 1 }
+        defer { subscription.cancel() }
+        harness.coordinator.daemonObserved(observation)
+
+        #expect(published == 0)
+        #expect(harness.model.daemon == .running)
+        #expect(harness.model.needsAttention)
     }
 
     @Test("Home, Setup, Home and Settings reuse the primary window")
@@ -495,7 +515,7 @@ struct AppCoordinatorTests {
 }
 
 @MainActor
-private final class PausedSetupReply {
+final class PausedSetupReply {
     var entered = false
     var released = false
 

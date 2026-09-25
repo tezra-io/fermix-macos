@@ -77,6 +77,24 @@ struct MenuBarControllerTests {
         #expect(item.label == ProductStrings[.menuGlyphAttention])
     }
 
+    /// The model publishes for everything it holds, including each audio chunk
+    /// of a voice call, and the glyph depends on two of those facts. A change
+    /// that leaves the glyph where it is must not set the image again.
+    @Test("a change that leaves the glyph alone does not redraw it")
+    func unrelatedChangeDoesNotRedraw() async {
+        let (controller, item, model) = harness()
+        controller.install(menu: NSMenu())
+        let drawn = item.presentations
+
+        model.route = .doctor
+        await settle()
+        #expect(item.presentations == drawn)
+
+        model.needsAttention = true
+        await settle()
+        #expect(item.presentations == drawn + 1)
+    }
+
     // MARK: - The shipped rasters
 
     /// The clipping the owner saw: a status button clips its contents, so an

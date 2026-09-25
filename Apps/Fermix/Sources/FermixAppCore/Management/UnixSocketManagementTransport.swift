@@ -12,10 +12,22 @@ public struct UnixSocketManagementTransport: ManagementTransport {
     private let limits: ManagementLimits
     private let queue: DispatchQueue
 
+    /// Exchanges run side by side. Each opens, uses and closes its own
+    /// connection and shares nothing mutable, and the protocol is one request
+    /// per connection, which the daemon serves each in its own task. A serial
+    /// queue here put every read behind whatever was already in flight: a
+    /// `setup.detect` probing coding-agent CLIs, a live model list or a 20
+    /// second write held the next page's first read, so a click waited on
+    /// work it never asked for. A caller that needs one answer before the next
+    /// request already awaits it.
     public init(socketPath: String, limits: ManagementLimits) {
         self.socketPath = socketPath
         self.limits = limits
-        self.queue = DispatchQueue(label: "io.tezra.fermix.management.socket", qos: .userInitiated)
+        self.queue = DispatchQueue(
+            label: "io.tezra.fermix.management.socket",
+            qos: .userInitiated,
+            attributes: .concurrent
+        )
     }
 
     public func exchange(_ payload: Data, timeout: Duration) async throws -> Data {

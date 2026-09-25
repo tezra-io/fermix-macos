@@ -731,8 +731,11 @@ final class FakeStatusItem: StatusItemPresenting {
     private(set) var label: String?
     private(set) var identifier: String?
     private(set) var menu: NSMenu?
+    /// How many times an image was handed to the bar.
+    private(set) var presentations = 0
 
     func present(_ image: NSImage, label: String, identifier: String) {
+        presentations += 1
         self.image = image
         self.label = label
         self.identifier = identifier
