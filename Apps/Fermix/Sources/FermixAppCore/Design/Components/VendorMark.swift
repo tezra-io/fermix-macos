@@ -157,6 +157,7 @@ public enum VendorMarks {
         VendorMark(.plugin, "agentmail", .file(.init("plugins", "agentmail-color", "png")), plate: .bleed),
         VendorMark(.plugin, "computer_use_sidecar", .file(.init("features", "computer-use-color", "svg"))),
         VendorMark(.plugin, "discord", .file(.init("plugins", "discord-color", "svg"))),
+        VendorMark(.plugin, "games", .file(.init("plugins", "games-color", "svg")), plate: .bleed),
         VendorMark(
             .plugin,
             "github",

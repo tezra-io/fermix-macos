@@ -1,0 +1,10 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Games">
+  <rect width="100" height="100" rx="22" fill="#2b5cff"/>
+  <g fill="#fff">
+    <circle cx="50" cy="31" r="11"/>
+    <rect x="37" y="42" width="26" height="7" rx="3.5"/>
+    <path d="M44 49h12c1 9 4 15 8 21H36c4-6 7-12 8-21z"/>
+    <rect x="30" y="70" width="40" height="8" rx="3"/>
+    <rect x="25" y="79" width="50" height="7" rx="3.5"/>
+  </g>
+</svg>
