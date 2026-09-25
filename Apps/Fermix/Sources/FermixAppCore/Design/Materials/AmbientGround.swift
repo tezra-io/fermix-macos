@@ -69,6 +69,22 @@ public enum AmbientRecipe {
 
     public static let glowLeadingCenter = UnitPoint(x: 0.08, y: 0)
     public static let glowTrailingCenter = UnitPoint(x: 1, y: 1.05)
+
+    /// Whether the ground is drawn mirrored across the window's vertical axis:
+    /// wash, both glows and both centres, so "leading" and "trailing" above name
+    /// the light appearance's corners.
+    ///
+    /// The rule is that the darker end of the wash meets the rail's black. On
+    /// light the darker end is the blue-washed start, which is already at the
+    /// leading edge. On dark it is the near-black end, so the dark ground runs
+    /// the other way and the blue rises away from the rail instead of against
+    /// it (owner, 2026-09-24: the blue light on the left beside the pitch-black
+    /// rail "doesnt feel smooth"). Mirroring rather than recolouring keeps each
+    /// glow over the end of the wash it was measured on, so §9's floors hold
+    /// unchanged.
+    public static func isMirrored(in scheme: FermixColorScheme) -> Bool {
+        scheme == .dark
+    }
     /// Each glow's reach, as a fraction of the window's longer side, so the
     /// ground keeps its proportions from the 760 by 520 floor to a full screen.
     public static let glowLeadingReach: Double = 0.62
@@ -159,6 +175,7 @@ struct AmbientGround: View {
     var intensity: AmbientIntensity = .expressive
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         if !reduceTransparency, contrast != .increased {
@@ -189,6 +206,7 @@ struct AmbientGround: View {
                 endRadius: longerSide * AmbientRecipe.glowTrailingReach
             )
         }
+        .scaleEffect(x: AmbientRecipe.isMirrored(in: colorScheme == .dark ? .dark : .light) ? -1 : 1)
     }
 }
 

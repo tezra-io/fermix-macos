@@ -142,6 +142,24 @@ struct DesignMaterialsTests {
         #expect(AmbientIntensity.calm.trailingGlow.dark.alpha < AmbientIntensity.expressive.trailingGlow.dark.alpha)
     }
 
+    /// The darker end of the wash meets the rail's black in both appearances
+    /// (owner, 2026-09-24: on dark the blue beside the pitch-black rail "doesnt
+    /// feel smooth"). Light runs as published because its blue-washed start is
+    /// the darker end; dark runs mirrored because its near-black end is.
+    @Test("the darker end of the wash meets the rail in both appearances")
+    func ambientGroundDarkensTowardTheRail() {
+        for scheme in FermixColorScheme.allCases {
+            let (railEnd, farEnd) = AmbientRecipe.isMirrored(in: scheme)
+                ? (AmbientRecipe.groundEnd, AmbientRecipe.groundStart)
+                : (AmbientRecipe.groundStart, AmbientRecipe.groundEnd)
+
+            #expect(
+                Contrast.luminance(railEnd.resolved(for: scheme)) < Contrast.luminance(farEnd.resolved(for: scheme)),
+                "the \(scheme) wash is lighter at the rail than away from it"
+            )
+        }
+    }
+
     /// §9's floors, computed at the ground's two worst points rather than
     /// trusted: each glow's own centre, at full strength, over the end of the
     /// wash it sits on. Section headers and footers are drawn straight on the
@@ -235,7 +253,7 @@ enum Contrast {
         )
     }
 
-    private static func luminance(_ color: SRGBColor) -> Double {
+    static func luminance(_ color: SRGBColor) -> Double {
         0.2126 * linear(color.red) + 0.7152 * linear(color.green) + 0.0722 * linear(color.blue)
     }
 

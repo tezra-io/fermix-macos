@@ -142,6 +142,16 @@ in it. The theme does not change: the ground is the neutral ramp washed with the
   The calm ground moves it 7.57 to 8.34 instead. Lowering alpha rather than changing hue,
   because a person crosses between the two inside one window and a hue step there is the
   two-window-colours defect §5.8 already closed once.
+- **The darker end of the wash meets the rail** (owner, 2026-09-24: on dark the blue "is
+  light on the left and dark on the right", beside a rail that is pitch black, and "the
+  transition doesnt feel smooth"). The table names the light appearance's corners, where the
+  blue-washed start is the darker end and already sits against the rail. On dark the
+  near-black end is the darker one, so the dark ground is drawn mirrored across the window's
+  vertical axis, wash, both glows and both centres together: the strong glow sits at the
+  trailing top and the blue rises away from the rail. Mirroring rather than recolouring keeps
+  each glow over the end of the wash it was measured on, so the floors below hold unchanged.
+  `AmbientRecipe.isMirrored(in:)` carries the rule and `DesignMaterialsTests` checks it by
+  luminance in both appearances.
 - Each glow is a radial gradient that falls off to clear, reaching 0.62 and 0.60 of the
   window's longer side. **Never a blurred shape, and nothing moves**: a blur is a filter the
   compositor re-runs and a drift is a timer, and the ground has to cost one draw per resize
@@ -1207,6 +1217,12 @@ every button carries a title or an accessibility label; every sheet has a cancel
       earns its margin, and the light side needs either a darker light value than `#2b5cff`
       or a rule that a link never lands inside a glow. This was true before the token
       existed, because `LinkButton` drew `accent` on light and still does.
+
+30. **The dark ground runs mirrored** (2026-09-24), from the owner running the app in dark:
+    the leading glow put the ground's brightest blue against the rail's black, and the
+    step from black to blue read as a seam. The dark ground is the published one mirrored
+    across the window, so its near-black end meets the rail (§1.3). Light is unchanged,
+    because its darker end is already the one at the rail.
 
 ## 9. Accessibility (DESIGN_SPEC §9, as build gates)
 
