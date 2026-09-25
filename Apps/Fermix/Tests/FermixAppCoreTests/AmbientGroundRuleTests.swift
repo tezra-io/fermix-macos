@@ -183,18 +183,26 @@ struct RailRuleTests {
         #expect(occurrences(of: ".railColumn()", in: text) == 2)
     }
 
-    /// The rail's black and its white are the application icon's, the same in
-    /// both appearances, and the column resolves dark so its selection and its
-    /// symbols stay readable on it under a light window.
-    @Test("the rail is black with white ink in both appearances")
+    /// On dark the rail is the application icon's black with its white; on
+    /// light it is the standard window grey Mac sidebars wear (owner,
+    /// 2026-09-25). The column takes the window's appearance, so its selection
+    /// and its symbols are the ones drawn for the fill under them, and the ink
+    /// holds §9's floor on both.
+    @Test("the rail is the standard grey on light and black on dark")
     func railColours() throws {
-        #expect(WindowFrameRecipe.fill == ThemedColor(uniform: SRGBColor(hex: "#000000")))
-        #expect(WindowFrameRecipe.ink == ThemedColor(uniform: SRGBColor(hex: "#ffffff")))
-        #expect(Contrast.ratio(WindowFrameRecipe.ink.light, WindowFrameRecipe.fill.light) >= 4.5)
+        #expect(WindowFrameRecipe.fill == ThemedColor(lightHex: "#ececec", darkHex: "#000000"))
+        #expect(WindowFrameRecipe.ink == ThemedColor(lightHex: "#1d1d1f", darkHex: "#ffffff"))
+        for scheme in FermixColorScheme.allCases {
+            let ratio = Contrast.ratio(
+                WindowFrameRecipe.ink.resolved(for: scheme),
+                WindowFrameRecipe.fill.resolved(for: scheme)
+            )
+            #expect(ratio >= 4.5, "the rail's ink is \(ratio):1 on the \(scheme) rail")
+        }
 
         let ground = try SourceTree.swiftFiles(matching: "Design/Materials/AmbientGround.swift")
         let text = try #require(ground.first?.text)
-        #expect(text.contains(".environment(\\.colorScheme, .dark)"), "the rail follows the window's appearance")
+        #expect(!text.contains(".environment(\\.colorScheme, .dark)"), "the rail is forced dark on a light window")
     }
 
     /// The border around the content was tried and withdrawn the same day
@@ -222,9 +230,9 @@ struct RailRuleTests {
     ///
     /// Three things make it an overlay rather than the withdrawn panel, and all
     /// three are asserted: it is laid on the detail column's leading edge, it is
-    /// filled with the rail's own black rather than a colour of its own, and it
+    /// filled with the rail's own fill rather than a colour of its own, and it
     /// takes no clicks from the live surface under it.
-    @Test("the body's two leading corners are the rail's black at the window's radius")
+    @Test("the body's two leading corners are the rail's fill at the window's radius")
     func bodyCornersAreOverlaidNotClipped() throws {
         let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
         let text = try #require(window.first?.text)

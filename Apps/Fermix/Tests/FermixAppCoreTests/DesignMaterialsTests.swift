@@ -142,7 +142,7 @@ struct DesignMaterialsTests {
         #expect(AmbientIntensity.calm.trailingGlow.dark.alpha < AmbientIntensity.expressive.trailingGlow.dark.alpha)
     }
 
-    /// The darker end of the wash meets the rail's black in both appearances
+    /// The darker end of the wash meets the rail in both appearances
     /// (owner, 2026-09-24: on dark the blue beside the pitch-black rail "doesnt
     /// feel smooth"). Light runs as published because its blue-washed start is
     /// the darker end; dark runs mirrored because its near-black end is.

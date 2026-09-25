@@ -74,7 +74,7 @@ public enum AmbientRecipe {
     /// wash, both glows and both centres, so "leading" and "trailing" above name
     /// the light appearance's corners.
     ///
-    /// The rule is that the darker end of the wash meets the rail's black. On
+    /// The rule is that the darker end of the wash meets the rail. On
     /// light the darker end is the blue-washed start, which is already at the
     /// leading edge. On dark it is the near-black end, so the dark ground runs
     /// the other way and the blue rises away from the rail instead of against
@@ -93,16 +93,19 @@ public enum AmbientRecipe {
 
 /// The rail down the window's leading edge (redlines §5.7), in both appearances.
 ///
-/// Black rather than a token from the neutral ramp, and the same in light and
-/// dark, because it is the application icon's own ground: the mark is white on
-/// near-black wherever the product draws it, and the rail is where the window
-/// wears that. It stops at the rail: a black border run on around the content
-/// was tried and withdrawn the same day (owner, 2026-09-20: "Lets remove the
-/// border, it doesnt fit well with the color of ours").
+/// Pitch black on dark, where it is the application icon's own ground: the mark
+/// is white on near-black wherever the product draws it, and the rail is where
+/// the window wears that. On light it is the standard window grey most Mac apps
+/// give their sidebar, the light value of the system's window background
+/// (owner, 2026-09-25: "for the light mode let the side bar color be the
+/// standard grey most app uses than the pitch black like the dark mode"). It
+/// stops at the rail: a black border run on around the content was tried and
+/// withdrawn (owner, 2026-09-20: "Lets remove the border, it doesnt fit well
+/// with the color of ours").
 public enum WindowFrameRecipe {
-    public static let fill = ThemedColor(uniform: SRGBColor(hex: "#000000"))
-    /// The mark and the rail's symbols.
-    public static let ink = ThemedColor(uniform: SRGBColor(hex: "#ffffff"))
+    public static let fill = ThemedColor(lightHex: "#ececec", darkHex: "#000000")
+    /// The rail's symbols.
+    public static let ink = ThemedColor(lightHex: "#1d1d1f", darkHex: "#ffffff")
 }
 
 /// How hard the one ground turns its glows up (redlines §1.3).
@@ -226,20 +229,19 @@ extension View {
 extension View {
     /// The window's leading column, drawn as the rail (redlines §5.7).
     ///
-    /// The list gives up the system's sidebar material for the rail's black,
-    /// and it resolves in the dark appearance whatever the window's is, because
-    /// its ground is black in both: a light-appearance selection and light
-    /// symbols on black are the one pairing that cannot be read. It sits beside
-    /// `showsAmbientGround()` because it is the same act with the other
-    /// outcome: a scroll container gives up its own fill, here for the rail's.
+    /// The list gives up the system's sidebar material for the rail's own
+    /// fill, and takes the window's appearance with it: dark symbols and the
+    /// light selection on the light grey, light ones on the dark rail's black.
+    /// It sits beside `showsAmbientGround()` because it is the same act with
+    /// the other outcome: a scroll container gives up its own fill, here for
+    /// the rail's.
     func railColumn() -> some View {
         scrollContentBackground(.hidden)
             .background(WindowFrameRecipe.fill.color)
-            .environment(\.colorScheme, .dark)
     }
 }
 
-/// The piece of the rail's black that turns a square corner of the body into a
+/// The piece of the rail's fill that turns a square corner of the body into a
 /// rounded one: a square with a quarter disc taken out of it.
 ///
 /// It is drawn over the body's corner rather than clipped out of it, so the
