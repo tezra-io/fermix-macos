@@ -54,42 +54,64 @@ public final class SettingsPresentation: ObservableObject {
 /// (redlines §5.8).
 ///
 /// It is the retired Settings window's own tree re-rooted here: the same fixed
-/// pane column, the same search, the same one grouped form per pane, the same
-/// banners. What went away is a window, not a surface. The search field is the
-/// toolbar's, beside the Restart control, because this list is no longer the
-/// split view's sidebar that a sidebar-placed field would sit in.
+/// pane column, the same search at its head, the same one grouped form per
+/// pane, the same banners. What went away is a window, not a surface.
+///
+/// The search is the list's, so it sits at the top of the list it narrows
+/// rather than in the toolbar, where it read as a search of the page
+/// (owner, 2026-09-25). It matches pane names, their keywords and the name of
+/// every setting in every pane: the first search reads the panes nobody has
+/// opened yet. A search that matches nothing says so.
 struct SettingsPaneColumn: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
-        List(selection: selection) {
-            ForEach(SettingsPaneGroup.allCases, id: \.self) { group in
-                let panes = model.panes(matching: model.searchText, in: group)
+        VStack(spacing: 0) {
+            SearchField(text: $model.searchText, prompt: ProductStrings[.settingsSearchPrompt])
+                .padding(.horizontal, Spacing.s)
+                .padding(.vertical, Spacing.xs)
 
-                if !panes.isEmpty {
-                    Section(group.title) {
-                        ForEach(panes) { pane in
+            List(selection: selection) {
+                ForEach(matching, id: \.group) { match in
+                    Section(match.group.title) {
+                        ForEach(match.panes) { pane in
                             Label(pane.title, systemImage: pane.systemImage)
                                 .tag(pane)
                         }
                     }
                 }
             }
+            // Decision D4 is the window's rule and not one pane's: the thirteen
+            // panes are taller than the 640 point default the window opens at,
+            // so the column scrolls, and a column that scrolls draws the same
+            // inline scroller the form was told not to. Same two modifiers,
+            // same reason.
+            .scrollIndicators(.never)
+            .paneScrollEdges()
+            .overlay {
+                if matching.isEmpty {
+                    SurfaceEmptyState(
+                        model: EmptyStateModel(
+                            message: String(format: ProductStrings[.settingsSearchNoResultsFormat], model.searchText)
+                        ),
+                        symbol: "magnifyingglass"
+                    )
+                }
+            }
         }
-        // Decision D4 is the window's rule and not one pane's: the thirteen
-        // panes are taller than the 640 point default the window opens at, so
-        // the column scrolls, and a column that scrolls draws the same inline
-        // scroller the form was told not to. Same two modifiers, same reason.
-        .scrollIndicators(.never)
-        .paneScrollEdges()
         .frame(width: WindowMetrics.settingsSidebarWidth)
-        // The field belongs to this pane and to nothing else, so it is applied
-        // here: this pane is what enters and leaves with settings.
-        .searchable(
-            text: $model.searchText,
-            placement: .toolbar,
-            prompt: Text(ProductStrings[.settingsSearchPrompt])
-        )
+        .task(id: model.searchText.isEmpty) {
+            guard !model.searchText.isEmpty else { return }
+
+            await model.readEverySection()
+        }
+    }
+
+    /// The groups with a pane that answers the search, in the published order.
+    private var matching: [(group: SettingsPaneGroup, panes: [SettingsPane])] {
+        SettingsPaneGroup.allCases
+            .map { ($0, model.panes(matching: model.searchText, in: $0)) }
+            .filter { !$0.1.isEmpty }
     }
 
     /// The column selects a pane and never nothing: clearing the selection

@@ -341,6 +341,58 @@ public final class SettingsModel: ObservableObject {
         }
     }
 
+    /// Reads every section the index names that has not been read, so the
+    /// search matches a setting in a pane nobody has opened yet.
+    ///
+    /// A pane reads its sections when it opens, so until now the search knew
+    /// the rows of the panes already visited and nothing else, and a setting
+    /// searched for by name emptied the list (owner, 2026-09-25). This runs
+    /// once, the first time a search is typed: the reads go side by side, and
+    /// they land in one write, because each section written on its own redrew
+    /// every pane that observes this model once per section.
+    public func readEverySection() async {
+        if inventory.value == nil { await loadInventory() }
+        let unread = (inventory.value ?? []).map(\.id).filter { !isRead($0) }
+        guard !unread.isEmpty else { return }
+
+        let answers = await withTaskGroup(
+            of: (String, Result<ManagementSettingsSectionRows, any Error>).self
+        ) { group in
+            for id in unread {
+                group.addTask { [gateway] in
+                    do { return (id, .success(try await gateway.settings(section: id))) }
+                    catch { return (id, .failure(error)) }
+                }
+            }
+
+            var collected: [(String, Result<ManagementSettingsSectionRows, any Error>)] = []
+            for await answer in group { collected.append(answer) }
+            return collected
+        }
+
+        takeSections(answers)
+    }
+
+    /// The answers of a batch read, written once. A section a pane read while
+    /// the batch was out keeps the pane's answer.
+    private func takeSections(_ answers: [(String, Result<ManagementSettingsSectionRows, any Error>)]) {
+        var merged = sections
+        for (id, answer) in answers where merged[id]?.value == nil {
+            switch answer {
+            case .success(let rows):
+                merged[id] = .loaded(rows)
+            case .failure(let error):
+                merged[id] = .failure(error)
+                noteRead(error, "settings.get \(id)")
+            }
+        }
+        if answers.contains(where: { if case .success = $0.1 { return true } else { return false } }) {
+            noteServed()
+        }
+
+        sections = merged
+    }
+
     /// Whether a section has been read, or is being read right now. Both count:
     /// the window's own appearance and the detail column's pane change can
     /// arrive together, and two reads of one section is one round trip wasted.

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -693,6 +694,46 @@ struct SettingsModelTests {
         #expect(!harness.model.rowsMatch("Talk to Fermix", in: .voice))
         await harness.model.paneAppeared(.voice)
         #expect(harness.model.rowsMatch("Talk to Fermix", in: .voice))
+    }
+
+    /// A setting searched for by name finds its pane whether or not that pane
+    /// was opened: the first search reads every section the index names (owner,
+    /// 2026-09-25: the list emptied for a setting in a pane not yet visited).
+    /// The answers land in one write, so a search does not redraw every pane
+    /// once per section.
+    @Test("the first search reads every pane, in one write")
+    func searchReadsEveryPane() async throws {
+        let harness = try SettingsHarness()
+        await harness.model.loadInventory()
+        #expect(harness.model.panes(matching: "announce", in: .capabilities).isEmpty)
+
+        var published = 0
+        let subscription = harness.model.objectWillChange.sink { _ in published += 1 }
+        await harness.model.readEverySection()
+        subscription.cancel()
+
+        #expect(published == 1)
+        #expect(harness.model.panes(matching: "announce", in: .capabilities) == [.meetings])
+        #expect(harness.model.panes(matching: "compact", in: .assistant) == [.memory])
+
+        // Once every section is read, asking again reads nothing.
+        let reads = harness.gateway.calls.count
+        await harness.model.readEverySection()
+        #expect(harness.gateway.calls.count == reads)
+    }
+
+    /// The search belongs to the list it narrows, so it sits at the head of the
+    /// pane list rather than in the toolbar, and a search that matches nothing
+    /// says so rather than leaving an empty column.
+    @Test("the settings search heads the pane list and says when nothing matches")
+    func searchSitsOnTheList() throws {
+        let files = try SourceTree.swiftFiles(matching: "Settings/SettingsPresentation.swift")
+        let text = try #require(files.first?.text)
+
+        #expect(text.contains("SearchField(text: $model.searchText"))
+        #expect(!text.contains(".searchable("), "the settings search moved back into the toolbar")
+        #expect(text.contains(".settingsSearchNoResultsFormat"))
+        #expect(text.contains("await model.readEverySection()"))
     }
 }
 

@@ -431,31 +431,13 @@ struct IntegrationsPane: View {
         }
     }
 
-    /// The search field at the trailing edge of the pill row: a rounded search
-    /// field with the magnifier at its leading edge, which is the control the
-    /// reference page draws.
+    /// The search field at the trailing edge of the pill row. The system's own
+    /// search field, the same one the settings pane list carries, so the two
+    /// searches on one screen are one control (2026-09-25); it was a text field
+    /// drawn to look like one.
     private var search: some View {
-        HStack(spacing: Spacing.xxs) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(Palette.faint.color)
-                .accessibilityHidden(true)
-
-            TextField(
-                ProductStrings[.integrationsSearchPrompt],
-                text: $query,
-                prompt: Text(ProductStrings[.integrationsSearchPrompt])
-            )
-            .labelsHidden()
-            .textFieldStyle(.plain)
-        }
-        .padding(.horizontal, Spacing.xs)
-        .padding(.vertical, Spacing.xxs)
-        // An alpha fill rather than `base200`: this page sits on the window's
-        // ambient ground, and an opaque capsule on a wash reads as a hole cut
-        // in it. The selected pill and the row's hover fill take the same one.
-        .background(Palette.chipFill.color, in: Capsule())
-        .frame(maxWidth: IntegrationMetrics.searchWidth)
-        .accessibilityLabel(ProductStrings[.integrationsSearchPrompt])
+        SearchField(text: $query, prompt: ProductStrings[.integrationsSearchPrompt])
+            .frame(maxWidth: IntegrationMetrics.searchWidth)
     }
 
     /// The flat list, and the sign-in clients once at its foot. Features is the

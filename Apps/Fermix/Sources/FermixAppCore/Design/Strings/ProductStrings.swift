@@ -437,6 +437,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// "Open Providers" differently.
     case settingsOpenPaneFormat = "settings.openPaneFormat"
     case settingsSearchPrompt = "settings.searchPrompt"
+    /// What the pane list says when nothing matches the search, with the
+    /// searched text: a list that emptied with no word read as broken.
+    case settingsSearchNoResultsFormat = "settings.searchNoResultsFormat"
     case settingsRequiresNewerEngine = "settings.requiresNewerEngine"
     /// The other half of the newer-engine state: the daemon in memory already
     /// is the engine this copy ships, so no restart can serve these panes.

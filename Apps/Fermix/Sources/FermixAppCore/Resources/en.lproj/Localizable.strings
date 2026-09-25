@@ -493,6 +493,7 @@
 "settings.back.accessibility" = "Back to Fermix";
 "settings.openPaneFormat" = "Open %@";
 "settings.searchPrompt" = "Search settings";
+"settings.searchNoResultsFormat" = "No settings match “%@”";
 "settings.requiresNewerEngine" = "This needs the newer engine in this copy of Fermix. Restart to finish updating.";
 "settings.engineBehindApp" = "Settings needs a newer Fermix engine than this copy ships.";
 "settings.rowUnsupported" = "This copy of Fermix is older than the daemon and has no control for this setting. Update Fermix to change it here.";
