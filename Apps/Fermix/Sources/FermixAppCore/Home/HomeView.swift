@@ -8,9 +8,6 @@ import SwiftUI
 /// did not report.
 struct HomeView: View {
     @ObservedObject var model: HomeModel
-    /// The one settings model, which is what the Restart sheet reads: the
-    /// daemon's own reasons and the count of work a restart would interrupt.
-    @ObservedObject var settings: SettingsModel
     let router: any CommandPerforming
 
     var body: some View {

@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -9,10 +10,17 @@ import Foundation
 @MainActor
 public final class HomeModel: ObservableObject {
     @Published public private(set) var snapshot: HomeSnapshot
-    @Published public private(set) var loading = false
     /// What an Attention row's action had to say, where it had anything. A
     /// refusal is the daemon's own sentence, shown under the section.
     @Published public private(set) var actionMessage: String?
+    /// The two login registrations as macOS last answered. Held rather than
+    /// read through, because each read is a slow XPC round trip and the
+    /// switches drawing them ask on every redraw (`LoginRegistrations`). It is
+    /// read again wherever the answer can change: every refresh, which runs
+    /// after each lifecycle transaction, this app's own Open at login change,
+    /// and the app coming to the front, since System Settings is the other
+    /// writer.
+    @Published public private(set) var registrations: LoginRegistrations
 
     private let gateway: any DaemonQuerying
     private let services: ServiceController
@@ -45,6 +53,9 @@ public final class HomeModel: ObservableObject {
     /// through rather than holding a copy, so this is only what tells the view
     /// to read it again.
     private var transactionChanges: AnyCancellable?
+    /// The app coming to the front, which is when a change made in System
+    /// Settings, the registrations' other writer, can first be seen.
+    private var activations: AnyCancellable?
     private let log = AppLog.logger(.app)
 
     /// What the reconcile last found, read back from the one model that owns it
@@ -78,19 +89,26 @@ public final class HomeModel: ObservableObject {
         self.snapshot = HomeSnapshot.unreachable(
             attention: .unavailable(ProductStrings[.homeAttentionUnread])
         )
+        // Once, before the first draw, so the switches never open on a guess.
+        self.registrations = LoginRegistrations(agent: services.status(.agent), mainApp: services.status(.mainApp))
         self.transactionChanges = coordinator.transactionChanges.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
+        self.activations = NotificationCenter.default
+            .publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                Task { await self?.refreshRegistrations() }
+            }
     }
 
     /// Whether the GUI opens at login. Independent of the background service in
     /// both directions: two registrations, two consents.
     public var openAtLogin: Bool {
-        services.status(.mainApp) == .enabled
+        registrations.mainApp == .enabled
     }
 
     public var backgroundServiceEnabled: Bool {
-        services.backgroundServiceEnabled
+        registrations.agent == .enabled
     }
 
     /// Whether Fermix shows a menu bar item. Independent of both registrations:
@@ -121,16 +139,23 @@ public final class HomeModel: ObservableObject {
     }
 
     public func refresh() async {
-        loading = true
-        defer { loading = false }
-
         let update = updates.availability()
         snapshot = await read(update: update)
+        await refreshRegistrations()
         // This is the only read of the daemon an ordinary launch makes, so it
         // is also what moves the menu bar glyph and the status line off
         // "starting". The coordinator owns the write; Home only reports what it
         // just saw.
         coordinator.daemonObserved(DaemonObservation(snapshot: snapshot))
+    }
+
+    /// Reads both registrations off the main thread, and publishes only a
+    /// change: an unchanged answer redrawing Home is the cost this avoids.
+    public func refreshRegistrations() async {
+        let current = await services.registrations()
+        guard current != registrations else { return }
+
+        registrations = current
     }
 
     private func read(update: UpdateAvailability) async -> HomeSnapshot {
@@ -327,6 +352,8 @@ public final class HomeModel: ObservableObject {
         } catch {
             log.error("the GUI login item could not be changed: \(String(describing: error), privacy: .public)")
         }
-        objectWillChange.send()
+        // Read here rather than on the next refresh, and published even when
+        // unchanged, so a refused change puts the switch straight back.
+        registrations.mainApp = services.status(.mainApp)
     }
 }

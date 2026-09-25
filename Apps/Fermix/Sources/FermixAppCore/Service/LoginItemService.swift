@@ -45,7 +45,11 @@ public enum ServiceControlError: Error, Equatable, Sendable {
 /// Registering a background item mutates the account it runs in, so tests never
 /// reach the real implementation: they inject a double, and the production type
 /// below is the only code in the app that touches `SMAppService` at all.
-public protocol LoginItemService {
+///
+/// `Sendable` because a status read leaves the main thread: each one is a
+/// synchronous XPC round trip in which macOS re-verifies this app's signature,
+/// about 70 ms on a Developer ID build (see `LoginRegistrations`).
+public protocol LoginItemService: Sendable {
     func register(_ principal: LoginItemPrincipal) throws
     func unregister(_ principal: LoginItemPrincipal) throws
     func status(_ principal: LoginItemPrincipal) -> ServiceRegistrationStatus

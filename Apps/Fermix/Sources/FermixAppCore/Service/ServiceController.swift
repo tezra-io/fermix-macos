@@ -37,7 +37,7 @@ public struct BundledAgentPlistDigest: AgentPlistDigesting {
 /// Every mutation goes through one seam, so this is the only place in the app
 /// that can change what macOS runs at login, and the only place a registration
 /// failure is turned into a typed refusal.
-public struct ServiceController {
+public struct ServiceController: Sendable {
     private let loginItems: any LoginItemService
     private let plists: any AgentPlistDigesting
     private let log = AppLog.logger(.service)
@@ -72,6 +72,33 @@ public struct ServiceController {
     /// Whether the daemon is registered to run in the background.
     public var backgroundServiceEnabled: Bool {
         status(.agent) == .enabled
+    }
+
+    /// Both registrations, read off the main thread.
+    public func registrations() async -> LoginRegistrations {
+        await Task.detached(priority: .userInitiated) { [self] in
+            LoginRegistrations(agent: status(.agent), mainApp: status(.mainApp))
+        }.value
+    }
+}
+
+/// The two login registrations as macOS last answered, for a surface to draw.
+///
+/// A surface holds this and never asks `SMAppService` itself. Each status read
+/// is a synchronous XPC round trip in which macOS re-verifies this app's
+/// signature and ticket, about 70 ms on a Developer ID build, and a switch
+/// binding asks for its value several times per redraw. Read through from
+/// Home's switches, pressing Back to Fermix made 52 of them: three and a half
+/// seconds with the main thread blocked (measured 2026-09-24). A transaction
+/// that decides something from the registration still reads it live through
+/// `ServiceController.status(_:)`.
+public struct LoginRegistrations: Equatable, Sendable {
+    public var agent: ServiceRegistrationStatus
+    public var mainApp: ServiceRegistrationStatus
+
+    public init(agent: ServiceRegistrationStatus, mainApp: ServiceRegistrationStatus) {
+        self.agent = agent
+        self.mainApp = mainApp
     }
 }
 

@@ -627,8 +627,8 @@ public final class AppCoordinator {
             defer {
                 self?.transaction = nil
                 self?.model.transactionInFlight = nil
-                // Home reads registration through ServiceController, so it
-                // needs its own refresh after every outcome, including failure.
+                // Home holds the registration it draws, so it needs its own
+                // refresh after every outcome, including failure.
                 self?.readDaemonCondition?()
             }
 

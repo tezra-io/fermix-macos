@@ -425,7 +425,7 @@ struct MainWindowView: View {
     private var detail: some View {
         switch model.route {
         case .home:
-            HomeView(model: surfaces.home, settings: settings, router: router)
+            HomeView(model: surfaces.home, router: router)
         case .doctor:
             DoctorView(model: surfaces.doctor, router: router)
         case .logs:

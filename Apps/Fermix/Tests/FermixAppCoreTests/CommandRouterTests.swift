@@ -168,6 +168,7 @@ struct CommandRouterTests {
     func backgroundServiceSetsTheOppositeState() async throws {
         let harness = try RouterHarness()
         harness.loginItems.preregister(.agent)
+        await harness.surfaces.home.refreshRegistrations()
 
         #expect(harness.surfaces.home.backgroundServiceEnabled)
         #expect(harness.router.isOn(.toggleBackgroundService))
@@ -176,6 +177,7 @@ struct CommandRouterTests {
         #expect(harness.lifecycle.calls == [.disable])
 
         harness.loginItems.preregister(.agent, as: .notRegistered)
+        await harness.surfaces.home.refreshRegistrations()
         #expect(!harness.router.isOn(.toggleBackgroundService))
         harness.router.perform(.toggleBackgroundService)
         try await harness.coordinator.drainPendingWork()

@@ -16,10 +16,20 @@ public enum FermixColorScheme: String, CaseIterable, Sendable {
 public struct ThemedColor: Equatable, Sendable {
     public let light: SRGBColor
     public let dark: SRGBColor
+    /// Built once with the token, not on every read. A fresh dynamic colour per
+    /// read never compares equal to the last one, so every view drawing a token
+    /// counted as changed on every pass and SwiftUI redrew it.
+    public let color: Color
 
     public init(light: SRGBColor, dark: SRGBColor) {
         self.light = light
         self.dark = dark
+        self.color = Color(nsColor: Self.dynamic(light: light, dark: dark))
+    }
+
+    /// A token is its two values; the built colour is how it is drawn.
+    public static func == (lhs: ThemedColor, rhs: ThemedColor) -> Bool {
+        lhs.light == rhs.light && lhs.dark == rhs.dark
     }
 
     /// A token that is the same colour in both appearances, which in this
@@ -47,16 +57,13 @@ public struct ThemedColor: Equatable, Sendable {
     }
 
     public var nsColor: NSColor {
-        let light = light
-        let dark = dark
-
-        return NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark.nsColor : light.nsColor
-        }
+        Self.dynamic(light: light, dark: dark)
     }
 
-    public var color: Color {
-        Color(nsColor: nsColor)
+    private static func dynamic(light: SRGBColor, dark: SRGBColor) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark.nsColor : light.nsColor
+        }
     }
 }
 

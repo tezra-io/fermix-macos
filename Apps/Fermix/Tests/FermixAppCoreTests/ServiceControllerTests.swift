@@ -125,6 +125,10 @@ final class FakeLoginItemService: LoginItemService, @unchecked Sendable {
     private(set) var registerCalls: [LoginItemPrincipal] = []
     private(set) var unregisterCalls: [LoginItemPrincipal] = []
     private(set) var mutations: [Mutation] = []
+    /// How many times macOS was asked for a status. Each real read is a slow
+    /// XPC round trip, so a surface that redraws must not add to this.
+    var statusReads: Int { lock.withLock { reads } }
+    private var reads = 0
 
     /// Establishes a starting state without recording it: the call lists are
     /// about what the code under test did, not how the scenario was set up.
@@ -162,6 +166,7 @@ final class FakeLoginItemService: LoginItemService, @unchecked Sendable {
     func status(_ principal: LoginItemPrincipal) -> ServiceRegistrationStatus {
         lock.lock()
         defer { lock.unlock() }
+        reads += 1
         return statuses[principal] ?? .notRegistered
     }
 }

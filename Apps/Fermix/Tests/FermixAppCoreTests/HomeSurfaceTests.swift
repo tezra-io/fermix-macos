@@ -740,10 +740,38 @@ struct HomeSurfaceTests {
         harness.model.setOpenAtLogin(true)
         #expect(harness.loginItems.status(.mainApp) == .enabled)
         #expect(harness.loginItems.status(.agent) == .enabled)
+        #expect(harness.model.openAtLogin, "the switch shows the change without waiting for a refresh")
 
         harness.model.setOpenAtLogin(false)
         #expect(harness.loginItems.status(.mainApp) == .notRegistered)
         #expect(harness.loginItems.status(.agent) == .enabled, "the daemon's registration is untouched")
+        #expect(!harness.model.openAtLogin)
+    }
+
+    /// Drawing the switches asks macOS nothing (2026-09-24). Each status read is
+    /// an XPC round trip of about 70 ms in which macOS re-verifies the app's
+    /// signature, and a switch binding reads its value several times per
+    /// redraw: read through, Back to Fermix blocked the main thread for three
+    /// and a half seconds. Home holds the answer and reads it again only where
+    /// it can change.
+    @Test("drawing Home's switches asks macOS nothing, and a re-read asks once per registration")
+    func switchesReadTheHeldRegistrations() async throws {
+        let harness = try HomeHarness()
+        harness.loginItems.preregister(.agent)
+        await harness.model.refreshRegistrations()
+        let reads = harness.loginItems.statusReads
+
+        for _ in 0..<10 {
+            _ = harness.model.backgroundServiceEnabled
+            _ = harness.model.openAtLogin
+        }
+        #expect(harness.loginItems.statusReads == reads)
+
+        harness.loginItems.preregister(.mainApp)
+        await harness.model.refreshRegistrations()
+        #expect(harness.loginItems.statusReads == reads + 2)
+        #expect(harness.model.backgroundServiceEnabled)
+        #expect(harness.model.openAtLogin)
     }
 
     /// The third switch in the Background section. It is a way in rather than a
