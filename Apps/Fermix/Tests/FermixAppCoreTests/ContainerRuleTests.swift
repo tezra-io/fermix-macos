@@ -629,23 +629,20 @@ struct ContainerRuleTests {
         }
     }
 
-    /// Integrations is the one pane that draws a page header of its own, so it
-    /// is the one pane that removes the toolbar's inline title: the window
-    /// title said `Integrations` two lines above the header that says it. Every
-    /// other pane still takes its title from the window.
-    ///
-    /// Both halves, because dropping the `navigationTitle` instead would leave
-    /// the window named by whichever pane was open before it.
-    @Test("only the pane with its own header removes the toolbar title")
-    func onlyTheCodexPageRemovesItsTitle() throws {
+    /// Every pane's name is the toolbar's. Integrations drew a page title of
+    /// its own and removed the toolbar's, and inside the frame that made it the
+    /// one pane with its heading in the body and the toolbar's Restart and
+    /// search slid over to where the title had been (owner, 2026-09-25).
+    @Test("no pane removes the toolbar title or draws its own page title")
+    func everyPaneTitlesInTheToolbar() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
         let removers = files.filter { $0.text.contains(".toolbar(removing: .title)") }.map(\.path)
 
-        #expect(removers.count == 1, "\(removers)")
-        #expect(try #require(removers.first).hasSuffix("Settings/Panes/IntegrationsPane.swift"))
+        #expect(removers.isEmpty, "\(removers)")
 
         let pane = try #require(files.first { $0.path.hasSuffix("Settings/Panes/IntegrationsPane.swift") }?.text)
         #expect(pane.contains(".navigationTitle(SettingsPane.integrations.title)"), "the window loses its name")
+        #expect(!pane.contains("Text(SettingsPane.integrations.title)"), "the pane draws its title in the body")
     }
 
     /// A row that opens something says so before it is clicked. The plugin rows

@@ -364,14 +364,13 @@ struct IntegrationsPane: View {
         .padding(.top, Spacing.l)
         .frame(maxWidth: WindowMetrics.settingsContentMaxWidth, alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // The pane's name is the toolbar's, as every other pane's is. This page
+        // drew a title of its own and removed the toolbar's, and inside the
+        // frame that made it the one pane with its heading in the body and the
+        // toolbar's Restart and search slid over to where the title had been
+        // (owner, 2026-09-25: "The heading is on the body and the search bar
+        // is on the left unlike rest").
         .navigationTitle(SettingsPane.integrations.title)
-        // The one pane that draws a page header of its own (the Codex-shaped
-        // page the owner asked for), so the toolbar's inline title is removed
-        // rather than left to say `Integrations` two lines above the header
-        // that says it. The window keeps its title: it is what the Window menu
-        // and Mission Control name this window by, and only its drawing in the
-        // toolbar is dropped.
-        .toolbar(removing: .title)
         .sheet(item: $consenting) { row in
             IntegrationConsentSheet(row: row, model: model, runner: work) { consentClosed(row) }
         }
@@ -404,14 +403,10 @@ struct IntegrationsPane: View {
         IntegrationRowProjection.counts(rows: rows, features: features.count)
     }
 
-    /// The page header: the title, a one-line subtitle, then the pill row with
-    /// the search field at its trailing edge.
+    /// The page's lead: a one-line subtitle, then the pill row with the search
+    /// field at its trailing edge. The title is the toolbar's.
     private var header: some View {
         VStack(alignment: .leading, spacing: Spacing.s) {
-            Text(SettingsPane.integrations.title)
-                .fermixType(Typography.style(.title))
-                .foregroundStyle(Palette.ink.color)
-
             Text(ProductStrings[.integrationsSubtitle])
                 .fermixType(Typography.style(.calloutSmall))
                 .foregroundStyle(Palette.secondary.color)
