@@ -66,13 +66,20 @@ public enum SettingsRowMetrics {
 }
 
 /// Minimum interactive heights.
+///
+/// Each is one of the system's own control heights, measured on macOS 26
+/// (2026-09-25): mini 16, small 20, regular 24, large 28, extra large 36.
 public enum HitTarget {
+    /// Extra large: the height of the toolbar's own controls.
     public static let button: Double = 36
-    public static let onboardingCTA: Double = 44
-    /// The action at the trailing edge of a form row. The height the system
-    /// gives its own row controls, so a row with an action is no taller than a
-    /// row with a switch.
-    public static let rowAction: Double = 26
+    /// Extra large as well, the largest control the Mac draws. It was 44, a
+    /// touch target, which is a phone's number and not a size macOS has.
+    public static let onboardingCTA: Double = 36
+    /// The action at the trailing edge of a form row. Regular, the height the
+    /// system gives its own row controls (push button, pop-up, text field and
+    /// switch are all 24), so a row with an action is no taller than a row
+    /// with a switch.
+    public static let rowAction: Double = 24
 }
 
 /// Stroke widths. Only the Telegram hero card is heavier than a hairline.
@@ -95,17 +102,18 @@ public enum WindowMetrics {
     public static let mainDefaultSize = CGSize(width: 1040, height: 640)
 
     /// The rail: the app sidebar as one fixed column of symbols (redlines §5.7).
-    /// Wide enough to clear the window's traffic lights, which sit over its
-    /// head, and narrow enough that it never has to collapse to make room.
     ///
-    /// 96 rather than the first cut's 76 (owner, 2026-09-20: the traffic lights
-    /// "feel cutoff because of the reduced left pane width"). Measured on the
-    /// running window, the cluster spans x 19 to x 78, so at 76 the green light
-    /// straddled the rail's trailing edge and was drawn half on black and half
-    /// on the ground, which is exactly what a cut-off light looks like. At 96
-    /// the whole cluster sits on the black with 19 points of it leading and 18
-    /// trailing, so the lights read as centred in the column they are on.
-    public static let railWidth: Double = 96
+    /// Its rows, symbols and selection are the system sidebar's own, at the
+    /// size the reader chose in System Settings (a medium row is 32 points).
+    /// The selection is inset 10 points from each side of the column, so 52 is
+    /// the width at which a medium row's selection is square rather than a
+    /// stretched bar (owner, 2026-09-25, of the Codex app: its selection is
+    /// "squarish", ours "feels like its stretched").
+    ///
+    /// It no longer has to carry the traffic lights: the frame's band across
+    /// the top does, as it does in the Codex app the owner took the thin frame
+    /// from. At 96 the rail was sized to centre the lights on it (2026-09-20).
+    public static let railWidth: Double = 52
     /// What the pinned Settings row keeps clear of the column's bottom edge.
     ///
     /// The gear is placed by a spacer measured against the column's full height,
@@ -118,14 +126,12 @@ public enum WindowMetrics {
     /// window's own rounded corners rather than taken from `Radius.window`.
     ///
     /// `Radius.window` 14 is the artboards' number for a drawn panel. This one
-    /// has to be what macOS itself rounds this window by, because the two
-    /// corners sit on the window's own top and bottom edges, one rail width in
-    /// from the corners the system draws there. Two different curves on one
-    /// straight edge read as a mistake; the same curve twice reads as a frame.
+    /// is what macOS itself rounds this window by: the bottom corner sits on
+    /// the window's own bottom edge, one rail width in from the corner the
+    /// system draws there, and two different curves on one straight edge read
+    /// as a mistake. The top corner, where the band meets the rail, takes the
+    /// same curve so the body is one shape.
     public static let bodyCornerRadius: Double = 20
-    /// One rail symbol, and the row it sits in.
-    public static let railSymbolSize: Double = 17
-    public static let railRowHeight: Double = 30
 
     /// The window floor. One number rather than the pair a separate Settings
     /// window allowed, because decision D3 puts settings inside this window:

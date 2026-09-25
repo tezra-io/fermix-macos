@@ -180,10 +180,18 @@ struct DesignTypeAndMetricsTests {
 
     /// The menu-row metrics went with the popover: an `NSMenu` row is the
     /// system's geometry, not the app's.
-    @Test("hit targets meet the published minimums")
+    /// Every height is one the system draws its own controls at: extra large
+    /// is 36 and is the largest a Mac control comes in, so the assistant's call
+    /// to action is 36 too rather than a phone's 44 point touch target.
+    @Test("hit targets are the system's own control heights")
     func hitTargets() {
+        let systemHeights: Set<Double> = [16, 20, 24, 28, 36]
+
         #expect(HitTarget.button == 36)
-        #expect(HitTarget.onboardingCTA == 44)
+        #expect(HitTarget.onboardingCTA == 36)
+        for height in [HitTarget.button, HitTarget.onboardingCTA, HitTarget.rowAction] {
+            #expect(systemHeights.contains(height), "\(height) is not a size macOS draws a control at")
+        }
     }
 
     @Test("strokes match the redline, and only the hero border is heavier")
@@ -206,30 +214,27 @@ struct DesignTypeAndMetricsTests {
         #expect(OnboardingMetrics.horizontalPadding == 100)
     }
 
-    /// Redlines §5.7: the app sidebar is the rail, one fixed column of symbols.
-    /// It has to clear the window's traffic lights, which sit over its head, and
-    /// the mark and a symbol have to fit inside it with room to spare.
+    /// Redlines §5.7: the app sidebar is the rail, one fixed column of symbols
+    /// at the system sidebar's own size (owner, 2026-09-25: the Codex rail's
+    /// selection is "squarish", ours "feels like its stretched").
     ///
-    /// 96 rather than the first cut's 76 (owner, 2026-09-20: the lights "feel
-    /// cutoff because of the reduced left pane width"). Measured on the running
-    /// window the cluster spans x 19 to x 78, so at 76 the green light straddled
-    /// the rail's trailing edge and was drawn half on black and half on the
-    /// ground. Clearing the lights is therefore not enough on its own, and the
-    /// gate asserts what the owner actually saw: the cluster has to sit on the
-    /// black with the same margin either side of it.
-    static let trafficLights = (leading: 19.0, trailing: 78.0)
+    /// The system insets a sidebar selection 10 points from each side of its
+    /// column, and a medium sidebar row is 32 points tall on macOS 26, so the
+    /// column is the width at which that selection is square. The traffic
+    /// lights no longer set the width: the frame's band carries them.
+    static let selectionInset = 10.0
+    static let mediumSidebarRow = 32.0
 
-    @Test("the rail is one fixed 96 point column that centres the traffic lights on it")
-    func railColumn() {
-        #expect(WindowMetrics.railWidth == 96)
-        #expect(WindowMetrics.railSymbolSize == 17)
-        #expect(WindowMetrics.railRowHeight == 30)
+    @Test("the rail is one fixed column whose selection is a standard square")
+    func railColumn() throws {
+        #expect(WindowMetrics.railWidth == 52)
+        #expect(WindowMetrics.railWidth - 2 * Self.selectionInset == Self.mediumSidebarRow)
 
-        let clearance = WindowMetrics.railWidth - Self.trafficLights.trailing
-        #expect(clearance > 0, "the rail is narrower than the traffic lights over it")
-        #expect(abs(clearance - Self.trafficLights.leading) <= 1, "the cluster is off centre by \(clearance - 19)")
-
-        #expect(WindowMetrics.railSymbolSize < WindowMetrics.railRowHeight)
+        // The symbols and rows are the system's: nothing sizes them by hand.
+        let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
+        let text = try #require(window.first?.text)
+        #expect(!text.contains(".font(.system(size:"), "a rail symbol is sized by hand")
+        #expect(!text.contains("minHeight: WindowMetrics.rail"), "a rail row is sized by hand")
     }
 
     /// What the rail keeps clear at its foot, and the radius the body's two
@@ -244,16 +249,15 @@ struct DesignTypeAndMetricsTests {
     /// ends.
     ///
     /// The corner radius is this window's own, measured, and deliberately not
-    /// `Radius.window`: 14 is the artboards' number for a drawn panel, and these
-    /// two corners sit on the window's own top and bottom edges one rail width
-    /// in from the corners macOS rounds there. Two curves on one edge read as a
-    /// mistake.
+    /// `Radius.window`: 14 is the artboards' number for a drawn panel, and the
+    /// bottom corner sits on the window's own bottom edge one rail width in from
+    /// the corner macOS rounds there. Two curves on one edge read as a mistake.
     @Test("the rail's foot and the body's corners take the window's own measurements")
     func railFootAndBodyCorners() throws {
         #expect(WindowMetrics.railBottomInset == 12)
         #expect(WindowMetrics.railBottomInset > 0, "the pinned row sits on the column's bottom edge")
         #expect(
-            WindowMetrics.railBottomInset < WindowMetrics.railRowHeight,
+            WindowMetrics.railBottomInset < Self.mediumSidebarRow,
             "the inset is deeper than a row, so it hides the row rather than clearing the edge"
         )
 

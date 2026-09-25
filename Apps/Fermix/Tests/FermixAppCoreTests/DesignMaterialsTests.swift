@@ -26,7 +26,7 @@ struct DesignMaterialsTests {
     /// below is for.
     @Test("the button recipes match the redline")
     func buttonRecipes() {
-        #expect(ButtonRecipe.primary(.onboarding).height == 44)
+        #expect(ButtonRecipe.primary(.onboarding).height == 36)
         #expect(ButtonRecipe.primary(.onboarding).labelStyle.size == 15)
         #expect(ButtonRecipe.primary(.onboarding).labelStyle.weight == .semibold)
         #expect(ButtonRecipe.primary(.inWindow).height == 36)
@@ -92,12 +92,14 @@ struct DesignMaterialsTests {
         }
     }
 
-    /// A row's action is the height of the system's own row controls. At the
-    /// free-standing 36 the button sets the row's height, and a form of rows
-    /// with actions stops lining up with a form of rows with switches.
+    /// A row's action is the height of the system's own row controls, which is
+    /// the regular control size: push button, pop-up, text field and switch are
+    /// all 24 points on macOS 26 (measured 2026-09-25). At the free-standing 36
+    /// the button sets the row's height, and a form of rows with actions stops
+    /// lining up with a form of rows with switches.
     @Test("a row action is a row control's height at every size that names one")
     func rowActionGeometry() {
-        #expect(HitTarget.rowAction == 26)
+        #expect(HitTarget.rowAction == 24)
         #expect(ButtonRecipe.secondary(.row).height == HitTarget.rowAction)
         #expect(ButtonRecipe.primary(.row).height == HitTarget.rowAction)
         #expect(ButtonRecipe.secondary(.row).labelStyle.size == 13)

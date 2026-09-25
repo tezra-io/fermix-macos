@@ -3,18 +3,18 @@ import SwiftUI
 /// The primary window: a `NavigationSplitView` with the system's sidebar and
 /// the surface it selects (M34 §3.1, §6).
 ///
-/// One window for app surfaces, the Setup Assistant, and Settings. Entering
-/// settings replaces the app sidebar
-/// with the settings pane column and the surface with the pane's form; the
-/// sidebar's own visibility is untouched, so leaving restores exactly what the
-/// user had.
+/// One window for app surfaces, the Setup Assistant, and Settings. Settings is
+/// a place inside the frame rather than a mode that replaces it: the rail stays
+/// with its gear selected, and the body shows the settings pane list beside the
+/// pane's form (owner, 2026-09-25, from the Codex app: "we can keep it for
+/// homepage and settings can be inside that").
 ///
 /// Fermix draws no container inside a surface: the toolbar, the inline title and
 /// every box a surface shows are the system's, and the window paints no glass
-/// and no titlebar of its own. What it does paint is three things, and all three
+/// and no glass of its own. What it does paint is three things, and all three
 /// are the window's own rather than any surface's: the one ambient ground behind
-/// everything (redlines §1.3), the black rail down its leading edge (§5.7), and
-/// the two leading corners that round the body into the window's shape.
+/// everything (redlines §1.3), the frame of rail and top band (§5.7), and the
+/// two leading corners that round the body into it.
 ///
 /// The ground's intensity is decided here too, because this is the one view that
 /// holds both halves of the question: which presentation is up, and which route
@@ -39,6 +39,8 @@ struct MainWindowView: View {
     /// row on the bottom edge; see `footerGap`.
     @State private var sidebarHeight: Double = 0
     @State private var settingsRowBottom: Double = 0
+    /// The toolbar's height over the body, which is the frame's band.
+    @State private var bandHeight: Double = 0
     /// The one settings model, handed to the settings columns. It is held and
     /// not observed: the window's own body reads nothing from it, and observing
     /// it redrew the whole window, rail and ground included, on every one of its
@@ -58,7 +60,7 @@ struct MainWindowView: View {
             // One ground for the one window, behind the split view rather than
             // inside its detail column, so every presentation sits over the same
             // wash. It reaches under the titlebar because every window here is
-            // full size content. The rail paints its own black over it.
+            // full size content. The frame paints its own fill over it.
             .background { AmbientGround(intensity: groundIntensity).ignoresSafeArea() }
             .onGeometryChange(for: Double.self) { proxy in
                 proxy.size.width
@@ -121,7 +123,7 @@ struct MainWindowView: View {
 
     private var splitView: some View {
         NavigationSplitView(columnVisibility: columnVisibility) {
-            leadingColumn
+            appSidebar
         } detail: {
             // The detail column may always compress to the window it is in,
             // which is decision D4's other half: a pane scrolls only when it
@@ -140,7 +142,13 @@ struct MainWindowView: View {
             // through, rather than in the banner: any pane can hold a view that
             // reports a minimum, and this is where the window's size wins.
             detailColumn.frame(minWidth: 0, minHeight: 0)
+                .framedByBand(height: bandHeight)
                 .overlay(alignment: .leading) { bodyCorners }
+                .onGeometryChange(for: Double.self) { proxy in
+                    proxy.safeAreaInsets.top
+                } action: { top in
+                    bandHeight = top
+                }
         }
     }
 
@@ -153,22 +161,6 @@ struct MainWindowView: View {
         }
 
         leaveSettings()
-    }
-
-    @ViewBuilder
-    private var leadingColumn: some View {
-        if presentation.isShowing {
-            // The pane column is fixed and never collapses, so the system's
-            // sidebar toggle is removed from it (redlines §5.8). The modifier
-            // has to sit on the column's own content: applied to the split view
-            // it is not honoured, and the toggle is still drawn above the pane
-            // list on every pane.
-            SettingsPaneColumn(model: settings)
-                .railColumn()
-                .toolbar(removing: .sidebarToggle)
-        } else {
-            appSidebar
-        }
     }
 
     /// Home, Doctor, Logs, Pet, and the one pinned row anchored beneath them.
@@ -265,13 +257,17 @@ struct MainWindowView: View {
     /// so the two read as one sheet with a black stripe painted down it rather
     /// than as a body sitting inside a frame.
     ///
-    /// What draws them is more of the rail's black, laid over the two corners at
+    /// What draws them is more of the frame's fill, laid over the two corners at
     /// `bodyCornerRadius`, which is this window's own measured radius.
     /// Overlaid rather than clipped, because a clip is the inset panel
     /// the owner removed earlier the same day ("Lets remove the border, it
     /// doesnt fit well with the color of ours"): clipping costs the surface a
     /// point of content on every edge and needs a ground of its own behind what
     /// it cuts away, while an overlay takes nothing and paints only the corners.
+    ///
+    /// The top corner sits under the band rather than on the window's top edge,
+    /// where the band and the rail meet, so the body's safe area places it; the
+    /// bottom one still sits on the window's bottom edge.
     ///
     /// It is paint over live content, so it takes no clicks and says nothing.
     private var bodyCorners: some View {
@@ -284,7 +280,7 @@ struct MainWindowView: View {
                 .scaleEffect(x: 1, y: -1)
         }
         .frame(maxHeight: .infinity)
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: .bottom)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -294,11 +290,14 @@ struct MainWindowView: View {
     ///
     /// It is still a `Label`, so the row keeps its name for VoiceOver and for
     /// full keyboard access, and the same name is the help tag a pointer gets.
+    /// Its symbol and its row are the system sidebar's own size, which follows
+    /// the reader's sidebar icon size setting: set by hand at 17 points in a
+    /// 30 point row, the selection was a tall bar rather than the square a
+    /// standard row gives (2026-09-25).
     private func railIcon(_ title: String, systemImage: String) -> some View {
         Label(title, systemImage: systemImage)
             .labelStyle(.iconOnly)
-            .font(.system(size: WindowMetrics.railSymbolSize))
-            .frame(maxWidth: .infinity, minHeight: WindowMetrics.railRowHeight)
+            .frame(maxWidth: .infinity)
             .help(title)
     }
 
@@ -333,11 +332,17 @@ struct MainWindowView: View {
     @ViewBuilder
     private var detailColumn: some View {
         if presentation.isShowing {
-            SettingsDetailView(model: settings, router: router, openRecovery: openRecovery)
-                .toolbar {
-                    SettingsBackControl(back: leaveSettings)
-                    SettingsRestartControl(model: settings, router: router, transaction: model.transactionInFlight)
-                }
+            // Settings inside the frame: its pane list is the second pane and
+            // the form the third, and the rail stays, so the rail is the way
+            // back and no back control is drawn.
+            HStack(spacing: 0) {
+                SettingsPaneColumn(model: settings)
+                    .paneColumn()
+                SettingsDetailView(model: settings, router: router, openRecovery: openRecovery)
+            }
+            .toolbar {
+                SettingsRestartControl(model: settings, router: router, transaction: model.transactionInFlight)
+            }
         } else {
             detail.toolbar { toolbarKeeper }
         }
@@ -365,19 +370,12 @@ struct MainWindowView: View {
     /// hold both columns. The model decides which of those a write was, from the
     /// width it was last told; the view never guesses.
     ///
-    /// While settings is showing the column is the pane list, which is fixed and
-    /// never collapses, so the binding reports it shown and swallows writes: the
-    /// user's own visibility is a preference the presentation must not overwrite.
+    /// The rail is the column in and out of settings, so the one preference
+    /// governs it in both.
     private var columnVisibility: Binding<NavigationSplitViewVisibility> {
         Binding(
-            get: {
-                if presentation.isShowing { return .all }
-
-                return sidebar.visibility == .all ? .all : .detailOnly
-            },
+            get: { sidebar.visibility == .all ? .all : .detailOnly },
             set: { proposed in
-                guard !presentation.isShowing else { return }
-
                 sidebar.visibilityWritten(proposed == .detailOnly ? .detailOnly : .all)
             }
         )
@@ -392,12 +390,12 @@ struct MainWindowView: View {
             set: { identifier in
                 guard let identifier else { return }
 
-                // Routing publishes several models. Leave List's update stack
-                // first, and ignore callbacks from the List Settings replaced.
+                // Routing publishes several models, so leave List's update
+                // stack first. The rail is one List in and out of settings, so
+                // a route row chosen from settings leaves it: the coordinator's
+                // presentation of a surface is what closes settings.
                 DispatchQueue.main.async {
-                    guard !presentation.isShowing,
-                          selectedSidebarIdentifier != SidebarItem.settingsIdentifier,
-                          identifier != selectedSidebarIdentifier else { return }
+                    guard identifier != selectedSidebarIdentifier else { return }
                     guard identifier != SidebarItem.settingsIdentifier else {
                         router.perform(.openSettings)
                         return

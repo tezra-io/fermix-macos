@@ -14,8 +14,8 @@ import SwiftUI
 public final class SettingsPresentation: ObservableObject {
     @Published public private(set) var isShowing = false
 
-    /// The surface to come back to. Recorded on the way in, so the back control
-    /// returns to what the user left rather than to Home.
+    /// The surface to come back to. Recorded on the way in, so Escape returns
+    /// to what the user left rather than to Home.
     @Published public private(set) var returnRoute: AppRoute = .home
 
     /// Grows the window on the way in (decision D3). A closure rather than a
@@ -50,11 +50,14 @@ public final class SettingsPresentation: ObservableObject {
     }
 }
 
-/// The settings layout, inside the primary window (redlines §5.8).
+/// The settings pane list, the second pane inside the window's frame
+/// (redlines §5.8).
 ///
 /// It is the retired Settings window's own tree re-rooted here: the same fixed
-/// pane column, the same sidebar-placed search, the same one grouped form per
-/// pane, the same banners. What went away is a window, not a surface.
+/// pane column, the same search, the same one grouped form per pane, the same
+/// banners. What went away is a window, not a surface. The search field is the
+/// toolbar's, beside the Restart control, because this list is no longer the
+/// split view's sidebar that a sidebar-placed field would sit in.
 struct SettingsPaneColumn: View {
     @ObservedObject var model: SettingsModel
 
@@ -79,18 +82,12 @@ struct SettingsPaneColumn: View {
         // scroller the form was told not to. Same two modifiers, same reason.
         .scrollIndicators(.never)
         .paneScrollEdges()
-        .navigationSplitViewColumnWidth(
-            min: WindowMetrics.settingsSidebarWidth,
-            ideal: WindowMetrics.settingsSidebarWidth,
-            max: WindowMetrics.settingsSidebarWidth
-        )
         .frame(width: WindowMetrics.settingsSidebarWidth)
-        // The field belongs to this column and to nothing else, so it is
-        // applied here: the window keeps one split view in and out of settings,
-        // and this column is what enters and leaves with them.
+        // The field belongs to this pane and to nothing else, so it is applied
+        // here: this pane is what enters and leaves with settings.
         .searchable(
             text: $model.searchText,
-            placement: .sidebar,
+            placement: .toolbar,
             prompt: Text(ProductStrings[.settingsSearchPrompt])
         )
     }

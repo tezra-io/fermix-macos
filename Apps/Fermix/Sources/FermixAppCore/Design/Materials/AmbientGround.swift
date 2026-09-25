@@ -91,21 +91,29 @@ public enum AmbientRecipe {
     public static let glowTrailingReach: Double = 0.60
 }
 
-/// The rail down the window's leading edge (redlines §5.7), in both appearances.
+/// The window's frame (redlines §5.7): the rail down the leading edge and the
+/// band across the top, one colour in one L, with the body set inside it.
 ///
 /// Pitch black on dark, where it is the application icon's own ground: the mark
-/// is white on near-black wherever the product draws it, and the rail is where
+/// is white on near-black wherever the product draws it, and the frame is where
 /// the window wears that. On light it is the standard window grey most Mac apps
 /// give their sidebar, the light value of the system's window background
 /// (owner, 2026-09-25: "for the light mode let the side bar color be the
-/// standard grey most app uses than the pitch black like the dark mode"). It
-/// stops at the rail: a black border run on around the content was tried and
-/// withdrawn (owner, 2026-09-20: "Lets remove the border, it doesnt fit well
-/// with the color of ours").
+/// standard grey most app uses than the pitch black like the dark mode").
+///
+/// Thin, and only on two sides: the owner liked the thin frame of the Codex
+/// app (2026-09-25), a narrow rail and a titlebar band that carry the traffic
+/// lights between them. A frame on all four sides, an inset panel, was tried
+/// and withdrawn (owner, 2026-09-20: "Lets remove the border, it doesnt fit
+/// well with the color of ours").
 public enum WindowFrameRecipe {
     public static let fill = ThemedColor(lightHex: "#ececec", darkHex: "#000000")
     /// The rail's symbols.
     public static let ink = ThemedColor(lightHex: "#1d1d1f", darkHex: "#ffffff")
+    /// The settings pane list, the second pane inside the frame: a step lighter
+    /// than the frame on light and a step off black on dark, so the list reads
+    /// as its own pane between the frame and the form.
+    public static let pane = ThemedColor(lightHex: "#f8f8f8", darkHex: "#0b0b0e")
 }
 
 /// How hard the one ground turns its glows up (redlines §1.3).
@@ -238,6 +246,40 @@ extension View {
     func railColumn() -> some View {
         scrollContentBackground(.hidden)
             .background(WindowFrameRecipe.fill.color)
+    }
+
+    /// The settings pane list, drawn as the second pane inside the frame.
+    ///
+    /// A sidebar list, so its rows, symbols and selection are the system's
+    /// own, on the pane's fill rather than a material of its own.
+    func paneColumn() -> some View {
+        listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(WindowFrameRecipe.pane.color)
+    }
+
+    /// The frame's band across the top of the body.
+    ///
+    /// The band sits where the toolbar does, `height` being the column's top
+    /// safe area, and the body under it is masked off, so content scrolled up
+    /// ends at the band instead of running on under the title and the toolbar's
+    /// actions. The system's own toolbar background is not honoured over this
+    /// window's clear titlebar, so the band is drawn here.
+    func framedByBand(height: Double) -> some View {
+        mask {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: height)
+                Color.black
+            }
+            .ignoresSafeArea()
+        }
+        .background {
+            VStack(spacing: 0) {
+                WindowFrameRecipe.fill.color.frame(height: height)
+                Color.clear
+            }
+            .ignoresSafeArea()
+        }
     }
 }
 

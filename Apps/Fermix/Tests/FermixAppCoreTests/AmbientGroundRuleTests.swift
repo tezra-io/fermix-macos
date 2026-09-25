@@ -178,9 +178,10 @@ struct RailRuleTests {
         #expect(text.contains(".help(title)"))
         #expect(text.contains(".navigationSplitViewColumnWidth(WindowMetrics.railWidth)"))
 
-        // Both leading columns wear the rail: the app's symbols and Settings'
-        // pane list. One of them left on the system material is two sidebars.
-        #expect(occurrences(of: ".railColumn()", in: text) == 2)
+        // One rail, in and out of settings, and settings' pane list is the
+        // second pane inside the frame rather than a second sidebar.
+        #expect(occurrences(of: ".railColumn()", in: text) == 1)
+        #expect(occurrences(of: ".paneColumn()", in: text) == 1)
     }
 
     /// On dark the rail is the application icon's black with its white; on

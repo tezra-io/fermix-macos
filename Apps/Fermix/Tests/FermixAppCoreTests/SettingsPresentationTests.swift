@@ -240,19 +240,19 @@ struct SettingsPresentationTests {
         #expect(row.contains(".tag(SidebarItem.settingsIdentifier)"))
     }
 
-    /// Entering settings hides the app sidebar as a *presentation*, not as a
-    /// preference: the pane column is fixed and never collapses, so the window
-    /// reports it shown and swallows every write while settings is up. Without
-    /// that guard the split view's own layout would be recorded as the user
-    /// hiding their sidebar, and `SidebarReducer` never restores an explicit
-    /// hide — the sidebar would be gone for good after one visit.
+    /// Settings sits inside the frame, so the rail is the sidebar column in and
+    /// out of it and the one visibility preference governs it in both. The
+    /// presentation has nothing to say about the column: were it to force the
+    /// column shown or swallow writes, the split view's own layout would again
+    /// be one thing with two owners.
     @Test("the settings presentation never writes the user's own sidebar visibility")
     func thePresentationDoesNotTouchTheSidebarPreference() throws {
         let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
         let text = try #require(window.first?.text)
+        let binding = try #require(text.range(of: "private var columnVisibility"))
+        let body = String(text[binding.lowerBound...].prefix(400))
 
-        #expect(text.contains("guard !presentation.isShowing else { return }"))
-        #expect(text.contains("if presentation.isShowing { return .all }"))
+        #expect(!body.contains("presentation"), "the settings presentation decides the rail's visibility")
 
         // And the model itself is untouched: leaving restores whatever the
         // reducer was holding, because nothing wrote to it.
