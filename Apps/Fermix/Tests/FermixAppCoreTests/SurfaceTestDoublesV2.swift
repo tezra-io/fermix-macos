@@ -31,8 +31,11 @@ extension FakeDaemonGateway {
     /// it renders is a probe nobody ordered.
     func detect(_ targets: [ManagementDetectTarget]) async throws -> ManagementDetections {
         detectedTargets.append(targets)
+        let published: ManagementDetections = try answer(.setupDetect, "setup_detect")
 
-        return try answer(.setupDetect, "setup_detect")
+        // The golden record answers every target; a daemon answers the ones it
+        // was asked about, which is what lets a surface keep the others.
+        return ManagementDetections(results: published.results.filter { targets.contains($0.target) })
     }
 
     // MARK: - Settings

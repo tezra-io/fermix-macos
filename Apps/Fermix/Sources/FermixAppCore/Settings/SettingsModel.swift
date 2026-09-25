@@ -160,9 +160,15 @@ public final class SettingsModel: ObservableObject {
     /// Reads every published provider's own section, which is what gives a key
     /// verb the slot it writes to. The loop is bounded by the provider list the
     /// daemon published, which `setup.state.get` caps.
+    ///
+    /// A section already read is left alone, as `paneAppeared` leaves a pane's:
+    /// a write re-reads the section it changed and a restart drops them all, so
+    /// re-reading every provider in turn on each visit to Providers bought
+    /// nothing but round trips.
     public func loadProviderSections(for providers: [ManagementSetupProvider]) async {
-        for provider in providers {
-            await loadSection(ProviderRowProjection.sectionId(for: provider.id))
+        let ids = providers.map { ProviderRowProjection.sectionId(for: $0.id) }
+        for id in ids where !isRead(id) {
+            await loadSection(id)
         }
     }
 
@@ -222,21 +228,26 @@ public final class SettingsModel: ObservableObject {
     /// this bundle. Home is the one caller: it is the surface that reads
     /// `hello` (M34 §7.2).
     public func noteEngineBuilds(_ outcome: EngineReconcileOutcome) {
-        engineReconcile.builds = outcome
+        publish(outcome, to: \.engineReconcile.builds)
     }
 
     /// A protocol v2 read was served, so nothing is refusing.
     func noteServed() {
-        engineReconcile.methodsRefused = false
+        publish(false, to: \.engineReconcile.methodsRefused)
     }
 
     // MARK: - Refresh
 
     /// The window appeared. Reads the state every pane shares, then the pane
     /// that is showing.
+    ///
+    /// The section index is boot bound, so an entry reads it only until it has
+    /// an answer: it changes across a restart, and `restartCompleted` reads it
+    /// again. Read on every entry, it re-asked for a list that could not have
+    /// moved.
     public func windowAppeared() async {
         await refreshSetupState()
-        await loadInventory()
+        if inventory.value == nil { await loadInventory() }
         await paneAppeared(selectedPane)
     }
 
@@ -254,10 +265,7 @@ public final class SettingsModel: ObservableObject {
     /// as an empty answer.
     public func adopt(setupState state: ManagementSetupState?, detections probed: ManagementDetections?) {
         if let state {
-            setupState = .loaded(state)
-            noteServed()
-            apply(restart: state.restart)
-            configState = state.coexistence.configState
+            take(state)
         }
 
         if let probed {
@@ -283,26 +291,30 @@ public final class SettingsModel: ObservableObject {
     }
 
     public func refreshSetupState() async {
-        setupState = .loading
+        beginRead(\.setupState)
         do {
-            let state = try await gateway.setupState()
-            setupState = .loaded(state)
-            noteServed()
-            apply(restart: state.restart)
-            configState = state.coexistence.configState
+            take(try await gateway.setupState())
         } catch {
-            setupState = .failure(error)
+            publish(.failure(error), to: \.setupState)
             noteRead(error, "setup.state.get")
         }
     }
 
+    /// One `setup.state.get` answer, and the restart and file state it carries.
+    private func take(_ state: ManagementSetupState) {
+        publish(.loaded(state), to: \.setupState)
+        noteServed()
+        apply(restart: state.restart)
+        publish(state.coexistence.configState, to: \.configState)
+    }
+
     public func loadInventory() async {
-        inventory = .loading
+        beginRead(\.inventory)
         do {
-            inventory = .loaded(try await gateway.settingsSections().sections)
+            publish(.loaded(try await gateway.settingsSections().sections), to: \.inventory)
             noteServed()
         } catch {
-            inventory = .failure(error)
+            publish(.failure(error), to: \.inventory)
             noteRead(error, "settings.sections")
         }
     }
@@ -365,17 +377,44 @@ public final class SettingsModel: ObservableObject {
 
     /// Probes what is already installed on this Mac. Detections change the verb
     /// a row leads with; they never add a row or a screen.
+    ///
+    /// Providers, Coding agents and Meetings each probe their own targets, so
+    /// an answer replaces the targets it was asked about and keeps the rest.
+    /// Replaced whole, every switch between two of those panes threw away what
+    /// the next one draws, and its verbs and sign-in state were missing until a
+    /// probe that runs subprocesses in the daemon answered again.
     public func refreshDetections(_ targets: [ManagementDetectTarget]) async {
         precondition(!targets.isEmpty, "a detection names what it probes")
 
-        detections = .loading
+        beginRead(\.detections)
         do {
-            detections = .loaded(try await gateway.detect(targets))
+            let probed = try await gateway.detect(targets)
+            publish(.loaded(merging(probed, asked: targets)), to: \.detections)
             noteServed()
         } catch {
-            detections = .failure(error)
+            publish(.failure(error), to: \.detections)
             noteRead(error, "setup.detect")
         }
+    }
+
+    /// The held answers, each replaced in place by the probe's answer for its
+    /// target, then the probe's answers for targets not held yet.
+    ///
+    /// A target that was asked about and not answered is dropped rather than
+    /// kept from an earlier probe: the daemon's latest word on it is none. The
+    /// order holds across probes, so a probe that found what was already known
+    /// leaves an equal value and publishes nothing.
+    private func merging(
+        _ probed: ManagementDetections,
+        asked targets: [ManagementDetectTarget]
+    ) -> ManagementDetections {
+        let held = detections.value?.results ?? []
+        let updated = held.compactMap { known in
+            probed.result(for: known.target) ?? (targets.contains(known.target) ? nil : known)
+        }
+        let added = probed.results.filter { answer in !held.contains { $0.target == answer.target } }
+
+        return ManagementDetections(results: updated + added)
     }
 
     /// Re-reads what the notetaker's jobs change.
@@ -393,7 +432,30 @@ public final class SettingsModel: ObservableObject {
 
     /// Records the restart requirement a read or a write reported.
     func apply(restart state: ManagementRestartState) {
-        restart = state
+        publish(state, to: \.restart)
+    }
+
+    /// Marks a read as started, by the rule `loadSection` follows: a value
+    /// already on screen stays there while it is re-read. The spinner is for an
+    /// answer nobody has seen yet; published over one, it emptied the pane
+    /// until the reply and then drew it again, on every visit.
+    func beginRead<Value>(_ state: ReferenceWritableKeyPath<SettingsModel, SettingsReadState<Value>>) {
+        guard self[keyPath: state].value == nil else { return }
+
+        publish(.loading, to: state)
+    }
+
+    /// Writes one published value, and only where it changed.
+    ///
+    /// Every surface in the window observes this model, and a published
+    /// property announces each write whether or not the value moved. The
+    /// shared state is re-read on every Settings entry and on every Home
+    /// refresh, and its answer is nearly always the one already held, so an
+    /// unguarded write redrew the whole window for nothing.
+    func publish<Value: Equatable>(_ value: Value, to property: ReferenceWritableKeyPath<SettingsModel, Value>) {
+        guard self[keyPath: property] != value else { return }
+
+        self[keyPath: property] = value
     }
 
     /// A read failed. Every one of them is logged at error level with the typed
@@ -418,7 +480,7 @@ public final class SettingsModel: ObservableObject {
 
     /// A protocol v2 method refused with the N-1 window.
     func noteRequiresNewerEngine() {
-        engineReconcile.methodsRefused = true
+        publish(true, to: \.engineReconcile.methodsRefused)
     }
 
     func setDraft(_ value: ManagementSettingValue?, for key: SettingsDraftKey) {

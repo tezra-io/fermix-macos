@@ -168,10 +168,8 @@ struct InstalledAppsSheet: View {
         }
         .padding(WindowMetrics.contentPadding)
         .frame(width: SheetMetrics.pickerSize.width, height: SheetMetrics.pickerSize.height)
-        .onAppear {
-            apps = source.installedApps()
-            selected = request.chosen
-        }
+        .onAppear { selected = request.chosen }
+        .task { apps = await source.scanned() }
     }
 
     private var matching: [InstalledApp] {

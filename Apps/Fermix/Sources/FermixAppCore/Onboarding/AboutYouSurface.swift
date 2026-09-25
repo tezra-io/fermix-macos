@@ -104,31 +104,40 @@ struct AboutYouSurface: View {
 /// offset from GMT. The identifier is the value written; it is never the label.
 struct TimeZoneChoice: Identifiable, Equatable, Sendable {
     let identifier: String
+    /// `New York · Eastern Standard Time · GMT-5`, with the underscore the wire
+    /// identifier carries opened out.
+    ///
+    /// Composed once, when the choice is made: the zone's name comes from ICU,
+    /// and the sheet's search read it for every zone macOS knows on each
+    /// keystroke.
+    let title: String
+    /// Everything a search has to look through, so typing `london`, `europe` or
+    /// `gmt+0` all find the same row.
+    let searchable: String
 
     var id: String { identifier }
 
-    /// `New York · Eastern Standard Time · GMT-5`, with the underscore the wire
-    /// identifier carries opened out.
-    var title: String {
+    init(identifier: String) {
+        let title = Self.composedTitle(identifier)
+
+        self.identifier = identifier
+        self.title = title
+        self.searchable = "\(identifier) \(title)".lowercased()
+    }
+
+    private static func composedTitle(_ identifier: String) -> String {
+        let zone = TimeZone(identifier: identifier)
         let named = zone?.localizedName(for: .generic, locale: .current)
-        let pieces = [city, named, offset].compactMap { $0 }.filter { !$0.isEmpty }
+        let pieces = [city(identifier), named, offset(zone)].compactMap { $0 }.filter { !$0.isEmpty }
 
         return pieces.dropFirst().reduce(pieces.first ?? identifier) { ProductStrings.middot($0, $1) }
     }
 
-    /// Everything a search has to look through, so typing `london`, `europe` or
-    /// `gmt+0` all find the same row.
-    var searchable: String {
-        "\(identifier) \(title)".lowercased()
-    }
-
-    private var zone: TimeZone? { TimeZone(identifier: identifier) }
-
-    private var city: String? {
+    private static func city(_ identifier: String) -> String? {
         identifier.split(separator: "/").last.map { $0.replacingOccurrences(of: "_", with: " ") }
     }
 
-    private var offset: String? {
+    private static func offset(_ zone: TimeZone?) -> String? {
         guard let seconds = zone?.secondsFromGMT() else { return nil }
 
         let hours = seconds / 3_600
@@ -151,6 +160,9 @@ struct TimeZoneSheet: View {
     let dismiss: () -> Void
 
     @State private var query = ""
+    /// Every zone, built once as the sheet appears rather than on each
+    /// keystroke of the search.
+    @State private var zones: [TimeZoneChoice] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s) {
@@ -184,12 +196,13 @@ struct TimeZoneSheet: View {
         }
         .padding(WindowMetrics.contentPadding)
         .frame(width: SheetMetrics.pickerSize.width, height: SheetMetrics.pickerSize.height)
+        .onAppear { zones = TimeZoneChoice.all }
     }
 
     private var matching: [TimeZoneChoice] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !needle.isEmpty else { return TimeZoneChoice.all }
+        guard !needle.isEmpty else { return zones }
 
-        return TimeZoneChoice.all.filter { $0.searchable.contains(needle) }
+        return zones.filter { $0.searchable.contains(needle) }
     }
 }

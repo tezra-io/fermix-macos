@@ -481,47 +481,72 @@ struct IntegrationsPane: View {
     /// the list's own children rather than once on the list: on the container
     /// it is not the row it names, and a rule left behind at the foot of the
     /// page is exactly what the directive is about.
+    ///
+    /// A changed result starts at its top. A list keeps its offset when its
+    /// rows change, so a filter chosen or a search typed while scrolled down
+    /// opened on the middle of the new result. The list is scrolled there
+    /// rather than rebuilt: an identity keyed on the filter and the search
+    /// threw away and rebuilt every row on each pill click and each keystroke.
     private var list: some View {
-        List {
-            if filter == .features {
-                ForEach(visibleFeatures) { feature in
-                    IntegrationFeatureRow(feature: feature) { openPane(feature.pane) }
-                }
-                .listRowSeparator(.hidden)
-            } else if visible.isEmpty {
-                Text(ProductStrings[.integrationsNoResults])
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.secondary.color)
+        ScrollViewReader { scroller in
+            List {
+                if filter == .features {
+                    ForEach(visibleFeatures) { feature in
+                        IntegrationFeatureRow(feature: feature) { openPane(feature.pane) }
+                    }
                     .listRowSeparator(.hidden)
-            } else {
-                ForEach(visible) { row in
-                    IntegrationRow(row: row, open: { detail = row }, setEnabled: setEnabled)
-                }
-                .listRowSeparator(.hidden)
-            }
-
-            if let refusal {
-                Text(refusal)
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.warning.color)
-                    .accessibilityAddTraits(.updatesFrequently)
+                } else if visible.isEmpty {
+                    Text(ProductStrings[.integrationsNoResults])
+                        .fermixType(Typography.style(.calloutSmall))
+                        .foregroundStyle(Palette.secondary.color)
+                        .listRowSeparator(.hidden)
+                        .id(Self.noResultsRow)
+                } else {
+                    ForEach(visible) { row in
+                        IntegrationRow(row: row, open: { detail = row }, setEnabled: setEnabled)
+                    }
                     .listRowSeparator(.hidden)
-            }
+                }
 
-            clients
+                if let refusal {
+                    Text(refusal)
+                        .fermixType(Typography.style(.calloutSmall))
+                        .foregroundStyle(Palette.warning.color)
+                        .accessibilityAddTraits(.updatesFrequently)
+                        .listRowSeparator(.hidden)
+                }
+
+                clients
+            }
+            .listStyle(.plain)
+            // The list gives up its own ground for the window's, as every form
+            // does, and its sign-in client rows draw their actions in the one
+            // row style (redlines §1.3, §4.4).
+            .showsAmbientGround()
+            .rowActions()
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(.never)
+            .paneScrollEdges()
+            .onChange(of: filter) { scrollToTop(scroller) }
+            .onChange(of: query) { scrollToTop(scroller) }
         }
-        .listStyle(.plain)
-        // The list gives up its own ground for the window's, as every form
-        // does, and its sign-in client rows draw their actions in the one row
-        // style (redlines §1.3, §4.4).
-        .showsAmbientGround()
-        .rowActions()
-        .id(filter)
-        .id(query)
-        .id(model.plugins.value != nil)
-        .scrollBounceBehavior(.basedOnSize)
-        .scrollIndicators(.never)
-        .paneScrollEdges()
+    }
+
+    /// The id of the row the list opens with, whichever of its three shapes it
+    /// has. A feature search that matches nothing draws no row of its own, and
+    /// the list then stays where it was.
+    private var firstRow: String? {
+        guard filter != .features else { return visibleFeatures.first?.id }
+
+        return visible.first?.id ?? Self.noResultsRow
+    }
+
+    private static let noResultsRow = "integrations:no-results"
+
+    private func scrollToTop(_ scroller: ScrollViewProxy) {
+        guard let firstRow else { return }
+
+        scroller.scrollTo(firstRow, anchor: .top)
     }
 
     /// The sign-in clients the operator registered, as one section at the foot

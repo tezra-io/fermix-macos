@@ -691,7 +691,7 @@ struct SettingsSourceGateTests {
         // one of them, because a section that kept its rules would draw the
         // ledger back at the foot of the page.
         let rows = text.components(separatedBy: ".listRowSeparator(.hidden)").count - 1
-        let children = text.components(separatedBy: "\n        List {").count - 1
+        let children = text.components(separatedBy: "List {").count - 1
 
         #expect(rows == 5, "\(rows) rows hide their separator")
         #expect(children == 1, "the page owns exactly one list")

@@ -462,12 +462,22 @@ public enum HumaneTime {
     /// goes stale where it stands, and the last successful update check is
     /// exactly the fact nobody may be misled about.
     public static func moment(_ date: Date) -> String {
+        momentFormatter.string(from: date)
+    }
+
+    /// Built once rather than per call, because a formatter is expensive to
+    /// make. Locale, calendar and time zone follow the Mac's own settings as
+    /// they change, as a fresh formatter's did.
+    private static let momentFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.calendar = .autoupdatingCurrent
+        formatter.timeZone = .autoupdatingCurrent
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
 
-        return formatter.string(from: date)
-    }
+        return formatter
+    }()
 
     /// The largest unit only, for the menu-bar status line.
     public static func coarseUptime(seconds: Int) -> String {

@@ -392,7 +392,7 @@ struct ContainerRuleTests {
 
         for file in files {
             for (name, body) in Self.types(in: file.text) where Self.isPaneBody(name) {
-                let containers = Self.scrollContainers.reduce(0) { $0 + occurrences(of: $1, in: body) }
+                let containers = try Self.scrollContainers.reduce(0) { try $0 + matches(of: $1, in: body) }
                 guard containers > 0 else { continue }
 
                 checked.append(name)
@@ -418,8 +418,9 @@ struct ContainerRuleTests {
 
     /// What makes a view a scroll container on macOS: a list, a form, or a
     /// scroll view. All three scroll their own content, which is the property
-    /// the rule is about.
-    static let scrollContainers = ["List {", "List(", "Form {", "ScrollView"]
+    /// the rule is about. A `ScrollViewReader` is not one: it scrolls the
+    /// container inside it and draws nothing of its own.
+    static let scrollContainers = [#"List \{"#, #"List\("#, #"Form \{"#, #"ScrollView(?![A-Za-z])"#]
 
     /// The pane bodies: every `…Pane`, plus the settings presentation's own
     /// `SettingsPane…` types, which are the form the panes are drawn inside and
