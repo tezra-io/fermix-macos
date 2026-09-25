@@ -67,6 +67,11 @@ public final class DoctorModel: ObservableObject {
     }
 
     @Published public private(set) var session: ManagementDoctorSession?
+    /// The session the previous run ended with. A new run draws it until its
+    /// own session has landed a row, so asking again never blanks the list it
+    /// is about to replace. Only the drawing reads it: Cancel and the polls
+    /// address `session`, which is the run's own.
+    private var previousSession: ManagementDoctorSession?
     @Published public private(set) var phase: Phase = .idle
     /// What the SUPPORT card has to say about its last action, if anything. A
     /// support action that could not run says so; the run's own phase is a
@@ -139,11 +144,19 @@ public final class DoctorModel: ObservableObject {
     }
 
     public var rows: [DoctorRowModel] {
-        session.map(DoctorProjection.rows) ?? []
+        drawnSession.map(DoctorProjection.rows) ?? []
     }
 
     public var banner: DoctorBanner? {
-        session.map(DoctorProjection.banner)
+        drawnSession.map(DoctorProjection.banner)
+    }
+
+    /// The session the surface draws: the run's own once it has landed a row
+    /// or stopped running, and until then the one the previous run ended with.
+    private var drawnSession: ManagementDoctorSession? {
+        guard isRunning, session?.checks.isEmpty ?? true else { return session }
+
+        return previousSession ?? session
     }
 
     public var isRunning: Bool {
@@ -155,6 +168,21 @@ public final class DoctorModel: ObservableObject {
     /// The button's own label states what it will do, because the run costs
     /// real requests against real endpoints.
     public var networkActionTitle: String { ProductStrings[.doctorNetworkRun] }
+
+    /// A visit to the surface. The local scope runs by itself only while there
+    /// is no session to show, which is the first visit; every later visit
+    /// shows the last run as it stands, and asking again is the Run command's
+    /// and Retry's.
+    ///
+    /// The run is the model's own task rather than the view's. SwiftUI cancels
+    /// a view's task when the user leaves, and a run tied to it recorded the
+    /// cancelled poll as the daemon going away while the session it had
+    /// started kept running, and each return to Doctor started another.
+    public func visit() {
+        guard session == nil, !isRunning else { return }
+
+        Task { await runLocal() }
+    }
 
     /// The local scope: no permission prompts, and a 10-second whole-run
     /// deadline the daemon enforces.
@@ -310,11 +338,13 @@ public final class DoctorModel: ObservableObject {
     ///
     /// The previous run's session is dropped as the new one is declared: Cancel
     /// inside the window before the daemon answers must address no session at
-    /// all, never the finished one whose id is still in hand.
+    /// all, never the finished one whose id is still in hand. Its rows stay on
+    /// screen as `previousSession` until the new session lands its own.
     public func start(scope: ManagementDoctorScope) async {
         guard !isRunning else { return }
 
         phase = .running(scope)
+        previousSession = session
         session = nil
         cancelRequested = false
 
@@ -334,14 +364,16 @@ public final class DoctorModel: ObservableObject {
     /// never finishes stops being polled and says so: the daemon owns the
     /// deadline, and a client that polls forever hides one that stopped
     /// answering.
+    ///
+    /// The first poll goes out as soon as the daemon has issued the session,
+    /// and the interval is waited after each answer. Waiting before the first
+    /// one held every run's rows back by half a second, however quickly the
+    /// checks had landed.
     public func awaitCompletion() async {
-        guard isRunning, let identifier = session?.sessionId else { return }
+        guard isRunning, !cancelRequested, let identifier = session?.sessionId else { return }
 
         do {
             for _ in 0..<DoctorPolicy.maximumPolls {
-                try await sleeper.sleep(seconds: DoctorPolicy.pollInterval)
-                guard isRunning, !cancelRequested else { return }
-
                 let current = try await gateway.doctorSession(id: identifier)
                 session = current
 
@@ -349,6 +381,9 @@ public final class DoctorModel: ObservableObject {
                     phase = .finished
                     return
                 }
+
+                try await sleeper.sleep(seconds: DoctorPolicy.pollInterval)
+                guard isRunning, !cancelRequested else { return }
             }
 
             phase = .failed(ProductStrings[.doctorRunStalled])

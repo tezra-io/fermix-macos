@@ -29,7 +29,9 @@ struct DoctorView: View {
                 statusText: model.isRunning ? ProductStrings[.doctorRunning] : nil
             )
         }
-        .task { await model.runLocal() }
+        // The model decides whether a visit runs anything and owns the run,
+        // so leaving Doctor mid-run neither stops it nor fails it.
+        .onAppear { model.visit() }
         .fileExporter(
             isPresented: Binding(
                 get: { model.pendingBundle != nil },
@@ -83,15 +85,19 @@ struct DoctorView: View {
 
     @ViewBuilder
     private var checkList: some View {
+        // Projected once per pass: every row is built from the session, and
+        // asking twice built the whole list twice.
+        let rows = model.rows
+
         Section(ProductStrings[.sectionHeaderChecks]) {
-            if model.rows.isEmpty {
+            if rows.isEmpty {
                 EmptyState(
                     model: EmptyStateModel(
                         message: ProductStrings[model.isRunning ? .doctorRunning : .doctorNoChecks]
                     )
                 )
             } else {
-                ForEach(model.rows) { row in
+                ForEach(rows) { row in
                     DoctorCheckRow(row: row) { model.perform($0) }
                 }
             }
