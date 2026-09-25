@@ -775,6 +775,30 @@ struct HomeSurfaceTests {
         #expect(harness.gateway.calls.filter { $0 == .negotiate }.count == 2)
     }
 
+    /// Every route opening refreshes Home, so a refresh that re-read the
+    /// registrations made macOS verify this app's signature twice per click.
+    /// Only a finished transaction, which may have registered or unregistered
+    /// the agent, sends the next refresh back to macOS.
+    @Test("a refresh asks macOS only after a transaction has ended")
+    func refreshReadsRegistrationsOnlyAfterATransaction() async throws {
+        let harness = try HomeHarness()
+        let reads = harness.loginItems.statusReads
+
+        await harness.model.refresh()
+        await harness.model.refresh()
+        #expect(harness.loginItems.statusReads == reads)
+
+        harness.loginItems.preregister(.agent, as: .notRegistered)
+        harness.coordinator.setBackgroundService(enabled: false)
+        try await harness.coordinator.drainPendingWork()
+        let afterTransaction = harness.loginItems.statusReads
+        await harness.model.refresh()
+
+        #expect(harness.loginItems.statusReads == afterTransaction + 2)
+        await harness.model.refresh()
+        #expect(harness.loginItems.statusReads == afterTransaction + 2)
+    }
+
     /// Drawing the switches asks macOS nothing (2026-09-24). Each status read is
     /// an XPC round trip of about 70 ms in which macOS re-verifies the app's
     /// signature, and a switch binding reads its value several times per

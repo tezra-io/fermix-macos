@@ -16,11 +16,15 @@ public final class HomeModel: ObservableObject {
     /// The two login registrations as macOS last answered. Held rather than
     /// read through, because each read is a slow XPC round trip and the
     /// switches drawing them ask on every redraw (`LoginRegistrations`). It is
-    /// read again wherever the answer can change: every refresh, which runs
-    /// after each lifecycle transaction, this app's own Open at login change,
-    /// and the app coming to the front, since System Settings is the other
-    /// writer.
+    /// read again only where the answer can change: the first refresh after a
+    /// lifecycle transaction ends, this app's own Open at login change, and the
+    /// app coming to the front, since System Settings is the other writer.
+    /// Every route opening refreshes Home, and re-reading on each of those
+    /// kept macOS verifying this app's signature twice per click for nothing.
     @Published public private(set) var registrations: LoginRegistrations
+    /// Set when a lifecycle transaction ends, which is when this app itself
+    /// may have registered or unregistered the agent.
+    private var registrationsMayHaveMoved = false
 
     private let gateway: any DaemonQuerying
     private let services: ServiceController
@@ -98,7 +102,8 @@ public final class HomeModel: ObservableObject {
         )
         // Once, before the first draw, so the switches never open on a guess.
         self.registrations = LoginRegistrations(agent: services.status(.agent), mainApp: services.status(.mainApp))
-        self.transactionChanges = coordinator.transactionChanges.sink { [weak self] _ in
+        self.transactionChanges = coordinator.transactionChanges.dropFirst().sink { [weak self] transaction in
+            if transaction == nil { self?.registrationsMayHaveMoved = true }
             self?.objectWillChange.send()
         }
         self.activations = NotificationCenter.default
@@ -171,7 +176,10 @@ public final class HomeModel: ObservableObject {
         // Published only where it moved: an unchanged answer redrew Home and
         // everything observing it on every refresh.
         if read != snapshot { snapshot = read }
-        await refreshRegistrations()
+        if registrationsMayHaveMoved {
+            registrationsMayHaveMoved = false
+            await refreshRegistrations()
+        }
         // This is the only read of the daemon an ordinary launch makes, so it
         // is also what moves the menu bar glyph and the status line off
         // "starting". The coordinator owns the write; Home only reports what it
