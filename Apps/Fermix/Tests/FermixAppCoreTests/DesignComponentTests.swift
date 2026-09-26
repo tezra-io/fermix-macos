@@ -222,6 +222,25 @@ struct DesignComponentTests {
         #expect(panel.logLines.count == 2)
     }
 
+    /// A sentence that names a Login Items switch leads to that pane. Doctor
+    /// would answer from a daemon that never started, so it is not offered.
+    @Test(
+        "a Login Items cause leads with the pane, then Try again",
+        arguments: BootFailureCause.allCases
+    )
+    func errorPanelLoginItems(cause: BootFailureCause) {
+        let panel = ErrorPanelModel.bootFailure(cause, logLines: [])
+        let intents = [panel.primary, panel.secondary, panel.ghost]
+
+        if cause.opensLoginItems {
+            #expect(intents == [.openLoginItems, .tryAgain, .viewLog])
+            #expect(panel.commands.isEmpty)
+        } else {
+            #expect(!intents.contains(.openLoginItems))
+        }
+        #expect(Set(intents).count == 3, "no action is offered twice")
+    }
+
     /// §5.6 caps the card at three lines; a longer tail is trimmed to the most
     /// recent three rather than growing the card.
     @Test("the log card keeps the last three lines")

@@ -469,6 +469,15 @@ public final class OnboardingModel: ObservableObject {
         route(.surface(.logs))
     }
 
+    /// The approval card's primary action: the pane holding the switch macOS
+    /// is waiting on. The ledger owns the opener, so this card and the
+    /// Permissions row open that pane the same way.
+    public func openLoginItems() {
+        if !settings.permissions.openSystemSettings(PermissionLedger.loginItemsPane) {
+            log.error("system settings refused the Login Items pane")
+        }
+    }
+
     // MARK: - Welcome
 
     /// Adopts a home the operator picked, through the same validator and the

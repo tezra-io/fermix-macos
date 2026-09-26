@@ -231,6 +231,39 @@ struct ActivationCoordinatorTests {
         #expect(outcome == .failed(.backgroundItemDisabled))
     }
 
+    /// macOS refuses to register an item switched off in Login Items ("Operation
+    /// not permitted") and keeps reporting it awaiting approval. The refusal is
+    /// the operator's switch, so the card names it rather than a registration
+    /// this Mac cannot make.
+    @Test("a registration refused because the item is switched off is a disabled background item")
+    func refusedRegistrationOfDisabledItem() async throws {
+        let harness = try harness()
+        harness.loginItems.preregisterApprovalPending(.agent)
+        harness.loginItems.registerError = ServiceControlError.registrationFailed(
+            principal: .agent,
+            underlying: "Operation not permitted"
+        )
+
+        let outcome = await harness.coordinator.activate { _ in }
+
+        #expect(outcome == .failed(.backgroundItemDisabled))
+    }
+
+    /// A refusal that leaves no item awaiting approval is a registration this
+    /// Mac would not make.
+    @Test("a registration macOS refuses outright is a registration failure")
+    func refusedRegistration() async throws {
+        let harness = try harness()
+        harness.loginItems.registerError = ServiceControlError.registrationFailed(
+            principal: .agent,
+            underlying: "Invalid signature"
+        )
+
+        let outcome = await harness.coordinator.activate { _ in }
+
+        #expect(outcome == .failed(.registrationFailed))
+    }
+
     /// An item macOS cannot find is a registration this Mac refused, not a bad
     /// bundle: sending the operator to reinstall an app that is fine is the
     /// wrong remedy (M34 §15.2).

@@ -102,8 +102,8 @@
 "bootFailed.viewLog" = "View full log";
 "bootFailed.tryAgain" = "Try again";
 "bootFailed.cause.timedOut" = "The daemon didn’t respond within 90 seconds. Your configuration hasn’t been touched, and Doctor can usually tell you exactly what happened.";
-"bootFailed.cause.approvalPending" = "macOS is still waiting for you to allow Fermix in Login Items. Your configuration hasn’t been touched, so allow it in System Settings, then try again.";
-"bootFailed.cause.backgroundItemDisabled" = "The Fermix background item is turned off in Login Items. Your configuration hasn’t been touched, so turn it back on in System Settings, then try again.";
+"bootFailed.cause.approvalPending" = "macOS is waiting for you to allow Fermix to run in the background. Your configuration hasn’t been touched, so open Login Items settings, turn Fermix on under Allow in the Background, then try again.";
+"bootFailed.cause.backgroundItemDisabled" = "Fermix is turned off under Allow in the Background in Login Items. Your configuration hasn’t been touched, so open Login Items settings, turn Fermix back on, then try again.";
 "bootFailed.cause.incompatibleVersion" = "The running daemon speaks a protocol this version of the app cannot use. Your configuration hasn’t been touched, so update Fermix, then try again.";
 "bootFailed.cause.crashLoop" = "The daemon exited three times in a row while starting. Your configuration hasn’t been touched, and the last log lines below name the failure.";
 "bootFailed.cause.bindFailure" = "Another program already holds the port the daemon needs. Your configuration hasn’t been touched, so quit whatever is using 127.0.0.1:4030, then try again.";
@@ -132,7 +132,7 @@
 "handoffDefect.home.bootstrapDirectory" = "A Fermix home cannot be inside the folder that records where it is.";
 "bootFailed.cause.invalidPackage" = "The bundled engine failed its signature and manifest check. Your configuration hasn’t been touched, so reinstall Fermix from the original download.";
 "bootFailed.cause.bootstrapRecordUnusable" = "Fermix could not read or write launcher.json, the file that records where your Fermix home is, so nothing was changed. Check that the Fermix folder in your Library is readable, then try again.";
-"bootFailed.cause.registrationFailed" = "macOS refused to register the Fermix background item, so nothing was changed. Open Login Items in System Settings, allow Fermix there, then try again.";
+"bootFailed.cause.registrationFailed" = "macOS refused to register the Fermix background item, so nothing was changed. Open Login Items settings, allow Fermix under Allow in the Background, then try again.";
 "bootFailed.cause.daemonUnresponsive" = "Something is listening on the Fermix socket in this home and did not answer, so nothing was changed. Wait a moment for it to finish starting, then try again.";
 
 /* MARK: Home */
