@@ -548,8 +548,8 @@ start_engine() {
       cat <<REFUSAL
 macOS is not allowing ${APP_BUNDLE_NAME%.app} to run in the background, so it refused the
 agent ("Operation not permitted") and no engine started. The build is fine.
-Turn ${APP_BUNDLE_NAME%.app} on under System Settings > General > Login Items & Extensions >
-Allow in the Background, then run: scripts/dev_e2e.sh up --fast
+Turn ${APP_BUNDLE_NAME%.app} on in System Settings > General > Login Items & Extensions,
+then run: scripts/dev_e2e.sh up --fast
 REFUSAL
     )"
   fi
