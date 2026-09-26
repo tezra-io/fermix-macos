@@ -35,9 +35,6 @@ enum RailMetrics {
     static func cornerRadius(_ size: SidebarRowSize) -> Double {
         square(size) / 4
     }
-
-    /// What the first square keeps clear of the band above it.
-    static let topInset: Double = 8
 }
 
 /// The rail: the four surfaces, then Settings pinned to the foot.
@@ -78,8 +75,9 @@ struct RailColumn: View {
             }
             .focused($focused, equals: SidebarItem.settingsIdentifier)
         }
-        .padding(.top, RailMetrics.topInset)
-        // As far off the bottom edge as the first square is off the band.
+        // The first square starts where the band ends, so its top is level
+        // with the body's top edge beside it (owner, 2026-09-25: "No need for
+        // top spacing for the home button").
         .padding(.bottom, WindowMetrics.railBottomInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onMoveCommand(perform: move)

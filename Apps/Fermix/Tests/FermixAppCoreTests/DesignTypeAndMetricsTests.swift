@@ -249,8 +249,8 @@ struct DesignTypeAndMetricsTests {
     /// leading corners are cut to (redlines §5.7).
     ///
     /// The gear is held down by a spacer and kept 12 points clear of the
-    /// bottom edge, near the eight the first square keeps below the band, so the
-    /// column has about one margin at both ends.
+    /// bottom edge. The first square has no margin of its own at the top: it
+    /// starts where the band ends, level with the body's top edge.
     ///
     /// The corner radius is this window's own, measured, and deliberately not
     /// `Radius.window`: 14 is the artboards' number for a drawn panel, and the
