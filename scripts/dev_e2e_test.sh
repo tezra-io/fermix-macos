@@ -517,7 +517,7 @@ case_agent_disallowed() {
            Identifier: 8.$AGENT_LABEL
 BTM
   if output="$(up --fast 2>&1)"; then fail "reported up with the agent refused"; fi
-  [[ "$output" == *"Allow in the Background"* ]] || fail "the refusal did not name the switch: $output"
+  [[ "$output" == *"Login Items & Extensions"* ]] || fail "the refusal did not name the pane: $output"
   [[ "$output" == *"up --fast"* ]] || fail "the refusal did not say how to go on: $output"
 }
 

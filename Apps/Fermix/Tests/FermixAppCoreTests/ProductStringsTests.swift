@@ -300,19 +300,14 @@ struct ProductStringsTests {
     /// rots into a rubber stamp.
     @Test("a product name is exempt as a phrase and its generic half is not")
     func properPhrasesDoNotExemptTheirWords() {
-        #expect(
-            ProductCopyRules.properPhrases
-                == ["Claude Code", "Google Meet", "Setup Assistant", "Allow in the Background"]
-        )
+        #expect(ProductCopyRules.properPhrases == ["Claude Code", "Google Meet", "Setup Assistant"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Use Claude Code sign-in").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "The Google Meet account is signed in").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "Run the Setup Assistant to register it").isEmpty)
-        #expect(ProductCopyRules.titleCaseOffenders(in: "Turn it on under Allow in the Background").isEmpty)
 
         #expect(ProductCopyRules.titleCaseOffenders(in: "Open the Meet window") == ["Meet"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Show the Code panel") == ["Code"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Ask the Assistant about it") == ["Assistant"])
-        #expect(ProductCopyRules.titleCaseOffenders(in: "It runs in the Background") == ["Background"])
         #expect(!ProductCopyRules.properNouns.contains("Code"))
         #expect(!ProductCopyRules.properNouns.contains("Meet"))
         #expect(!ProductCopyRules.properNouns.contains("Assistant"))
@@ -425,17 +420,21 @@ struct ProductStringsTests {
     }
 
     /// The approval card leads with "Open Login Items settings", so its
-    /// sentence names that button and the switch the pane holds: a card that
-    /// says "allow it in System Settings" leaves the operator hunting for which.
+    /// sentence names that button and what to turn on there. It never names the
+    /// section Fermix's switch sits in: that is "Allow in the Background" on
+    /// macOS 15, "App Background Activity" on 26 and "Background App Activity"
+    /// on 27, and one of them is wrong for everyone else.
     @Test(
-        "a Login Items sentence names the button and the switch",
+        "a Login Items sentence names the button and Fermix, never the section",
         arguments: BootFailureCause.allCases.filter(\.opensLoginItems)
     )
     func loginItemsSentences(cause: BootFailureCause) {
         let sentence = ProductStrings.bootFailure(cause)
+        let sections = ["Allow in the Background", "App Background Activity", "Background App Activity"]
 
         #expect(sentence.localizedCaseInsensitiveContains(ProductStrings[.permissionActionOpenLoginItems]))
-        #expect(sentence.contains("Allow in the Background"))
+        #expect(sentence.contains("turn Fermix"))
+        #expect(!sections.contains { sentence.localizedCaseInsensitiveContains($0) })
     }
 
     /// The states Starting can end in, as one closed set: the M34 §4 causes, the
