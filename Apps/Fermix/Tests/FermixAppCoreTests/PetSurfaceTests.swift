@@ -347,7 +347,7 @@ final class PetHarness {
 
     init() throws {
         windows = FakeWindowHost()
-        let audio = AudioOwner(engine: engine)
+        let audio = AudioOwner(engine: engine, deadlines: ManualDeadlineScheduler())
         let session = VoiceSession(
             transport: transport,
             socketPath: { "/tmp/fermix-pet-tests.sock" },

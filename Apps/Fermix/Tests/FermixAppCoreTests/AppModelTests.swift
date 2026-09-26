@@ -141,7 +141,10 @@ struct AppModelRoutingTests {
         #expect(model.voice.presentation.visualMode == .speaking)
     }
 
-    @Test("the speaking tail ends when playback has drained")
+    /// The Realtime engine's order: it says listening while audio still plays,
+    /// and the tail ends when the daemon's next state finds nothing playing.
+    /// The drain itself is `LiveReplyEndTests`.
+    @Test("the speaking tail ends when the daemon moves on with nothing playing")
     func speakingTailEndsWhenDrained() {
         let model = negotiatedModel()
         model.voiceCallBegan()
@@ -555,5 +558,81 @@ struct StoppedReplyTests {
         clock.now += 0.1
 
         #expect(model.apply(.audioDelta(base64: "NEW1"), audioIsPlaying: false) == [.play(base64: "NEW1")])
+    }
+}
+
+/// A reply ending the way the Live engine ends one: its audio runs out and the
+/// daemon says nothing more, because Live publishes no end of a reply.
+///
+/// The pet stayed on its speaking face until the user next spoke (RCA of
+/// 2026-09-25, "Pet listening and thinking modes"). These replay the whole
+/// sequence from the wire, not a state set by hand.
+@Suite("A Live reply ending")
+@MainActor
+struct LiveReplyEndTests {
+    private func liveCall() -> AppModel {
+        let model = AppModel()
+        model.voiceNegotiated()
+        model.voiceCallBegan()
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+        return model
+    }
+
+    private func speak(_ model: AppModel) {
+        _ = model.apply(.state(.speaking), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+    }
+
+    @Test("a reply that finishes playing with the user silent returns the pet to listening")
+    func silentUserReturnsToListening() {
+        let model = liveCall()
+        speak(model)
+        #expect(model.voice.presentation.visualMode == .speaking)
+
+        model.voicePlaybackDrained()
+
+        #expect(model.voice.mode == .listening)
+        #expect(model.voice.status == .listening)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .listening)
+    }
+
+    @Test("a reply spoken over running backend work returns the pet to that work")
+    func runningTaskResumesThinking() {
+        let model = liveCall()
+        _ = model.apply(.task(RealtimeTask(delegationId: "d1", revision: 1, status: .running, summary: nil)), audioIsPlaying: false)
+        speak(model)
+
+        model.voicePlaybackDrained()
+
+        #expect(model.voice.mode == .toolUse)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .thinking)
+
+        _ = model.apply(.task(RealtimeTask(delegationId: "d1", revision: 1, status: .completed, summary: nil)), audioIsPlaying: false)
+        #expect(model.voice.mode == .listening)
+    }
+
+    @Test("a muted call returns to muted, not listening")
+    func mutedCallReturnsToMuted() {
+        let model = liveCall()
+        model.voiceMuted(true)
+        speak(model)
+        #expect(model.voice.mode == .speaking)
+
+        model.voicePlaybackDrained()
+
+        #expect(model.voice.mode == .muted)
+    }
+
+    @Test("the daemon's own next state still wins after the drain")
+    func daemonStateStillWins() {
+        let model = liveCall()
+        speak(model)
+        model.voicePlaybackDrained()
+
+        _ = model.apply(.state(.thinking), audioIsPlaying: false)
+        #expect(model.voice.mode == .thinking)
+
+        speak(model)
+        #expect(model.voice.presentation.visualMode == .speaking)
     }
 }

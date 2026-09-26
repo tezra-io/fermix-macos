@@ -56,6 +56,12 @@ public final class AudioOwner {
     /// jitters; the pet's pulse should swell.
     private static let levelSmoothing: Float = 0.35
 
+    /// How long playback must stay empty before it counts as the end of a
+    /// reply. A reply arrives faster than it plays, but a network pause can
+    /// empty the queue between two of its chunks, and that is not its end: the
+    /// pet would turn from speaking to listening and back inside a second.
+    static let drainGrace: TimeInterval = 0.35
+
     public private(set) var callActive = false
     public private(set) var muted = false
     public private(set) var isStreaming = false
@@ -66,11 +72,15 @@ public final class AudioOwner {
     public var isPlayingBack: Bool { engine.isPlayingBack }
 
     private let engine: any VoiceAudioEngine
+    private let deadlines: any DeadlineScheduling
     private let log = AppLog.logger(.voice)
     private var level: Float = 0
+    /// The drain report waiting out `drainGrace`. New audio calls it off.
+    private var pendingDrain: DeadlineToken?
 
-    public init(engine: any VoiceAudioEngine) {
+    public init(engine: any VoiceAudioEngine, deadlines: any DeadlineScheduling) {
         self.engine = engine
+        self.deadlines = deadlines
 
         // Both callbacks are delivered on the main queue by the engine, so the
         // owner's state is reached without a hop. Assuming isolation is what
@@ -85,7 +95,7 @@ public final class AudioOwner {
         engine.onPlaybackDrained = { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, !self.engine.isPlayingBack else { return }
-                self.onPlaybackDrained?()
+                self.reportDrainAfterGrace()
             }
         }
     }
@@ -148,6 +158,8 @@ public final class AudioOwner {
     /// Tears capture all the way down, on every path, so macOS drops the
     /// microphone indicator as soon as the call ends.
     public func endCall() {
+        pendingDrain?.cancel()
+        pendingDrain = nil
         callActive = false
         muted = false
         isStreaming = false
@@ -158,7 +170,23 @@ public final class AudioOwner {
     // MARK: - Playback
 
     public func play(base64PCM16 encoded: String) {
+        // More of the reply: the queue that emptied was a gap, not its end.
+        pendingDrain?.cancel()
+        pendingDrain = nil
         engine.play(base64PCM16: encoded)
+    }
+
+    /// Reports the drain once playback has stayed empty for `drainGrace`.
+    private func reportDrainAfterGrace() {
+        pendingDrain?.cancel()
+        pendingDrain = deadlines.schedule(after: Self.drainGrace) { [weak self] in
+            guard let self else { return }
+
+            self.pendingDrain = nil
+            guard !self.engine.isPlayingBack else { return }
+
+            self.onPlaybackDrained?()
+        }
     }
 
     public func stopPlayback() {

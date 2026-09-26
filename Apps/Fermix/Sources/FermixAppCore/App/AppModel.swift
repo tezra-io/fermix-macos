@@ -336,10 +336,25 @@ public final class AppModel: ObservableObject {
         audioLevel = level
     }
 
+    /// The reply's audio has finished playing and stayed finished (the audio
+    /// owner waits out a gap between chunks first).
+    ///
+    /// Speaking was this model's own reading of arriving audio, so its end is
+    /// too. The Realtime engine has said listening by the time the audio runs
+    /// out, but the Live engine publishes no end of a reply (the contract says
+    /// there is no spoken-response completion event), and the pet stayed on
+    /// its speaking face until the user next spoke (RCA of 2026-09-25). It
+    /// returns to what the call is doing: backend work still running, or the
+    /// microphone.
     public func voicePlaybackDrained() {
         guard voice.audioActive else { return }
 
         voice.audioActive = false
+        guard voice.callActive, voice.mode == .speaking else { return }
+
+        let working = voice.task.map { !$0.status.isTerminal } ?? false
+        voice.mode = working ? .toolUse : voice.activeInputMode
+        voice.status = VoiceStatus(mode: voice.mode)
     }
 
     // MARK: - Routing

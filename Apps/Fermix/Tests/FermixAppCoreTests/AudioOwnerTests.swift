@@ -8,8 +8,8 @@ import Testing
 @Suite("Audio owner")
 @MainActor
 struct AudioOwnerTests {
-    private func owner(_ engine: FakeVoiceAudioEngine) -> AudioOwner {
-        AudioOwner(engine: engine)
+    private func owner(_ engine: FakeVoiceAudioEngine, deadlines: ManualDeadlineScheduler? = nil) -> AudioOwner {
+        AudioOwner(engine: engine, deadlines: deadlines ?? ManualDeadlineScheduler())
     }
 
     /// Permission first, then a warmed capture that is muted and handlerless:
@@ -159,10 +159,11 @@ struct AudioOwnerTests {
         #expect(engine.calls.last == .setMuted(false))
     }
 
-    @Test("playback drains are reported once the engine reports empty")
+    @Test("a drain is reported once playback has stayed empty for the grace")
     func playbackDrainIsReported() async throws {
         let engine = FakeVoiceAudioEngine()
-        let owner = owner(engine)
+        let deadlines = ManualDeadlineScheduler()
+        let owner = owner(engine, deadlines: deadlines)
         var drained = 0
         owner.onPlaybackDrained = { drained += 1 }
 
@@ -172,8 +173,34 @@ struct AudioOwnerTests {
 
         engine.isPlayingBack = false
         engine.onPlaybackDrained?()
+        #expect(drained == 0, "a drain is reported before the grace has passed")
+        #expect(deadlines.scheduledDelays == [AudioOwner.drainGrace])
 
+        deadlines.fireAll()
         #expect(drained == 1)
+    }
+
+    /// A network pause can empty the queue between two chunks of one reply.
+    /// Reported, it turned the pet from speaking to listening and back.
+    @Test("a gap between two chunks of one reply is not reported as its end")
+    func gapBetweenChunksIsNotADrain() async throws {
+        let engine = FakeVoiceAudioEngine()
+        let deadlines = ManualDeadlineScheduler()
+        let owner = owner(engine, deadlines: deadlines)
+        var drained = 0
+        owner.onPlaybackDrained = { drained += 1 }
+
+        try await owner.beginCall()
+        owner.play(base64PCM16: "AAAA")
+        engine.isPlayingBack = false
+        engine.onPlaybackDrained?()
+
+        owner.play(base64PCM16: "BBBB")
+        engine.isPlayingBack = true
+        deadlines.fireAll()
+
+        #expect(drained == 0)
+        #expect(deadlines.liveCount == 0)
     }
 
     @Test("the level callback is smoothed rather than passed through raw")
