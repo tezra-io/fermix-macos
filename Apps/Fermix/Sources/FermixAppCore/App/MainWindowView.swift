@@ -138,7 +138,6 @@ struct MainWindowView: View {
             // reports a minimum, and this is where the window's size wins.
             detailColumn.frame(minWidth: 0, minHeight: 0)
                 .framedByBand(height: bandHeight)
-                .overlay { bodyCorners }
                 .onGeometryChange(for: Double.self) { proxy in
                     proxy.safeAreaInsets.top
                 } action: { top in
@@ -214,7 +213,8 @@ struct MainWindowView: View {
     ///
     /// The top corners sit under the band rather than on the window's top edge,
     /// so the body's safe area places them; the bottom one still sits on the
-    /// window's bottom edge.
+    /// window's bottom edge. In settings the body is the form, because the pane
+    /// list beside it is part of the frame, so the corners round the form.
     ///
     /// It is paint over live content, so it takes no clicks and says nothing.
     private var bodyCorners: some View {
@@ -245,19 +245,21 @@ struct MainWindowView: View {
     @ViewBuilder
     private var detailColumn: some View {
         if presentation.isShowing {
-            // Settings inside the frame: its pane list is the second pane and
-            // the form the third, and the rail stays, so the rail is the way
-            // back and no back control is drawn.
+            // Settings inside the frame: its pane list joins the rail as the
+            // frame, the form is the body the corners round, and the rail
+            // stays, so the rail is the way back and no back control is drawn.
             HStack(spacing: 0) {
                 SettingsPaneColumn(model: settings)
                     .paneColumn()
                 SettingsDetailView(model: settings, router: router, openRecovery: openRecovery)
+                    .overlay { bodyCorners }
             }
             .toolbar {
                 SettingsRestartControl(model: settings, router: router, transaction: model.transactionInFlight)
             }
         } else {
             detail.toolbar { toolbarKeeper }
+                .overlay { bodyCorners }
         }
     }
 

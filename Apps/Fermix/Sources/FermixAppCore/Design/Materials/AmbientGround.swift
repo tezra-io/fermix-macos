@@ -122,10 +122,6 @@ public enum WindowFrameRecipe {
     public static let glassTint = ThemedColor(light: .rgba(236, 236, 236, 0.5), dark: .rgba(0, 0, 0, 0.6))
     /// The rail's symbols.
     public static let ink = ThemedColor(lightHex: "#1d1d1f", darkHex: "#ffffff")
-    /// The settings pane list, the second pane inside the frame: a step lighter
-    /// than the frame on light and a step off black on dark, so the list reads
-    /// as its own pane between the frame and the form.
-    public static let pane = ThemedColor(lightHex: "#f8f8f8", darkHex: "#0b0b0e")
 }
 
 /// How hard the one ground turns its glows up (redlines §1.3).
@@ -254,14 +250,18 @@ extension View {
         background { FrameGlass().ignoresSafeArea() }
     }
 
-    /// The settings pane list, drawn as the second pane inside the frame.
+    /// The settings pane list, drawn as part of the frame (owner, 2026-09-25,
+    /// asked whether it was glass like the rail: "yea. do it.").
     ///
     /// A sidebar list, so its rows, symbols and selection are the system's
-    /// own, on the pane's fill rather than a material of its own.
+    /// own, on the frame's own glass. In settings the frame is the rail and the
+    /// pane list together, and the body it rounds is the form. A glass of its
+    /// own was tried and withdrawn: on dark it landed on the rail's tone, so the
+    /// list read as frame anyway and the form beside it began in a square corner.
     func paneColumn() -> some View {
         listStyle(.sidebar)
             .scrollContentBackground(.hidden)
-            .background(WindowFrameRecipe.pane.color)
+            .background { FrameGlass().ignoresSafeArea() }
     }
 
     /// The frame's band across the top of the body.

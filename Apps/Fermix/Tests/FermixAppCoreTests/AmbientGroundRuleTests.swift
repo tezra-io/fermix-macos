@@ -100,9 +100,10 @@ struct AmbientGroundRuleTests {
         #expect(!text.contains("NSGlassEffectView()"), "the frame draws Liquid Glass and its rim")
         #expect(!text.contains(".glassEffect("), "the frame draws Liquid Glass and its rim")
 
-        // Rail, band and corners are one glass, so nothing paints the flat fill
-        // over the frame any more.
-        #expect(text.contains("background { FrameGlass().ignoresSafeArea() }"))
+        // Rail, settings pane list, band and corners are one glass, so nothing
+        // paints the flat fill over the frame any more.
+        #expect(occurrences(of: "background { FrameGlass().ignoresSafeArea() }", in: text) == 2)
+        #expect(!text.contains("WindowFrameRecipe.pane"), "the pane list wears a glass of its own again")
         #expect(text.contains("FrameGlass().frame(height: height)"))
         #expect(occurrences(of: "WindowFrameRecipe.fill.color", in: text) == 1)
     }
@@ -278,7 +279,10 @@ struct RailRuleTests {
         let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
         let text = try #require(window.first?.text)
 
-        #expect(text.contains(".overlay { bodyCorners }"))
+        // Laid over the body: the surface, or in settings the form, since the
+        // pane list beside it is part of the frame.
+        #expect(occurrences(of: ".overlay { bodyCorners }", in: text) == 2)
+        #expect(text.contains("SettingsDetailView(model: settings, router: router, openRecovery: openRecovery)\n                    .overlay { bodyCorners }"), "in settings the corners do not round the form")
         // Three corners, all from the one shape: top leading as drawn, top
         // trailing and bottom leading as it flipped.
         #expect(text.contains("bodyCorner(FrameCorner())"))
