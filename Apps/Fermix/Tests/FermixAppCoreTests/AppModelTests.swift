@@ -480,3 +480,80 @@ struct VoicePresentationTests {
         #expect(presentation.visualMode == .idle)
     }
 }
+
+/// Stopping a reply stops it for good.
+///
+/// The Live engine answers `interrupt` with `playback_stop` and `listening`
+/// but leaves the provider's response running, so the rest of the reply keeps
+/// arriving, each run announced by `state: speaking`. Played, it made Stop look
+/// broken: the pet went quiet and then carried on talking (owner report of
+/// 2026-09-25).
+@Suite("Stopping a reply")
+@MainActor
+struct StoppedReplyTests {
+    /// A clock the test moves by hand, so the quiet gap is proved without
+    /// waiting on it.
+    private final class Clock {
+        var now: TimeInterval = 100
+    }
+
+    private func speakingModel(_ clock: Clock) -> AppModel {
+        let model = AppModel(now: { clock.now })
+        model.voiceNegotiated()
+        model.voiceCallBegan()
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        return model
+    }
+
+    @Test("the rest of a stopped reply is not played, and the pet stays listening")
+    func stoppedReplyIsDropped() {
+        let clock = Clock()
+        let model = speakingModel(clock)
+
+        model.voiceInterrupted()
+        _ = model.apply(.playbackStop, audioIsPlaying: false)
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+
+        clock.now += 0.1
+        #expect(model.apply(.state(.speaking), audioIsPlaying: false).isEmpty)
+        clock.now += 0.1
+        #expect(model.apply(.audioDelta(base64: "BBBB"), audioIsPlaying: false).isEmpty)
+        // Each chunk extends the window: a reply streams in a run of chunks.
+        clock.now += AppModel.stoppedReplyGap - 0.1
+        #expect(model.apply(.audioDelta(base64: "CCCC"), audioIsPlaying: false).isEmpty)
+
+        #expect(model.voice.mode == .listening)
+        #expect(model.voice.audioActive == false)
+        #expect(model.voice.presentation.visualMode == .listening)
+    }
+
+    @Test("audio after the stopped reply has gone quiet is a new reply, and plays")
+    func nextReplyPlays() {
+        let clock = Clock()
+        let model = speakingModel(clock)
+
+        model.voiceInterrupted()
+        clock.now += 0.1
+        _ = model.apply(.audioDelta(base64: "BBBB"), audioIsPlaying: false)
+
+        clock.now += AppModel.stoppedReplyGap + 0.1
+        let effects = model.apply(.audioDelta(base64: "NEW1"), audioIsPlaying: false)
+
+        #expect(effects == [.play(base64: "NEW1")])
+        #expect(model.voice.mode == .speaking)
+    }
+
+    @Test("a new call forgets a reply the last one stopped")
+    func newCallForgetsTheStoppedReply() {
+        let clock = Clock()
+        let model = speakingModel(clock)
+
+        model.voiceInterrupted()
+        model.voiceCallEnded()
+        model.voiceCallBegan()
+        clock.now += 0.1
+
+        #expect(model.apply(.audioDelta(base64: "NEW1"), audioIsPlaying: false) == [.play(base64: "NEW1")])
+    }
+}

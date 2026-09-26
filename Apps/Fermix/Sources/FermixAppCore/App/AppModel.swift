@@ -203,9 +203,34 @@ public final class AppModel: ObservableObject {
     /// update must not invalidate the SwiftUI tree.
     public private(set) var audioLevel: Float = 0
 
+    /// When the last chunk of a reply the operator stopped arrived, while more
+    /// of it may still be coming.
+    ///
+    /// Stopping a reply does not stop the provider sending it. The Live engine
+    /// answers `interrupt` with `playback_stop` and `listening` and leaves the
+    /// response running, so the rest of it keeps arriving as `audio_delta`,
+    /// each run announced by `state: speaking` again, and the pet started
+    /// talking again a moment after Stop (owner report of 2026-09-25: "there
+    /// was a stop button which wasnt working"). Those chunks are the reply the
+    /// operator stopped: they are dropped until the stream has been quiet for
+    /// `stoppedReplyGap`, and audio after that is a new reply.
+    private var stoppedReplyHeardAt: TimeInterval?
+
+    /// How long the stopped reply's stream must stay quiet before audio counts
+    /// as a new reply. A provider streams a reply faster than it plays, so its
+    /// chunks arrive close together; a new reply follows the operator's own
+    /// turn, which takes longer than this to say anything.
+    static let stoppedReplyGap: TimeInterval = 0.8
+
+    /// A monotonic clock in seconds, a seam so the gap can be proved without
+    /// waiting on it.
+    private let now: () -> TimeInterval
+
     private let log = AppLog.logger(.app)
 
-    public init() {}
+    public init(now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.now = now
+    }
 
     public var menuGlyph: MenuBarGlyphState {
         MenuBarGlyphState(daemon: daemon, hasAttention: needsAttention)
@@ -225,6 +250,7 @@ public final class AppModel: ObservableObject {
     }
 
     public func voiceCallBegan() {
+        stoppedReplyHeardAt = nil
         voice.callActive = true
         voice.muted = false
         voice.mode = .idle
@@ -240,6 +266,7 @@ public final class AppModel: ObservableObject {
     }
 
     public func voiceCallEnded() {
+        stoppedReplyHeardAt = nil
         voice.callActive = false
         voice.muted = false
         voice.audioActive = false
@@ -258,10 +285,13 @@ public final class AppModel: ObservableObject {
     }
 
     /// The user cut the reply off. Presentation returns to whatever the
-    /// microphone is doing; the daemon confirms with its own next state.
+    /// microphone is doing; the daemon confirms with its own next state. What
+    /// is still in flight of the stopped reply is dropped as it arrives
+    /// (`stoppedReplyHeardAt`).
     public func voiceInterrupted() {
         voice.audioActive = false
         audioLevel = 0
+        stoppedReplyHeardAt = now()
 
         guard voice.callActive else { return }
 
@@ -322,6 +352,7 @@ public final class AppModel: ObservableObject {
         case .state(let turnState):
             return applyTurnState(turnState, audioIsPlaying: audioIsPlaying)
         case .audioDelta(let base64):
+            if stoppedReplyContinues() { return [] }
             // Every chunk of a reply lands here, tens a second. Only the first
             // changes anything, and each write publishes, so the window, the
             // status item and the pet redrew three times per chunk.
@@ -357,6 +388,10 @@ public final class AppModel: ObservableObject {
     }
 
     private func applyTurnState(_ turnState: RealtimeTurnState, audioIsPlaying: Bool) -> [VoiceEffect] {
+        // The stopped reply announcing its next run: the operator already
+        // stopped it, so the pet stays where Stop left it.
+        if turnState == .speaking, stoppedReplyContinues() { return [] }
+
         var effects: [VoiceEffect] = []
         let wasSpeaking = voice.mode == .speaking
 
@@ -389,6 +424,22 @@ public final class AppModel: ObservableObject {
         }
 
         return effects
+    }
+
+    /// Whether this frame still belongs to the reply the operator stopped,
+    /// extending the quiet window when it does. The first frame after a quiet
+    /// gap ends the window: it is a new reply.
+    private func stoppedReplyContinues() -> Bool {
+        guard let heard = stoppedReplyHeardAt else { return false }
+
+        let time = now()
+        guard time - heard < Self.stoppedReplyGap else {
+            stoppedReplyHeardAt = nil
+            return false
+        }
+
+        stoppedReplyHeardAt = time
+        return true
     }
 
     private func applyPlaybackStop() -> [VoiceEffect] {
