@@ -68,6 +68,16 @@ public struct VoiceState: Equatable, Sendable {
 
     /// What the microphone is doing while a call is live.
     var activeInputMode: VoiceMode { muted ? .muted : .listening }
+
+    /// Where a live call rests when nothing is being said: backend work that
+    /// is still running, which the pet shows as thinking until it ends, or
+    /// else the microphone. A reply spoken over the work, or the daemon saying
+    /// listening once it has played, does not end the work (RCA of
+    /// 2026-09-25: "Retain task activity independently").
+    var restingMode: VoiceMode {
+        let working = task.map { !$0.status.isTerminal } ?? false
+        return working ? .toolUse : activeInputMode
+    }
 }
 
 /// Which Setup Assistant screen the app is showing.
@@ -295,7 +305,7 @@ public final class AppModel: ObservableObject {
 
         guard voice.callActive else { return }
 
-        voice.mode = voice.activeInputMode
+        voice.mode = voice.restingMode
         voice.status = VoiceStatus(mode: voice.mode)
     }
 
@@ -352,8 +362,7 @@ public final class AppModel: ObservableObject {
         voice.audioActive = false
         guard voice.callActive, voice.mode == .speaking else { return }
 
-        let working = voice.task.map { !$0.status.isTerminal } ?? false
-        voice.mode = working ? .toolUse : voice.activeInputMode
+        voice.mode = voice.restingMode
         voice.status = VoiceStatus(mode: voice.mode)
     }
 
@@ -421,7 +430,7 @@ public final class AppModel: ObservableObject {
         }
 
         let presented = VoiceMode(turnState: turnState)
-        voice.mode = (voice.muted && presented == .listening) ? .muted : presented
+        voice.mode = presented == .listening ? voice.restingMode : presented
         voice.status = VoiceStatus(mode: voice.mode)
 
         if turnState == .listening {
@@ -461,7 +470,7 @@ public final class AppModel: ObservableObject {
         voice.audioActive = false
 
         if voice.callActive {
-            voice.mode = voice.activeInputMode
+            voice.mode = voice.restingMode
             voice.status = VoiceStatus(mode: voice.mode)
         }
 

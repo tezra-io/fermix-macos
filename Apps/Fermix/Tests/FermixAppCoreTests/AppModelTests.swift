@@ -623,6 +623,32 @@ struct LiveReplyEndTests {
         #expect(model.voice.mode == .muted)
     }
 
+    /// The engine says listening once a reply has had time to play out. Backend
+    /// work still running is still the pet's thinking pose.
+    @Test("listening while backend work runs keeps the pet on the work")
+    func listeningDuringWorkKeepsTheWork() {
+        let model = liveCall()
+        _ = model.apply(.task(RealtimeTask(delegationId: "d1", revision: 1, status: .running)), audioIsPlaying: false)
+        speak(model)
+
+        _ = model.apply(.state(.listening), audioIsPlaying: true)
+        model.voicePlaybackDrained()
+
+        #expect(model.voice.mode == .toolUse)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .thinking)
+    }
+
+    @Test("stopping a reply spoken over backend work returns to the work")
+    func stopDuringWorkReturnsToTheWork() {
+        let model = liveCall()
+        _ = model.apply(.task(RealtimeTask(delegationId: "d1", revision: 1, status: .running)), audioIsPlaying: false)
+        speak(model)
+
+        model.voiceInterrupted()
+
+        #expect(model.voice.mode == .toolUse)
+    }
+
     @Test("the daemon's own next state still wins after the drain")
     func daemonStateStillWins() {
         let model = liveCall()
