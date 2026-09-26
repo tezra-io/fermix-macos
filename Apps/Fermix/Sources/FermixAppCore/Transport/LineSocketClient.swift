@@ -156,6 +156,16 @@ public final class LineSocketClient<Message: Sendable, DecodeFailure: Error & Eq
         }
     }
 
+    /// For a real-time producer: the line is produced on the socket's queue,
+    /// not the caller's thread; if the buffer is full the oldest pending
+    /// droppable line is discarded exactly as with `sendDroppable(_:)`.
+    public func sendDroppable(producing line: @escaping @Sendable () -> Data) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.enqueueDroppable(Self.terminated(line()))
+        }
+    }
+
     public func close() {
         queue.async { [weak self] in
             self?.closeUnlocked()

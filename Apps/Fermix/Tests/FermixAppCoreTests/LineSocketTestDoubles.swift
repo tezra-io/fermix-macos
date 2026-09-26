@@ -53,6 +53,11 @@ final class FakeLineSocketTransport<Message: Sendable, DecodeFailure: Error & Eq
         sentDroppable.append(line)
     }
 
+    /// Produces the line at once: there is no queue here for it to wait on.
+    func sendDroppable(producing line: @escaping @Sendable () -> Data) {
+        sentDroppable.append(line())
+    }
+
     func close() {
         closeCount += 1
     }

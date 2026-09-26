@@ -91,6 +91,41 @@ struct LineSocketClientTests {
         client.close()
     }
 
+    /// A real-time producer hands over its input and nothing more: the line is
+    /// built on the socket's queue, never on the thread that asked for it.
+    @Test("a deferred droppable line is produced on the socket's queue, not the caller's thread")
+    func deferredLineIsProducedOnTheSocketQueue() throws {
+        let server = try UnixSocketTestServer(drainReads: true)
+        defer { server.shutdown() }
+
+        let client = textSocket()
+        connect(client, to: server)
+
+        let caller = pthread_self()
+        let producerThread = ValueBox<pthread_t>()
+        let producerQueue = ValueBox<String>()
+        let produced = TestSignal()
+        client.sendDroppable(producing: {
+            producerThread.set(pthread_self())
+            producerQueue.set(String(cString: __dispatch_queue_get_label(nil)))
+            produced.fire()
+            return Data("chunk".utf8)
+        })
+
+        #expect(produced.wait(timeout: 2.0), "the producer never ran")
+        let thread = try #require(producerThread.value)
+        #expect(pthread_equal(thread, caller) == 0, "the line was produced on the caller's thread")
+        #expect(producerQueue.value == "ai.fermix.text.socket")
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while Date() < deadline, server.receivedData().count < 6 {
+            usleep(5_000)
+        }
+        #expect(server.receivedData() == Data("chunk\n".utf8))
+
+        client.close()
+    }
+
     /// Framing is the transport's: the owner sees whole lines, in order, no
     /// matter where the reads fell, and an empty line carries nothing.
     @Test("lines arrive decoded and in order however the reads split them")

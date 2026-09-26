@@ -90,9 +90,13 @@ public final class RealtimeSocketClient: RealtimeTransport, @unchecked Sendable 
     }
 
     /// An audio chunk: real-time droppable, so a backed-up socket sheds the
-    /// oldest pending chunk rather than the newest.
+    /// oldest pending chunk rather than the newest. The capture tap calls this
+    /// on the Core Audio thread, so it only hands the PCM bytes over: base64
+    /// and JSON encoding happen on the socket's queue.
     public func sendAudioChunk(_ data: Data) {
-        lines.sendDroppable(Self.line(for: .audioChunk(base64: data.base64EncodedString())))
+        lines.sendDroppable(producing: {
+            Self.line(for: .audioChunk(base64: data.base64EncodedString()))
+        })
     }
 
     public func close() {

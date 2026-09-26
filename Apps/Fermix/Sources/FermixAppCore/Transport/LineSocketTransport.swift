@@ -60,5 +60,9 @@ public protocol LineSocketTransport<Message, DecodeFailure>: AnyObject, Sendable
     /// Queues a line that may be shed: when the writer backs up, the oldest
     /// pending droppable line is discarded to make room.
     func sendDroppable(_ line: Data)
+    /// For a real-time producer: the line is produced on the socket's queue,
+    /// not the caller's thread; if the buffer is full the oldest pending
+    /// droppable line is discarded exactly as with `sendDroppable(_:)`.
+    func sendDroppable(producing line: @escaping @Sendable () -> Data)
     func close()
 }
