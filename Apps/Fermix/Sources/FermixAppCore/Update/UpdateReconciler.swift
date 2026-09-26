@@ -211,7 +211,7 @@ public struct UpdateReconciler: UpdateReconciling {
         // never enabled merely to complete a health check (M34 §6).
         guard plan.registration == .enabled else { return clear(entry) }
 
-        let restored: Bool
+        let restored: LifecycleOutcome?
         do {
             restored = try await restoreRegistration()
         } catch {
@@ -223,6 +223,13 @@ public struct UpdateReconciler: UpdateReconciling {
             ))
         }
 
+        // macOS is holding the restored item for the person, so no engine can
+        // answer until they allow it. That is its own reason with its own
+        // remedy, and nothing runs that would need undoing.
+        guard restored != .awaitingApproval else {
+            return .recovery(UpdateRecoveryReport(reason: .registrationNeedsApproval, entry: entry))
+        }
+
         let verification = await verify(plan, requiringANewProcess: side.requiresANewProcess)
         guard verification == .proven else {
             return .recovery(
@@ -231,7 +238,7 @@ public struct UpdateReconciler: UpdateReconciling {
                     entry: entry,
                     // The record stays: Recovery reads it, and it is the only
                     // place the prior installer is written down.
-                    disableRefused: restored ? await disableRestoredRegistration() : false
+                    disableRefused: restored != nil ? await disableRestoredRegistration() : false
                 )
             )
         }
@@ -244,13 +251,13 @@ public struct UpdateReconciler: UpdateReconciling {
     /// bounded waits and the health check; this only decides that it should
     /// run.
     ///
-    /// - Returns: whether this reconcile is what turned the service on, which
-    ///   is the only registration it is allowed to turn off again.
-    private func restoreRegistration() async throws -> Bool {
-        guard services.status(.agent) != .enabled else { return false }
+    /// - Returns: what the enable came to, where this reconcile is what turned
+    ///   the service on, which is the only registration it is allowed to turn
+    ///   off again. Nil where it was already on.
+    private func restoreRegistration() async throws -> LifecycleOutcome? {
+        guard services.status(.agent) != .enabled else { return nil }
 
-        _ = try await lifecycle.enableBackgroundService()
-        return true
+        return try await lifecycle.enableBackgroundService()
     }
 
     /// Enabling registers before checking health. Undo that partial success

@@ -38,6 +38,8 @@ public struct AppKitAccessibilityAnnouncer: AccessibilityAnnouncing {
 /// §5.2 and §9: focus stays on the window for the whole masked boot, so a row
 /// that changed has to be spoken. Every sentence is the row's own label and its
 /// own state word, which is exactly what a user landing on the row would hear.
+/// A row changes when either moves: the service row keeps its state while it
+/// turns into the wait for approval, and only its words say so.
 public enum LadderAnnouncement {
     public static func sentences(
         from previous: ProgressLadderModel?,
@@ -49,10 +51,10 @@ public enum LadderAnnouncement {
             return current.rows.filter { $0.state == .active }.map(sentence)
         }
 
-        let before = Dictionary(uniqueKeysWithValues: previous.rows.map { ($0.id, $0.state) })
+        let before = Dictionary(uniqueKeysWithValues: previous.rows.map { ($0.id, $0) })
 
         return current.rows
-            .filter { before[$0.id] != $0.state }
+            .filter { before[$0.id] != $0 }
             .map(sentence)
     }
 

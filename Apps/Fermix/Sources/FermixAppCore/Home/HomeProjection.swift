@@ -70,6 +70,19 @@ public protocol UpdateChecking: AnyObject {
     func checkForUpdates()
 }
 
+extension AttentionRow {
+    /// The one row this app owns about its own registration: macOS is holding
+    /// the background item for the person. It is read from the registration
+    /// Home already holds, never from the daemon, which cannot answer while
+    /// the item is held.
+    public static let backgroundApproval = AttentionRow(
+        id: "background_approval",
+        title: ProductStrings[.homeAttentionBackgroundApprovalTitle],
+        body: ProductStrings[.homeAttentionBackgroundApprovalBody],
+        action: .openLoginItems
+    )
+}
+
 /// Home's Attention section (M34 §3.2).
 ///
 /// Its three sources — readiness failures, restart reasons and the standing
@@ -91,6 +104,15 @@ public enum AttentionSection: Equatable, Sendable {
         guard case .rows(let rows) = self else { return [] }
 
         return rows
+    }
+
+    /// This section with the held item's row leading it. It replaces a
+    /// refusal or an unread section rather than sitting above one: the held
+    /// item is the reason nothing answers, which is the one thing to act on.
+    public func led(by row: AttentionRow) -> AttentionSection {
+        guard case .unavailable = self else { return .rows([row] + displayRows) }
+
+        return .rows([row])
     }
 
     /// What the section draws, whichever state it is in.

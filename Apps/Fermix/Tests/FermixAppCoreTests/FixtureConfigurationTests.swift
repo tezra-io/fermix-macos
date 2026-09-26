@@ -128,7 +128,7 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 1)
+            + OnboardingStage.allCases.count + 2)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -150,6 +150,7 @@ struct FixtureConfigurationTests {
         #expect(FixtureHome.forStart(.surface(.home)) == .settled)
         #expect(FixtureHome.forStart(.settings(.providers)) == .settled)
         #expect(FixtureHome.forStart(.restartSheet) == .settled)
+        #expect(FixtureHome.forStart(.approvalStep) == .awaitingApproval)
     }
 
     /// Boot failed is reached by failing, never by being set.
@@ -157,6 +158,7 @@ struct FixtureConfigurationTests {
     func bootFailureIsProduced() {
         #expect(FixtureLaunch(start: .assistant(.bootFailed)).presentation == .assistant(.starting))
         #expect(FixtureLaunch(start: .assistant(.ready)).presentation == .assistant(.ready))
+        #expect(FixtureLaunch(start: .approvalStep).presentation == .assistant(.starting))
     }
 
     @Test("each start names what it opens")
@@ -221,6 +223,9 @@ struct FixtureConfigurationTests {
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.route == .home)
             #expect(restartSheetShown)
+        case .approvalStep:
+            #expect(harness.windows.presented == [.main])
+            #expect(harness.model.onboardingStage == .starting)
         }
     }
 

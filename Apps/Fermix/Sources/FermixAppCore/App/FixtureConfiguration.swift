@@ -37,10 +37,15 @@ enum FixtureStart: Equatable {
     /// Home, with the restart sheet already asking. The sheet is presented from
     /// Home's own published flag, which is the same flag the Attention row sets.
     case restartSheet
+    /// Starting, on a Mac whose background item macOS is holding for the
+    /// person. It is a state of Starting rather than a screen, so like Boot
+    /// failed it opens on Starting and the machine produces the wait.
+    case approvalStep
 
     static let settingsPrefix = "settings/"
     static let assistantPrefix = "assistant/"
     static let restartSheetName = "restart-sheet"
+    static let approvalStepName = "assistant/approval"
 
     /// The start a launch argument named, or nil where this build publishes no
     /// such surface. A mistyped name is refused by the caller rather than
@@ -48,6 +53,8 @@ enum FixtureStart: Equatable {
     init?(name: String) {
         if name == Self.restartSheetName {
             self = .restartSheet
+        } else if name == Self.approvalStepName {
+            self = .approvalStep
         } else if let slug = name.dropping(prefix: Self.settingsPrefix) {
             guard let pane = SettingsPane(rawValue: slug) else { return nil }
             self = .settings(pane)
@@ -65,7 +72,7 @@ enum FixtureStart: Equatable {
         AppRoute.allCases.map(\.rawValue)
             + SettingsPane.allCases.map { settingsPrefix + $0.slug }
             + OnboardingStage.allCases.map { assistantPrefix + $0.rawValue }
-            + [restartSheetName]
+            + [restartSheetName, approvalStepName]
     }
 }
 
@@ -85,6 +92,9 @@ enum FixtureHome: Equatable {
     /// The bundle is not in `/Applications`, which is activation's first
     /// refusal and the cause the Boot failed card names.
     case notInApplications
+    /// macOS is holding the background item for the person, so the Starting
+    /// ladder waits on its service row and launchd starts nothing.
+    case awaitingApproval
     /// The daemon is up and every readiness gate has passed, which is the only
     /// machine Ready renders on: the screen claims the install is live, so it
     /// refuses to draw while a gating failure stands (M34 §4). The default home
@@ -104,6 +114,7 @@ enum FixtureHome: Equatable {
         switch start {
         case .assistant(.starting): return .daemonStarting
         case .assistant(.bootFailed): return .notInApplications
+        case .approvalStep: return .awaitingApproval
         case .assistant(.ready): return .configured
         // The three screens a first run walks through, on a first run's machine.
         case .assistant(.welcome), .assistant(.connectAI), .assistant(.aboutYou), .assistant(.applying):
@@ -122,7 +133,7 @@ enum FixtureHome: Equatable {
         switch self {
         case .configured: return .ready
         case .fresh: return .fresh
-        case .settled, .daemonStarting, .notInApplications: return .gatingFailure
+        case .settled, .daemonStarting, .notInApplications, .awaitingApproval: return .gatingFailure
         }
     }
 }
@@ -158,7 +169,7 @@ struct FixtureLaunch {
     /// decides which of the two is drawn.
     var presentation: FixturePresentation {
         switch start {
-        case .assistant(.bootFailed): return .assistant(.starting)
+        case .assistant(.bootFailed), .approvalStep: return .assistant(.starting)
         case .assistant(let stage): return .assistant(stage)
         case .surface(let route): return .route(route)
         case .settings(let pane): return .settings(pane)
@@ -174,6 +185,7 @@ struct FixtureLaunch {
         case .settings(let pane): return "settings-\(pane.slug)"
         case .assistant(let stage): return "assistant-\(stage.rawValue)"
         case .restartSheet: return FixtureStart.restartSheetName
+        case .approvalStep: return "assistant-approval"
         }
     }
 }
@@ -236,13 +248,20 @@ final class FixtureMachine: @unchecked Sendable {
     /// False on the machine whose socket never appears: launchd never brings the
     /// daemon up there, so registering the agent does not end the Starting wait.
     private let launchdStartsTheDaemon: Bool
+    /// macOS holding the agent for the person once it is registered, as on a
+    /// first install: the switch in System Settings is the only thing that
+    /// moves it.
+    private let agentHeldForApproval: Bool
     private var registered: Set<LoginItemPrincipal> = [.agent]
     private var running: Bool
     private var pid = FixtureMachine.firstPid
 
-    init(daemonUp: Bool) {
+    init(daemonUp: Bool, agentHeldForApproval: Bool = false) {
         launchdStartsTheDaemon = daemonUp
         running = daemonUp
+        self.agentHeldForApproval = agentHeldForApproval
+        // A first install: nothing is registered until setup asks.
+        if agentHeldForApproval { registered = [] }
     }
 
     var currentPid: Int32 { withLock { pid } }
@@ -250,6 +269,13 @@ final class FixtureMachine: @unchecked Sendable {
 
     func isRegistered(_ principal: LoginItemPrincipal) -> Bool {
         withLock { registered.contains(principal) }
+    }
+
+    /// What macOS says about a principal on this machine.
+    func status(_ principal: LoginItemPrincipal) -> ServiceRegistrationStatus {
+        guard isRegistered(principal) else { return .notRegistered }
+
+        return principal == .agent && agentHeldForApproval ? .requiresApproval : .enabled
     }
 
     /// True only of the process that is up right now: a pid from before a
@@ -323,8 +349,11 @@ struct FixtureLoginItems: LoginItemService {
     }
 
     func status(_ principal: LoginItemPrincipal) -> ServiceRegistrationStatus {
-        machine.isRegistered(principal) ? .enabled : .notRegistered
+        machine.status(principal)
     }
+
+    /// A fixture run never opens System Settings.
+    func openSettings() {}
 }
 
 /// The microphone, granted. Reading never prompts here and neither does asking:
@@ -406,7 +435,10 @@ extension AppEnvironment {
         let contract = try ManagementContract.vendored()
         // One machine behind every seam that can see it, so a transaction the
         // transport commits is the same one the probes report on.
-        let machine = FixtureMachine(daemonUp: launch.home != .daemonStarting)
+        let machine = FixtureMachine(
+            daemonUp: launch.home != .daemonStarting && launch.home != .awaitingApproval,
+            agentHeldForApproval: launch.home == .awaitingApproval
+        )
         let transport = try FixtureManagementTransport(
             machine: machine,
             readiness: launch.home.readiness

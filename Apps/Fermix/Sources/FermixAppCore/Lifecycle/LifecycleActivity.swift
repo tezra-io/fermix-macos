@@ -24,11 +24,14 @@ public enum LifecycleActivity {
     }
 
     /// What VoiceOver is told once the transaction has worked. The sentence on
-    /// screen goes away without moving focus, so its end is spoken.
+    /// screen goes away without moving focus, so its end is spoken. An enable
+    /// macOS is holding says what is left for the person to do, which is the
+    /// row Home draws next.
     public static func completion(of outcome: LifecycleOutcome) -> String {
         switch outcome {
         case .restarted: return ProductStrings[.lifecycleRestarted]
         case .enabled: return ProductStrings[.lifecycleEnabled]
+        case .awaitingApproval: return ProductStrings[.homeAttentionBackgroundApprovalTitle]
         case .disabled: return ProductStrings[.lifecycleDisabled]
         }
     }

@@ -18,6 +18,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case startingTitle = "starting.title"
     case startingCaption = "starting.caption"
     case startingRowService = "starting.row.service"
+    /// The service row's words while macOS holds the background item for the
+    /// person, and the block under the ladder that says what to do about it.
+    case startingRowAwaitingApproval = "starting.row.awaitingApproval"
+    case startingApprovalBody = "starting.approval.body"
+    case startingApprovalBodySwitchedOff = "starting.approval.bodySwitchedOff"
     case startingRowDaemon = "starting.row.daemon"
     case startingRowAnswering = "starting.row.answering"
     case startingRowReading = "starting.row.reading"
@@ -100,7 +105,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case bootFailedViewLog = "bootFailed.viewLog"
     case bootFailedTryAgain = "bootFailed.tryAgain"
     case bootFailedCauseTimedOut = "bootFailed.cause.timedOut"
-    case bootFailedCauseApprovalPending = "bootFailed.cause.approvalPending"
     case bootFailedCauseBackgroundItemDisabled = "bootFailed.cause.backgroundItemDisabled"
     case bootFailedCauseIncompatibleVersion = "bootFailed.cause.incompatibleVersion"
     case bootFailedCauseCrashLoop = "bootFailed.cause.crashLoop"
@@ -150,6 +154,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case homeAttentionNewerEngineTitle = "home.attention.newerEngine.title"
     case homeAttentionUnavailableTitle = "home.attention.unavailable.title"
     case homeAttentionUnread = "home.attention.unread"
+    /// The one Attention row this app owns about its own registration: macOS
+    /// is holding the background item, so no daemon can answer.
+    case homeAttentionBackgroundApprovalTitle = "home.attention.backgroundApproval.title"
+    case homeAttentionBackgroundApprovalBody = "home.attention.backgroundApproval.body"
     case homeRuntimeEngine = "home.runtime.engine"
     case homeRuntimeProtocol = "home.runtime.protocol"
     case homeRuntimeUptime = "home.runtime.uptime"
@@ -224,6 +232,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// registration was made, the daemon never came up, and the window sat on
     /// its progress screen (owner report of 2026-09-17).
     case lifecycleServiceNeverAnswered = "lifecycle.serviceNeverAnswered"
+    /// Home's switch asked macOS to register the background item and macOS
+    /// would not, without holding it for approval either.
+    case lifecycleRegistrationRefused = "lifecycle.registrationRefused"
     /// What every surface says while a lifecycle transaction this app started
     /// is running: the toolbar's status sentence, Home's Status row and the
     /// status item's state line, which holds all three under its row cap. One
@@ -798,7 +809,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
 /// daemon is not an older one.
 public enum BootFailureCause: String, CaseIterable, Sendable {
     case timedOut
-    case approvalPending
+    /// macOS unregistered or lost the background item, including while setup
+    /// waited for the person to approve it. An item macOS is holding for
+    /// approval is not a cause at all: it is a step of the Starting ladder.
     case backgroundItemDisabled
     case incompatibleVersion
     case crashLoop
@@ -844,7 +857,6 @@ public enum BootFailureCause: String, CaseIterable, Sendable {
     var stringKey: ProductStringKey {
         switch self {
         case .timedOut: return .bootFailedCauseTimedOut
-        case .approvalPending: return .bootFailedCauseApprovalPending
         case .backgroundItemDisabled: return .bootFailedCauseBackgroundItemDisabled
         case .incompatibleVersion: return .bootFailedCauseIncompatibleVersion
         case .crashLoop: return .bootFailedCauseCrashLoop

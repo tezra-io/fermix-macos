@@ -123,6 +123,16 @@ public final class HomeModel: ObservableObject {
         registrations.agent == .enabled
     }
 
+    /// The section Home draws: the daemon's own, led by the held item's row
+    /// while macOS is holding the background item for the person. Whether it
+    /// was held by setup, by the switch below, or switched off in System
+    /// Settings since, it is the same fact and the same row.
+    public var attention: AttentionSection {
+        guard registrations.agent == .requiresApproval else { return snapshot.attention }
+
+        return snapshot.attention.led(by: .backgroundApproval)
+    }
+
     /// Whether Fermix shows a menu bar item. Independent of both registrations:
     /// hiding the item changes nothing about what runs.
     public var menuBarItemShown: Bool {
@@ -189,11 +199,24 @@ public final class HomeModel: ObservableObject {
 
     /// Reads both registrations off the main thread, and publishes only a
     /// change: an unchanged answer redrawing Home is the cost this avoids.
+    ///
+    /// An agent macOS has just allowed is a daemon launchd is starting, and
+    /// Home has no poll of its own to find it, so that change reads the daemon
+    /// too. A refresh already running reads it once more rather than being
+    /// awaited from inside itself, which is where this is called from.
     public func refreshRegistrations() async {
         let current = await services.registrations()
         guard current != registrations else { return }
 
+        let allowed = registrations.agent == .requiresApproval && current.agent == .enabled
         registrations = current
+        guard allowed else { return }
+
+        if refreshing == nil {
+            Task { await refresh() }
+        } else {
+            refreshAgain = true
+        }
     }
 
     private func read(update: UpdateAvailability) async -> HomeSnapshot {
@@ -328,6 +351,8 @@ public final class HomeModel: ObservableObject {
         // that is already showing back into focus.
         case .showUpdate:
             updates.checkForUpdates()
+        case .openLoginItems:
+            services.openLoginItemsSettings()
         }
     }
 

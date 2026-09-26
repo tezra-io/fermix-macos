@@ -719,6 +719,53 @@ struct HomeSurfaceTests {
         #expect(rows.first?.title != ProductStrings[.homeAttentionEmpty])
     }
 
+    /// While macOS holds the background item nothing can answer, so the row
+    /// that says why replaces the refusal and offers the one way on. It is read
+    /// from the registration Home holds, so it is there however the item came
+    /// to be held: setup, the switch, or System Settings since.
+    @Test("a held background item leads Attention with the way to allow it")
+    func heldItemLeadsAttention() async throws {
+        let harness = try HomeHarness()
+        harness.gateway.negotiateFailure = ManagementError.transport(.socketMissing(path: "/tmp/daemon.sock"))
+        harness.loginItems.preregister(.agent, as: .requiresApproval)
+        await harness.model.refreshRegistrations()
+
+        await harness.model.refresh()
+
+        #expect(harness.model.attention.displayRows == [.backgroundApproval])
+        #expect(AttentionRow.backgroundApproval.action == .openLoginItems)
+
+        harness.model.perform(.openLoginItems)
+        #expect(harness.loginItems.settingsOpened == 1)
+    }
+
+    @Test("the held item's row goes once macOS allows it")
+    func allowedItemLeavesAttention() async throws {
+        let harness = try HomeHarness()
+        harness.loginItems.preregister(.agent, as: .requiresApproval)
+        await harness.model.refreshRegistrations()
+        #expect(harness.model.attention.displayRows.first == .backgroundApproval)
+
+        harness.loginItems.preregister(.agent, as: .enabled)
+        await harness.model.refreshRegistrations()
+
+        #expect(!harness.model.attention.displayRows.contains(.backgroundApproval))
+        #expect(harness.model.backgroundServiceEnabled)
+    }
+
+    /// Daemon rows stay under the held item's row rather than being replaced.
+    @Test("a held item leads the daemon's own rows rather than hiding them")
+    func heldItemLeadsDaemonRows() async throws {
+        let harness = try HomeHarness()
+        await harness.model.refresh()
+        let daemonRows = harness.model.snapshot.attention.displayRows
+        harness.loginItems.preregister(.agent, as: .requiresApproval)
+
+        await harness.model.refreshRegistrations()
+
+        #expect(harness.model.attention.displayRows == [.backgroundApproval] + daemonRows)
+    }
+
     /// The same rule before the first read: Home has asked nothing, so it says
     /// that rather than drawing the all-clear.
     @Test("before the first read Attention says nothing has been read")

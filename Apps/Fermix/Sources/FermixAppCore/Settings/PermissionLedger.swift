@@ -224,6 +224,14 @@ public final class PermissionLedger: ObservableObject {
         return opened
     }
 
+    /// Opens Login Items, where the background item's switch is. It goes
+    /// through the service owner's documented opener, the same one setup's
+    /// approval step and the Boot failed card use, so the three buttons that
+    /// name the pane cannot open it three ways.
+    public func openLoginItems() {
+        services.openLoginItemsSettings()
+    }
+
     public func row(_ right: PermissionRight) -> PermissionRowModel? {
         rows.first { $0.right == right }
     }
@@ -315,5 +323,4 @@ public final class PermissionLedger: ObservableObject {
     public static let microphonePane = "com.apple.preference.security?Privacy_Microphone"
     public static let screenRecordingPane = "com.apple.preference.security?Privacy_ScreenCapture"
     public static let accessibilityPane = "com.apple.preference.security?Privacy_Accessibility"
-    public static let loginItemsPane = "com.apple.LoginItems-Settings.extension"
 }

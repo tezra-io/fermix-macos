@@ -671,6 +671,10 @@ public final class AppCoordinator {
         case .enabled:
             model.daemon = .running
             model.needsAttention = false
+        // Registered, and nothing runs until the person allows it in Login
+        // Items, which Home's Attention row says.
+        case .awaitingApproval:
+            model.daemon = .stopped
         case .disabled:
             model.daemon = .stopped
         case .restarted:

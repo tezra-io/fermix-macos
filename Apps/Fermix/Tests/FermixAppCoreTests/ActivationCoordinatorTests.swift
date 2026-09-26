@@ -90,7 +90,7 @@ struct ActivationCoordinatorTests {
 
         _ = await harness.coordinator.activate { stages.record($0) }
 
-        #expect(stages.recorded == [.registering, .starting, .answering, .reading])
+        #expect(stages.recorded == [.reached(.registering), .reached(.starting), .reached(.answering), .reached(.reading)])
     }
 
     /// Cancelling the task an activation runs in has to end its bounded waits
@@ -205,49 +205,146 @@ struct ActivationCoordinatorTests {
 
     // MARK: - The named failures
 
-    /// macOS reports one status for "waiting for your approval" and "you turned
-    /// it off", so the second signal is whether this activation is the one that
-    /// registered: a fresh registration awaiting consent is approval pending.
-    @Test("a fresh registration awaiting consent is approval pending")
-    func approvalPending() async throws {
+    // MARK: - Approval
+
+    /// The first-install dead end: macOS held the item and setup ended on the
+    /// failure card. It is a step now. The service row waits on the person,
+    /// and the moment the switch is on, setup carries on with no Try again and
+    /// no second registration.
+    @Test("a first registration macOS holds waits on the service row, then activates")
+    func approvalIsAStep() async throws {
         let harness = try harness()
         harness.loginItems.nextStatus[.agent] = .requiresApproval
+        harness.answer(onMoment: 2)
+        let stages = StageRecorder()
 
-        let outcome = await harness.coordinator.activate { _ in }
+        let outcome = await harness.coordinator.activate { stages.record($0) }
 
-        #expect(outcome == .failed(.approvalPending))
+        guard case .activated = outcome else {
+            Issue.record("expected the approved activation to succeed, got \(outcome)")
+            return
+        }
+        #expect(stages.recorded == [
+            .reached(.registering), .awaitingApproval(.awaited),
+            .reached(.starting), .reached(.answering), .reached(.reading)
+        ])
+        #expect(harness.loginItems.registerCalls.filter { $0 == .agent }.count == 1, "waiting only reads")
+        #expect(harness.approvalReads.count == 2)
+        #expect(try harness.store.load().registeredAgentPlistSHA256 == ActivationHarness.plistDigest)
     }
 
-    /// The same status on an item that was already registered before this run
-    /// means the user turned the background item off.
-    @Test("an already-registered item still awaiting approval is a disabled background item")
-    func backgroundItemDisabled() async throws {
+    /// The same status on an item that was already held before this run is
+    /// the person having switched Fermix off, which the step says differently.
+    @Test("an item held before the attempt waits as switched off")
+    func switchedOffItemWaits() async throws {
         let harness = try harness()
         harness.loginItems.preregisterApprovalPending(.agent)
         harness.loginItems.nextStatus[.agent] = .requiresApproval
+        harness.answer()
+        let stages = StageRecorder()
 
-        let outcome = await harness.coordinator.activate { _ in }
+        let outcome = await harness.coordinator.activate { stages.record($0) }
 
-        #expect(outcome == .failed(.backgroundItemDisabled))
+        guard case .activated = outcome else {
+            Issue.record("expected the approved activation to succeed, got \(outcome)")
+            return
+        }
+        #expect(stages.recorded.contains(.awaitingApproval(.switchedOff)))
     }
 
-    /// macOS refuses to register an item switched off in Login Items ("Operation
-    /// not permitted") and keeps reporting it awaiting approval. The refusal is
-    /// the operator's switch, so the card names it rather than a registration
-    /// this Mac cannot make.
-    @Test("a registration refused because the item is switched off is a disabled background item")
-    func refusedRegistrationOfDisabledItem() async throws {
+    /// macOS refuses to register an item switched off in Login Items
+    /// ("Operation not permitted") and keeps holding it. The status decides, so
+    /// that is the same step, not a registration this Mac cannot make.
+    @Test("a registration refused because the item is switched off waits too")
+    func refusedRegistrationOfSwitchedOffItemWaits() async throws {
         let harness = try harness()
         harness.loginItems.preregisterApprovalPending(.agent)
         harness.loginItems.registerError = ServiceControlError.registrationFailed(
             principal: .agent,
             underlying: "Operation not permitted"
         )
+        harness.answer()
+        let stages = StageRecorder()
+
+        let outcome = await harness.coordinator.activate { stages.record($0) }
+
+        guard case .activated = outcome else {
+            Issue.record("expected the approved activation to succeed, got \(outcome)")
+            return
+        }
+        #expect(stages.recorded.contains(.awaitingApproval(.switchedOff)))
+    }
+
+    /// The 90 seconds are the daemon's. A person who spends longer than that in
+    /// System Settings still gets a daemon with its whole budget.
+    @Test("the daemon's budget starts after the approval, not before it")
+    func budgetStartsAfterApproval() async throws {
+        let harness = try harness()
+        harness.loginItems.nextStatus[.agent] = .requiresApproval
+        harness.answer(onMoment: 4, eachTaking: 60)
+
+        let outcome = await harness.coordinator.activate { _ in }
+
+        guard case .activated = outcome else {
+            Issue.record("expected activation after a four-minute approval, got \(outcome)")
+            return
+        }
+        #expect(harness.clock.now.timeIntervalSince(harness.start) >= 240)
+    }
+
+    @Test("a daemon that never starts after the approval still times out on its own budget")
+    func budgetStillBoundsTheDaemon() async throws {
+        let harness = try harness(daemonRunning: false)
+        harness.socket.neverAppears = true
+        harness.loginItems.nextStatus[.agent] = .requiresApproval
+        harness.answer(eachTaking: 60)
+
+        let outcome = await harness.coordinator.activate { _ in }
+
+        #expect(outcome == .failed(.timedOut))
+        let waited = harness.clock.now.timeIntervalSince(harness.start) - 60
+        #expect(waited >= ActivationPolicy.budget)
+        #expect(waited <= ActivationPolicy.budget + ActivationPolicy.pollInterval)
+    }
+
+    /// Cancel is the way off the step. A cancelled wait stops reading and asks
+    /// the daemon nothing; the model drops the outcome it returns.
+    @Test("a cancelled approval wait ends activation without asking the daemon")
+    func cancelledApprovalWait() async throws {
+        let harness = try harness()
+        harness.loginItems.nextStatus[.agent] = .requiresApproval
+        harness.approvalReads.cancelledOnCall = 1
+
+        let outcome = await harness.coordinator.activate { _ in }
+
+        #expect(outcome == .failed(.timedOut))
+        #expect(!harness.gateway.calls.contains(.negotiate))
+        #expect(harness.loginItems.registerCalls.filter { $0 == .agent }.count == 1)
+    }
+
+    @Test("an item removed while setup waits is a disabled background item")
+    func itemRemovedWhileWaiting() async throws {
+        let harness = try harness()
+        harness.loginItems.nextStatus[.agent] = .requiresApproval
+        harness.answer(.notRegistered)
 
         let outcome = await harness.coordinator.activate { _ in }
 
         #expect(outcome == .failed(.backgroundItemDisabled))
     }
+
+    @Test("an item macOS loses while setup waits is a registration failure")
+    func itemLostWhileWaiting() async throws {
+        let harness = try harness()
+        harness.loginItems.nextStatus[.agent] = .requiresApproval
+        harness.answer(.notFound)
+
+        let outcome = await harness.coordinator.activate { _ in }
+
+        #expect(outcome == .failed(.registrationFailed))
+    }
+
+    // MARK: - The named failures
 
     /// A refusal that leaves no item awaiting approval is a registration this
     /// Mac would not make.
@@ -750,6 +847,8 @@ final class ActivationHarness {
     let ports = FakePortProbe()
     let clock = ManualClock()
     let sleeper: ClockAdvancingSleeper
+    /// When the approval wait looks again. Every moment answers at once.
+    let approvalReads = ScriptedApprovalReads()
     let start: Date
     let coordinator: ActivationCoordinator
 
@@ -790,9 +889,24 @@ final class ActivationHarness {
             web: web,
             ports: ports,
             sleeper: sleeper,
+            approvalReads: approvalReads,
             plan: plan,
             now: clock.reader
         )
+    }
+
+    /// The person answering macOS in System Settings: on the `moment`-th time
+    /// the wait looks again the item reports `status`, and each moment takes
+    /// `elapsed` seconds of the clock.
+    func answer(
+        _ status: ServiceRegistrationStatus = .enabled,
+        onMoment moment: Int = 1,
+        eachTaking elapsed: TimeInterval = 0
+    ) {
+        approvalReads.onRead = { [loginItems, clock, approvalReads] in
+            clock.advance(elapsed)
+            if approvalReads.count >= moment { loginItems.settle(.agent, as: status) }
+        }
     }
 
     /// The digest the fake bundle reports for its agent plist.
@@ -918,17 +1032,18 @@ struct StubAgentPlistDigest: AgentPlistDigesting {
 /// Records the ladder stages activation reported, in order.
 final class StageRecorder: @unchecked Sendable {
     private let lock = NSLock()
-    private var stages: [ActivationStage] = []
+    private var stages: [ActivationProgress] = []
 
-    var recorded: [ActivationStage] { lock.withLock { stages } }
+    var recorded: [ActivationProgress] { lock.withLock { stages } }
 
-    func record(_ stage: ActivationStage) {
+    func record(_ stage: ActivationProgress) {
         lock.withLock { stages.append(stage) }
     }
 }
 
 /// A login-item double that can start in the approval-pending state, which is
-/// what separates "waiting for consent" from "the user turned it off".
+/// what separates "waiting for consent" from "the user turned it off", and
+/// whose status the person can change while activation waits.
 final class ApprovalAwareLoginItemService: LoginItemService, @unchecked Sendable {
     private let lock = NSLock()
     private var statuses: [LoginItemPrincipal: ServiceRegistrationStatus] = [:]
@@ -952,6 +1067,12 @@ final class ApprovalAwareLoginItemService: LoginItemService, @unchecked Sendable
         lock.withLock { statuses[principal] = .requiresApproval }
     }
 
+    /// What macOS reports from now on, without a call being recorded: the
+    /// person's switch in System Settings, or macOS losing the item.
+    func settle(_ principal: LoginItemPrincipal, as status: ServiceRegistrationStatus) {
+        lock.withLock { statuses[principal] = status }
+    }
+
     func register(_ principal: LoginItemPrincipal) throws {
         try lock.withLock {
             registerCalls.append(principal)
@@ -967,6 +1088,8 @@ final class ApprovalAwareLoginItemService: LoginItemService, @unchecked Sendable
     func status(_ principal: LoginItemPrincipal) -> ServiceRegistrationStatus {
         lock.withLock { statuses[principal] ?? .notRegistered }
     }
+
+    func openSettings() {}
 }
 
 /// A socket path that can be absent forever, present immediately, or flap a

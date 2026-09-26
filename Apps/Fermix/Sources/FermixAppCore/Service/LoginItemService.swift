@@ -53,6 +53,9 @@ public protocol LoginItemService: Sendable {
     func register(_ principal: LoginItemPrincipal) throws
     func unregister(_ principal: LoginItemPrincipal) throws
     func status(_ principal: LoginItemPrincipal) -> ServiceRegistrationStatus
+    /// Opens System Settings on Login Items, where the person switches a held
+    /// item on.
+    func openSettings()
 }
 
 /// The one owner of `SMAppService` mutation in this app.
@@ -93,6 +96,13 @@ public struct SMAppServiceLoginItems: LoginItemService {
         case .notFound: return .notFound
         @unknown default: return .notFound
         }
+    }
+
+    /// The documented opener. It takes no argument, so it lands on the pane
+    /// and never on Fermix's row, and it answers nothing about whether the pane
+    /// opened.
+    public func openSettings() {
+        SMAppService.openSystemSettingsLoginItems()
     }
 
     private func service(for principal: LoginItemPrincipal) -> SMAppService {

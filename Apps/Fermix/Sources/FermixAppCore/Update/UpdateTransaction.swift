@@ -139,7 +139,13 @@ public actor UpdateTransaction {
         }
 
         do {
-            _ = try await lifecycle.enableBackgroundService()
+            // An item macOS is holding for the person is not restored yet, so
+            // the record stays for the launch reconcile, which names the
+            // switch rather than calling the rollback done.
+            guard try await lifecycle.enableBackgroundService() != .awaitingApproval else {
+                log.error("the update rolled back and the background service is waiting for approval")
+                return
+            }
             clear()
         } catch {
             // The record stays on disk deliberately: the launch reconcile is

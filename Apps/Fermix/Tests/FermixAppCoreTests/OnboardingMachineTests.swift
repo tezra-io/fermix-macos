@@ -48,10 +48,47 @@ struct OnboardingMachineTests {
         var machine = OnboardingMachine()
         machine.apply(.begin)
 
-        machine.apply(.activationProgressed(.answering))
+        machine.apply(.activationProgressed(.reached(.answering)))
 
         #expect(machine.activation == .answering)
         #expect(machine.stage == .starting)
+    }
+
+    /// Waiting for the person's approval is a state of the service row, not a
+    /// fifth row: the row stays active and says what it waits for, and the
+    /// daemon's row takes over the moment the switch is on.
+    @Test("a held background item keeps the service row active and says why")
+    func approvalIsAStateOfTheServiceRow() throws {
+        var machine = OnboardingMachine()
+        machine.apply(.begin)
+        machine.apply(.activationProgressed(.awaitingApproval(.awaited)))
+
+        let waiting = try #require(machine.ladder(restartRequired: false))
+        #expect(machine.approval == .awaited)
+        #expect(waiting.rows.map(\.id) == ["service", "daemon", "answering", "reading"])
+        #expect(waiting.rows.map(\.state) == [.active, .pending, .pending, .pending])
+        #expect(waiting.rows.first?.title == ProductStrings[.startingRowAwaitingApproval])
+
+        machine.apply(.activationProgressed(.reached(.starting)))
+
+        let starting = try #require(machine.ladder(restartRequired: false))
+        #expect(machine.approval == nil)
+        #expect(starting.rows.first?.title == ProductStrings[.startingRowService])
+        #expect(starting.rows.map(\.state) == [.done, .active, .pending, .pending])
+    }
+
+    @Test("a failure or a fresh run leaves no approval behind")
+    func approvalClearsOnEveryExit() {
+        var machine = OnboardingMachine()
+        machine.apply(.begin)
+        machine.apply(.activationProgressed(.awaitingApproval(.switchedOff)))
+
+        machine.apply(.activationFailed(.backgroundItemDisabled, evidence: []))
+        #expect(machine.approval == nil)
+
+        machine.apply(.activationProgressed(.awaitingApproval(.switchedOff)))
+        machine.apply(.retryActivation)
+        #expect(machine.approval == nil)
     }
 
     /// Four rows, not three. Row four is what makes an upgrade land on Ready
@@ -60,7 +97,7 @@ struct OnboardingMachineTests {
     func startingLadderRows() throws {
         var machine = OnboardingMachine()
         machine.apply(.begin)
-        machine.apply(.activationProgressed(.starting))
+        machine.apply(.activationProgressed(.reached(.starting)))
 
         let ladder = try #require(machine.ladder(restartRequired: false))
 

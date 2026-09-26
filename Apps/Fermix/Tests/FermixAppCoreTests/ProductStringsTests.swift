@@ -437,6 +437,26 @@ struct ProductStringsTests {
         #expect(!sections.contains { sentence.localizedCaseInsensitiveContains($0) })
     }
 
+    /// The approval step and Home's row send the person to the same pane for
+    /// the same switch, so they follow the same rule: the pane and Fermix,
+    /// never the section, whose name moves with the macOS version.
+    @Test(
+        "the approval copy names Login Items and Fermix, never the section",
+        arguments: [
+            ProductStringKey.startingApprovalBody, .startingApprovalBodySwitchedOff,
+            .homeAttentionBackgroundApprovalBody, .lifecycleRegistrationRefused
+        ]
+    )
+    func approvalSentences(key: ProductStringKey) {
+        let sentence = ProductStrings[key]
+        let sections = ["Allow in the Background", "App Background Activity", "Background App Activity"]
+
+        #expect(sentence.contains("Login Items"))
+        #expect(sentence.contains("Fermix"))
+        #expect(!sections.contains { sentence.localizedCaseInsensitiveContains($0) })
+        #expect(ProductCopyRules.violations(in: sentence).isEmpty)
+    }
+
     /// The states Starting can end in, as one closed set: the M34 §4 causes, the
     /// 90-second timeout, the location refusal, and the five coexistence
     /// refusals of §15.2. Each is its own case because each has its own remedy;
@@ -445,7 +465,9 @@ struct ProductStringsTests {
     func bootFailureCauseSet() {
         #expect(
             Set(BootFailureCause.allCases) == [
-                .timedOut, .approvalPending, .backgroundItemDisabled, .incompatibleVersion,
+                // No approval cause: an item macOS holds for the person is a
+                // step of Starting, and the card is only for an item it lost.
+                .timedOut, .backgroundItemDisabled, .incompatibleVersion,
                 .crashLoop, .bindFailure, .webUnavailable, .invalidPackage, .notInApplications,
                 .legacyInstallPresent, .legacySystemInstallPresent, .foreignDaemonRunning,
                 .preManagementDaemonRunning, .duplicateCopyPresent, .migrationHandoffInvalid,

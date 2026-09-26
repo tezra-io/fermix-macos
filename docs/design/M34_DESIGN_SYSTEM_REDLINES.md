@@ -383,8 +383,16 @@ gate and restart confirmation are unchanged.
   - pending: system `circle`, secondary.
 - Row order and headlines come from the existing activation/apply state, with copy in §7.
   Applying includes a restart row only when required or already running.
+- **Waiting for approval** (`BACKGROUND_SERVICE_APPROVAL.md`): while macOS holds the
+  background item, the service row stays active with its own words and Starting draws a
+  block under the ladder the way Applying draws its restart block: one sentence in
+  `CalloutSmall` `secondary`, centred at `OnboardingMetrics.contentWidth`, and one in-window
+  secondary button, "Open Login Items settings", `Spacing.s` apart and `Spacing.m` above the
+  bottom bar. It is a state of the first row, never a fifth row, and never Boot failed.
+  Setup carries on by itself once macOS reports the item enabled; Cancel stays the way off.
 - Starting retains its negotiated daemon and `/health/live` checks, never `/health/ready`,
-  and the existing 90-second timeout to Boot failed.
+  and the existing 90-second timeout to Boot failed, counted from the daemon row: time the
+  person spends approving the background item is not the daemon's.
 - VoiceOver: each row is one element, label = row text, value = `done|in progress|waiting`;
   announce state transitions through the existing accessibility announcer. Markers are
   hidden from accessibility because the row already carries their meaning.
@@ -661,7 +669,13 @@ new background item. That is Fermix." Rows, in order: "Registering the backgroun
 The subcopy and registration row follow the activation plan. Both the production plan and
 the isolated development background-service plan register an agent, so both include them.
 The compact headline and native indicators follow §5.2; this changes presentation, not
-the checks the checklist reports.
+the checks the checklist reports. While macOS holds the background item the first row
+reads "Waiting for you to allow Fermix in the background", and the block under the ladder
+says "Open Login Items settings and turn Fermix on. Setup carries on by itself.", or, for
+an item that was already held before this attempt, "Fermix is turned off in Login Items.
+Turn it back on there and setup carries on by itself.", beside the one button "Open Login
+Items settings". No string names the section Fermix's switch sits in: it is "Allow in the
+Background" on macOS 15, "App Background Activity" on 26 and "Background App Activity" on 27.
 Bottom bar leading control: **"Cancel"**, the one control this screen carries (owner report
 of 2026-09-04: a ladder that was not running left "only way to get back is close the window
 and relaunch"). It cancels the activation and returns to Home. Starting is the only screen
@@ -722,10 +736,11 @@ once the cask's binary stanza is in place.
 
 **Boot failed** — title: "Fermix could not start". Body: what happened, what is untouched,
 the one next action. Card label: "LAST LOG LINES". Buttons: "Run Doctor", "View full log",
-"Try again". The three Login Items causes, approval pending, background item disabled and
-registration failed, lead instead with "Open Login Items settings", then "Try again" and
-"View full log": their sentence names a switch in System Settings, and Doctor would ask a
-daemon that never started. One sentence each, same shape, for all thirteen causes: approval pending ·
+"Try again". The two Login Items causes, background item disabled and registration
+failed, lead instead with "Open Login Items settings", then "Try again" and "View full
+log": their sentence names Fermix's switch in Login Items, and Doctor would ask a daemon
+that never started. An item macOS holds for approval is not a cause: it is a step of
+Starting (§5.2). One sentence each, same shape, for every cause, among them:
 background item disabled · incompatible version · crash loop · bind failure ·
 web unavailable · invalid package · not in Applications · legacy install present ·
 foreign daemon running · older daemon running · duplicate copy present · activation
@@ -747,7 +762,12 @@ labels). Background switches: "Run in the background", "Open at login", "Show Fe
 state: "Nothing needs your attention". Example attention rows with their one action:
 "Another Fermix service is installed on this account" / "Show me how to remove it";
 "Restart to finish updating Fermix" / "Restart…"; "Settings changed outside Fermix" /
-"Reload settings from disk". A row about one provider or one channel **names it with the
+"Reload settings from disk"; and the one row the app owns about its own registration,
+shown while macOS holds the background item and leading the section, "Allow Fermix to run
+in the background" / "Open Login Items settings", body "Fermix can’t start until you turn it
+on in Login Items settings.". A refused "Run in the background" reads "macOS refused to
+register the Fermix background item. Open Login Items settings, turn Fermix on, then try
+again." A row about one provider or one channel **names it with the
 daemon's own label**, read off the same snapshot the row came from: "Connect Anthropic",
 not "Connect Claude" and not "Connect Openai_codex". The catalogue owns the sentence and
 the daemon owns the name inside it. Toolbar action, when it applies: "Continue setup" or

@@ -90,7 +90,7 @@ struct HomeView: View {
     @ViewBuilder
     private var attention: some View {
         Section(ProductStrings[.sectionHeaderAttention]) {
-            let rows = model.snapshot.attention.displayRows
+            let rows = model.attention.displayRows
 
             if rows.isEmpty {
                 EmptyState(model: model.snapshot.attentionEmpty)

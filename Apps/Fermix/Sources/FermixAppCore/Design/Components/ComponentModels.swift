@@ -57,9 +57,21 @@ public struct ProgressLadderModel: Equatable, Sendable {
     /// the developer started registers nothing with launchd, and a row
     /// promising a background item that never arrives is a step the app does
     /// not take being shown as one it has not finished.
-    public static func starting(activeIndex: Int, includesRegistration: Bool) -> ProgressLadderModel {
+    ///
+    /// While macOS holds the background item the service row stays the active
+    /// one and says what it is waiting for, rather than the ladder growing a
+    /// row that only some Macs would ever draw.
+    public static func starting(
+        activeIndex: Int,
+        includesRegistration: Bool,
+        awaitingApproval: Bool = false
+    ) -> ProgressLadderModel {
+        precondition(!awaitingApproval || (includesRegistration && activeIndex == 0), "only the service row waits on approval")
+
         var titles: [(String, ProductStringKey)] = []
-        if includesRegistration { titles.append(("service", .startingRowService)) }
+        if includesRegistration {
+            titles.append(("service", awaitingApproval ? .startingRowAwaitingApproval : .startingRowService))
+        }
         titles += [
             ("daemon", .startingRowDaemon),
             ("answering", .startingRowAnswering),
@@ -430,7 +442,7 @@ public struct ErrorPanelModel: Equatable, Sendable {
 extension BootFailureCause {
     public var opensLoginItems: Bool {
         switch self {
-        case .approvalPending, .backgroundItemDisabled, .registrationFailed:
+        case .backgroundItemDisabled, .registrationFailed:
             return true
         case .timedOut, .incompatibleVersion, .crashLoop, .bindFailure, .webUnavailable,
              .invalidPackage, .bootstrapRecordUnusable, .notInApplications,
@@ -453,7 +465,7 @@ extension BootFailureCause {
             return ["brew upgrade fermix", "fermix restart", "fermix migrate-to-app"]
         case .legacySystemInstallPresent:
             return ["sudo fermix service uninstall --system"]
-        case .timedOut, .approvalPending, .backgroundItemDisabled, .incompatibleVersion, .crashLoop,
+        case .timedOut, .backgroundItemDisabled, .incompatibleVersion, .crashLoop,
              .bindFailure, .webUnavailable, .invalidPackage, .bootstrapRecordUnusable,
              .registrationFailed, .notInApplications, .foreignDaemonRunning, .daemonUnresponsive,
              .duplicateCopyPresent, .migrationHandoffInvalid, .daemonRefusedIdentity:

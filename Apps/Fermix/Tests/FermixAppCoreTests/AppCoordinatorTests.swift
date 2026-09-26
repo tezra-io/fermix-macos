@@ -631,6 +631,9 @@ final class FakeLifecycleController: DaemonLifecycleControlling, @unchecked Send
     /// shape enabling actually has: it registers, then checks health, so a
     /// failure there leaves a registration the caller has to take back.
     var registerOnFailedEnable = false
+    /// What an enable that runs comes to: the daemon, or macOS holding the
+    /// item for the person.
+    var enableOutcome: LifecycleOutcome = .enabled(pid: 1)
     /// Parks the disable until a case releases it, so an interruption can be
     /// observed from inside the step rather than after it.
     var holdDisable: AsyncGate?
@@ -674,7 +677,7 @@ final class FakeLifecycleController: DaemonLifecycleControlling, @unchecked Send
         }
 
         try loginItems?.register(.agent)
-        return .enabled(pid: 1)
+        return enableOutcome
     }
 
     func disableBackgroundService() async throws -> LifecycleOutcome {

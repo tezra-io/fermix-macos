@@ -259,6 +259,19 @@ public final class OnboardingModel: ObservableObject {
         machine.activationPlan.registersLoginItems ? ProductStrings[.startingCaption] : nil
     }
 
+    /// What Starting says under its ladder while macOS holds the background
+    /// item, beside the one button that opens the pane, or nil while it does
+    /// not. Which of two sentences is the one sign macOS leaves: an item that
+    /// was already held before this attempt is one the person switched off.
+    public var approvalSentence: String? {
+        machine.approval.map { approval in
+            switch approval {
+            case .awaited: return ProductStrings[.startingApprovalBody]
+            case .switchedOff: return ProductStrings[.startingApprovalBodySwitchedOff]
+            }
+        }
+    }
+
     public var progress: ProgressDotsModel? { machine.progress }
     public var blocked: OnboardingBlock? { machine.blocked }
     public var readiness: OnboardingReadiness { machine.readiness }
@@ -469,13 +482,12 @@ public final class OnboardingModel: ObservableObject {
         route(.surface(.logs))
     }
 
-    /// The approval card's primary action: the pane holding the switch macOS
-    /// is waiting on. The ledger owns the opener, so this card and the
-    /// Permissions row open that pane the same way.
+    /// The pane holding the switch macOS is waiting on: the approval step's
+    /// one button, and the primary action of the Login Items failure cards.
+    /// The ledger's opener is the Permissions row's too, so every button that
+    /// names the pane opens it the same way.
     public func openLoginItems() {
-        if !settings.permissions.openSystemSettings(PermissionLedger.loginItemsPane) {
-            log.error("system settings refused the Login Items pane")
-        }
+        settings.permissions.openLoginItems()
     }
 
     // MARK: - Welcome
@@ -657,8 +669,8 @@ public final class OnboardingModel: ObservableObject {
         activationTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
-            let outcome = await self.activation.activate { [weak self] stage in
-                self?.machine.apply(.activationProgressed(stage))
+            let outcome = await self.activation.activate { [weak self] progress in
+                self?.machine.apply(.activationProgressed(progress))
             }
 
             // A cancelled activation has no outcome to report: `cancelStarting`

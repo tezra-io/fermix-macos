@@ -309,6 +309,25 @@ struct DesignComponentTests {
         #expect(sentences == ["Registering the background service, in progress"])
     }
 
+    /// The service row keeps its state while it turns into the wait for
+    /// approval, so only its words change. Those are spoken too, and so is the
+    /// row finishing once the person has switched Fermix on (design §6).
+    @Test("the approval wait and its end are announced")
+    func ladderAnnouncesTheApprovalWait() {
+        let registering = ProgressLadderModel.starting(activeIndex: 0, includesRegistration: true)
+        let waiting = ProgressLadderModel.starting(activeIndex: 0, includesRegistration: true, awaitingApproval: true)
+        let starting = ProgressLadderModel.starting(activeIndex: 1, includesRegistration: true)
+
+        #expect(waiting.rows.count == registering.rows.count, "the wait is a state of the row, not a row")
+        #expect(LadderAnnouncement.sentences(from: registering, to: waiting) == [
+            "Waiting for you to allow Fermix in the background, in progress"
+        ])
+        #expect(LadderAnnouncement.sentences(from: waiting, to: starting) == [
+            "Registering the background service, done",
+            "Starting the daemon, in progress"
+        ])
+    }
+
     @Test("an unchanged ladder announces nothing")
     func ladderIsQuietWhenNothingChanged() {
         let ladder = ProgressLadderModel.starting(activeIndex: 1, includesRegistration: true)

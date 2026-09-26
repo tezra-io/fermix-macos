@@ -628,6 +628,32 @@ struct UpdateReconcilerTests {
         #expect(harness.lifecycle.calls.isEmpty)
     }
 
+    /// macOS holds the restored item for the person, so no engine can answer
+    /// until they allow it. Recovery names the switch rather than an engine
+    /// that failed, and nothing is disabled because nothing runs.
+    @Test("a restore macOS holds for approval names the approval, without a verification wait")
+    func restoreHeldForApproval() async throws {
+        let harness = try UpdateReconcileHarness(
+            installedApp: UpdateFixture.targetApp,
+            bundled: UpdateFixture.targetEngine,
+            registration: .notRegistered,
+            answers: [.unreachable]
+        )
+        harness.lifecycle.enableOutcome = .awaitingApproval
+        try harness.journal.write(UpdateFixture.entry(phase: .replacing))
+
+        let outcome = try await harness.reconciler.reconcile()
+
+        guard case .recovery(let report) = outcome else {
+            Issue.record("expected recovery, got \(outcome)")
+            return
+        }
+        #expect(report.reason == .registrationNeedsApproval)
+        #expect(harness.lifecycle.calls == [.enable])
+        #expect(harness.sleeper.sleeps.isEmpty, "no engine was waited for")
+        #expect(!harness.journal.isEmpty, "the record stays for Recovery")
+    }
+
     @Test("a registration that cannot be put back opens recovery")
     func restoreThatCouldNotRun() async throws {
         let harness = try UpdateReconcileHarness(

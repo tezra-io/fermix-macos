@@ -37,7 +37,9 @@ public struct TCPPortProbe: PortProbing {
 
 /// How long activation may take, and how often it looks.
 public enum ActivationPolicy {
-    /// M34 §5: at most 90 seconds to a failure state.
+    /// M34 §5: at most 90 seconds to a failure state, counted from the
+    /// daemon's own step. A person approving the background item in System
+    /// Settings is not the daemon being slow.
     public static let budget: TimeInterval = 90
     public static let pollInterval: TimeInterval = 0.25
     /// §5 resource budgets: three automatic relaunch attempts before the
@@ -158,14 +160,14 @@ public protocol ActivationDriving {
     /// screen draws exactly what the transaction behind it does.
     var plan: ActivationPlan { get }
 
-    func activate(progress: @escaping (ActivationStage) -> Void) async -> ActivationOutcome
+    func activate(progress: @escaping (ActivationProgress) -> Void) async -> ActivationOutcome
 }
 
 /// Activation: adopt whatever `fermix migrate-to-app` handed over, refuse on
 /// every condition that would make the mutation wrong, register both login
-/// items independently, wait for the daemon, negotiate, prove the local web
-/// surface answers, and read what is already set up — inside one 90-second
-/// budget.
+/// items independently, wait for the person where macOS holds the background
+/// item, then wait for the daemon, negotiate, prove the local web surface
+/// answers, and read what is already set up inside one 90-second budget.
 ///
 /// Every way this can end is one of the named causes. Nothing here retries
 /// through a second mechanism: a step that cannot succeed reports which step it
@@ -183,12 +185,15 @@ public struct ActivationCoordinator: ActivationDriving {
     private let web: any WebLiveness
     private let ports: any PortProbing
     private let sleeper: any Sleeping
+    private let approvalReads: any ApprovalReadSchedule
     private let now: () -> Date
     private let log = AppLog.logger(.lifecycle)
 
     /// - Parameter plan: which steps this activation runs. The shipped
     ///   configuration is the default; the development configuration in
     ///   `DevelopmentEngineConfiguration.swift` is the only other caller.
+    /// - Parameter approvalReads: when a background item macOS is holding is
+    ///   read again while the service row waits on the person.
     public init(
         store: BootstrapStore,
         handoff: MigrationHandoffReader,
@@ -200,6 +205,7 @@ public struct ActivationCoordinator: ActivationDriving {
         web: any WebLiveness,
         ports: any PortProbing,
         sleeper: any Sleeping,
+        approvalReads: any ApprovalReadSchedule = ReturnOrBackstop(),
         plan: ActivationPlan = .installed,
         now: @escaping () -> Date = { Date() }
     ) {
@@ -214,12 +220,11 @@ public struct ActivationCoordinator: ActivationDriving {
         self.web = web
         self.ports = ports
         self.sleeper = sleeper
+        self.approvalReads = approvalReads
         self.now = now
     }
 
-    public func activate(progress: @escaping (ActivationStage) -> Void) async -> ActivationOutcome {
-        let deadline = now().addingTimeInterval(ActivationPolicy.budget)
-
+    public func activate(progress: @escaping (ActivationProgress) -> Void) async -> ActivationOutcome {
         // The handoff comes first, before every refusal, because the home it
         // names is the home the refusals have to be asked about: probing the
         // account default would clear a foreign daemon that is sitting on the
@@ -243,16 +248,19 @@ public struct ActivationCoordinator: ActivationDriving {
         // switch back on what the operator turned off in Home (M34 §7.2).
         let firstActivation = !store.hasRegistrationReceipt()
         guard let record = recordBootstrap(home: home) else { return .failed(.bootstrapRecordUnusable) }
-        if let cause = registerLoginItems(firstActivation: firstActivation, progress: progress) {
+        if let cause = await registerLoginItems(firstActivation: firstActivation, progress: progress) {
             return .failed(cause)
         }
 
-        progress(.starting)
+        // The budget measures the daemon, so it starts here: everything above
+        // is either bounded on its own or the person answering macOS.
+        let deadline = now().addingTimeInterval(ActivationPolicy.budget)
+        progress(.reached(.starting))
         if let cause = await waitForSocket(at: record.daemonSocketURL.path, deadline: deadline) {
             return .failed(cause)
         }
 
-        progress(.answering)
+        progress(.reached(.answering))
         let hello: ManagementHello
         do {
             hello = try await gateway.negotiate()
@@ -268,7 +276,7 @@ public struct ActivationCoordinator: ActivationDriving {
         // for the next attempt.
         clearHandoff()
 
-        progress(.reading)
+        progress(.reached(.reading))
         return .activated(hello, prepared: await readWhatIsSetUp())
     }
 
@@ -424,45 +432,57 @@ public struct ActivationCoordinator: ActivationDriving {
     /// is logged and does not fail activation: the background service is what
     /// the daemon needs, and the GUI opening at login is a separate consent.
     ///
+    /// An item macOS holds for the person is a step, never a failure: the
+    /// service row says what it is waiting for and this waits, reading only,
+    /// until the person switches Fermix on. Cancel is the way off it.
+    ///
     /// The ladder row is lit here rather than by the caller, so the row that
     /// says the background service is being registered is drawn by the step that
     /// registers it and by nothing else.
     private func registerLoginItems(
         firstActivation: Bool,
-        progress: (ActivationStage) -> Void
-    ) -> BootFailureCause? {
+        progress: (ActivationProgress) -> Void
+    ) async -> BootFailureCause? {
         guard plan.registersLoginItems else { return nil }
 
-        progress(.registering)
-        let priorAgentStatus = services.status(.agent)
-
-        do {
-            try services.enable(.agent)
-        } catch {
-            log.error("the background item could not be registered: \(String(describing: error), privacy: .public)")
-            // macOS refuses to register an item that is switched off in Login
-            // Items ("Operation not permitted") and reports it awaiting
-            // approval. That is the operator's switch, not a registration this
-            // Mac cannot make, so it is named by the status below.
-            guard services.status(.agent) == .requiresApproval else { return .registrationFailed }
+        progress(.reached(.registering))
+        let consent = services.requestBackgroundService()
+        if case .refused(let status, let underlying) = consent {
+            // Registered without complaint and not there afterwards is the
+            // item being withdrawn under us; anything else is a registration
+            // this Mac would not make.
+            return status == .notRegistered && underlying == nil ? .backgroundItemDisabled : .registrationFailed
         }
 
         registerGUILoginItem(firstActivation: firstActivation)
 
-        switch services.status(.agent) {
+        if case .awaitingApproval(let approval) = consent {
+            progress(.awaitingApproval(approval))
+            if let cause = await awaitApproval() { return cause }
+        }
+
+        recordRegistrationReceipt()
+        return nil
+    }
+
+    /// Waits for the person's answer, and names what ended the wait where it
+    /// was not the switch going on.
+    ///
+    /// A cancelled wait answers the same cause a cancelled socket wait does.
+    /// Nobody reads it: the model has already left the ladder.
+    private func awaitApproval() async -> BootFailureCause? {
+        switch await services.awaitBackgroundApproval(readingOn: approvalReads) {
         case .enabled:
-            recordRegistrationReceipt()
+            log.log("the background item was approved")
             return nil
-        case .requiresApproval:
-            // macOS publishes one status for "waiting for your approval" and
-            // "you turned it off". The second signal is whether this run is the
-            // one that registered it: an item already in that state before we
-            // asked is one the user disabled.
-            return priorAgentStatus == .requiresApproval ? .backgroundItemDisabled : .approvalPending
         case .notRegistered:
+            log.error("the background item was removed while setup waited for approval")
             return .backgroundItemDisabled
         case .notFound:
+            log.error("macOS lost the background item while setup waited for approval")
             return .registrationFailed
+        case .requiresApproval, nil:
+            return .timedOut
         }
     }
 

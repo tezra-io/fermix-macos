@@ -22,6 +22,9 @@
 "starting.title" = "Starting Fermix";
 "starting.caption" = "macOS may mention a new background item. That is Fermix.";
 "starting.row.service" = "Registering the background service";
+"starting.row.awaitingApproval" = "Waiting for you to allow Fermix in the background";
+"starting.approval.body" = "Open Login Items settings and turn Fermix on. Setup carries on by itself.";
+"starting.approval.bodySwitchedOff" = "Fermix is turned off in Login Items. Turn it back on there and setup carries on by itself.";
 "starting.row.daemon" = "Starting the daemon";
 "starting.row.answering" = "Checking it answers";
 "starting.row.reading" = "Reading what is already set up";
@@ -102,7 +105,6 @@
 "bootFailed.viewLog" = "View full log";
 "bootFailed.tryAgain" = "Try again";
 "bootFailed.cause.timedOut" = "The daemon didn’t respond within 90 seconds. Your configuration hasn’t been touched, and Doctor can usually tell you exactly what happened.";
-"bootFailed.cause.approvalPending" = "macOS is waiting for you to allow Fermix to run in the background. Your configuration hasn’t been touched, so open Login Items settings, turn Fermix on, then try again.";
 "bootFailed.cause.backgroundItemDisabled" = "Fermix is turned off in Login Items. Your configuration hasn’t been touched, so open Login Items settings, turn Fermix back on, then try again.";
 "bootFailed.cause.incompatibleVersion" = "The running daemon speaks a protocol this version of the app cannot use. Your configuration hasn’t been touched, so update Fermix, then try again.";
 "bootFailed.cause.crashLoop" = "The daemon exited three times in a row while starting. Your configuration hasn’t been touched, and the last log lines below name the failure.";
@@ -148,6 +150,8 @@
 "home.attention.newerEngine.title" = "This Fermix engine is one release behind";
 "home.attention.unavailable.title" = "The daemon could not report what needs attention";
 "home.attention.unread" = "Fermix has not read the daemon yet";
+"home.attention.backgroundApproval.title" = "Allow Fermix to run in the background";
+"home.attention.backgroundApproval.body" = "Fermix can’t start until you turn it on in Login Items settings.";
 "home.runtime.engine" = "Engine";
 "home.runtime.protocol" = "Management protocol";
 "home.runtime.uptime" = "Uptime";
@@ -246,6 +250,7 @@
 "daemon.error.requiresNewerEngine" = "Restart to finish updating Fermix";
 "lifecycle.daemonNotManaged" = "Fermix’s background service isn’t registered on this Mac, so a restart would stop Fermix and nothing would start it again. Run the Setup Assistant to register it.";
 "lifecycle.serviceBusy" = "Fermix is already changing the background service, so nothing was changed. Try again once it has finished.";
+"lifecycle.registrationRefused" = "macOS refused to register the Fermix background item. Open Login Items settings, turn Fermix on, then try again.";
 "lifecycle.serviceNeverAnswered" = "The background service did not answer while Fermix was checking that it started, so Fermix is not running yet. Open Doctor to see what it found.";
 "lifecycle.restarting" = "Restarting Fermix";
 "lifecycle.enabling" = "Enabling the background service";

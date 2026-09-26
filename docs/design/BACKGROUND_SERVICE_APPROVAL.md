@@ -1,6 +1,6 @@
 # Background service approval as a setup step
 
-**Status:** Draft (design review pending)
+**Status:** Implemented on `dev` (2026-09-26); Stage 0 acceptance (§9) pending
 **Date:** 2026-09-26
 **Supersedes:** the interim card from app 0.2.1 (tezra-io/fermix-macos#12) for the approval causes
 **Depends on:** nothing in the engine; no contract, descriptor or method changes
@@ -113,7 +113,8 @@ accepted.
 8. **Diagnostics.** `sfltool dumpbtm` prints each item's disposition; an item the person
    switched off reads "enabled, disallowed" [TEB][L27]. `sfltool resetbtm` has no per-app
    argument and resets every app's background items and the person's choices on the Mac
-   [PD], so it is never part of a runbook.
+   [PD], so it is never part of this gate. (`docs/STAGE0_RUNBOOK.md`'s reset protocol keeps it
+   as a commented-out last resort for a registration with no bundle left to withdraw it.)
 
 Sources: [H] `SMAppService.h` and `SMErrors.h` in the macOS 26.5 SDK.
 [REG] developer.apple.com/documentation/servicemanagement/smappservice/register().
@@ -156,22 +157,28 @@ each half-implement today:
 public enum BackgroundServiceConsent: Equatable, Sendable {
     /// Registered and allowed. launchd runs the agent.
     case enabled
-    /// Registered, and macOS is holding it for the person. `wasWaiting` is true
-    /// when it was already held before this attempt, which is the only sign
-    /// that the person switched it off rather than has not answered yet.
-    case awaitingApproval(wasWaiting: Bool)
+    /// Registered, and macOS is holding it for the person.
+    case awaitingApproval(BackgroundApproval)
     /// macOS would not register it, and is not holding it for approval.
     case refused(ServiceRegistrationStatus, underlying: String?)
 }
+
+/// `.switchedOff` when the item was already held before this attempt, which is
+/// the only sign that the person switched it off rather than has not answered.
+public enum BackgroundApproval: Equatable, Sendable { case awaited, switchedOff }
 
 public func requestBackgroundService() -> BackgroundServiceConsent
 ```
 
 `requestBackgroundService()` reads the status, calls `register()` once, and reads the status
 again, whether or not `register()` threw. `requiresApproval` afterwards is
-`awaitingApproval`; `enabled` is `enabled`; anything else is `refused`. It is the only place
-in the app that interprets a thrown registration, which is what makes the 0.2.1 fix
-permanent instead of local to setup.
+`awaitingApproval`; `enabled` is `enabled`; anything else is `refused`, carrying macOS's
+own message where `register()` threw. A throw that leaves the item `enabled` is `enabled`:
+the status decides and the error never does (§3.2). Setup and Home's switch both ask
+through it, which is what makes the 0.2.1 fix permanent instead of local to setup. (The
+restart's plist renewal still calls `register()` directly: it only runs on an item that
+was `enabled` a moment earlier, and its refusal already surfaces as a registration
+failure.)
 
 `ServiceController` also gains `awaitBackgroundApproval()` (§5.3) and
 `openLoginItemsSettings()`, which calls `SMAppService.openSystemSettingsLoginItems()`
@@ -185,14 +192,20 @@ service", gains a second state instead of the ladder gaining a fifth row, becaus
 appears only on some Macs is the "row shown for work nobody does" problem the ladder already
 avoids.
 
-- `ActivationStage` gains `.awaitingApproval`, which draws on the service row's index with
-  its own title and an active marker.
+- `ActivationStage` keeps its four cases. Adding `.awaitingApproval` there would have added
+  the fifth row this section rules out: `ActivationPlan.stages` is built from
+  `ActivationStage.allCases`. Instead activation reports `ActivationProgress`, which is
+  either `.reached(ActivationStage)` or `.awaitingApproval(BackgroundApproval)`, and the
+  machine holds the approval beside the stage. The service row keeps its index and state
+  (active) and changes only its words.
 - `activate(progress:)` asks `requestBackgroundService()`:
-  - `enabled`: unchanged, on to `.starting`.
-  - `awaitingApproval`: reports `.awaitingApproval` and awaits `awaitBackgroundApproval()`.
-    When that returns `enabled`, activation records the registration receipt and continues
-    to `.starting`.
-  - `refused`: ends with `registrationFailed` or `backgroundItemDisabled`, as today.
+  - `enabled`: registers the GUI login item as before, on to `.starting`.
+  - `awaitingApproval`: registers the GUI login item, reports `.awaitingApproval` and awaits
+    `awaitBackgroundApproval()`. When that returns `enabled`, activation records the
+    registration receipt and continues to `.starting`.
+  - `refused`: ends with `backgroundItemDisabled` (no item and no error) or
+    `registrationFailed`, as today, and registers no GUI login item for a daemon that
+    cannot run.
 - The 90-second deadline is computed when the daemon step begins, not when activation
   begins. The refusals, the registration and the approval wait come before it.
 - While the step is showing, the Starting surface draws a block under the ladder, the way
@@ -219,9 +232,15 @@ thread:
 At about 70 ms a read, the backstop costs a few percent of one core's time while the step
 is on screen and nothing otherwise. It never calls `register()`.
 
-It returns the new status. `enabled` continues setup; `notRegistered` or `notFound` (the
-item was removed while we waited) ends activation with `backgroundItemDisabled` or
-`registrationFailed`.
+It returns the new status, or nil once cancelled. `enabled` continues setup; `notRegistered`
+or `notFound` (the item was removed while we waited) ends activation with
+`backgroundItemDisabled` or `registrationFailed`. When the schedule is cancelled (Cancel on
+the ladder), activation returns the same `timedOut` a cancelled socket wait does, and the
+model drops it, as it already drops every outcome of a cancelled activation.
+
+The two moments to read are one seam, `ApprovalReadSchedule`, whose shipped value
+`ReturnOrBackstop` races `didBecomeActiveNotification` against the 3-second backstop, so
+the tests decide when the person flips the switch without a clock or AppKit.
 
 If Stage 0 finds that approval does not start the job (§3.5), the one addition is a single
 `register()` call after `awaitBackgroundApproval()` returns `enabled`, which on an enabled
@@ -238,12 +257,27 @@ answer:
 - `awaitingApproval`: the transaction ends with a new outcome,
   `LifecycleOutcome.awaitingApproval`, clears its journal (nothing is half-done: the
   registration is made and macOS is holding it), and does not wait for a socket launchd will
-  not create. Home's attention section shows "Allow Fermix to run in the background" with
-  "Open Login Items settings". Home already re-reads its registrations when the app becomes
-  active, so the switch and the row update when the person comes back, and the next status
-  poll finds the daemon that launchd started.
-- `refused`: `LifecycleFailure.registration`, which gains a sentence (it has none today),
-  naming the switch.
+  not create. The registration receipt is left as it was: it is written only for a
+  registration macOS allows.
+- `refused`: `LifecycleFailure.registration(.registrationFailed)`, which gains a sentence (it
+  had none), naming the pane. The unregister half keeps none: its remedy is not a switch.
+  The sentence does not say "nothing was changed", because the rebuild has already
+  withdrawn the old registration by then.
+
+Home's Attention row is not tied to the transaction. `HomeModel.attention` leads the
+daemon's section with "Allow Fermix to run in the background" / "Open Login Items settings"
+whenever the registration Home holds reads `requiresApproval`. Home reads it at launch, when
+the app becomes active and after every transaction, so the row appears however the item came
+to be held: setup, the switch, or switched off in System Settings since (open question 3).
+While it is held the daemon cannot answer, so the row replaces the "could not report" row
+rather than sitting above it. Home has no status poll, so a registration that moves from
+held to allowed also reads the daemon again, queued behind a refresh already running.
+
+Two other callers of the enable transaction discarded its outcome and read "did not throw"
+as "restored": the update reconcile's `restoreRegistration()` and the update rollback. The
+reconcile now ends a held restore in Recovery with its existing
+`.registrationNeedsApproval` reason, without waiting out a verification for an engine that
+cannot start, and the rollback keeps its record for that reconcile instead of clearing it.
 
 ### 5.5 What changes on the failure card
 
@@ -277,8 +311,11 @@ change, and so is `scripts/dev_e2e.sh`'s refusal, which names the old section to
 ## 6. Accessibility
 
 - The service row announces its change of state through the existing ladder announcer
-  ("Waiting for you to allow Fermix in the background", then "Registering the background
-  service, done").
+  ("Waiting for you to allow Fermix in the background, in progress", then "Registering the
+  background service, done"). The announcer compared row states only, and the row's state
+  does not change when it starts waiting, so it now compares the whole row.
+- A Home enable that ends held for approval is announced with the Attention row's title,
+  which is what is left for the person to do.
 - The approval block's sentence is read before its button; the button is reachable with Tab
   and Space like every in-window secondary button.
 - Nothing time-limits the step, so nobody is hurried while working in System Settings.
@@ -289,29 +326,45 @@ All in `FermixAppCoreTests`, all through doubles; no test reads or changes this 
 login items.
 
 - `ServiceControllerTests`: `requestBackgroundService()` for each row of the §2 table,
-  including a throw with the status left at `requiresApproval`, and exactly one `register()`
-  call per request.
-- `ActivationCoordinatorTests`: a login-item double whose status flips to `enabled` on its
-  Nth read. Activation reports `.awaitingApproval`, then `.starting`, and activates; the
-  deadline starts after the flip (a clock that has passed 90 seconds while waiting still
-  activates); cancelling during the wait returns no outcome; an item removed while waiting
-  ends with `backgroundItemDisabled`.
-- `OnboardingModelTests`: the Starting surface shows the approval block only in that stage;
-  its button opens Login Items through the recorded opener; Cancel leaves for Home.
+  including a throw with the status left at `requiresApproval` and a throw that leaves it
+  `enabled`, and exactly one `register()` call per request; the wait reads until the status
+  moves, never registers, and answers nil once cancelled; the shipped schedule ends as soon
+  as its task is cancelled; the opener goes through the seam.
+- `ActivationCoordinatorTests`: a scripted read schedule during which the person answers.
+  Activation reports `.awaitingApproval(.awaited)` or `(.switchedOff)`, then `.starting`,
+  and activates with one `register()`; four minutes of waiting still activates, and the
+  daemon then gets its whole 90 seconds; cancelling ends without asking the daemon; an item
+  removed or lost while waiting ends with `backgroundItemDisabled` or `registrationFailed`.
+- `OnboardingMachineTests` and `DesignComponentTests`: the wait keeps four rows, changes the
+  service row's words, clears on every exit, and is announced both ways.
+- `OnboardingModelTests`: the Starting surface shows the approval block only in that stage,
+  with the sentence for each kind of hold; its button opens Login Items through the seam and
+  never through a URL; Cancel leaves for Home.
 - `LifecycleCoordinatorTests`: enabling into approval ends with `awaitingApproval`, writes
-  no failed journal, and waits for no socket; a refused registration has a sentence.
-- `ProductStringsTests`: the new strings pass the copy rules.
+  no failed journal, waits for no socket and leaves the receipt; rebuilding a switched-off
+  item ends the same way; a refused registration has a sentence and a refused unregister
+  does not.
+- `HomeSurfaceTests`: a held item leads Attention, replacing the unreachable row and leading
+  the daemon's own rows, and goes once macOS allows it; its action opens Login Items.
+- `UpdateReconcileTests`: a restore held for approval ends in Recovery with
+  `registrationNeedsApproval` and no verification wait.
+- `ProductStringsTests`: the new strings pass the copy rules and name the pane and Fermix,
+  never the section.
+- `FixtureConfigurationTests`: the `assistant/approval` fixture start opens Starting on a
+  Mac that holds the agent as a first install does, so the step can be looked at with
+  `--fixture --fixture-start assistant/approval`.
 
 ## 8. Rollout
 
-App-only. It lands on `dev` after `main` (which carries 0.2.1) is merged into it, and ships
-in the next minor release with a build number above 6. The engine pin, the vendored
+App-only. It landed on `dev` after `main` (which carries 0.2.1) was merged into it, together
+with the copy commit of tezra-io/fermix-macos#14 (0.2.2, build 7), and ships in the next
+minor release with a build number of 8 or more. The engine pin, the vendored
 contracts and `Product.json`'s identity are untouched. Nothing about an existing
 registration changes: an account that is already enabled never sees the step.
 
 ## 9. Stage 0 acceptance
 
-Added to `docs/STAGE0_RUNBOOK.md`, on the staged release bundle:
+Added to `docs/STAGE0_RUNBOOK.md` as section 9, on the staged release bundle:
 
 1. With Fermix installed and set up, switch it off in Login Items & Extensions. Confirm
    `sfltool dumpbtm` shows the agent "enabled, disallowed".
@@ -331,9 +384,9 @@ Added to `docs/STAGE0_RUNBOOK.md`, on the staged release bundle:
    and §5.3 has the change if it does not.
 2. The 3-second backstop: short enough to feel immediate, long enough to cost nothing.
    Worth measuring the read cost on the release bundle before fixing the number.
-3. Should Home's attention row also appear on launch for an account whose item was switched
-   off after setup? `PermissionLedger` already shows it under Permissions; Home showing it
-   too would make "Fermix isn't running" explain itself.
+3. ~~Should Home's attention row also appear on launch for an account whose item was
+   switched off after setup?~~ Yes, and it does by construction: the row is read from the
+   registration Home holds, not from a transaction's outcome (§5.4).
 4. macOS 26 added a prompt when an app's background activity carries on after the app quits
    (about 60 seconds, undocumented threshold) [PD][F799162]. Whether an SMAppService agent
    like Fermix's triggers it is undocumented. Stage 0 should quit the app and wait, and if
