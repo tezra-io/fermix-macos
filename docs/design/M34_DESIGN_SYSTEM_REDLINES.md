@@ -451,9 +451,10 @@ Content 424, padding 0/110, centered.
   the shipped artwork the body's own blue rim and shadow hold the silhouette in both
   appearances, and the plate read as a chip behind a character. The rule that put it in the
   component rather than on one screen still stands: Ready and Pet share the same still
-  treatment. `MascotArtwork` composes ring behind body behind face from `PetAssetCache`,
-  using the open-eye `listening` pose and its resting scale. Its 132/108 canvas leaves room
-  for the ring's 1.20x orbit; it is not a ground behind the character.
+  treatment. Since 2026-09-25 (decision 34) `MascotArtwork` draws the one Rive animation
+  the floating companion plays, in the open-eye `listening` pose; the painted layers and
+  `PetAssetCache` are gone. Its 132/108 canvas keeps the room the painted mascot and its
+  orbit had, so Ready does not move; it is not a ground behind the character.
 - **The screen reads readiness from the daemon when it appears.** Its whole claim is the
   daemon's, and readiness used to arrive only from the activation that walked here, so every
   other way in — a route resuming at Ready (§3.4), and every fixture launch of this surface —
@@ -1269,6 +1270,23 @@ every button carries a title or an accessibility label; every sheet has a cancel
     the list gave is kept by hand and gated: names, help tags, the selected trait, keyboard
     focus, and the arrow keys walking Home, Doctor, Logs, Pet, Settings. The gear no longer
     needs a measured spacer row; a spacer in the column holds it to the foot.
+34. **The mascot is one Rive animation** (2026-09-25), from the owner asking for reactions
+    that feel "more natural like a 3D character and aligned with the status of the voice".
+    The painted PNG poses cross-faded between four stills; the mascot is now a Rive file,
+    `Resources/Mascot/FermixMascot.riv`, played by the Rive runtime in the GUI-only
+    `FermixRive` target behind the core's `MascotRendering` seam (the agent never loads it,
+    as it never loads Sparkle). Its state machine `Pet` takes `mode` (the four
+    `PetExpression` raw values) and `level` (the voice level, 0 to 1); the poses blend
+    into each other over 0.45s, the painted body bends on a mesh, the eyes morph between
+    poses, a waveform mouth follows the voice, and idle shrinks to 86% towards its shadow.
+    Settled with the owner watching it: the orbit ring and its balls were built and
+    removed ("it doesnt look great with the circles around it"), speaking was calmed
+    ("wobbles too much"), and the body carries its own soft navy edge and cool rim so it
+    holds its silhouette on light wallpapers and is unchanged on dark ones. The editable
+    source is the owner's Rive file `fermix`; the `.riv` here is its runtime export. A click
+    anywhere on the companion's mascot starts or ends the call; the animation takes no
+    clicks of its own. The two painted plates the one-ink pet mark is generated from stay
+    in the tree as generator inputs and do not ship.
 
 ## 9. Accessibility (DESIGN_SPEC §9, as build gates)
 

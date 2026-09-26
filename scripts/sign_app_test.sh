@@ -19,16 +19,19 @@ SIGN="$ROOT_DIR/scripts/sign_app.sh"
 source "$ROOT_DIR/scripts/product_config.sh"
 # shellcheck source=scripts/fake_staged_app.sh
 source "$ROOT_DIR/scripts/fake_staged_app.sh"
-# The updater's two lists are read directly below, so they are asked for
+# The two frameworks' lists are read directly below, so they are asked for
 # directly rather than inherited through whatever fake_staged_app.sh sources.
 # shellcheck source=scripts/sparkle.sh
 source "$ROOT_DIR/scripts/sparkle.sh"
+# shellcheck source=scripts/rive.sh
+source "$ROOT_DIR/scripts/rive.sh"
 
 APP_BUNDLE_NAME="$(product_config app_bundle_name)"
 BUNDLE_ID="$(product_config bundle_identifier)"
 AGENT_EXECUTABLE="$(product_config agent_executable_name)"
 AGENT_LABEL="$(product_config agent_service_label)"
 SPARKLE_FRAMEWORK="$(product_config frameworks_relative_path)/$SPARKLE_FRAMEWORK_NAME"
+RIVE_FRAMEWORK="$(product_config frameworks_relative_path)/$RIVE_FRAMEWORK_NAME"
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -116,6 +119,24 @@ for member in "${SPARKLE_MACHO_PATHS[@]}"; do
 done
 echo "  ok   every inventoried updater program lives under a signed path"
 
+# The same agreement for the animation runtime's two lists, for the same
+# reason: a library inventoried and under nothing signed would stage, verify,
+# and ship unsigned.
+for member in "${RIVE_MACHO_PATHS[@]}"; do
+  covered=""
+  for signed in "${RIVE_SIGNING_ORDER[@]}"; do
+    case "$member" in
+      "$signed" | "$signed"/*)
+        covered=1
+        break
+        ;;
+    esac
+  done
+  [ -n "$covered" ] ||
+    fail "animation runtime program $member is inventoried and under nothing sign_app.sh signs"
+done
+echo "  ok   every inventoried animation runtime program lives under a signed path"
+
 # The updater's four retained helpers are separate code, and each has to carry
 # its own signature: macOS refuses to launch an unsigned helper, which surfaces
 # as an update that downloads and then silently never installs. The framework
@@ -125,6 +146,12 @@ for member in "${SPARKLE_SIGNING_ORDER[@]}"; do
     fail "updater component $member is not validly signed"
 done
 echo "  ok   every retained updater helper carries a valid signature"
+
+for member in "${RIVE_SIGNING_ORDER[@]}"; do
+  codesign --verify --strict "$app/$RIVE_FRAMEWORK/$member" ||
+    fail "animation runtime component $member is not validly signed"
+done
+echo "  ok   the animation runtime carries a valid signature"
 
 echo "sign_app_test: refusals"
 
@@ -176,6 +203,30 @@ app="$(fresh_bundle no-updater)"
 rm -rf "${app:?}/${SPARKLE_FRAMEWORK:?}"
 expect_refusal "a bundle with no updater framework to sign is refused" \
   "the updater framework is not staged" \
+  "$SIGN" "$app" -
+
+# The same allowlist inside the animation runtime: it names one library, so a
+# second Mach-O stops the release instead of being signed by a directory rule.
+app="$(fresh_bundle rive-stowaway)"
+fake_app_build_stub "$app/$RIVE_FRAMEWORK/Versions/A/Sneak" -arch arm64 -arch x86_64
+expect_refusal "a stowaway Mach-O inside the animation runtime is refused" \
+  "$RIVE_FRAMEWORK/Versions/A/Sneak" \
+  "$SIGN" "$app" -
+
+# A runtime without the versioned bundle its signing order names fails loudly
+# here rather than shipping a framework nothing signed. One that moved its
+# library to another version letter is refused earlier, as undeclared Mach-O,
+# by the stowaway rule above.
+app="$(fresh_bundle rive-missing-version)"
+rm -rf "${app:?}/${RIVE_FRAMEWORK:?}/Versions/A"
+expect_refusal "an animation runtime missing its versioned bundle is refused" \
+  "the animation runtime carries no Versions/A" \
+  "$SIGN" "$app" -
+
+app="$(fresh_bundle no-rive)"
+rm -rf "${app:?}/${RIVE_FRAMEWORK:?}"
+expect_refusal "a bundle with no animation runtime to sign is refused" \
+  "the animation runtime is not staged" \
   "$SIGN" "$app" -
 
 expect_refusal "a missing bundle is refused rather than silently signing nothing" \

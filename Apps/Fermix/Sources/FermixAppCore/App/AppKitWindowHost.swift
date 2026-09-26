@@ -23,6 +23,9 @@ struct AppSurfaces {
     let openRecovery: () -> Void
     /// The journaled restart the one Restart sheet takes once it has asked.
     let restart: () -> Void
+    /// The mascot renderer the executable handed in, carried by every window's
+    /// root so the companion and Ready draw the one animation.
+    let mascot: any MascotRendering
 
     func view(for kind: WindowKind) -> NSView {
         switch kind {
@@ -61,7 +64,8 @@ struct AppSurfaces {
     /// window keeps the size the descriptor, `WindowGrowth` and the operator's
     /// drag give it. What lets the content take that size is the split view's
     /// own floor, in `MainWindowView`.
-    private func hosting<Content: View>(_ root: Content) -> NSHostingView<ProductTinted<Content>> {
+    private func hosting<Content: View>(_ root: Content) -> NSHostingView<ProductTinted<some View>> {
+        let root = root.environment(\.mascot, mascot)
         let view = NSHostingView(rootView: ProductTinted(content: root))
         view.sizingOptions = []
 

@@ -647,7 +647,7 @@ struct FixtureConfigurationTests {
     @MainActor
     @Test("the fixture environment stands every seam on one machine")
     func oneMachineBehindEverySeam() throws {
-        let environment = try AppEnvironment.fixture(FixtureLaunch(start: .surface(.home)))
+        let environment = try AppEnvironment.fixture(FixtureLaunch(start: .surface(.home)), mascot: StillMascot())
         let socket = environment.location.defaultFermixHome
             .appendingPathComponent("daemon.sock").path
 

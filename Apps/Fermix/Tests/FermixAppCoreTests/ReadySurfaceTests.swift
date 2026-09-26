@@ -164,18 +164,17 @@ struct ReadySurfaceTests {
         #expect(mascotOwners.map(\.path).allSatisfy { $0.contains("/Pet/") }, "\(mascotOwners.map(\.path))")
         #expect(mascotOwners.count == 1)
 
-        // The painted still mascot is that one component wherever it is drawn,
-        // which since 2026-09-20 is Ready alone: the Pet tab draws the one-ink
-        // mark in its place, on the owner's word. A surface that hand-composed
-        // the layers again is how the Pet tab once ended up drawing a different
-        // frame from the app's own icon, so the drawing is asserted to happen
-        // in exactly one file.
-        let composers = try SourceTree
+        // The still mascot is that one component wherever it is drawn, which
+        // since 2026-09-20 is Ready alone: the Pet tab draws the one-ink mark in
+        // its place, on the owner's word. Only the companion and this component
+        // ask the renderer for the mascot, so no surface composes its own.
+        let drawers = try SourceTree
             .swiftFiles(under: "", excluding: false)
-            .filter { $0.text.contains("layerAssetName(") }
-            .map(\.path)
+            .filter { $0.text.contains(".mascot(") }
+            .map { URL(fileURLWithPath: $0.path).lastPathComponent }
+            .sorted()
 
-        #expect(composers.allSatisfy { $0.contains("/Pet/") }, "\(composers)")
+        #expect(drawers == ["MascotArtwork.swift", "PetView.swift"], "\(drawers)")
 
         let users = try SourceTree
             .swiftFiles(under: "", excluding: false)

@@ -23,6 +23,9 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   exit 1
 fi
 
+# shellcheck source=scripts/xcframework.sh
+source "$(dirname "${BASH_SOURCE[0]}")/xcframework.sh"
+
 # The embedded framework's directory name, which is also its name inside the
 # resolved xcframework and the name its @rpath install name resolves through.
 SPARKLE_FRAMEWORK_NAME="Sparkle.framework"
@@ -77,61 +80,14 @@ SPARKLE_REQUIRED_SYMLINKS=(
 # with this in its Info.plist can verify no update at all.
 SPARKLE_PLACEHOLDER_PUBLIC_ED_KEY="replace-with-the-production-sparkle-public-key"
 
-# Where the resolved binary artifact keeps the macOS slice of the xcframework.
-#
-# SwiftPM unpacks a binary target under <build-path>/artifacts/<package>/<target>,
-# and the xcframework's own Info.plist is what says which directory holds the
-# macOS slice and what the framework inside it is called. Reading it is one
-# question asked of the artifact instead of two names written here that a
-# Sparkle release could invalidate silently.
+# Where the resolved binary artifact keeps the macOS framework: SwiftPM unpacks
+# the `Sparkle` binary target of the `sparkle` package here, and
+# scripts/xcframework.sh reads the slice out of the xcframework's own Info.plist.
 #
 # Usage: sparkle_framework_source <swiftpm-build-path>
 sparkle_framework_source() {
   local build_path="${1:?sparkle_framework_source: <swiftpm-build-path> is required}"
-  local xcframework identifier library
-
-  xcframework="$build_path/artifacts/sparkle/Sparkle/Sparkle.xcframework"
-  if [ ! -f "$xcframework/Info.plist" ]; then
-    echo "sparkle: the resolved Sparkle artifact is not at $xcframework" >&2
-    echo "sparkle: run swift build so SwiftPM downloads the pinned binary target" >&2
-    return 1
-  fi
-
-  read -r identifier library <<SLICE
-$(sparkle_macos_slice "$xcframework/Info.plist")
-SLICE
-  if [ -z "$identifier" ] || [ -z "$library" ]; then
-    echo "sparkle: $xcframework publishes no macOS slice" >&2
-    return 1
-  fi
-
-  if [ ! -d "$xcframework/$identifier/$library" ]; then
-    echo "sparkle: $xcframework declares $identifier/$library, which is not there" >&2
-    return 1
-  fi
-
-  printf '%s\n' "$xcframework/$identifier/$library"
-}
-
-# The library identifier and library path of the one macOS slice, as two words.
-# A slice with a platform variant (Catalyst) is not the macOS one.
-sparkle_macos_slice() {
-  python3 - "$1" <<'PY'
-import plistlib
-import sys
-
-with open(sys.argv[1], "rb") as source:
-    document = plistlib.load(source)
-
-slices = [
-    entry
-    for entry in document.get("AvailableLibraries", [])
-    if entry.get("SupportedPlatform") == "macos" and not entry.get("SupportedPlatformVariant")
-]
-if len(slices) != 1:
-    sys.exit(f"expected exactly one macos slice, found {len(slices)}")
-print(slices[0]["LibraryIdentifier"], slices[0]["LibraryPath"])
-PY
+  xcframework_macos_framework sparkle "$build_path/artifacts/sparkle/Sparkle/Sparkle.xcframework"
 }
 
 # The version an embedded framework declares, read from the framework itself.

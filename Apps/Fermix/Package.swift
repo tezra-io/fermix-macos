@@ -27,7 +27,13 @@ let package = Package(
         // it back out of the resolved artifact and
         // `scripts/check_product_config.sh` gates it against the one copy in
         // Product.json, so this manifest and project.yml cannot drift apart.
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6")
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6"),
+        // The mascot's animation runtime, pinned exactly for the same reason as
+        // the updater: it resolves as a BINARY xcframework, so this pin is the
+        // framework the bundle embeds and signs. `scripts/rive.sh` reads it
+        // back out of the resolved artifact and
+        // `scripts/check_product_config.sh` gates it against Product.json.
+        .package(url: "https://github.com/rive-app/rive-ios", exact: "6.27.0")
     ],
     targets: [
         // Everything the product does: views, voice, and the typed product
@@ -36,8 +42,12 @@ let package = Package(
             name: "FermixAppCore",
             // The mark master is a generator input, not a runtime resource: the
             // three state rasters sit beside it and shipping both would put two
-            // representations of one image in the bundle.
-            exclude: ["Resources/MenuBarTemplate/FermixMarkMaster.png"],
+            // representations of one image in the bundle. The two painted pet
+            // plates are generator inputs too: the one-ink pet mark
+            // (`FermixMarkPet`) is built from them by
+            // `scripts/build_mascot_mark.py`, and the mascot itself draws from
+            // the Rive animation.
+            exclude: ["Resources/MenuBarTemplate/FermixMarkMaster.png", "Resources/PetExpressions"],
             resources: [
                 // The vendored wire contracts keep their directory layout: the
                 // management and realtime trees each carry a PROTOCOL.md and a
@@ -59,7 +69,9 @@ let package = Package(
                 // and the trailing "Template" in the name is what makes macOS
                 // tint it for the current menu bar appearance.
                 .process("Resources/MenuBarTemplate"),
-                .process("Resources/PetExpressions"),
+                // The mascot's animation, authored in Rive. Copied as it is:
+                // a runtime file, not an image for the asset pipeline.
+                .copy("Resources/Mascot/FermixMascot.riv"),
                 .process("Resources/Fermix.icns"),
                 .process("Resources/Product.json"),
                 // The canonical wordmark SVG. `FermixWordmark` draws a 1:1
@@ -77,7 +89,7 @@ let package = Package(
         // that plist is generated from Product.json, never hand-written.
         .executableTarget(
             name: "Fermix",
-            dependencies: ["FermixAppCore", "FermixSparkle"],
+            dependencies: ["FermixAppCore", "FermixSparkle", "FermixRive"],
             exclude: ["Info.plist", "Fermix.entitlements"],
             linkerSettings: [
                 .unsafeFlags(
@@ -86,11 +98,12 @@ let package = Package(
                         "-Xlinker", "__TEXT",
                         "-Xlinker", "__info_plist",
                         "-Xlinker", "Sources/Fermix/Info.plist",
-                        // Sparkle.framework is embedded at
-                        // Contents/Frameworks by the staging scripts, and its
-                        // install name is @rpath-relative. This is the search
-                        // path that resolves it from Contents/MacOS; project.yml
-                        // sets the same one through LD_RUNPATH_SEARCH_PATHS.
+                        // Sparkle.framework and RiveRuntime.framework are
+                        // embedded at Contents/Frameworks by the staging
+                        // scripts, and their install names are @rpath-relative.
+                        // This is the search path that resolves them from
+                        // Contents/MacOS; project.yml sets the same one through
+                        // LD_RUNPATH_SEARCH_PATHS.
                         "-Xlinker", "-rpath",
                         "-Xlinker", "@executable_path/../Frameworks"
                     ],
@@ -111,6 +124,18 @@ let package = Package(
             dependencies: [
                 "FermixAppCore",
                 .product(name: "Sparkle", package: "Sparkle")
+            ]
+        ),
+        // The one place in the repository that imports the Rive runtime, for
+        // the same reason Sparkle has its own target: FermixAgent links
+        // FermixAppCore and must never load an animation framework. The core
+        // declares the `MascotRendering` seam and this target, linked by the
+        // GUI executable alone, draws it.
+        .target(
+            name: "FermixRive",
+            dependencies: [
+                "FermixAppCore",
+                .product(name: "RiveRuntime", package: "rive-ios")
             ]
         ),
         // The daemon launcher that SMAppService.agent registers.

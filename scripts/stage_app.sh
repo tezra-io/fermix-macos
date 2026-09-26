@@ -74,6 +74,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/product_config.sh"
 # shellcheck source=scripts/sparkle.sh
 source "$ROOT_DIR/scripts/sparkle.sh"
+# shellcheck source=scripts/rive.sh
+source "$ROOT_DIR/scripts/rive.sh"
 
 GUI_EXECUTABLE="$(product_config gui_executable_name)"
 AGENT_EXECUTABLE="$(product_config agent_executable_name)"
@@ -188,6 +190,31 @@ stage_sparkle() {
   ditto "$source" "$destination/$SPARKLE_FRAMEWORK_NAME"
 }
 
+# The mascot's animation runtime, embedded beside the updater for the same
+# reasons and in the same way (see stage_sparkle): the GUI is linked against
+# @rpath/RiveRuntime.framework/… through the same runtime search path, so an
+# app without it launches to a dyld failure, and it is a build product of the
+# pinned dependency rather than a slot that may stage empty.
+#
+# Its Headers and Modules come with it, as the updater's do: the framework is
+# embedded as the pinned artifact publishes it, byte for byte, rather than
+# edited on the way in, and what is sealed and verified is that tree.
+stage_rive() {
+  local source destination version pinned
+  source="$(rive_framework_source "$BUILD_PATH")" ||
+    fail "the pinned animation runtime is not in the resolved artifacts"
+
+  pinned="$(product_config rive_runtime_version)"
+  version="$(rive_embedded_version "$source")" ||
+    fail "the resolved animation runtime declares no version: $source"
+  [ "$version" = "$pinned" ] ||
+    fail "the resolved animation runtime is $version, but Product.json pins $pinned"
+
+  destination="$OUT_APP/$FRAMEWORKS_RELATIVE_PATH"
+  mkdir -p "$destination"
+  ditto "$source" "$destination/$RIVE_FRAMEWORK_NAME"
+}
+
 engine_manifest_architecture() {
   python3 - "$1" <<'PY'
 import json, sys
@@ -231,6 +258,7 @@ stage_engine_and_tools() {
 build
 stage
 stage_sparkle
+stage_rive
 stage_engine_and_tools
 "$ROOT_DIR/scripts/verify_staged_app.sh" "$OUT_APP" "$ARCHITECTURES" unsigned
 echo "stage_app: staged $OUT_APP ($CONFIGURATION)"

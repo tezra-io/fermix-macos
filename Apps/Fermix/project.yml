@@ -19,6 +19,11 @@ packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     exactVersion: 2.9.6
+  # The mascot's animation runtime, pinned and gated the same way. It is also a
+  # binary xcframework the app embeds and signs.
+  RiveRuntime:
+    url: https://github.com/rive-app/rive-ios
+    exactVersion: 6.27.0
 
 options:
   bundleIdPrefix: io.tezra
@@ -51,6 +56,9 @@ targets:
           # Its three state rasters ship beside it and
           # scripts/check_brand_images.sh keeps them in step with it.
           - Resources/MenuBarTemplate/FermixMarkMaster.png
+          # The painted pet plates are the one-ink pet mark's generator inputs
+          # (scripts/build_mascot_mark.py); the mascot draws from the Rive file.
+          - Resources/PetExpressions
       # A folder reference, so the vendored contracts keep their
       # `<protocol>/…` layout inside the bundle. Added as ordinary resources
       # they would flatten, and both contracts publish a PROTOCOL.md and a
@@ -85,6 +93,22 @@ targets:
       base:
         PRODUCT_NAME: FermixSparkle
 
+  # The one place that imports the Rive runtime, for the same reason as the
+  # updater: FermixAgent links FermixAppCore and must never load it. A static
+  # library linked into the GUI executable, like FermixSparkle.
+  FermixRive:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Sources/FermixRive
+    dependencies:
+      - target: FermixAppCore
+        embed: false
+      - package: RiveRuntime
+    settings:
+      base:
+        PRODUCT_NAME: FermixRive
+
   # The GUI, the menu bar, the windows, and the only microphone principal. It
   # is also the only target that links the updater: the package appears here as
   # well as on FermixSparkle because a static library carries no link of its
@@ -103,6 +127,9 @@ targets:
       - target: FermixSparkle
         embed: false
       - package: Sparkle
+      - target: FermixRive
+        embed: false
+      - package: RiveRuntime
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tezra.FermixPet

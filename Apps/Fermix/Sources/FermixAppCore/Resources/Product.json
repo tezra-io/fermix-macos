@@ -24,5 +24,6 @@
   "sparkle_version": "2.9.6",
   "sparkle_feed_url": "https://fermix.ai/appcast.xml",
   "sparkle_public_ed_key": "LYHvaGKFEf34Zqo4ZDneKUdkvZ6mhieIS93cogVowaU=",
+  "rive_runtime_version": "6.27.0",
   "microphone_usage_description": "Fermix uses microphone input only while you explicitly start a voice call."
 }

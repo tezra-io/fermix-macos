@@ -26,6 +26,8 @@ FAKE_APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAKE_APP_RESOURCES="$FAKE_APP_ROOT/Apps/Fermix/Sources/FermixAppCore/Resources"
 # shellcheck source=scripts/sparkle.sh
 source "$FAKE_APP_ROOT/scripts/sparkle.sh"
+# shellcheck source=scripts/rive.sh
+source "$FAKE_APP_ROOT/scripts/rive.sh"
 
 # A real universal Mach-O, so lipo answers truthfully. A shell script with a
 # +x bit would satisfy an executable-bit check and prove nothing about slices.
@@ -140,6 +142,41 @@ fake_app_build_sparkle_framework() {
   ln -sfn Versions/Current/XPCServices "$framework/XPCServices"
 }
 
+# A stand-in for the pinned animation runtime, in the layout the real one has: a
+# versioned bundle behind Versions/Current carrying one library, its headers and
+# module map, and the top-level symbolic links the @rpath install name resolves
+# through. The headers and module map are there because staging embeds the
+# framework whole, so signing and verification have to be shown sealing them.
+# The library is a real universal dylib carrying the runtime's own install
+# name, so file, lipo, otool, and codesign all answer truthfully about it.
+#
+# The version is a parameter so a case can stage a runtime the product
+# configuration does not pin.
+fake_app_build_rive_framework() {
+  local framework="$1" version="$2" scratch
+  scratch="$(dirname "$framework")"
+  mkdir -p "$framework/Versions/A/Resources" "$framework/Versions/A/Headers" \
+    "$framework/Versions/A/Modules"
+
+  printf 'int RiveFakeRuntime(void) { return 0; }\n' >"$scratch/.rive.c"
+  cc -dynamiclib -arch arm64 -arch x86_64 \
+    -install_name "@rpath/$RIVE_FRAMEWORK_NAME/Versions/A/RiveRuntime" \
+    -o "$framework/Versions/A/RiveRuntime" "$scratch/.rive.c"
+  rm -f "$scratch/.rive.c"
+
+  printf 'int RiveFakeRuntime(void);\n' >"$framework/Versions/A/Headers/RiveRuntime.h"
+  printf 'framework module RiveRuntime {\n  umbrella header "RiveRuntime.h"\n  export *\n}\n' \
+    >"$framework/Versions/A/Modules/module.modulemap"
+  fake_app_write_bundle_plist "$framework/Versions/A/Resources/Info.plist" \
+    RiveRuntime rive.app.ios.runtime.RiveRuntime FMWK "$version"
+
+  ln -sfn A "$framework/Versions/Current"
+  ln -sfn Versions/Current/RiveRuntime "$framework/RiveRuntime"
+  ln -sfn Versions/Current/Resources "$framework/Resources"
+  ln -sfn Versions/Current/Headers "$framework/Headers"
+  ln -sfn Versions/Current/Modules "$framework/Modules"
+}
+
 fake_app_write_bundle_plist() {
   local out="$1" executable="$2" identifier="$3" package_type="$4" version="$5"
   cat >"$out" <<PLIST
@@ -174,6 +211,25 @@ fake_app_sparkle_link_flags() {
   )
 }
 
+# The one link argument that makes a stand-in load the staged animation
+# runtime, for the same reason and in the same shape. The runtime search path
+# is not repeated: it is the updater's, and the GUI carries it once.
+fake_app_rive_link_flags() {
+  local app="${1:?fake_app_rive_link_flags: <app-path> is required}"
+  FAKE_APP_RIVE_LINK=(
+    "$app/$(product_config frameworks_relative_path)/$RIVE_FRAMEWORK_NAME/Versions/A/RiveRuntime"
+  )
+}
+
+# Everything a GUI stand-in links: both frameworks and the one runtime search
+# path, which is what the built GUI links.
+fake_app_gui_link_flags() {
+  local app="${1:?fake_app_gui_link_flags: <app-path> is required}"
+  fake_app_sparkle_link_flags "$app"
+  fake_app_rive_link_flags "$app"
+  FAKE_APP_GUI_LINK=("${FAKE_APP_SPARKLE_LINK[@]}" "${FAKE_APP_RIVE_LINK[@]}")
+}
+
 fake_app_build_bundle() {
   local app="$1" resources
   # shellcheck source=scripts/product_config.sh
@@ -186,14 +242,17 @@ fake_app_build_bundle() {
     "$app/$(product_config tools_relative_path)" \
     "$app/$(product_config frameworks_relative_path)"
 
-  # The framework first: the GUI stand-in links against it, exactly as the
-  # built GUI links the pinned one.
+  # The frameworks first: the GUI stand-in links against them, exactly as the
+  # built GUI links the pinned ones.
   fake_app_build_sparkle_framework \
     "$app/$(product_config frameworks_relative_path)/$SPARKLE_FRAMEWORK_NAME" \
     "$(product_config sparkle_version)"
-  fake_app_sparkle_link_flags "$app"
+  fake_app_build_rive_framework \
+    "$app/$(product_config frameworks_relative_path)/$RIVE_FRAMEWORK_NAME" \
+    "$(product_config rive_runtime_version)"
+  fake_app_gui_link_flags "$app"
   fake_app_build_stub "$app/Contents/MacOS/$(product_config gui_executable_name)" \
-    -arch arm64 -arch x86_64 "${FAKE_APP_SPARKLE_LINK[@]}"
+    -arch arm64 -arch x86_64 "${FAKE_APP_GUI_LINK[@]}"
   fake_app_build_stub "$app/Contents/MacOS/$(product_config agent_executable_name)" \
     -arch arm64 -arch x86_64
 

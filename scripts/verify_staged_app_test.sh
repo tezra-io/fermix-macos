@@ -22,10 +22,13 @@ VERIFY="$ROOT_DIR/scripts/verify_staged_app.sh"
 source "$ROOT_DIR/scripts/product_config.sh"
 # shellcheck source=scripts/fake_staged_app.sh
 source "$ROOT_DIR/scripts/fake_staged_app.sh"
-# The updater facts are read directly below, so they are asked for directly
-# rather than inherited through whatever fake_staged_app.sh happens to source.
+# The two frameworks' facts are read directly below, so they are asked for
+# directly rather than inherited through whatever fake_staged_app.sh happens to
+# source.
 # shellcheck source=scripts/sparkle.sh
 source "$ROOT_DIR/scripts/sparkle.sh"
+# shellcheck source=scripts/rive.sh
+source "$ROOT_DIR/scripts/rive.sh"
 
 APP_BUNDLE_NAME="$(product_config app_bundle_name)"
 GUI_EXECUTABLE="$(product_config gui_executable_name)"
@@ -116,17 +119,22 @@ sparkle_framework() {
   printf '%s\n' "${1:?sparkle_framework: <app-path> is required}/${FRAMEWORKS_RELATIVE_PATH:?}/$SPARKLE_FRAMEWORK_NAME"
 }
 
+# The animation runtime of a copy, under the same rule.
+rive_framework() {
+  printf '%s\n' "${1:?rive_framework: <app-path> is required}/${FRAMEWORKS_RELATIVE_PATH:?}/$RIVE_FRAMEWORK_NAME"
+}
+
 with_release_identity() {
   plutil -replace CFBundleShortVersionString -string "$(product_config marketing_version)" "$1/Contents/Info.plist"
   plutil -replace CFBundleVersion -string "$(product_config build_number)" "$1/Contents/Info.plist"
 }
 
 # Ad-hoc sign a copy inside-out, in sign_app.sh's order: the updater's helpers,
-# then the framework, then the agent, then the app.
+# then the framework, then the animation runtime, then the agent, then the app.
 #
 # Not a convenience — it is the only order that works. codesign refuses to seal
-# an application over unsigned nested code, so a bundle carrying the updater
-# cannot be signed outer-first at all.
+# an application over unsigned nested code, so a bundle carrying the two
+# frameworks cannot be signed outer-first at all.
 #
 # Every status is checked. codesign's own noise is suppressed because these
 # cases are about the verifier's output, but a discarded status leaves the copy
@@ -138,6 +146,12 @@ adhoc_sign() {
     codesign --force --timestamp=none --options runtime --sign - \
       "$framework/$member" >/dev/null 2>&1 ||
       fail "ad-hoc signing the updater's $member failed"
+  done
+  framework="$(rive_framework "$app")"
+  for member in "${RIVE_SIGNING_ORDER[@]}"; do
+    codesign --force --timestamp=none --options runtime --sign - \
+      "$framework/$member" >/dev/null 2>&1 ||
+      fail "ad-hoc signing the animation runtime's $member failed"
   done
   codesign --force --timestamp=none --options runtime --sign - \
     "$app/Contents/MacOS/$AGENT_EXECUTABLE" >/dev/null 2>&1 ||
@@ -153,14 +167,14 @@ expect_pass() {
   echo "  ok   $what"
 }
 
-# Every GUI stand-in loads the updater the way the built GUI does.
+# Every GUI stand-in loads both frameworks the way the built GUI does.
 #
 # verify_staged_app.sh asks the binary itself which executable may load
-# Sparkle, so a stand-in that linked nothing would refuse for that reason
-# instead of the invariant its case is about. The flags land in
-# FAKE_APP_SPARKLE_LINK because both are paths.
+# each framework, so a stand-in that linked nothing would refuse for that
+# reason instead of the invariant its case is about. The flags land in
+# FAKE_APP_GUI_LINK because every one of them is a path.
 gui_stub_link_flags() {
-  fake_app_sparkle_link_flags "${1%/Contents/MacOS/*}"
+  fake_app_gui_link_flags "${1%/Contents/MacOS/*}"
 }
 
 # A GUI stand-in that refuses every launch argument except one named here, the
@@ -193,7 +207,7 @@ int main(int argc, char **argv) {
 STUB
   gui_stub_link_flags "$out"
   cc -DACCEPTED="\"$accepted\"" -DSTATUS="$status" -DSENTENCE="\"$sentence\"" \
-    -arch arm64 -arch x86_64 "${FAKE_APP_SPARKLE_LINK[@]}" -o "$out" "$scratch/.argstub.c"
+    -arch arm64 -arch x86_64 "${FAKE_APP_GUI_LINK[@]}" -o "$out" "$scratch/.argstub.c"
   rm -f "$scratch/.argstub.c"
 }
 
@@ -222,7 +236,7 @@ int main(int argc, char **argv) {
 STUB
   gui_stub_link_flags "$out"
   cc -DCARRIED_SYMBOL="$symbol" -arch arm64 -arch x86_64 \
-    "${FAKE_APP_SPARKLE_LINK[@]}" -o "$out" "$scratch/.symstub.c"
+    "${FAKE_APP_GUI_LINK[@]}" -o "$out" "$scratch/.symstub.c"
   rm -f "$scratch/.symstub.c"
 }
 
@@ -244,7 +258,7 @@ int main(void) {
 }
 STUB
   gui_stub_link_flags "$out"
-  cc -arch arm64 -arch x86_64 "${FAKE_APP_SPARKLE_LINK[@]}" -o "$out" "$scratch/.sigstub.c"
+  cc -arch arm64 -arch x86_64 "${FAKE_APP_GUI_LINK[@]}" -o "$out" "$scratch/.sigstub.c"
   rm -f "$scratch/.sigstub.c"
 }
 
@@ -266,7 +280,7 @@ int main(void) {
 }
 STUB
   gui_stub_link_flags "$out"
-  cc -arch arm64 -arch x86_64 "${FAKE_APP_SPARKLE_LINK[@]}" -o "$out" "$scratch/.hangstub.c"
+  cc -arch arm64 -arch x86_64 "${FAKE_APP_GUI_LINK[@]}" -o "$out" "$scratch/.hangstub.c"
   rm -f "$scratch/.hangstub.c"
 }
 
@@ -430,13 +444,13 @@ expect_refusal "a bundle without the updater framework is refused" \
 app="$(fresh_bundle no-frameworks-slot)"
 rm -rf "${app:?}/${FRAMEWORKS_RELATIVE_PATH:?}"
 expect_refusal "a bundle without the framework slot is refused" \
-  "updater framework slot is missing" \
+  "the framework slot is missing" \
   "$VERIFY" "$app" universal unsigned
 
 app="$(fresh_bundle framework-stowaway)"
 touch "$app/$FRAMEWORKS_RELATIVE_PATH/Extra.framework"
-expect_refusal "a second framework beside the updater is refused" \
-  "Contents/Frameworks holds 2 entries" \
+expect_refusal "a third framework beside the two pinned ones is refused" \
+  "Contents/Frameworks holds 3 entries" \
   "$VERIFY" "$app" universal unsigned
 
 # The failure a copy that resolved the framework's symbolic links produces: a
@@ -484,6 +498,61 @@ fake_app_build_stub "$app/Contents/MacOS/$AGENT_EXECUTABLE" \
   -arch arm64 -arch x86_64 "${FAKE_APP_SPARKLE_LINK[@]}"
 expect_refusal "an agent that links the updater is refused" \
   "the agent links $SPARKLE_FRAMEWORK_NAME; only the GUI may" \
+  "$VERIFY" "$app" universal unsigned
+
+echo "verify_staged_app_test: the animation runtime"
+
+app="$(fresh_bundle no-rive)"
+rm -rf "$(rive_framework "$app")"
+expect_refusal "a bundle without the animation runtime is refused" \
+  "$RIVE_FRAMEWORK_NAME is not staged" \
+  "$VERIFY" "$app" universal unsigned
+
+# The same flattening the updater case shows, on the runtime's own link: its
+# install name resolves through Versions/Current as well.
+app="$(fresh_bundle flattened-rive)"
+framework="$(rive_framework "$app")"
+rm "$framework/Versions/Current"
+cp -R "$framework/Versions/A" "$framework/Versions/Current"
+expect_refusal "an animation runtime whose version link was flattened is refused" \
+  "$RIVE_FRAMEWORK_NAME/Versions/Current is not a symbolic link" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle no-rive-library)"
+rm "$(rive_framework "$app")/Versions/A/RiveRuntime"
+expect_refusal "an animation runtime missing its library is refused" \
+  "the animation runtime carries no executable Versions/A/RiveRuntime" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle thin-rive)"
+fake_app_build_stub "$(rive_framework "$app")/Versions/A/RiveRuntime" -arch arm64
+expect_refusal "a single-slice animation runtime is refused in universal mode" \
+  "is missing the x86_64 slice" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle unpinned-rive)"
+plutil -replace CFBundleShortVersionString -string "9.9.9" \
+  "$(rive_framework "$app")/Versions/A/Resources/Info.plist"
+expect_refusal "an animation runtime that is not the pinned version is refused" \
+  "the staged animation runtime is 9.9.9, but Product.json pins" \
+  "$VERIFY" "$app" universal unsigned
+
+# Which executable may load the runtime, asked of the binaries: the GUI draws
+# the mascot and the agent draws nothing, and both link the same core library.
+app="$(fresh_bundle gui-without-rive)"
+fake_app_sparkle_link_flags "$app"
+fake_app_build_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" \
+  -arch arm64 -arch x86_64 "${FAKE_APP_SPARKLE_LINK[@]}"
+expect_refusal "a GUI that does not link the animation runtime is refused" \
+  "the GUI does not link $RIVE_FRAMEWORK_NAME" \
+  "$VERIFY" "$app" universal unsigned
+
+app="$(fresh_bundle agent-with-rive)"
+fake_app_rive_link_flags "$app"
+fake_app_build_stub "$app/Contents/MacOS/$AGENT_EXECUTABLE" \
+  -arch arm64 -arch x86_64 "${FAKE_APP_RIVE_LINK[@]}"
+expect_refusal "an agent that links the animation runtime is refused" \
+  "the agent links $RIVE_FRAMEWORK_NAME; only the GUI may" \
   "$VERIFY" "$app" universal unsigned
 
 echo "verify_staged_app_test: the update policy in the Info.plist"
@@ -664,6 +733,16 @@ app="$(fresh_bundle adhoc-then-modified)"
 adhoc_sign "$app"
 printf 'x' >>"$app/Contents/Resources/$RESOURCE_BUNDLE_NAME/en.lproj/Localizable.strings"
 expect_refusal "a bundle modified after signing is refused" \
+  "staged bundle does not verify" \
+  "$VERIFY" "$app" universal signed
+
+# The same seal, asked of the animation runtime: it is nested code the app's
+# signature covers, so a file added to it after signing is refused like a
+# file added to the app.
+app="$(fresh_bundle adhoc-then-modified-rive)"
+adhoc_sign "$app"
+printf 'x\n' >"$(rive_framework "$app")/Versions/A/Resources/Stowaway.txt"
+expect_refusal "an animation runtime modified after signing is refused" \
   "staged bundle does not verify" \
   "$VERIFY" "$app" universal signed
 

@@ -16,8 +16,10 @@ public enum FermixApp {
     ///   and only the GUI executable may (M34 §6: the daemon and `FermixAgent`
     ///   never load Sparkle). This library declares the seam and imports
     ///   nothing.
+    /// - Parameter mascot: the mascot renderer, handed in for the same reason:
+    ///   its implementation links the Rive runtime.
     @MainActor
-    public static func main(updater: any UpdaterDriving) {
+    public static func main(updater: any UpdaterDriving, mascot: any MascotRendering) {
         // Maintenance entry, before any AppKit UI: the login-item
         // registrations belong to this bundle identity, so only the app
         // itself can withdraw them. This is the primitive the uninstall route
@@ -35,7 +37,7 @@ public enum FermixApp {
         // Dock app for exactly as long as a real window is open.
         application.setActivationPolicy(.accessory)
 
-        let delegate = AppDelegate(plan: launchPlan(updater: updater))
+        let delegate = AppDelegate(plan: launchPlan(updater: updater, mascot: mascot))
         application.delegate = delegate
         application.run()
     }
@@ -47,21 +49,22 @@ public enum FermixApp {
     /// two is refused rather than resolved to one of them: silently running the
     /// other would report the argument as having worked.
     @MainActor
-    private static func launchPlan(updater: any UpdaterDriving) -> AppLaunchPlan {
+    private static func launchPlan(updater: any UpdaterDriving, mascot: any MascotRendering) -> AppLaunchPlan {
         let arguments = CommandLine.arguments
         let fixture = fixtureRequest(arguments)
         let development = developmentEngineRequest(arguments)
 
         if fixture != nil, development { refuse(.combinedWithFixture) }
-        if let fixture { return fixturePlan(named: fixture) }
+        if let fixture { return fixturePlan(named: fixture, mascot: mascot) }
         if development {
             return developmentEnginePlan(
                 registerBackground: arguments.contains(DevelopmentEngineLaunchRequest.registrationFlag),
-                updater: updater
+                updater: updater,
+                mascot: mascot
             )
         }
 
-        return .product(updater: updater)
+        return .product(updater: updater, mascot: mascot)
     }
 
     /// The surface a fixture launch named, or nil where it asked for none.
@@ -90,7 +93,7 @@ public enum FermixApp {
 
     #if DEBUG
     @MainActor
-    private static func fixturePlan(named name: String) -> AppLaunchPlan {
+    private static func fixturePlan(named name: String, mascot: any MascotRendering) -> AppLaunchPlan {
         guard let start = FixtureStart(name: name) else {
             FileHandle.standardError.write(
                 Data("surfaces: \(FixtureStart.publishedNames.joined(separator: ", "))\n".utf8)
@@ -98,20 +101,21 @@ public enum FermixApp {
             refuse(.unknownStart(name))
         }
 
-        return .fixture(FixtureLaunch(start: start))
+        return .fixture(FixtureLaunch(start: start), mascot: mascot)
     }
     @MainActor
     private static func developmentEnginePlan(
         registerBackground: Bool,
-        updater: any UpdaterDriving
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering
     ) -> AppLaunchPlan {
-        .developmentEngine(registerBackground: registerBackground, updater: updater)
+        .developmentEngine(registerBackground: registerBackground, updater: updater, mascot: mascot)
     }
     #else
     /// A release build has no fixture configuration compiled into it, so the
     /// flag names nothing this binary can do.
     @MainActor
-    private static func fixturePlan(named _: String) -> AppLaunchPlan {
+    private static func fixturePlan(named _: String, mascot _: any MascotRendering) -> AppLaunchPlan {
         refuse(FixtureLaunchRequest.Refusal.notAvailableInThisBuild)
     }
 
@@ -120,7 +124,8 @@ public enum FermixApp {
     @MainActor
     private static func developmentEnginePlan(
         registerBackground: Bool,
-        updater: any UpdaterDriving
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering
     ) -> AppLaunchPlan {
         refuse(DevelopmentEngineLaunchRequest.Refusal.notAvailableInThisBuild)
     }
@@ -187,8 +192,8 @@ struct AppLaunchPlan {
 
     /// The shipped launch: the product graph, opened at whatever the launch
     /// reason resolves to.
-    static func product(updater: any UpdaterDriving) -> AppLaunchPlan {
-        AppLaunchPlan(compose: { AppComposition(updater: updater) }, present: openLaunchReason)
+    static func product(updater: any UpdaterDriving, mascot: any MascotRendering) -> AppLaunchPlan {
+        AppLaunchPlan(compose: { AppComposition(updater: updater, mascot: mascot) }, present: openLaunchReason)
     }
 
     /// What a real launch opens: whatever the launch reason resolves to.
@@ -204,11 +209,11 @@ struct AppLaunchPlan {
     #if DEBUG
     /// The fixture launch: the same graph over the contract's golden answers,
     /// opened at the surface the argument named.
-    static func fixture(_ launch: FixtureLaunch) -> AppLaunchPlan {
+    static func fixture(_ launch: FixtureLaunch, mascot: any MascotRendering) -> AppLaunchPlan {
         AppLaunchPlan(
             compose: {
                 do {
-                    return try AppComposition(fixture: launch)
+                    return try AppComposition(fixture: launch, mascot: mascot)
                 } catch {
                     // A bundle whose own golden fixtures cannot be read is
                     // broken, exactly as an unreadable product configuration is.
@@ -233,10 +238,11 @@ struct AppLaunchPlan {
     /// launch, with development installation preflights.
     static func developmentEngine(
         registerBackground: Bool = false,
-        updater: any UpdaterDriving
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering
     ) -> AppLaunchPlan {
         AppLaunchPlan(
-            compose: { AppComposition(environment: .developmentEngine(updater: updater)) },
+            compose: { AppComposition(environment: .developmentEngine(updater: updater, mascot: mascot)) },
             present: { composition in
                 openDevelopmentLaunch(
                     coordinator: composition.coordinator,

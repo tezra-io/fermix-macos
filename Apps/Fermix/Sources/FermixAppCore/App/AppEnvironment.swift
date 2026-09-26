@@ -35,6 +35,10 @@ struct AppEnvironment {
     /// implementation links Sparkle, which only the GUI executable may do
     /// (M34 §6).
     let updater: any UpdaterDriving
+    /// The mascot renderer, behind the same kind of seam and for the same
+    /// reason: its implementation links the Rive runtime, which only the GUI
+    /// executable may load.
+    let mascot: any MascotRendering
     let chooser: any DirectoryChoosing
     let processes: any ProcessLiveness
     let paths: any PathPresence
@@ -57,8 +61,8 @@ struct AppEnvironment {
 extension AppEnvironment {
     /// The shipped configuration: this Mac, this account, this bundle, and the
     /// activation that registers the background service launchd runs.
-    static func product(updater: any UpdaterDriving) -> AppEnvironment {
-        onThisMac(activation: .installed, updater: updater)
+    static func product(updater: any UpdaterDriving, mascot: any MascotRendering) -> AppEnvironment {
+        onThisMac(activation: .installed, updater: updater, mascot: mascot)
     }
 
     /// The boundary this Mac provides, under one declared activation plan.
@@ -67,12 +71,14 @@ extension AppEnvironment {
     /// `DevelopmentEngineConfiguration.swift` is the second caller: the two
     /// differ in exactly this one value and in nothing else.
     ///
-    /// The updater is the one value this library cannot build: its
-    /// implementation links Sparkle, which only the GUI executable may do
-    /// (M34 §6), so the executable hands it in.
+    /// The updater and the mascot renderer are the two values this library
+    /// cannot build: their implementations link Sparkle and the Rive runtime,
+    /// which only the GUI executable may do (M34 §6), so the executable hands
+    /// them in.
     static func onThisMac(
         activation plan: ActivationPlan,
-        updater: any UpdaterDriving
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering
     ) -> AppEnvironment {
         // A bundle that cannot answer these two questions is broken, not
         // degraded: there is no second place to read them from.
@@ -102,6 +108,7 @@ extension AppEnvironment {
             sidebarVisibility: UserDefaultsSidebarStore(),
             opener: WorkspaceExternalOpener(),
             updater: updater,
+            mascot: mascot,
             chooser: OpenPanelDirectoryChooser(),
             processes: SystemProcessLiveness(),
             paths: FileSystemPathPresence(),

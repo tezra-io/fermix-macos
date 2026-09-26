@@ -34,6 +34,9 @@ final class AppComposition {
     /// The updater behind the seam, held for the life of the process because a
     /// scheduled check belongs to a live updater (M34 §6, R1).
     let updater: any UpdaterDriving
+    /// The mascot renderer the executable handed in, carried to every window's
+    /// root (`AppSurfaces`).
+    let mascot: any MascotRendering
     /// The update transaction and the seam every update surface reads
     /// (M34 §6, R2 and R3).
     let updates: UpdateCoordinator
@@ -63,9 +66,9 @@ final class AppComposition {
     let engineReconciler: EngineReconciler
 
     /// The shipped configuration: this Mac, this account, this bundle, and the
-    /// updater the executable owns.
-    convenience init(updater: any UpdaterDriving) {
-        self.init(environment: .product(updater: updater))
+    /// updater and mascot renderer the executable owns.
+    convenience init(updater: any UpdaterDriving, mascot: any MascotRendering) {
+        self.init(environment: .product(updater: updater, mascot: mascot))
     }
 
     init(environment: AppEnvironment) {
@@ -85,6 +88,7 @@ final class AppComposition {
         menuBar = MenuBarController(model: model)
         gate = ServiceMutationGate()
         updater = environment.updater
+        mascot = environment.mascot
 
         let management = Self.buildManagement(environment: environment, services: services)
         gateway = management.gateway
@@ -175,7 +179,8 @@ final class AppComposition {
             settingsPresentation: settingsPresentation,
             leaveSettings: { [coordinator] in coordinator.leaveSettings() },
             openRecovery: { [coordinator] in coordinator.enterRecovery() },
-            restart: { [coordinator] in coordinator.restartDaemon() }
+            restart: { [coordinator] in coordinator.restartDaemon() },
+            mascot: mascot
         )
         // Every report goes through the coordinator, which owns whether a window
         // is on screen; the pet reads that answer rather than the raw signal.
@@ -191,7 +196,6 @@ final class AppComposition {
         // the item can report.
         menuBar.onMenuBarItemShownChanged = { [surfaces] in surfaces.home.menuBarItemVisibilityChanged() }
 
-        PetAssetCache.shared.preload()
     }
 
     /// The interim mark: the pet mascot in one ink, which is the icon

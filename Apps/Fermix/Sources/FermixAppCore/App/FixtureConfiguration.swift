@@ -398,8 +398,10 @@ struct FixtureDirectoryChooser: DirectoryChoosing {
 
 extension AppEnvironment {
     /// The fixture configuration's boundary: a throwaway home, the contract's
-    /// golden answers, and probes that report the declared machine.
-    static func fixture(_ launch: FixtureLaunch) throws -> AppEnvironment {
+    /// golden answers, and probes that report the declared machine. The mascot
+    /// is the real renderer the executable handed in, so a fixture capture
+    /// shows the animation the product draws.
+    static func fixture(_ launch: FixtureLaunch, mascot: any MascotRendering) throws -> AppEnvironment {
         let location = try FixtureRoot.prepared(for: launch.startSlug)
         let contract = try ManagementContract.vendored()
         // One machine behind every seam that can see it, so a transaction the
@@ -430,6 +432,7 @@ extension AppEnvironment {
             sidebarVisibility: FixtureSidebarStore(),
             opener: FixtureExternalOpener(),
             updater: UnwiredUpdater(),
+            mascot: mascot,
             chooser: FixtureDirectoryChooser(),
             processes: probes,
             paths: probes,
@@ -462,8 +465,8 @@ extension AppComposition {
     /// The same graph as `AppComposition()`, standing on the fixture
     /// environment. There is no branch inside the product configuration: the
     /// two roots differ only in what they are handed.
-    convenience init(fixture launch: FixtureLaunch) throws {
-        self.init(environment: try .fixture(launch))
+    convenience init(fixture launch: FixtureLaunch, mascot: any MascotRendering) throws {
+        self.init(environment: try .fixture(launch, mascot: mascot))
     }
 
     /// Opens what the launch asked for.
