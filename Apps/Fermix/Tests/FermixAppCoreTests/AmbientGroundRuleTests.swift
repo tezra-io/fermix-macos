@@ -157,26 +157,33 @@ struct AmbientGroundRuleTests {
     }
 }
 
-/// Redlines §5.7, as build gates: the app sidebar is the rail, and the rail is
-/// still the system's list.
+/// Redlines §5.7, as build gates: the app sidebar is the rail.
 @Suite("Rail rule")
 struct RailRuleTests {
-    /// The rail is drawn by restyling the system's sidebar column, never by
-    /// replacing it. A hand-built column of buttons looks the same in a capture
-    /// and loses arrow-key selection, full keyboard access and the list's own
-    /// VoiceOver semantics, which is why the artboards' drawn rail was refused
-    /// twice before this one was taken.
-    @Test("the rail is the split view's own list, with symbols that keep their names")
-    func railIsTheSystemList() throws {
+    /// The rail is a column of symbol buttons (2026-09-25): a sidebar list
+    /// draws its selection across the whole row and cannot leave space between
+    /// rows, so the squares could not stand apart as the owner asked. A drawn
+    /// rail was refused twice before because it loses what the list gave, so
+    /// the gate is that it keeps all of it: each destination keeps its name for
+    /// VoiceOver and as its help tag, says which one is showing, is reachable by
+    /// full keyboard access, and the arrow keys walk the five in order.
+    @Test("the rail is named symbol buttons that keep the list's keyboard walk")
+    func railKeepsWhatTheListGave() throws {
         let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
         let text = try #require(window.first?.text)
+        let rail = try #require(try SourceTree.swiftFiles(matching: "App/Rail.swift").first?.text)
 
-        #expect(text.contains("List(selection: selection)"), "the rail is no longer a selectable list")
-        #expect(text.contains(".labelStyle(.iconOnly)"), "a rail row draws more than its symbol")
-        // The name stays on the row for VoiceOver, and is the pointer's help tag.
-        #expect(text.contains("Label(title, systemImage: systemImage)"))
-        #expect(text.contains(".help(title)"))
+        #expect(text.contains("RailColumn(items: SidebarItem.mainWindow, selected: selectedSidebarIdentifier)"))
+        #expect(text.contains("selection.wrappedValue = identifier"), "the rail routes around the one path")
         #expect(text.contains(".navigationSplitViewColumnWidth(WindowMetrics.railWidth)"))
+
+        #expect(rail.contains(".labelStyle(.iconOnly)"), "a rail destination draws more than its symbol")
+        #expect(rail.contains("Label(title, systemImage: systemImage)"))
+        #expect(rail.contains(".accessibilityLabel(title)"))
+        #expect(rail.contains(".help(title)"))
+        #expect(rail.contains(".accessibilityAddTraits(selected ? .isSelected : [])"))
+        #expect(rail.contains(".focused($focused, equals:"), "a destination cannot take keyboard focus")
+        #expect(rail.contains(".onMoveCommand(perform: move)"), "the arrow keys no longer walk the rail")
 
         // One rail, in and out of settings, and settings' pane list is the
         // second pane inside the frame rather than a second sidebar.
@@ -262,9 +269,12 @@ struct RailRuleTests {
         let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
         let text = try #require(window.first?.text)
 
-        #expect(text.contains("ForEach(SidebarItem.mainWindow) { item in"))
+        let rail = try #require(try SourceTree.swiftFiles(matching: "App/Rail.swift").first?.text)
+
+        #expect(text.contains("RailColumn(items: SidebarItem.mainWindow,"))
+        #expect(rail.contains("ForEach(items) { item in"))
         #expect(!text.contains("SidebarItem.mainWindow.filter"), "the rail leaves a published row out")
-        #expect(!text.contains("PetMark("), "the mascot is drawn in the rail again")
+        #expect(!text.contains("PetMark(") && !rail.contains("PetMark("), "the mascot is drawn in the rail again")
 
         #expect(SidebarItem.mainWindow.map(\.route) == [.home, .doctor, .logs, .pet])
         #expect(SidebarItem.item(for: .pet)?.systemImage == "pawprint")

@@ -198,46 +198,33 @@ struct SettingsPresentationTests {
     /// contexts, so arrow keys from Pet reached nothing, against the redline's
     /// "keyboard reachable in the same order as the rows above it".
     ///
-    /// What holds it down is a measured spacer row, so the gate asserts the
-    /// measurement is derived rather than a row height written down here: a
-    /// constant would be wrong at every system text size but one.
-    @Test("the pinned row is the sidebar list's last row, held on the bottom edge")
+    /// The rail is one column of buttons (2026-09-25), so a spacer holds the
+    /// Settings button to the foot and it stays in the same column, after the
+    /// four, which is the keyboard order the redline asks for.
+    @Test("the pinned Settings button is the rail's last, held on the bottom edge")
     func footerRowIsDescribed() throws {
         #expect(ProductStrings[.sidebarSettings] == "Settings")
 
-        let sidebar = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
-        let text = try #require(sidebar.first?.text)
+        let rail = try #require(try SourceTree.swiftFiles(matching: "App/Rail.swift").first?.text)
 
-        #expect(text.contains("SidebarItem.settingsIdentifier"))
-        #expect(text.contains("\"gearshape\""))
-        #expect(!text.contains(".safeAreaInset(edge: .bottom"), "the row is in a list of its own again")
+        #expect(rail.contains("\"gearshape\""))
+        #expect(!rail.contains(".safeAreaInset(edge: .bottom"), "the button is in a column of its own again")
 
-        // One list in the app sidebar, with the four route rows and the pinned
-        // row in it, in that order.
-        let rows = try #require(text.range(of: "ForEach(SidebarItem.mainWindow)"))
-        let after = text[rows.upperBound...]
-        let spacer = try #require(after.range(of: "footerSpacer"), "nothing holds the row down")
-        let pinned = try #require(after.range(of: "SidebarItem.settingsIdentifier"))
+        let rows = try #require(rail.range(of: "ForEach(items)"))
+        let after = rail[rows.upperBound...]
+        let spacer = try #require(after.range(of: "Spacer(minLength: 0)"), "nothing holds the button down")
+        let pinned = try #require(after.range(of: "select(SidebarItem.settingsIdentifier)"))
 
-        #expect(spacer.lowerBound < pinned.lowerBound, "the spacer follows the row it should precede")
-        #expect(after[..<spacer.lowerBound].contains("List(") == false, "a second list opens before the spacer")
-
-        // The gap is measured off the column and the row, never written down.
-        #expect(text.contains("max(0, sidebarHeight - settingsRowBottom)"))
-        #expect(!text.contains("sidebarFooterRowHeight"), "the row height is a constant again")
+        #expect(spacer.lowerBound < pinned.lowerBound, "the spacer follows the button it should precede")
     }
 
-    @Test("the pinned Settings row is an actionable control in keyboard order")
+    @Test("the pinned Settings button is an actionable control in keyboard order")
     func footerRowIsActionable() throws {
-        let text = try #require(try SourceTree.swiftFiles(matching: "App/MainWindowView.swift").first?.text)
-        let start = try #require(text.range(of: "            footerSpacer"))
-        let end = try #require(text.range(of: "        .coordinateSpace", range: start.upperBound..<text.endIndex))
-        let row = text[start.upperBound..<end.lowerBound]
+        let rail = try #require(try SourceTree.swiftFiles(matching: "App/Rail.swift").first?.text)
 
-        #expect(row.contains("Button"))
-        #expect(row.contains("router.perform(.openSettings)"))
-        #expect(row.contains(".selectionDisabled(false)"))
-        #expect(row.contains(".tag(SidebarItem.settingsIdentifier)"))
+        #expect(rail.contains("select(SidebarItem.settingsIdentifier)"))
+        #expect(rail.contains(".focused($focused, equals: SidebarItem.settingsIdentifier)"))
+        #expect(rail.contains("items.map(\\.id) + [SidebarItem.settingsIdentifier]"), "Settings is out of keyboard order")
     }
 
     /// Settings sits inside the frame, so the rail is the sidebar column in and

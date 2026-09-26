@@ -34,11 +34,6 @@ struct MainWindowView: View {
     let surfaces: MainWindowSurfaces
     let router: any CommandPerforming
     @ObservedObject var presentation: SettingsPresentation
-    /// The sidebar column's height, and where its last row would sit with no
-    /// spacer under the four above it. Together they place the pinned Settings
-    /// row on the bottom edge; see `footerGap`.
-    @State private var sidebarHeight: Double = 0
-    @State private var settingsRowBottom: Double = 0
     /// The toolbar's height over the body, which is the frame's band.
     @State private var bandHeight: Double = 0
     /// The one settings model, handed to the settings columns. It is held and
@@ -163,74 +158,23 @@ struct MainWindowView: View {
         leaveSettings()
     }
 
-    /// Home, Doctor, Logs, Pet, and the one pinned row anchored beneath them.
+    /// Home, Doctor, Logs, Pet, and Settings pinned to the foot of the rail.
     ///
-    /// Decision D2 puts the Settings row at the *bottom* of the sidebar, which
-    /// is the slot the owner named for the dropdown the tab list may become
-    /// (decision D7), and redlines §5.7 requires it "keyboard reachable in the
-    /// same order as the rows above it". Both, so it is the last row of the
-    /// same `List`, pushed down by one measured spacer row. Drawn as a second
-    /// `List` in a bottom safe-area inset it was pinned but unreachable: two
-    /// lists are two selection contexts, and arrow-key navigation from Pet
-    /// stopped at Pet.
+    /// Decision D2 puts Settings at the *bottom* of the sidebar, the slot the
+    /// owner named for the dropdown the tab list may become (decision D7), and
+    /// redlines §5.7 requires it "keyboard reachable in the same order as the
+    /// rows above it": it is the last button of the one column, held down by a
+    /// spacer. The four are the published four in their published order and
+    /// nothing else; the mascot that stood at the head of the rail for an
+    /// afternoon was withdrawn the same day (2026-09-20).
     ///
-    /// The rows are the published four in their published order and nothing
-    /// else. For an afternoon the mascot mark stood at the head of the rail and
-    /// was the way to Pet; the owner withdrew both the same day ("the previous
-    /// icon was fine. The fermix mascot on the left pane isnt needed. And it
-    /// should be below the logs"), so Pet is its own symbol again, under Logs.
+    /// A column of buttons rather than the split view's `List`, so the squares
+    /// can stand apart as the Codex rail's do (`RailMetrics`, 2026-09-25).
     private var appSidebar: some View {
-        List(selection: selection) {
-            ForEach(SidebarItem.mainWindow) { item in
-                railIcon(item.title, systemImage: item.systemImage)
-                    .tag(item.id)
-            }
-
-            footerSpacer
-
-            // One click reaches this row twice: the list selects it on the way
-            // down, which routes through `selection`, and the button fires on
-            // the way up. Whichever lands second finds settings already up.
-            Button {
-                guard !presentation.isShowing else { return }
-
-                router.perform(.openSettings)
-            } label: {
-                railIcon(ProductStrings[.sidebarSettings], systemImage: "gearshape")
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .onGeometryChange(for: Double.self) { proxy in
-                proxy.frame(in: .named(Self.sidebarSpace)).maxY
-            } action: { bottom in
-                settingsRowBottom = bottom - footerGap
-            }
-            .tag(SidebarItem.settingsIdentifier)
-            .selectionDisabled(false)
-        }
-        .coordinateSpace(.named(Self.sidebarSpace))
-        // The column's full height, which is not the height the list is handed.
-        // The list's size excludes the titlebar's safe area while its rows are
-        // laid out in the column's full-height coordinates, so measuring
-        // `size.height` alone left the gear 59 points short of the bottom edge:
-        // exactly the inset the proxy had already taken off. Adding the top
-        // inset back puts the two measurements in one coordinate space again.
-        //
-        // `railBottomInset` is what the gear then keeps clear of the edge, so it
-        // sits as far off the bottom as the traffic lights sit off the top.
-        .onGeometryChange(for: Double.self) { proxy in
-            proxy.size.height + proxy.safeAreaInsets.top - WindowMetrics.railBottomInset
-        } action: { height in
-            sidebarHeight = height
+        RailColumn(items: SidebarItem.mainWindow, selected: selectedSidebarIdentifier) { identifier in
+            selection.wrappedValue = identifier
         }
         .railColumn()
-        // With the spacer measured against the full height the list is exactly
-        // as tall as the window, so the system drew a scroll bar down the rail
-        // for the last point of it (owner, 2026-09-20: "I saw a scroll bar on
-        // the left pane"). The rail is five fixed rows and never scrolls in any
-        // way a person can use, and the settings pane column beside it already
-        // hides its indicators under §5.8's scroll rule.
-        .scrollIndicators(.never)
         // The rail is one fixed width and never has to make room, so the
         // system's toggle is not drawn over its head, where the traffic lights
         // are. View > Hide Sidebar and its shortcut still hide it.
@@ -285,50 +229,6 @@ struct MainWindowView: View {
         .accessibilityHidden(true)
     }
 
-    /// One rail destination: the symbol alone (owner directive of 2026-09-20:
-    /// "the premium icons instead of the icon + name").
-    ///
-    /// It is still a `Label`, so the row keeps its name for VoiceOver and for
-    /// full keyboard access, and the same name is the help tag a pointer gets.
-    /// Its symbol and its row are the system sidebar's own size, which follows
-    /// the reader's sidebar icon size setting: set by hand at 17 points in a
-    /// 30 point row, the selection was a tall bar rather than the square a
-    /// standard row gives (2026-09-25).
-    private func railIcon(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .labelStyle(.iconOnly)
-            .frame(maxWidth: .infinity)
-            .help(title)
-    }
-
-    /// The empty row that holds the Settings row down.
-    ///
-    /// It carries no selection and no accessibility, so the keyboard walks Home
-    /// → Doctor → Logs → Pet → Settings straight through it.
-    @ViewBuilder
-    private var footerSpacer: some View {
-        if footerGap > 0 {
-            Color.clear
-                .frame(height: footerGap)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .selectionDisabled()
-                .accessibilityHidden(true)
-        }
-    }
-
-    /// How far the Settings row has to fall to sit on the column's bottom edge.
-    ///
-    /// Derived from two measurements rather than from a row height and a row
-    /// count the app would have to keep in step with the system: the column's
-    /// own height, and where the row lands with this gap already taken back
-    /// out. It settles in one pass — with the row on the bottom edge the sum is
-    /// the gap it already has — and it re-settles on its own when the column
-    /// resizes or the operator changes the system text size.
-    private var footerGap: Double { max(0, sidebarHeight - settingsRowBottom) }
-
-    private static let sidebarSpace = "fermix.sidebar"
-
     @ViewBuilder
     private var detailColumn: some View {
         if presentation.isShowing {
@@ -381,19 +281,19 @@ struct MainWindowView: View {
         )
     }
 
-    /// The sidebar selects a route, or the pinned Settings row. A route with no
-    /// row (the update and uninstall surfaces) leaves the selection empty rather
-    /// than lighting a row that does not describe what is showing.
+    /// The rail selects a route, or the pinned Settings button. A route with no
+    /// button (the update and uninstall surfaces) leaves the selection empty
+    /// rather than lighting one that does not describe what is showing.
     var selection: Binding<String?> {
         Binding(
             get: { selectedSidebarIdentifier },
             set: { identifier in
                 guard let identifier else { return }
 
-                // Routing publishes several models, so leave List's update
-                // stack first. The rail is one List in and out of settings, so
-                // a route row chosen from settings leaves it: the coordinator's
-                // presentation of a surface is what closes settings.
+                // Routing publishes several models, so leave the view update
+                // that chose first. The rail is one column in and out of
+                // settings, so a surface chosen from settings leaves it: the
+                // coordinator's presentation of a surface is what closes it.
                 DispatchQueue.main.async {
                     guard identifier != selectedSidebarIdentifier else { return }
                     guard identifier != SidebarItem.settingsIdentifier else {

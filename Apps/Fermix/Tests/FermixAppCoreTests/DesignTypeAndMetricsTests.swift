@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import FermixAppCore
@@ -218,35 +219,38 @@ struct DesignTypeAndMetricsTests {
     /// at the system sidebar's own size (owner, 2026-09-25: the Codex rail's
     /// selection is "squarish", ours "feels like its stretched").
     ///
-    /// The system insets a sidebar selection 10 points from each side of its
-    /// column, and a medium sidebar row is 32 points tall on macOS 26, so the
-    /// column is the width at which that selection is square. The traffic
-    /// lights no longer set the width: the frame's band carries them.
-    static let selectionInset = 10.0
+    /// Each destination is a square the size of the system's own sidebar row
+    /// at the reader's sidebar icon size (small 24, medium 32, large 40 on
+    /// macOS 26), a quarter of it apart, the Codex rail's proportion (a 28
+    /// point square seven apart). The medium square sits 10 points in from
+    /// each side of the 52 point column. The traffic lights no longer set the
+    /// width: the frame's band carries them.
     static let mediumSidebarRow = 32.0
 
-    @Test("the rail is one fixed column whose selection is a standard square")
+    @Test("the rail is one fixed column of standard squares that stand apart")
     func railColumn() throws {
         #expect(WindowMetrics.railWidth == 52)
-        #expect(WindowMetrics.railWidth - 2 * Self.selectionInset == Self.mediumSidebarRow)
+        #expect(RailMetrics.square(.small) == 24)
+        #expect(RailMetrics.square(.medium) == Self.mediumSidebarRow)
+        #expect(RailMetrics.square(.large) == 40)
+        #expect(WindowMetrics.railWidth - RailMetrics.square(.medium) == 20)
+        for size in [SidebarRowSize.small, .medium, .large] {
+            #expect(RailMetrics.gap(size) == RailMetrics.square(size) / 4)
+        }
+        #expect(RailMetrics.symbol(.medium) == 15)
 
-        // The symbols and rows are the system's: nothing sizes them by hand.
-        let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
-        let text = try #require(window.first?.text)
-        #expect(!text.contains(".font(.system(size:"), "a rail symbol is sized by hand")
-        #expect(!text.contains("minHeight: WindowMetrics.rail"), "a rail row is sized by hand")
+        // Sized from the reader's setting, never by a number of its own.
+        let rail = try #require(try SourceTree.swiftFiles(matching: "App/Rail.swift").first?.text)
+        #expect(rail.contains("@Environment(\\.sidebarRowSize)"))
+        #expect(rail.contains(".font(.system(size: RailMetrics.symbol(rowSize)))"))
     }
 
     /// What the rail keeps clear at its foot, and the radius the body's two
     /// leading corners are cut to (redlines §5.7).
     ///
-    /// The gear is pinned by a spacer measured against the column's *full*
-    /// height. Measured against the height the list is handed it sat 59 points
-    /// short of the bottom edge, which is the titlebar safe-area inset the proxy
-    /// had already taken off; measured against the full height with no inset it
-    /// would sit on the edge itself. 12 leaves it 19 points clear, which is what
-    /// the traffic lights sit off the top, so the column has one margin at both
-    /// ends.
+    /// The gear is held down by a spacer and kept 12 points clear of the
+    /// bottom edge, near the eight the first square keeps below the band, so the
+    /// column has about one margin at both ends.
     ///
     /// The corner radius is this window's own, measured, and deliberately not
     /// `Radius.window`: 14 is the artboards' number for a drawn panel, and the
@@ -261,11 +265,8 @@ struct DesignTypeAndMetricsTests {
             "the inset is deeper than a row, so it hides the row rather than clearing the edge"
         )
 
-        // The number only means anything where the column is measured, so the
-        // gate follows it there: the full height, with this taken back off.
-        let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
-        let text = try #require(window.first?.text)
-        #expect(text.contains("proxy.size.height + proxy.safeAreaInsets.top - WindowMetrics.railBottomInset"))
+        let rail = try #require(try SourceTree.swiftFiles(matching: "App/Rail.swift").first?.text)
+        #expect(rail.contains(".padding(.bottom, WindowMetrics.railBottomInset)"))
 
         #expect(WindowMetrics.bodyCornerRadius == 20)
         #expect(WindowMetrics.bodyCornerRadius != Radius.window, "the body took the artboards' panel radius")

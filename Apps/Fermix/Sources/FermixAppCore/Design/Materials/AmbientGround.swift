@@ -235,17 +235,12 @@ extension View {
 }
 
 extension View {
-    /// The window's leading column, drawn as the rail (redlines §5.7).
-    ///
-    /// The list gives up the system's sidebar material for the rail's own
-    /// fill, and takes the window's appearance with it: dark symbols and the
-    /// light selection on the light grey, light ones on the dark rail's black.
-    /// It sits beside `showsAmbientGround()` because it is the same act with
-    /// the other outcome: a scroll container gives up its own fill, here for
-    /// the rail's.
+    /// The window's leading column, drawn as the rail (redlines §5.7): the
+    /// frame's fill in place of the system's sidebar material, under the
+    /// window's own appearance, so the symbols are dark on the light grey and
+    /// light on the dark rail's black.
     func railColumn() -> some View {
-        scrollContentBackground(.hidden)
-            .background(WindowFrameRecipe.fill.color)
+        background(WindowFrameRecipe.fill.color)
     }
 
     /// The settings pane list, drawn as the second pane inside the frame.
