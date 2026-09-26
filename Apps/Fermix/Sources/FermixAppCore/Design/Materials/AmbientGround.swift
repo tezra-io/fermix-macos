@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The ambient ground's colours and geometry (redlines §1.3).
@@ -106,8 +107,19 @@ public enum AmbientRecipe {
 /// lights between them. A frame on all four sides, an inset panel, was tried
 /// and withdrawn (owner, 2026-09-20: "Lets remove the border, it doesnt fit
 /// well with the color of ours").
+///
+/// It is glass rather than paint (owner, 2026-09-25: "can be bit liquid glassy.
+/// even in the light mode. Without having to change teh color too much"): the
+/// system's sidebar material, which shows what is behind the window, under the
+/// same two colours laid over it part transparent. What the frame shows through
+/// is a hint of the desktop; what it is still reads as the black and the grey.
 public enum WindowFrameRecipe {
+    /// The frame's colour, and the whole frame wherever the glass steps aside.
     public static let fill = ThemedColor(lightHex: "#ececec", darkHex: "#000000")
+    /// The fill as it lies over the glass: the same colour, part transparent.
+    /// Dark keeps more of its black than light keeps of its grey, because the
+    /// dark material is already dark and the black is the icon's own ground.
+    public static let glassTint = ThemedColor(light: .rgba(236, 236, 236, 0.5), dark: .rgba(0, 0, 0, 0.6))
     /// The rail's symbols.
     public static let ink = ThemedColor(lightHex: "#1d1d1f", darkHex: "#ffffff")
     /// The settings pane list, the second pane inside the frame: a step lighter
@@ -236,11 +248,10 @@ extension View {
 
 extension View {
     /// The window's leading column, drawn as the rail (redlines §5.7): the
-    /// frame's fill in place of the system's sidebar material, under the
-    /// window's own appearance, so the symbols are dark on the light grey and
-    /// light on the dark rail's black.
+    /// frame's glass under the window's own appearance, so the symbols are dark
+    /// on the light grey and light on the dark rail's black.
     func railColumn() -> some View {
-        background(WindowFrameRecipe.fill.color)
+        background { FrameGlass().ignoresSafeArea() }
     }
 
     /// The settings pane list, drawn as the second pane inside the frame.
@@ -270,7 +281,7 @@ extension View {
         }
         .background {
             VStack(spacing: 0) {
-                WindowFrameRecipe.fill.color.frame(height: height)
+                FrameGlass().frame(height: height)
                 Color.clear
             }
             .ignoresSafeArea()
@@ -278,8 +289,9 @@ extension View {
     }
 }
 
-/// The piece of the rail's fill that turns a square corner of the body into a
-/// rounded one: a square with a quarter disc taken out of it.
+/// The piece of the frame that turns a square corner of the body into a
+/// rounded one: a square with a quarter disc taken out of it, which masks the
+/// frame's glass laid over that corner.
 ///
 /// It is drawn over the body's corner rather than clipped out of it, so the
 /// surface underneath keeps every point of its own width and needs no second
@@ -288,8 +300,8 @@ extension View {
 /// corner leaves exactly the wedge the window's rounded corner would have cut,
 /// and nothing has to be aligned by eye.
 ///
-/// One shape for both corners: the bottom one is the same path flipped, so the
-/// two can never be cut to different radii.
+/// One shape for all three corners: the others are the same path flipped, so
+/// they can never be cut to different radii.
 struct FrameCorner: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
@@ -306,4 +318,46 @@ struct FrameCorner: Shape {
 
         return path
     }
+}
+
+/// The frame's glass: the system's sidebar material, blended with what is
+/// behind the window, under the frame's own colour (`WindowFrameRecipe`).
+///
+/// It is the window server that blurs what is behind the window, as it does
+/// for every Mac sidebar, so the ground's rule holds here too: nothing in this
+/// view moves or filters, and it costs the app nothing per frame.
+///
+/// The system material and not Liquid Glass (`NSGlassEffectView`), which was
+/// tried first: Liquid Glass is for a control floating over content, and it
+/// drew its own bright rim round each piece of the frame, a line along the
+/// band's lower edge and a separate shard at each corner (owner, 2026-09-25:
+/// "Theres seems a ine on the top bar").
+///
+/// Reduce Transparency and Increase Contrast get the frame's plain fill, the
+/// same answer the ground gives those two settings.
+struct FrameGlass: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        if reduceTransparency || contrast == .increased {
+            WindowFrameRecipe.fill.color
+        } else {
+            SidebarMaterial().overlay(WindowFrameRecipe.glassTint.color)
+        }
+    }
+}
+
+/// The system's sidebar material, blended with what is behind the window and
+/// dimmed with the window as a sidebar is.
+private struct SidebarMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .sidebar
+        view.blendingMode = .behindWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }

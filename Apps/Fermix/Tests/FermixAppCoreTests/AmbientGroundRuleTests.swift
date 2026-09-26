@@ -84,6 +84,29 @@ struct AmbientGroundRuleTests {
         }
     }
 
+    /// The frame is the system's sidebar material under its own colours, and
+    /// it gives way to the plain fill for the two settings the ground gives
+    /// way for. Liquid Glass drew a rim round every piece of the frame, a line
+    /// under the band and a shard at each corner (owner, 2026-09-25), so it
+    /// stays out of the frame.
+    @Test("the frame is the sidebar material, rimless, and plain for the accessibility settings")
+    func frameIsSidebarGlass() throws {
+        let file = try SourceTree.swiftFiles(matching: "Design/Materials/AmbientGround.swift")
+        let text = try #require(file.first?.text)
+
+        #expect(text.contains("view.material = .sidebar"))
+        #expect(text.contains("view.blendingMode = .behindWindow"))
+        #expect(text.contains("if reduceTransparency || contrast == .increased {\n            WindowFrameRecipe.fill.color"))
+        #expect(!text.contains("NSGlassEffectView()"), "the frame draws Liquid Glass and its rim")
+        #expect(!text.contains(".glassEffect("), "the frame draws Liquid Glass and its rim")
+
+        // Rail, band and corners are one glass, so nothing paints the flat fill
+        // over the frame any more.
+        #expect(text.contains("background { FrameGlass().ignoresSafeArea() }"))
+        #expect(text.contains("FrameGlass().frame(height: height)"))
+        #expect(occurrences(of: "WindowFrameRecipe.fill.color", in: text) == 1)
+    }
+
     /// A surface shows the ground by giving up the fill it paints for itself,
     /// and it says so through the one modifier that owns the rule. The raw
     /// modifier survives in exactly two places: that owner, and the assistant's
@@ -199,6 +222,15 @@ struct RailRuleTests {
     @Test("the rail is the standard grey on light and black on dark")
     func railColours() throws {
         #expect(WindowFrameRecipe.fill == ThemedColor(lightHex: "#ececec", darkHex: "#000000"))
+        // The glass wears the same two colours, part transparent, so the frame
+        // shows a hint of the desktop without changing colour (owner, 2026-09-25).
+        #expect(WindowFrameRecipe.glassTint == ThemedColor(light: .rgba(236, 236, 236, 0.5), dark: .rgba(0, 0, 0, 0.6)))
+        for scheme in FermixColorScheme.allCases {
+            let tint = WindowFrameRecipe.glassTint.resolved(for: scheme)
+            let fill = WindowFrameRecipe.fill.resolved(for: scheme)
+            #expect([tint.red, tint.green, tint.blue] == [fill.red, fill.green, fill.blue], "the \(scheme) glass changed colour")
+            #expect(tint.alpha >= 0.5, "the \(scheme) frame shows more desktop than frame")
+        }
         #expect(WindowFrameRecipe.ink == ThemedColor(lightHex: "#1d1d1f", darkHex: "#ffffff"))
         for scheme in FermixColorScheme.allCases {
             let ratio = Contrast.ratio(
@@ -232,24 +264,30 @@ struct RailRuleTests {
         }
     }
 
-    /// The body's two leading corners are cut to the window's own radius (owner,
+    /// The body's three open corners are cut to the window's own radius (owner,
     /// 2026-09-20: "should we make the left pane or the body rounded edge like
-    /// the macOS window?").
+    /// the macOS window?"; 2026-09-25, of the top trailing one: "add the rounded
+    /// edge to top right of the body as well to keep it consistent").
     ///
     /// Three things make it an overlay rather than the withdrawn panel, and all
-    /// three are asserted: it is laid on the detail column's leading edge, it is
-    /// filled with the rail's own fill rather than a colour of its own, and it
-    /// takes no clicks from the live surface under it.
-    @Test("the body's two leading corners are the rail's fill at the window's radius")
+    /// three are asserted: it is laid over the detail column, it is the frame's
+    /// own glass rather than a colour of its own, and it takes no clicks from the
+    /// live surface under it.
+    @Test("the body's three open corners are the frame's glass at the window's radius")
     func bodyCornersAreOverlaidNotClipped() throws {
         let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
         let text = try #require(window.first?.text)
 
-        #expect(text.contains(".overlay(alignment: .leading) { bodyCorners }"))
-        // Both corners, both from the one shape and the one fill.
-        #expect(occurrences(of: "FrameCorner().fill(WindowFrameRecipe.fill.color)", in: text) == 2)
-        #expect(occurrences(of: "WindowMetrics.bodyCornerRadius", in: text) == 4)
-        #expect(text.contains(".scaleEffect(x: 1, y: -1)"), "the bottom corner is not the top one flipped")
+        #expect(text.contains(".overlay { bodyCorners }"))
+        // Three corners, all from the one shape: top leading as drawn, top
+        // trailing and bottom leading as it flipped.
+        #expect(text.contains("bodyCorner(FrameCorner())"))
+        #expect(text.contains("bodyCorner(FrameCorner().scale(x: -1, y: 1))"), "the top trailing corner is not rounded")
+        #expect(text.contains("bodyCorner(FrameCorner().scale(x: 1, y: -1))"), "the bottom leading corner is not rounded")
+        #expect(occurrences(of: "bodyCorner(FrameCorner()", in: text) == 3)
+        #expect(text.contains("FrameGlass().mask(shape)"), "a corner is not the frame's own glass")
+        // Sized in one place, so the three cannot drift to different radii.
+        #expect(occurrences(of: ".frame(width: WindowMetrics.bodyCornerRadius, height: WindowMetrics.bodyCornerRadius)", in: text) == 1)
         #expect(text.contains(".allowsHitTesting(false)"), "the corners swallow clicks meant for the surface")
 
         // It is the window's measured radius, not the artboards' panel radius.

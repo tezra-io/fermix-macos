@@ -14,7 +14,7 @@ import SwiftUI
 /// and no glass of its own. What it does paint is three things, and all three
 /// are the window's own rather than any surface's: the one ambient ground behind
 /// everything (redlines §1.3), the frame of rail and top band (§5.7), and the
-/// two leading corners that round the body into it.
+/// three corners that round the body into it.
 ///
 /// The ground's intensity is decided here too, because this is the one view that
 /// holds both halves of the question: which presentation is up, and which route
@@ -138,7 +138,7 @@ struct MainWindowView: View {
             // reports a minimum, and this is where the window's size wins.
             detailColumn.frame(minWidth: 0, minHeight: 0)
                 .framedByBand(height: bandHeight)
-                .overlay(alignment: .leading) { bodyCorners }
+                .overlay { bodyCorners }
                 .onGeometryChange(for: Double.self) { proxy in
                     proxy.safeAreaInsets.top
                 } action: { top in
@@ -191,7 +191,7 @@ struct MainWindowView: View {
         AmbientIntensity.forWindow(showingSettings: presentation.isShowing, route: model.route)
     }
 
-    /// The body's two leading corners, cut to the window's own radius (owner,
+    /// The body's three open corners, cut to the window's own radius (owner,
     /// 2026-09-20: "should we make the left pane or the body rounded edge like
     /// the macOS window?").
     ///
@@ -199,9 +199,12 @@ struct MainWindowView: View {
     /// clips it. Where the body meets the rail it did not: the detail column's
     /// leading corners were square against a column whose outer ones were round,
     /// so the two read as one sheet with a black stripe painted down it rather
-    /// than as a body sitting inside a frame.
+    /// than as a body sitting inside a frame. The top trailing corner, where the
+    /// band meets the window's trailing edge, is cut the same way (owner,
+    /// 2026-09-25: "add the rounded edge to top right of the body as well to
+    /// keep it consistent"); the fourth is the window's own corner.
     ///
-    /// What draws them is more of the frame's fill, laid over the two corners at
+    /// What draws them is more of the frame's glass, laid over the corners at
     /// `bodyCornerRadius`, which is this window's own measured radius.
     /// Overlaid rather than clipped, because a clip is the inset panel
     /// the owner removed earlier the same day ("Lets remove the border, it
@@ -209,24 +212,34 @@ struct MainWindowView: View {
     /// point of content on every edge and needs a ground of its own behind what
     /// it cuts away, while an overlay takes nothing and paints only the corners.
     ///
-    /// The top corner sits under the band rather than on the window's top edge,
-    /// where the band and the rail meet, so the body's safe area places it; the
-    /// bottom one still sits on the window's bottom edge.
+    /// The top corners sit under the band rather than on the window's top edge,
+    /// so the body's safe area places them; the bottom one still sits on the
+    /// window's bottom edge.
     ///
     /// It is paint over live content, so it takes no clicks and says nothing.
     private var bodyCorners: some View {
         VStack(spacing: 0) {
-            FrameCorner().fill(WindowFrameRecipe.fill.color)
-                .frame(width: WindowMetrics.bodyCornerRadius, height: WindowMetrics.bodyCornerRadius)
+            HStack(spacing: 0) {
+                bodyCorner(FrameCorner())
+                Spacer(minLength: 0)
+                bodyCorner(FrameCorner().scale(x: -1, y: 1))
+            }
             Spacer(minLength: 0)
-            FrameCorner().fill(WindowFrameRecipe.fill.color)
-                .frame(width: WindowMetrics.bodyCornerRadius, height: WindowMetrics.bodyCornerRadius)
-                .scaleEffect(x: 1, y: -1)
+            HStack(spacing: 0) {
+                bodyCorner(FrameCorner().scale(x: 1, y: -1))
+                Spacer(minLength: 0)
+            }
         }
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(edges: .bottom)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// One corner: the frame's glass, masked to the wedge `shape` leaves.
+    private func bodyCorner(_ shape: some Shape) -> some View {
+        FrameGlass().mask(shape)
+            .frame(width: WindowMetrics.bodyCornerRadius, height: WindowMetrics.bodyCornerRadius)
     }
 
     @ViewBuilder
