@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// Minimal AF_UNIX test peer for `RealtimeSocketClient`. Binds a listening
+/// Minimal AF_UNIX test peer for `LineSocketClient`. Binds a listening
 /// socket at a temp path, accepts one connection on a background queue, and
 /// either drains reads or (deliberately) never reads — the latter is how we
 /// reproduce a wedged writer.

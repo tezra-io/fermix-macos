@@ -16,11 +16,12 @@ public enum RealtimeProtocol {
     /// serves a pet speaking 1 for one release.
     public static let version = 2
 
-    /// The largest single newline-delimited frame this client will assemble.
-    public static let maximumFrameBytes = 1_048_576
-
-    /// The largest amount of unscanned inbound data held at once.
-    public static let maximumInboundBufferBytes = 2_097_152
+    /// What the reader holds: one newline-delimited frame of at most 1 MiB,
+    /// and at most 2 MiB of unscanned inbound data at once.
+    public static let inboundLimits = LineInboundLimits(
+        maximumLineBytes: 1_048_576,
+        maximumBufferedBytes: 2_097_152
+    )
 
     /// How long the daemon has to answer `client_hello` with `server_hello`.
     public static let handshakeTimeout: TimeInterval = 3
@@ -53,13 +54,12 @@ public enum RealtimeVersionDirection: String, Equatable, Sendable {
     case clientTooNew = "client_too_new"
 }
 
-/// Why a frame could not become an event.
+/// Why a frame could not become an event. A frame too long to hold is the
+/// line socket's refusal, not a decode failure: it never reaches the decoder.
 public enum RealtimeDecodeFailure: Error, Equatable, Sendable {
     case malformedJSON
     case notAnObject
     case missingType
-    case frameTooLarge(bytes: Int)
-    case inboundBufferExceeded(bytes: Int)
 }
 
 // MARK: - Client events
@@ -126,11 +126,9 @@ public enum RealtimeClientEvent: Equatable, Sendable, Encodable {
         }
     }
 
-    /// The newline-terminated frame as it goes on the wire.
-    public func frame() throws -> Data {
-        var payload = try JSONEncoder().encode(self)
-        payload.append(0x0A)
-        return payload
+    /// The frame as one line, without the newline the line socket adds.
+    public func line() throws -> Data {
+        try JSONEncoder().encode(self)
     }
 }
 
@@ -439,7 +437,10 @@ public enum RealtimeServerEvent: Equatable, Sendable {
 
     /// Decodes one wire frame. A frame that is not an object, or that carries no
     /// `type`, is a contract violation and is refused; an unknown `type` is not.
-    public static func decode(_ frame: Data) throws -> RealtimeServerEvent {
+    ///
+    /// `JSONDecoder` declares an untyped error; anything it throws that is not
+    /// a `DecodingError` is still bytes that are not a frame.
+    public static func decode(_ frame: Data) throws(RealtimeDecodeFailure) -> RealtimeServerEvent {
         let decoder = JSONDecoder()
         do {
             return try decoder.decode(RealtimeServerEvent.self, from: frame)
@@ -447,6 +448,8 @@ public enum RealtimeServerEvent: Equatable, Sendable {
             throw failure
         } catch let error as DecodingError {
             throw Self.classify(error)
+        } catch {
+            throw .malformedJSON
         }
     }
 

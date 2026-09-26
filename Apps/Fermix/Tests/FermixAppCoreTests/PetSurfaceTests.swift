@@ -275,7 +275,7 @@ struct PetSurfaceTests {
         )
         harness.model.cancelTask()
 
-        #expect(harness.transport.sent.contains(.taskCancel(delegationId: "dg_01H9")))
+        #expect(try harness.socket.sentObjects().contains(wireObject(.taskCancel(delegationId: "dg_01H9"))))
     }
 
     /// With no delegation there is nothing to cancel, and an invented one would
@@ -287,11 +287,11 @@ struct PetSurfaceTests {
         harness.model.toggleCall()
         harness.negotiate()
         await harness.settle()
-        let before = harness.transport.sent.count
+        let before = harness.socket.sent.count
 
         harness.model.cancelTask()
 
-        #expect(harness.transport.sent.count == before)
+        #expect(harness.socket.sent.count == before)
     }
 
     /// The Live rows belong to a live call: a surface that kept drawing the
@@ -343,13 +343,13 @@ final class PetHarness {
     let voice: VoiceCoordinator
     let model: PetFeatureModel
 
-    let transport = FakeRealtimeTransport()
+    let socket = FakeRealtimeSocket()
 
     init() throws {
         windows = FakeWindowHost()
         let audio = AudioOwner(engine: engine, deadlines: ManualDeadlineScheduler())
         let session = VoiceSession(
-            transport: transport,
+            transport: RealtimeSocketClient(lines: socket),
             socketPath: { "/tmp/fermix-pet-tests.sock" },
             deadlines: MainQueueDeadlineScheduler()
         )
@@ -374,7 +374,7 @@ final class PetHarness {
     /// The daemon answering its half of the handshake, which is what turns a
     /// requested call into a live one.
     func negotiate() {
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
+        socket.deliver(.serverHello(minVersion: 1, maxVersion: 2))
     }
 
     /// Lets the call's permission task run without a wall-clock wait.

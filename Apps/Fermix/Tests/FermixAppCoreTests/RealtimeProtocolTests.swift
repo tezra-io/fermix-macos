@@ -141,12 +141,14 @@ struct RealtimeProtocolTests {
         #expect(produced.count == fixtures.count)
 
         for (event, fixture) in zip(produced, fixtures) {
-            let frame = try event.frame()
+            let line = try event.line()
 
-            #expect(frame.last == 0x0A, "\(fixture.type) must be newline terminated")
+            // The line socket adds the terminator, so the event must never
+            // carry one of its own.
+            #expect(!line.contains(0x0A), "\(fixture.type) must be exactly one line")
             #expect(
-                try RealtimeFixtures.sameObject(frame.dropLast(), fixture.line),
-                "\(fixture.type): \(String(decoding: frame, as: UTF8.self))"
+                try RealtimeFixtures.sameObject(line, fixture.line),
+                "\(fixture.type): \(String(decoding: line, as: UTF8.self))"
             )
         }
     }
@@ -284,20 +286,29 @@ struct RealtimeProtocolTests {
 
     @Test("the published bounds are one frame of 1 MiB and 2 MiB of inbound buffer")
     func publishedBounds() {
-        #expect(RealtimeProtocol.maximumFrameBytes == 1_048_576)
-        #expect(RealtimeProtocol.maximumInboundBufferBytes == 2_097_152)
+        #expect(
+            RealtimeProtocol.inboundLimits
+                == LineInboundLimits(maximumLineBytes: 1_048_576, maximumBufferedBytes: 2_097_152)
+        )
         #expect(RealtimeProtocol.handshakeTimeout == 3)
     }
 }
 
 /// The inbound framing bounds, driven directly rather than through a socket:
-/// the reader must refuse an over-length line and an over-length unterminated
-/// buffer before either is turned into an event.
+/// the line socket's reader, with the realtime wire's bounds and decoder, must
+/// refuse an over-length line and an over-length unterminated buffer before
+/// either is turned into an event.
 @Suite("Realtime inbound framing")
-struct RealtimeInboundBufferTests {
+struct RealtimeInboundFramingTests {
+    private func realtimeBuffer() -> LineInboundBuffer<RealtimeServerEvent, RealtimeDecodeFailure> {
+        LineInboundBuffer(limits: RealtimeProtocol.inboundLimits) { line throws(RealtimeDecodeFailure) in
+            try RealtimeServerEvent.decode(line)
+        }
+    }
+
     @Test("complete lines are delivered in order")
     func deliversCompleteLines() throws {
-        var buffer = RealtimeInboundBuffer()
+        var buffer = realtimeBuffer()
         var events: [RealtimeServerEvent] = []
 
         let stream = #"{"type":"state","state":"idle"}"# + "\n" + #"{"type":"playback_stop"}"# + "\n"
@@ -309,7 +320,7 @@ struct RealtimeInboundBufferTests {
 
     @Test("a partial line is held until its newline arrives")
     func holdsPartialLines() throws {
-        var buffer = RealtimeInboundBuffer()
+        var buffer = realtimeBuffer()
         var events: [RealtimeServerEvent] = []
 
         try buffer.append(Data(#"{"type":"play"#.utf8)) { events.append($0) }
@@ -320,12 +331,27 @@ struct RealtimeInboundBufferTests {
         #expect(events == [.playbackStop])
     }
 
+    /// A frame that is not an event is a contract violation: the frames before
+    /// it were already delivered, and the refusal carries the decoder's reason.
+    @Test("a line that is not an event is refused with the decoder's reason")
+    func refusesAnUndecodableLine() {
+        var buffer = realtimeBuffer()
+        var events: [RealtimeServerEvent] = []
+        let stream = #"{"type":"playback_stop"}"# + "\n" + "{not json" + "\n" + #"{"type":"playback_stop"}"# + "\n"
+
+        #expect(throws: RealtimeTransportFailure.undecodable(.malformedJSON)) {
+            try buffer.append(Data(stream.utf8)) { events.append($0) }
+        }
+        #expect(events == [.playbackStop])
+    }
+
     @Test("a line longer than the frame limit is refused")
     func refusesAnOversizedFrame() {
-        var buffer = RealtimeInboundBuffer()
-        let oversized = Data(repeating: 0x41, count: RealtimeProtocol.maximumFrameBytes + 1) + Data("\n".utf8)
+        var buffer = realtimeBuffer()
+        let limit = RealtimeProtocol.inboundLimits.maximumLineBytes
+        let oversized = Data(repeating: 0x41, count: limit + 1) + Data("\n".utf8)
 
-        #expect(throws: RealtimeDecodeFailure.frameTooLarge(bytes: RealtimeProtocol.maximumFrameBytes + 1)) {
+        #expect(throws: RealtimeTransportFailure.framingViolation(.lineTooLong(bytes: limit + 1))) {
             try buffer.append(oversized) { _ in }
         }
     }
@@ -335,10 +361,10 @@ struct RealtimeInboundBufferTests {
     /// refused as an oversized frame before a newline ever arrives.
     @Test("an unterminated run is refused once it passes the frame limit")
     func refusesAnUnterminatedRun() {
-        var buffer = RealtimeInboundBuffer()
+        var buffer = realtimeBuffer()
         let chunk = Data(repeating: 0x41, count: 512 * 1_024)
 
-        #expect(throws: RealtimeDecodeFailure.frameTooLarge(bytes: 3 * 512 * 1_024)) {
+        #expect(throws: RealtimeTransportFailure.framingViolation(.lineTooLong(bytes: 3 * 512 * 1_024))) {
             for _ in 0..<3 {
                 try buffer.append(chunk) { _ in }
             }
@@ -349,13 +375,13 @@ struct RealtimeInboundBufferTests {
     /// well-formed small frames is refused before it is scanned.
     @Test("a burst larger than the inbound buffer limit is refused before scanning")
     func refusesAnOversizedBurst() {
-        var buffer = RealtimeInboundBuffer()
+        var buffer = realtimeBuffer()
         let frame = Data((#"{"type":"playback_stop"}"# + "\n").utf8)
-        let repeats = RealtimeProtocol.maximumInboundBufferBytes / frame.count + 1
+        let repeats = RealtimeProtocol.inboundLimits.maximumBufferedBytes / frame.count + 1
         var burst = Data()
         for _ in 0..<repeats { burst.append(frame) }
 
-        #expect(throws: RealtimeDecodeFailure.inboundBufferExceeded(bytes: burst.count)) {
+        #expect(throws: RealtimeTransportFailure.framingViolation(.bufferExceeded(bytes: burst.count))) {
             try buffer.append(burst) { _ in }
         }
     }

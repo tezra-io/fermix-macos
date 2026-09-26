@@ -2,8 +2,9 @@ import Foundation
 
 /// Puts a transport's callbacks on the main actor.
 ///
-/// `RealtimeSocketClient` confines every byte of its state to one serial queue
-/// and calls back on it, which is what keeps the socket off the main thread.
+/// The line socket under `RealtimeSocketClient` confines every byte of its
+/// state to one serial queue and calls back on it, which is what keeps the
+/// socket off the main thread.
 /// `VoiceSession` is main-actor state. This is the one place the two meet, so
 /// no consumer has to remember which thread it is on and no other type hops.
 public final class MainActorRealtimeDelivery: RealtimeTransport, @unchecked Sendable {
@@ -29,7 +30,7 @@ public final class MainActorRealtimeDelivery: RealtimeTransport, @unchecked Send
 
     public func connect(
         path: String,
-        completion: @escaping (Result<Void, RealtimeConnectFailure>) -> Void
+        completion: @escaping (Result<Void, LineSocketConnectFailure>) -> Void
     ) {
         wrapped.connect(path: path) { result in
             DispatchQueue.main.async {
