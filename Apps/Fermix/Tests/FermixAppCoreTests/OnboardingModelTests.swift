@@ -59,7 +59,7 @@ struct OnboardingModelTests {
     /// leads to the pane holding the switch, and Try again follows.
     @Test(
         "a background item awaiting approval leads to Login Items settings",
-        arguments: [BootFailureCause.approvalPending, .backgroundItemDisabled]
+        arguments: [BootFailureCause.approvalPending, .backgroundItemDisabled, .registrationFailed]
     )
     func approvalCardOpensLoginItems(cause: BootFailureCause) async throws {
         let harness = try OnboardingHarness()

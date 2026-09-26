@@ -132,7 +132,7 @@
 "handoffDefect.home.bootstrapDirectory" = "A Fermix home cannot be inside the folder that records where it is.";
 "bootFailed.cause.invalidPackage" = "The bundled engine failed its signature and manifest check. Your configuration hasn’t been touched, so reinstall Fermix from the original download.";
 "bootFailed.cause.bootstrapRecordUnusable" = "Fermix could not read or write launcher.json, the file that records where your Fermix home is, so nothing was changed. Check that the Fermix folder in your Library is readable, then try again.";
-"bootFailed.cause.registrationFailed" = "macOS refused to register the Fermix background item, so nothing was changed. Open Login Items in System Settings, allow Fermix there, then try again.";
+"bootFailed.cause.registrationFailed" = "macOS refused to register the Fermix background item, so nothing was changed. Open Login Items settings, allow Fermix under Allow in the Background, then try again.";
 "bootFailed.cause.daemonUnresponsive" = "Something is listening on the Fermix socket in this home and did not answer, so nothing was changed. Wait a moment for it to finish starting, then try again.";
 
 /* MARK: Home */

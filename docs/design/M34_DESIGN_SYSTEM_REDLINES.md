@@ -711,10 +711,10 @@ once the cask's binary stanza is in place.
 
 **Boot failed** — title: "Fermix could not start". Body: what happened, what is untouched,
 the one next action. Card label: "LAST LOG LINES". Buttons: "Run Doctor", "View full log",
-"Try again". The two Login Items causes, approval pending and background item disabled,
-lead instead with "Open Login Items settings", then "Try again" and "View full log": their
-sentence names a switch in System Settings, and Doctor would ask a daemon that never
-started. One sentence each, same shape, for all thirteen causes: approval pending ·
+"Try again". The three Login Items causes, approval pending, background item disabled and
+registration failed, lead instead with "Open Login Items settings", then "Try again" and
+"View full log": their sentence names a switch in System Settings, and Doctor would ask a
+daemon that never started. One sentence each, same shape, for all thirteen causes: approval pending ·
 background item disabled · incompatible version · crash loop · bind failure ·
 web unavailable · invalid package · not in Applications · legacy install present ·
 foreign daemon running · older daemon running · duplicate copy present · activation

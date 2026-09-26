@@ -430,10 +430,10 @@ public struct ErrorPanelModel: Equatable, Sendable {
 extension BootFailureCause {
     public var opensLoginItems: Bool {
         switch self {
-        case .approvalPending, .backgroundItemDisabled:
+        case .approvalPending, .backgroundItemDisabled, .registrationFailed:
             return true
         case .timedOut, .incompatibleVersion, .crashLoop, .bindFailure, .webUnavailable,
-             .invalidPackage, .bootstrapRecordUnusable, .registrationFailed, .notInApplications,
+             .invalidPackage, .bootstrapRecordUnusable, .notInApplications,
              .legacyInstallPresent, .legacySystemInstallPresent, .foreignDaemonRunning,
              .preManagementDaemonRunning, .daemonUnresponsive, .duplicateCopyPresent,
              .migrationHandoffInvalid, .daemonRefusedIdentity:

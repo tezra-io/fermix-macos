@@ -473,9 +473,8 @@ public final class OnboardingModel: ObservableObject {
     /// is waiting on. The ledger owns the opener, so this card and the
     /// Permissions row open that pane the same way.
     public func openLoginItems() {
-        guard settings.permissions.openSystemSettings(PermissionLedger.loginItemsPane) else {
+        if !settings.permissions.openSystemSettings(PermissionLedger.loginItemsPane) {
             log.error("system settings refused the Login Items pane")
-            return
         }
     }
 

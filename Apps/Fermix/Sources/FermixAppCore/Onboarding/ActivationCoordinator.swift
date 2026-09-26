@@ -440,7 +440,11 @@ public struct ActivationCoordinator: ActivationDriving {
             try services.enable(.agent)
         } catch {
             log.error("the background item could not be registered: \(String(describing: error), privacy: .public)")
-            return .registrationFailed
+            // macOS refuses to register an item that is switched off in Login
+            // Items ("Operation not permitted") and reports it awaiting
+            // approval. That is the operator's switch, not a registration this
+            // Mac cannot make, so it is named by the status below.
+            guard services.status(.agent) == .requiresApproval else { return .registrationFailed }
         }
 
         registerGUILoginItem(firstActivation: firstActivation)
