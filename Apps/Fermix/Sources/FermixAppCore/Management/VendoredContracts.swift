@@ -2,7 +2,7 @@ import Foundation
 
 /// A wire contract that ships inside the application bundle.
 ///
-/// Both are vendored from the fermix repository, byte for byte, and pinned by
+/// Each is vendored from the fermix repository, byte for byte, and pinned by
 /// `CHECKSUMS.txt` and `SOURCE.json`. Nothing here is authored in this
 /// repository: management protocol v2 was carried as a draft until the engine
 /// published it, and `VendoredContractTests` now refuses a draft record so the
@@ -10,6 +10,7 @@ import Foundation
 public enum VendoredContract: String, CaseIterable, Sendable {
     case management
     case realtime
+    case companion
 }
 
 public enum VendoredContractError: Error, Equatable, Sendable {
@@ -94,9 +95,9 @@ public struct ContractProvenance: Decodable, Equatable, Sendable {
 
 /// Access to the contract tree copied into the application resource bundle.
 ///
-/// The tree keeps its `<protocol>/…` layout: both contracts publish a
-/// `PROTOCOL.md` and a `protocol.schema.json`, so a flattened bundle would lose
-/// one of each.
+/// The tree keeps its `<protocol>/…` layout: every contract publishes a
+/// `PROTOCOL.md` and a `protocol.schema.json`, so a flattened bundle would keep
+/// only one of each.
 public enum VendoredContracts {
     public static let directoryName = "Contracts"
     public static let checksumManifestName = "CHECKSUMS.txt"
