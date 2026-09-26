@@ -350,12 +350,16 @@ public enum ErrorPanelIntent: String, CaseIterable, Equatable, Sendable {
     case runDoctor
     case viewLog
     case tryAgain
+    case openLoginItems
 
     public var title: String {
         switch self {
         case .runDoctor: return ProductStrings[.bootFailedRunDoctor]
         case .viewLog: return ProductStrings[.bootFailedViewLog]
         case .tryAgain: return ProductStrings[.bootFailedTryAgain]
+        // The Permissions row's own words for the same pane, so the two
+        // buttons that open it cannot name it differently.
+        case .openLoginItems: return ProductStrings[.permissionActionOpenLoginItems]
         }
     }
 }
@@ -387,24 +391,54 @@ public struct ErrorPanelModel: Equatable, Sendable {
         logLines: [String],
         evidence: [String] = []
     ) -> ErrorPanelModel {
-        let commands = cause.commands
-        // Where the copy names commands, running them is the next step and
-        // trying again is what follows: Doctor would answer from a daemon this
-        // app never started, so it must not be the tinted action.
-        let leading: ErrorPanelIntent = commands.isEmpty ? .runDoctor : .tryAgain
-        let following: ErrorPanelIntent = commands.isEmpty ? .viewLog : .runDoctor
+        let intents = intents(for: cause)
 
         return ErrorPanelModel(
             title: ProductStrings[.bootFailedTitle],
             body: ProductStrings.bootFailure(cause),
             logHeader: ProductStrings[.bootFailedLogHeader],
             logLines: Array(logLines.suffix(logLineCount)),
-            commands: commands,
+            commands: cause.commands,
             evidence: evidence,
-            primary: leading,
-            secondary: following,
-            ghost: commands.isEmpty ? .tryAgain : .viewLog
+            primary: intents.primary,
+            secondary: intents.secondary,
+            ghost: intents.ghost
         )
+    }
+
+    /// Which action leads, from what the cause's sentence asks for.
+    ///
+    /// Where the copy names a Login Items switch or Terminal commands, doing
+    /// that is the next step and trying again is what follows: Doctor would
+    /// answer from a daemon this app never started, so it must not be the
+    /// tinted action. A card that says "allow it in System Settings" and offers
+    /// no way there is the dead end M34 §15.2 names.
+    private static func intents(
+        for cause: BootFailureCause
+    ) -> (primary: ErrorPanelIntent, secondary: ErrorPanelIntent, ghost: ErrorPanelIntent) {
+        if cause.opensLoginItems { return (.openLoginItems, .tryAgain, .viewLog) }
+        if !cause.commands.isEmpty { return (.tryAgain, .runDoctor, .viewLog) }
+
+        return (.runDoctor, .viewLog, .tryAgain)
+    }
+}
+
+/// The causes whose remedy is a switch in System Settings' Login Items.
+///
+/// A closed switch with no default, for the same reason `commands` is one: a
+/// cause added later decides whether its card leads to that pane.
+extension BootFailureCause {
+    public var opensLoginItems: Bool {
+        switch self {
+        case .approvalPending, .backgroundItemDisabled, .registrationFailed:
+            return true
+        case .timedOut, .incompatibleVersion, .crashLoop, .bindFailure, .webUnavailable,
+             .invalidPackage, .bootstrapRecordUnusable, .notInApplications,
+             .legacyInstallPresent, .legacySystemInstallPresent, .foreignDaemonRunning,
+             .preManagementDaemonRunning, .daemonUnresponsive, .duplicateCopyPresent,
+             .migrationHandoffInvalid, .daemonRefusedIdentity:
+            return false
+        }
     }
 }
 

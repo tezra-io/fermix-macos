@@ -54,6 +54,30 @@ struct OnboardingModelTests {
         #expect(harness.model.failurePanel?.logLines == ["two", "three", "four"])
     }
 
+    /// The owner's dead end: the card said to allow Fermix in System Settings
+    /// and offered Run Doctor, which asks a daemon that never started. It now
+    /// leads to the pane holding the switch, and Try again follows.
+    @Test(
+        "a background item awaiting approval leads to Login Items settings",
+        arguments: [BootFailureCause.approvalPending, .backgroundItemDisabled, .registrationFailed]
+    )
+    func approvalCardOpensLoginItems(cause: BootFailureCause) async throws {
+        let harness = try OnboardingHarness()
+        harness.activation.outcome = .failed(cause)
+
+        harness.model.begin()
+        await harness.model.drainPendingWork()
+
+        #expect(harness.model.stage == .bootFailed)
+        #expect(harness.model.failurePanel?.primary == .openLoginItems)
+        #expect(harness.model.failurePanel?.secondary == .tryAgain)
+
+        harness.model.openLoginItems()
+
+        #expect(harness.settingsOpener.opened == [PermissionLedger.loginItemsPane])
+        #expect(harness.routes.isEmpty, "the pane is System Settings, not a Fermix surface")
+    }
+
     /// A daemon that never started has no lines to show, and the card carries
     /// the cause without inventing filler.
     @Test("a failure with no readable log still draws its cause")
@@ -848,6 +872,9 @@ final class OnboardingHarness {
     /// The system browser, recorded rather than opened, because the sign-in
     /// hop is the assistant's half of the flow.
     let opener = RecordingExternalOpener()
+    /// System Settings, recorded rather than opened: the approval card's
+    /// primary action deep-links into it.
+    let settingsOpener = RecordingSystemSettingsOpener()
     /// What the launch reconcile found, as a case states it. Recovery reads it
     /// through the same closure the app wires to the coordinator, so a case can
     /// stand an unfinished update in front of the screen without a record on
@@ -897,7 +924,7 @@ final class OnboardingHarness {
             onRoute: { destination in recorder.record(destination) },
             onRecoveryResolved: { recorder.recordRecoveryResolved() },
             onRetryUpdateRecovery: { recorder.recordUpdateRetry() },
-            settings: SettingsFixture.model(gateway: gateway, opener: opener),
+            settings: SettingsFixture.model(gateway: gateway, opener: opener, settingsOpener: settingsOpener),
             sleeper: NoWaitSleeper()
         )
     }

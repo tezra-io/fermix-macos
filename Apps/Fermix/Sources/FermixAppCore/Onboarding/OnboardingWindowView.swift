@@ -252,7 +252,7 @@ struct WelcomeSurface: View {
 }
 
 /// Boot failed: the calm amber disc, the cause in plain language, the last log
-/// lines, and Run Doctor.
+/// lines, and the one next action the cause names.
 struct BootFailedSurface: View {
     @ObservedObject var model: OnboardingModel
 
@@ -266,6 +266,7 @@ struct BootFailedSurface: View {
                     case .runDoctor: model.openDoctor()
                     case .viewLog: model.openLogs()
                     case .tryAgain: model.retry()
+                    case .openLoginItems: model.openLoginItems()
                     }
                 }
             }
