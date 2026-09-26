@@ -11,7 +11,7 @@
 ## 1. Summary
 
 macOS decides whether Fermix's background agent may run. When it says "not yet", or the
-person has switched Fermix off under **Allow in the Background**, the app today ends setup
+person has switched Fermix off in Login Items, the app today ends setup
 on the "Fermix could not start" card. Since 0.2.1 that card at least leads with "Open Login
 Items settings", but it is still a failure screen for something that is not a failure: the
 person has one switch to flip, and after flipping it they have to come back and press Try
@@ -57,39 +57,73 @@ held status that `refresh()` updates off the main thread.
 
 ## 3. How macOS behaves
 
-Every decision below rests on these facts. Each one names its source; anything marked
+Every decision below rests on these facts. Sources are listed at the end of the section;
+where Apple's documentation is silent or contradicts practice, it says so. Anything marked
 **verify** is checked on a real Mac in the Stage 0 session (§9) before the design is
 accepted.
 
 1. **Four statuses, one of them ambiguous.** `SMAppService.Status` is `notRegistered`,
-   `enabled`, `requiresApproval` or `notFound`. `requiresApproval` covers both "the person
-   has not approved it yet" and "the person switched it off"; no API tells them apart. The
-   app's only second signal is what the status was before this run registered.
-2. **A switched-off item refuses registration.** `register()` on an agent the person has
-   switched off throws "Operation not permitted", and the status stays `requiresApproval`.
-   This is what `scripts/dev_e2e.sh` detects on the dev loop (`sfltool dumpbtm` shows the
-   agent `disallowed`). It is also why 0.2.1 reads the status after a throw.
-3. **No change notification.** ServiceManagement publishes no callback or notification when
-   a status changes. The app has to read `status` again. On a Developer ID build each read is
-   a synchronous XPC round trip of about 70 ms in which macOS re-verifies the app
-   (`LoginRegistrations`, measured 2026-09-24), so reads leave the main thread and happen
-   only when there is a reason.
+   `enabled`, `requiresApproval` or `notFound`. The SDK header says `requiresApproval` is
+   also returned "if the user revokes consent", so it covers both "not approved yet" and
+   "switched off". No public API tells them apart [H]. The app's only second signal is what
+   the status was before this attempt registered. `enabled` means "eligible to run", not
+   running.
+2. **A switched-off item refuses registration, with a misleading error.** The header and the
+   documentation say `register()` fails with `kSMErrorLaunchDeniedByUser` (11) [H][REG]. In
+   practice macOS throws `SMAppServiceErrorDomain` code 1, "Operation not permitted", and the
+   status stays `requiresApproval` [F802443][F779379]. This is also what
+   `scripts/dev_e2e.sh` meets on the dev loop, with `sfltool dumpbtm` showing the agent
+   disallowed. Code 1 has other causes too (a plist launchd already has loaded, an
+   unregister racing a register) [F707482][F768592], so the error code decides nothing: the
+   status read after the call does. A new registration of an item the person switched off
+   before stays off, because macOS keeps that choice "to preserve user intent" [F707482].
+3. **No change notification.** ServiceManagement publishes no callback, notification or
+   documented key-value observation for a status change [H]. Apple's advice is to check the
+   status when the app launches and when a connection to the helper fails [H][UPD]. On a
+   Developer ID build each read is a synchronous XPC round trip of about 70 ms in which
+   macOS re-verifies the app (`LoginRegistrations`, measured 2026-09-24), so reads leave the
+   main thread and happen only when there is a reason.
 4. **The documented way to the pane.** `SMAppService.openSystemSettingsLoginItems()` (macOS
-   13 and later) opens Login Items. The app currently opens the undocumented
-   `x-apple.systempreferences:com.apple.LoginItems-Settings.extension` URL instead.
-5. **Approval starts the job (verify).** When the person switches the item on, launchd loads
-   it, and the agent's `RunAtLoad` starts the daemon without the app calling `register()`
-   again. If Stage 0 shows otherwise, §5.3 has the one change it needs.
-6. **Managed Macs.** A login item managed by MDM (`com.apple.servicemanagement`) reports
-   `enabled` and cannot be switched off by the person, so it never reaches this step.
-7. **Where the switch is.** macOS 15 and later: System Settings > General > Login Items &
-   Extensions > Allow in the Background. macOS 13 and 14 call the pane Login Items, with the
-   same section. An in-bundle agent is listed under the app's name, Fermix. The copy names
-   "Login Items settings" and "Allow in the Background", which hold on every supported
-   version (the floor is macOS 15).
-8. **Diagnostics.** `sfltool dumpbtm` prints each item's disposition (allowed or
-   disallowed, enabled or disabled). `sfltool resetbtm` resets every app's background items
-   on the Mac and is never part of a runbook.
+   13 and later) opens the Login Items pane. It takes no argument, so it cannot scroll to a
+   section or to Fermix's row [H]. The `x-apple.systempreferences:` URL the app opens today
+   is not documented for developers, and DTS calls Apple's undocumented URL schemes
+   unsupported [F761314]; in practice the two land in the same place.
+5. **Approval starts the job (verify).** Not documented for agents. In a DTS walkthrough the
+   job was loaded by launchd once the user allowed it, with no second `register()`
+   [F802443], and an SMAppService agent otherwise behaves like any launchd agent, so its
+   `RunAtLoad` applies [F750528]. There are reports of `enabled` with a helper that never
+   launched [F825110], which is why setup trusts the daemon's socket, not the status, for
+   "it is running".
+6. **Managed Macs.** The `com.apple.servicemanagement` MDM payload auto-enables and
+   auto-allows matching items [DM][PD]. The status the app then sees is not documented;
+   `enabled` is implied. The item is listed under Managed Background Apps and the person
+   cannot switch it off [L27]. The app still has to call `register()` itself.
+7. **The section's name changes with the macOS version.**
+
+   | macOS | Pane | Section with Fermix's switch |
+   | --- | --- | --- |
+   | 15 | Login Items & Extensions | Allow in the Background [UG] |
+   | 26 | Login Items & Extensions | App Background Activity [UG] |
+   | 27 | Login Items & Extensions | Background App Activity [L27] |
+
+   The app's floor is macOS 15, so no one label is right for everyone. An in-bundle agent is
+   listed under the app's own name, Fermix, with one switch [UPD]. **So the copy names the
+   pane and Fermix, never the section.** The 0.2.1 strings, which say "Allow in the
+   Background", are wrong on macOS 26 and later and are corrected by this change (§5.6).
+8. **Diagnostics.** `sfltool dumpbtm` prints each item's disposition; an item the person
+   switched off reads "enabled, disallowed" [TEB][L27]. `sfltool resetbtm` has no per-app
+   argument and resets every app's background items and the person's choices on the Mac
+   [PD], so it is never part of a runbook.
+
+Sources: [H] `SMAppService.h` and `SMErrors.h` in the macOS 26.5 SDK.
+[REG] developer.apple.com/documentation/servicemanagement/smappservice/register().
+[UPD] developer.apple.com/documentation/servicemanagement/updating-helper-executables-from-earlier-versions-of-macos.
+[F*n*] Apple Developer Forums thread *n* (developer.apple.com/forums/thread/*n*).
+[DM] developer.apple.com/documentation/devicemanagement/servicemanagementmanagedloginitems.
+[PD] support.apple.com/guide/deployment/depdca572563.
+[UG] the Mac User Guide's Login Items page for each version (support.apple.com/guide/mac-help/mtusr003).
+[TEB] theevilbit.github.io/posts/smappservice (third party).
+[L27] this Mac, macOS 27.0: the English strings of `LoginItems.appex` and `sfltool dumpbtm`.
 
 ## 4. Goals and non-goals
 
@@ -165,8 +199,9 @@ avoids.
   Applying draws its restart block: one sentence and one secondary button, "Open Login Items
   settings". The bottom bar keeps Cancel, which cancels the wait like any other part of
   activation and returns to Home.
-- The caption "macOS may mention a new background item. That is Fermix." stays; it is what
-  the person sees before macOS asks.
+- The caption "macOS may mention a new background item. That is Fermix." stays. For an
+  agent, the "Background Items Added" notification is informational and opens Login Items
+  when clicked; macOS shows it once per item and remembers the answer [F802443].
 
 ### 5.3 Waiting without polling hard
 
@@ -225,13 +260,19 @@ All through `ProductStrings` and `Localizable.strings`, sentence case, no em das
 | Key | Text |
 | --- | --- |
 | `starting.row.awaitingApproval` | Waiting for you to allow Fermix in the background |
-| `starting.approval.body` | Turn Fermix on under Allow in the Background in Login Items settings. Setup carries on by itself. |
-| `starting.approval.bodySwitchedOff` | Fermix is turned off under Allow in the Background. Turn it on in Login Items settings and setup carries on by itself. |
+| `starting.approval.body` | Open Login Items settings and turn Fermix on. Setup carries on by itself. |
+| `starting.approval.bodySwitchedOff` | Fermix is turned off in Login Items. Turn it back on there and setup carries on by itself. |
 | `home.attention.backgroundApproval` | Allow Fermix to run in the background |
-| `lifecycle.registrationRefused` | macOS refused to register the Fermix background item, so nothing was changed. Open Login Items settings, allow Fermix under Allow in the Background, then try again. |
+| `lifecycle.registrationRefused` | macOS refused to register the Fermix background item, so nothing was changed. Open Login Items settings, turn Fermix on, then try again. |
+| `bootFailed.cause.backgroundItemDisabled` | Fermix is turned off in Login Items. Your configuration hasn’t been touched, so open Login Items settings, turn Fermix back on, then try again. |
+| `bootFailed.cause.registrationFailed` | macOS refused to register the Fermix background item, so nothing was changed. Open Login Items settings, turn Fermix on, then try again. |
 
-The button is the existing `permission.action.openLoginItems`, "Open Login Items settings".
-The M34 copy deck (§7) and §5.2 and §5.6 of the redlines are updated in the same change.
+No string names the section Fermix's switch sits in, because its name differs between macOS
+15, 26 and 27 (§3.7). "Allow in the Background" leaves `ProductCopyRules.properPhrases`,
+and the 0.2.1 test that every Login Items sentence contains it is replaced by one that none
+does. The button is the existing `permission.action.openLoginItems`, "Open Login Items
+settings". The M34 copy deck (§7) and §5.2 and §5.6 of the redlines are updated in the same
+change, and so is `scripts/dev_e2e.sh`'s refusal, which names the old section too.
 
 ## 6. Accessibility
 
@@ -272,8 +313,8 @@ registration changes: an account that is already enabled never sees the step.
 
 Added to `docs/STAGE0_RUNBOOK.md`, on the staged release bundle:
 
-1. With Fermix installed and set up, switch it off under Allow in the Background. Confirm
-   `sfltool dumpbtm` shows the agent disallowed.
+1. With Fermix installed and set up, switch it off in Login Items & Extensions. Confirm
+   `sfltool dumpbtm` shows the agent "enabled, disallowed".
 2. Run setup again. The Starting ladder stops on "Waiting for you to allow Fermix in the
    background", with no failure card.
 3. Press "Open Login Items settings". System Settings opens on Login Items.
@@ -293,3 +334,7 @@ Added to `docs/STAGE0_RUNBOOK.md`, on the staged release bundle:
 3. Should Home's attention row also appear on launch for an account whose item was switched
    off after setup? `PermissionLedger` already shows it under Permissions; Home showing it
    too would make "Fermix isn't running" explain itself.
+4. macOS 26 added a prompt when an app's background activity carries on after the app quits
+   (about 60 seconds, undocumented threshold) [PD][F799162]. Whether an SMAppService agent
+   like Fermix's triggers it is undocumented. Stage 0 should quit the app and wait, and if
+   it does appear, its wording decides whether the Starting caption needs a second line.
