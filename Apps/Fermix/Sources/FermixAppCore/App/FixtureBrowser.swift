@@ -19,8 +19,27 @@ final class FixtureBrowserEngine: BrowserEngine {
 
 /// The two pages the fixture tabs open, by address.
 enum FixtureWebPage {
-    static let example = URL(string: "https://example.com/")
-    static let reserved = URL(string: "https://www.iana.org/domains/reserved")
+    static let example = address("https://example.com/")
+    static let reserved = address("https://www.iana.org/domains/reserved")
+
+    /// The `browser` start's pane: the first page as a link opens it, and the
+    /// second typed into a private tab, both through the coordinator's own
+    /// verbs, with the first in front.
+    @MainActor
+    static func openTabs(in browser: BrowserCoordinator) {
+        browser.open(example)
+        browser.newTab(profile: .private)
+        browser.load(address: reserved.absoluteString)
+        guard let first = browser.model.tabs.first else { return }
+
+        browser.select(first)
+    }
+
+    private static func address(_ text: String) -> URL {
+        guard let url = URL(string: text) else { preconditionFailure("a fixture page has an address: \(text)") }
+
+        return url
+    }
 
     static func content(of url: URL) -> (title: String, heading: String, body: String) {
         guard url == reserved else {

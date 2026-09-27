@@ -111,6 +111,7 @@ struct FixtureConfigurationTests {
         }
         #expect(FixtureStart(name: "restart-sheet") == .restartSheet)
         #expect(FixtureStart(name: "chat-empty") == .emptyChat)
+        #expect(FixtureStart(name: "browser") == .browser)
     }
 
     /// A name this build does not publish resolves to nothing, so the caller
@@ -129,7 +130,7 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 3)
+            + OnboardingStage.allCases.count + 4)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -179,13 +180,19 @@ struct FixtureConfigurationTests {
 
             let harness = try CoordinatorHarness(bootstrap: .present)
             var restartSheetShown = false
-            FixtureLaunch(start: start).present(with: harness.coordinator) { restartSheetShown = true }
+            var browserOpened = false
+            FixtureLaunch(start: start).present(
+                with: harness.coordinator,
+                showRestartSheet: { restartSheetShown = true },
+                openBrowser: { browserOpened = true }
+            )
             // `fermix://setup` asks the daemon where to land before it lands
             // (M34 §3.4), so the window opens on the answer rather than on the
             // click.
             try await harness.coordinator.drainPendingWork()
 
             expectOpened(start, harness: harness, restartSheetShown: restartSheetShown)
+            #expect(browserOpened == (start == .browser), "\(name) opened the browser pane")
         }
     }
 
@@ -227,7 +234,7 @@ struct FixtureConfigurationTests {
         case .approvalStep:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.onboardingStage == .starting)
-        case .emptyChat:
+        case .emptyChat, .browser:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.route == .chat)
         }
@@ -244,6 +251,30 @@ struct FixtureConfigurationTests {
         #expect(FixtureLaunch(start: .surface(.chat)).companionTimeline == .full)
         #expect(FixtureLaunch(start: .surface(.home)).companionTimeline == .full)
         #expect(FixtureHome.forStart(.emptyChat) == .settled)
+    }
+
+    /// The pane is looked at beside a conversation, on the fixture's own two
+    /// pages, and never over the network.
+    @MainActor
+    @Test("browser opens Chat with the pane open on two fake tabs, the second private")
+    func browserStartOpensThePane() {
+        #expect(FixtureLaunch(start: .browser).presentation == .chatWithBrowser)
+        #expect(FixtureLaunch(start: .browser).companionTimeline == .full)
+        #expect(FixtureHome.forStart(.browser) == .settled)
+
+        let browser = BrowserCoordinator(
+            makeEngine: { _ in FixtureBrowserEngine() },
+            profile: WebsiteProfileRecord(location: BrowserProfileLocation().location),
+            workspace: FixtureWorkspaceOpener(),
+            paneShown: { _ in }
+        )
+        FixtureWebPage.openTabs(in: browser)
+
+        #expect(browser.model.isOpen)
+        #expect(browser.model.tabs.map(\.title) == ["Example Domain", "IANA-managed Reserved Domains"])
+        #expect(browser.model.tabs.map(\.profile) == [.shared, .private])
+        #expect(browser.model.tabs.map(\.hasOnlySecureContent) == [true, true])
+        #expect(browser.model.selectedTabID == browser.model.tabs.first?.id)
     }
 
     /// The scripted daemon, driven through the real adapter and the session:

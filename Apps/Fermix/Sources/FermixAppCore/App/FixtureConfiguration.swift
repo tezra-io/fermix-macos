@@ -44,12 +44,16 @@ enum FixtureStart: Equatable {
     /// Chat over a timeline with nothing in it, which is the only way its
     /// empty state is drawn: `chat` itself opens on the full timeline.
     case emptyChat
+    /// Chat with the browser pane open beside it on two fake tabs. The pane
+    /// closed is `chat` itself.
+    case browser
 
     static let settingsPrefix = "settings/"
     static let assistantPrefix = "assistant/"
     static let restartSheetName = "restart-sheet"
     static let approvalStepName = "assistant/approval"
     static let emptyChatName = "chat-empty"
+    static let browserName = "browser"
 
     /// The start a launch argument named, or nil where this build publishes no
     /// such surface. A mistyped name is refused by the caller rather than
@@ -61,6 +65,8 @@ enum FixtureStart: Equatable {
             self = .approvalStep
         } else if name == Self.emptyChatName {
             self = .emptyChat
+        } else if name == Self.browserName {
+            self = .browser
         } else if let slug = name.dropping(prefix: Self.settingsPrefix) {
             guard let pane = SettingsPane(rawValue: slug) else { return nil }
             self = .settings(pane)
@@ -78,7 +84,7 @@ enum FixtureStart: Equatable {
         AppRoute.allCases.map(\.rawValue)
             + SettingsPane.allCases.map { settingsPrefix + $0.slug }
             + OnboardingStage.allCases.map { assistantPrefix + $0.rawValue }
-            + [restartSheetName, approvalStepName, emptyChatName]
+            + [restartSheetName, approvalStepName, emptyChatName, browserName]
     }
 }
 
@@ -155,6 +161,8 @@ enum FixturePresentation: Equatable {
     case settings(SettingsPane)
     /// Home, with the restart sheet already asking.
     case homeWithRestartSheet
+    /// Chat, with the browser pane open on the fixture's two pages.
+    case chatWithBrowser
 }
 
 /// One fixture launch: where it lands, and the machine it lands on.
@@ -181,6 +189,7 @@ struct FixtureLaunch {
         case .settings(let pane): return .settings(pane)
         case .restartSheet: return .homeWithRestartSheet
         case .emptyChat: return .route(.chat)
+        case .browser: return .chatWithBrowser
         }
     }
 
@@ -200,6 +209,7 @@ struct FixtureLaunch {
         case .restartSheet: return FixtureStart.restartSheetName
         case .approvalStep: return "assistant-approval"
         case .emptyChat: return FixtureStart.emptyChatName
+        case .browser: return FixtureStart.browserName
         }
     }
 }
@@ -534,7 +544,11 @@ extension AppComposition {
     /// launch reason; a fixture launch names its surface outright, so it goes
     /// through the same coordinator by the same public verbs.
     func present(fixture launch: FixtureLaunch) {
-        launch.present(with: coordinator, showRestartSheet: { [coordinator] in coordinator.askForRestart() })
+        launch.present(
+            with: coordinator,
+            showRestartSheet: { [coordinator] in coordinator.askForRestart() },
+            openBrowser: { [browser] in FixtureWebPage.openTabs(in: browser) }
+        )
     }
 }
 
@@ -543,9 +557,10 @@ extension FixtureLaunch {
     ///
     /// The restart sheet is the coordinator's, the same door the Attention row,
     /// the Daemon menu and the status item ask through, so it arrives as a
-    /// closure rather than a second owner of it.
+    /// closure rather than a second owner of it. The browser pane is the
+    /// browser coordinator's, and arrives the same way.
     @MainActor
-    func present(with coordinator: AppCoordinator, showRestartSheet: () -> Void) {
+    func present(with coordinator: AppCoordinator, showRestartSheet: () -> Void, openBrowser: () -> Void) {
         switch presentation {
         case .assistant(let stage):
             coordinator.openAssistant(at: stage)
@@ -556,6 +571,9 @@ extension FixtureLaunch {
         case .homeWithRestartSheet:
             coordinator.open(.home)
             showRestartSheet()
+        case .chatWithBrowser:
+            coordinator.open(.chat)
+            openBrowser()
         }
     }
 }
