@@ -555,4 +555,26 @@ final class FakeWindowHost: WindowHost {
     func grow(_ kind: WindowKind, toAtLeast size: CGSize) {
         growth.append((kind, size))
     }
+
+    /// Where each window stands, as a test sets it.
+    var placements: [WindowKind: WindowGrowth.Placement] = [:]
+    /// What each window was told to become, in order (plan §4.3).
+    private(set) var placed: [(kind: WindowKind, frame: CGRect?, minimumSize: CGSize)] = []
+
+    func placement(of kind: WindowKind) -> WindowGrowth.Placement? {
+        presented.contains(kind) ? placements[kind] : nil
+    }
+
+    /// Moves the recorded frame the way the window would, so the next placement
+    /// reads where the last one put it.
+    func place(_ kind: WindowKind, frame: CGRect?, minimumSize: CGSize) {
+        placed.append((kind, frame, minimumSize))
+        guard let frame, let placement = placements[kind] else { return }
+
+        placements[kind] = WindowGrowth.Placement(
+            frame: frame,
+            visible: placement.visible,
+            fillsScreen: placement.fillsScreen
+        )
+    }
 }

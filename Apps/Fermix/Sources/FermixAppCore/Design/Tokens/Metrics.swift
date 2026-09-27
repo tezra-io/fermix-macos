@@ -142,6 +142,10 @@ public enum WindowMetrics {
     /// The fixed settings pane column. One number, not three: this column does
     /// not resize and does not collapse.
     public static let settingsSidebarWidth: Double = 240
+    /// The browser pane beside the body (plan §4.3). The window widens by this
+    /// much when the pane opens, so the surface beside it keeps its width; a
+    /// drag handle that changes it is for later.
+    public static let browserPaneWidth: Double = 600
     /// The detail column's content ceiling, so a widened window grows its
     /// margins rather than its line length.
     public static let settingsContentMaxWidth: Double = 640

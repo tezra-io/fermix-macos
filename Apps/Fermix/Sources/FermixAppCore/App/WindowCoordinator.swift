@@ -102,6 +102,12 @@ public protocol WindowHost: AnyObject {
     /// AppKit can answer; the geometry itself is `WindowGrowth`, so the rule is
     /// provable without a window server.
     func grow(_ kind: WindowKind, toAtLeast size: CGSize)
+    /// Where a window stands: its frame, the visible frame of its screen, and
+    /// whether it fills that screen. Nil for a window that is not open.
+    func placement(of kind: WindowKind) -> WindowGrowth.Placement?
+    /// Puts a window where a pane layout says: the minimum size, then the
+    /// frame, animated, where there is one.
+    func place(_ kind: WindowKind, frame: CGRect?, minimumSize: CGSize)
 }
 
 /// One primary window for Home, Setup and Settings, plus an optional floating
@@ -110,6 +116,10 @@ public protocol WindowHost: AnyObject {
 public final class WindowCoordinator {
     private let host: any WindowHost
     private var occluded: Set<WindowKind> = []
+    /// Whether the browser pane is open beside the primary window's body.
+    public private(set) var isBrowserPaneOpen = false
+    /// What opening the pane did to the window, kept until it closes.
+    private var paneWidening: WindowGrowth.PaneWidening?
 
     public init(host: any WindowHost) {
         self.host = host
@@ -155,6 +165,7 @@ public final class WindowCoordinator {
 
         host.present(Self.descriptor(for: kind))
         occluded.remove(kind)
+        if kind == .main, isBrowserPaneOpen { holdPaneMinimum() }
         host.focus(kind)
     }
 
@@ -183,6 +194,53 @@ public final class WindowCoordinator {
     /// A larger primary window stays at the size the user chose.
     public func growForAssistant() {
         host.grow(.main, toAtLeast: WindowMetrics.onboardingSize)
+    }
+
+    /// Opens or closes the browser pane's room in the primary window
+    /// (plan §4.3): widened by the pane on the way in, and given back on the way
+    /// out only while the window is still the one the app widened. The rules
+    /// are `WindowGrowth`'s; what is here is the memory between the two.
+    ///
+    /// The window records its frame under `main` as it moves, so the frame the
+    /// pane gave it is what a relaunch would find, and on close the frame from
+    /// before wins.
+    public func setBrowserPane(open: Bool) {
+        guard open != isBrowserPaneOpen else { return }
+
+        isBrowserPaneOpen = open
+        guard let placement = host.placement(of: .main) else {
+            paneWidening = nil
+            return
+        }
+
+        let minimum = Self.mainMinimumSize
+        let layout = open
+            ? WindowGrowth.opening(pane: WindowMetrics.browserPaneWidth, at: placement, minimum: minimum)
+            : WindowGrowth.closing(at: placement, widening: paneWidening, minimum: minimum)
+        paneWidening = layout.widening
+        host.place(.main, frame: layout.frame, minimumSize: layout.minimumSize)
+    }
+
+    /// A primary window opened again while the pane is open keeps the raised
+    /// floor, whatever frame it came back at.
+    private func holdPaneMinimum() {
+        guard let placement = host.placement(of: .main) else { return }
+
+        let minimum = WindowGrowth.paneMinimum(
+            pane: WindowMetrics.browserPaneWidth,
+            base: Self.mainMinimumSize,
+            within: placement.visible
+        )
+        host.place(.main, frame: nil, minimumSize: minimum)
+    }
+
+    /// The primary window's own floor, the one its descriptor builds it with.
+    private static var mainMinimumSize: CGSize {
+        guard let minimum = descriptor(for: .main).minimumSize else {
+            preconditionFailure("the primary window is built with a minimum size")
+        }
+
+        return minimum
     }
 
     /// Whether a window is actually on screen: open, and not covered,

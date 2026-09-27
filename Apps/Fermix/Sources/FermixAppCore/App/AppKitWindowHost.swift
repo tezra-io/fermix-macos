@@ -216,10 +216,42 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
         guard let frame = WindowGrowth.frame(growing: window.frame, toAtLeast: wanted, within: visible)
         else { return }
 
-        // Through the animator, which returns at once. `setFrame(_:display:
-        // animate:)` does not return until the animation ends, so entering
-        // settings from a small window held the main thread for the whole
-        // resize, relaying out the new columns at every step.
+        animate(window, to: frame)
+    }
+
+    /// Where a window stands, for a pane layout (plan §4.3). A window in full
+    /// screen or zoomed fills its screen, and the pane then takes its width
+    /// from the content rather than moving the window.
+    func placement(of kind: WindowKind) -> WindowGrowth.Placement? {
+        guard let window = windows[kind],
+              let visible = (window.screen ?? NSScreen.main)?.visibleFrame
+        else { return nil }
+
+        return WindowGrowth.Placement(
+            frame: window.frame,
+            visible: visible,
+            fillsScreen: window.styleMask.contains(.fullScreen) || window.isZoomed
+        )
+    }
+
+    /// The floor first, so a window the pane is shrinking back is never held
+    /// wider than it is going; then the frame, through the one animated path
+    /// growth takes, which is how the window now shrinks as well as grows.
+    func place(_ kind: WindowKind, frame: CGRect?, minimumSize: CGSize) {
+        guard let window = windows[kind] else { return }
+
+        window.minSize = minimumSize
+        guard let frame else { return }
+
+        animate(window, to: frame)
+    }
+
+    /// Through the animator, which returns at once. `setFrame(_:display:
+    /// animate:)` does not return until the animation ends, so entering
+    /// settings from a small window held the main thread for the whole resize,
+    /// relaying out the new columns at every step. The window's `main`
+    /// autosave records wherever this lands.
+    private func animate(_ window: NSWindow, to frame: CGRect) {
         window.animator().setFrame(frame, display: true)
     }
 
