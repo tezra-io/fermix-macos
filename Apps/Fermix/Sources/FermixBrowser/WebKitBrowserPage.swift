@@ -12,8 +12,14 @@ import WebKit
 final class WebKitBrowserPage: NSObject, BrowserPage {
     weak var events: (any BrowserPageEvents)?
 
-    private let webView: WKWebView
+    let webView: WKWebView
     private var observations: [NSKeyValueObservation] = []
+    /// The page script, lazily resolved once and reused: `WebKitBrowserPage
+    /// +Driving.swift` is the one reader.
+    lazy var pageScriptResult = Result { WebKitPageScript(webView: webView, source: try BrowserPageScript.source()) }
+    /// The path an in-flight `upload` action expects the next open panel to
+    /// answer with; `runOpenPanelWith` below is the one reader.
+    var pendingUploadPath: String?
 
     init(configuration: WKWebViewConfiguration) {
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -232,6 +238,25 @@ extension WebKitBrowserPage: WKUIDelegate {
         decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void
     ) {
         decisionHandler(.deny)
+    }
+
+    /// A file chooser the page's own input raised. A driven `upload` primes
+    /// `pendingUploadPath` immediately before the click that opens it; a panel
+    /// with none pending is a person's own tab, which this pane does not yet
+    /// offer a picker for (plan §4.7).
+    func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping ([URL]?) -> Void
+    ) {
+        defer { pendingUploadPath = nil }
+        guard let path = pendingUploadPath else {
+            completionHandler(nil)
+            return
+        }
+
+        completionHandler([URL(fileURLWithPath: path)])
     }
 
     private func present(
