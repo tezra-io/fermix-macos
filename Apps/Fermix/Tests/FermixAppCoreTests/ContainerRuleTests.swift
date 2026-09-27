@@ -303,16 +303,21 @@ struct ContainerRuleTests {
         }
     }
 
-    /// M34 §9: no WKWebView, no HTML strings, no web content anywhere in the
-    /// app. The hosted Setup pane was the only importer, and the browser setup
-    /// the daemon serves for every formula install is not this app's surface.
-    @Test("nothing in the tree imports WebKit")
+    /// The web engine is the browser pane's and nobody else's (plan §4.2).
+    ///
+    /// Both executables link `FermixAppCore`, so a WebKit import there would
+    /// put a web engine into `FermixAgent`, which the daemon launches and which
+    /// never draws a page. The core declares the browser's seam and imports
+    /// nothing; `FermixBrowser`, linked by the GUI executable alone, is the one
+    /// place a `WKWebView` is built. The hosted Setup pane that was the first
+    /// importer stays retired: the daemon's browser setup is not this app's.
+    @Test("only the browser target imports WebKit")
     func noWebKit() throws {
-        let offenders = try SourceTree
-            .swiftFiles(under: "", excluding: false)
+        let offenders = try SparkleAdapterSource.everySwiftFileUnderSources()
             .filter { $0.text.contains("import WebKit") || $0.text.contains("WKWebView") }
+            .filter { !$0.path.contains("/FermixBrowser/") }
 
-        #expect(offenders.isEmpty, "web content in: \(offenders.map(\.path))")
+        #expect(offenders.isEmpty, "web content outside the browser target in: \(offenders.map(\.path))")
     }
 
     /// The primitives M34 §6 deletes. Written as one invariant over the whole
