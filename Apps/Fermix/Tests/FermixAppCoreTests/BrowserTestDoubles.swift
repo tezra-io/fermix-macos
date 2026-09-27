@@ -24,6 +24,51 @@ final class FakeBrowserPage: BrowserPage {
     func zoom(_ zoom: BrowserZoom) { actions.append("zoom \(zoom)") }
 }
 
+/// A page with a web engine behind it, standing in for `WebKitBrowserPage` in
+/// tests of `BrowserTab`'s host actions: it records what it was asked and
+/// answers what the test sets up.
+@MainActor
+final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
+    weak var events: (any BrowserPageEvents)?
+    lazy var view = NSView()
+
+    private(set) var snapshotRequests: [BrowserSnapshotRequest] = []
+    private(set) var actions: [BrowserPageAction] = []
+    var snapshotResult: Result<BrowserPageSnapshot, any Error> = .success(.empty)
+    var actResult: Result<BrowserActOutcome, any Error> = .success(.init(effect: .unchanged, input: .trusted, url: ""))
+
+    func load(_ url: URL) {}
+    func back() {}
+    func forward() {}
+    func reload() {}
+    func stop() {}
+    func find(_ text: String) {}
+    func zoom(_ zoom: BrowserZoom) {}
+
+    func snapshot(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot {
+        snapshotRequests.append(request)
+        return try snapshotResult.get()
+    }
+
+    func act(_ action: BrowserPageAction, observing request: BrowserSnapshotRequest) async throws -> BrowserActOutcome {
+        actions.append(action)
+        snapshotRequests.append(request)
+        return try actResult.get()
+    }
+}
+
+extension BrowserPageSnapshot {
+    static let empty = BrowserPageSnapshot(
+        title: "",
+        url: "",
+        nodes: [BrowserPageNode(id: 0, role: "RootWebArea")],
+        elements: 0,
+        crossOriginFrames: 0,
+        closedShadowRoots: false,
+        evaluateMilliseconds: 0
+    )
+}
+
 /// An engine over fake pages, keeping every page it made.
 @MainActor
 final class FakeBrowserEngine: BrowserEngine {
