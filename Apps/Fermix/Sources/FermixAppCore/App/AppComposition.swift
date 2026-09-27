@@ -83,6 +83,7 @@ final class AppComposition {
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
         voice = Self.buildVoice(model: model, bootstrap: store)
+        let companion = Self.buildCompanion(bootstrap: store)
         services = ServiceController(loginItems: environment.loginItems, plists: environment.plists)
         engineReconciler = environment.reconciler
         menuBar = MenuBarController(model: model)
@@ -136,6 +137,7 @@ final class AppComposition {
             coordinator: coordinator,
             gateway: gateway,
             petModel: petModel,
+            companion: companion,
             settings: settings,
             menuBar: menuBar,
             updates: updates
@@ -234,6 +236,20 @@ final class AppComposition {
             model: model,
             session: session,
             audio: AudioOwner(engine: AudioController(), deadlines: MainQueueDeadlineScheduler())
+        )
+    }
+
+    /// The chat session, built once beside voice over its own socket. Nothing
+    /// connects it until a surface first asks.
+    private static func buildCompanion(bootstrap: BootstrapStore) -> CompanionSession {
+        CompanionSession(
+            transport: CompanionSocketClient(
+                lines: MainActorLineDelivery(wrapping: CompanionSocketClient.lineSocket())
+            ),
+            // Resolved per attempt from the bootstrap record, as the voice
+            // socket is.
+            socketPath: { try bootstrap.companionSocketPath() },
+            deadlines: MainQueueDeadlineScheduler()
         )
     }
 
@@ -506,6 +522,7 @@ final class AppComposition {
         coordinator: AppCoordinator,
         gateway: ManagementGateway,
         petModel: PetFeatureModel,
+        companion: CompanionSession,
         settings: SettingsModel,
         menuBar: MenuBarController,
         updates: any UpdateChecking
@@ -523,6 +540,7 @@ final class AppComposition {
             coordinator: coordinator,
             gateway: gateway,
             petModel: petModel,
+            companion: companion,
             settings: settings,
             menuBar: menuBar,
             updates: updates
@@ -560,6 +578,7 @@ final class AppComposition {
         coordinator: AppCoordinator,
         gateway: ManagementGateway,
         petModel: PetFeatureModel,
+        companion: CompanionSession,
         settings: SettingsModel,
         menuBar: any MenuBarItemPresenting,
         updates: any UpdateChecking
@@ -601,7 +620,8 @@ final class AppComposition {
                 settings: settings,
                 doctor: doctor
             ),
-            settings: settings
+            settings: settings,
+            companion: companion
         )
     }
 

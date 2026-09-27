@@ -445,7 +445,12 @@ final class RouterHarness {
                 settings: settings,
                 sleeper: NoWaitSleeper()
             ),
-            settings: settings
+            settings: settings,
+            companion: CompanionSession(
+                transport: CompanionSocketClient(lines: FakeCompanionSocket()),
+                socketPath: { "/tmp/fermix-test/companion.sock" },
+                deadlines: ManualDeadlineScheduler()
+            )
         )
 
         router = CommandRouter(

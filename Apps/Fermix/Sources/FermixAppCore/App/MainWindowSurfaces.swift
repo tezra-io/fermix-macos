@@ -17,6 +17,10 @@ public final class MainWindowSurfaces {
     /// handed in, because Home and onboarding read the same snapshot: two
     /// instances is the defect this single reference exists to prevent.
     public let settings: SettingsModel
+    /// The one chat session, and through it the model a chat surface observes.
+    /// One instance for the same reason: the outbox and the held timeline
+    /// outlive any view that shows them.
+    public let companion: CompanionSession
 
     public init(
         home: HomeModel,
@@ -24,7 +28,8 @@ public final class MainWindowSurfaces {
         logs: LogsModel,
         pet: PetFeatureModel,
         onboarding: OnboardingModel,
-        settings: SettingsModel
+        settings: SettingsModel,
+        companion: CompanionSession
     ) {
         self.home = home
         self.doctor = doctor
@@ -32,5 +37,6 @@ public final class MainWindowSurfaces {
         self.pet = pet
         self.onboarding = onboarding
         self.settings = settings
+        self.companion = companion
     }
 }
