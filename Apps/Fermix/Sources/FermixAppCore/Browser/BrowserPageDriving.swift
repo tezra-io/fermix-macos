@@ -1,7 +1,11 @@
 import Foundation
 
 /// How much of a page a snapshot lists: the engine's `interactive` flag.
-public enum BrowserSnapshotMode: String, Equatable, Sendable {
+///
+/// `Decodable` because the host wire's `page.snapshot`, `tab.open` and
+/// `page.act` requests carry this same word (`BrowserHostProtocol.swift`);
+/// one vocabulary rather than a second copy of the two words.
+public enum BrowserSnapshotMode: String, Equatable, Sendable, Decodable {
     case interactive
     case full
 }
