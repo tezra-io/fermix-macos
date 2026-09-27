@@ -203,12 +203,15 @@ final class AppComposition {
             links: links
         )
         // Every report goes through the coordinator, which owns whether a window
-        // is on screen; the pet reads that answer rather than the raw signal.
-        windowHost.onVisibilityChanged = { [petModel, windows] kind, visible in
+        // is on screen; the pet and the browser read that answer rather than
+        // the raw signal. A task's page leaves a covered pane for the host
+        // window, which SwiftUI cannot see happen.
+        windowHost.onVisibilityChanged = { [petModel, windows, browser] kind, visible in
             let onScreen = windows.visibilityChanged(visible, for: kind)
-            guard kind == .pet else { return }
-
-            petModel.setWindowVisible(onScreen)
+            switch kind {
+            case .pet: petModel.setWindowVisible(onScreen)
+            case .main: browser.windowVisibilityChanged(onScreen)
+            }
         }
 
         // Home's Background switch reads through to the status item, so a
@@ -258,8 +261,9 @@ final class AppComposition {
     }
 
     /// The browser pane: the engine the executable handed in, the website
-    /// profile's record in this account's support folder, and the window's
-    /// room for the pane.
+    /// profile's record in this account's support folder, the session's
+    /// availability, and the window's room for the pane. The quit's bound is a
+    /// run-loop timer, which fires while AppKit holds the termination.
     private static func buildBrowser(
         environment: AppEnvironment,
         location: BootstrapLocation,
@@ -269,6 +273,8 @@ final class AppComposition {
             makeEngine: environment.makeBrowser,
             profile: WebsiteProfileRecord(location: location),
             workspace: environment.workspace,
+            session: environment.session,
+            deadlines: RunLoopDeadlineScheduler(),
             paneShown: { [windows] open in windows.setBrowserPane(open: open) }
         )
     }

@@ -456,6 +456,13 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case browserDialogThisPage = "browser.dialog.thisPage"
     case browserDialogOK = "browser.dialog.ok"
     case browserDialogCancel = "browser.dialog.cancel"
+    /// A task's tab: the mark that says so, its close control, which cancels
+    /// the task instead, and that control while the cancel is on its way.
+    case browserTaskTab = "browser.taskTab"
+    case browserCancelTask = "browser.cancelTask"
+    case browserCancellingTask = "browser.cancellingTask"
+    /// The pane opened with no tab.
+    case browserEmpty = "browser.empty"
 
     // Pet
     case petCallBegin = "pet.callBegin"

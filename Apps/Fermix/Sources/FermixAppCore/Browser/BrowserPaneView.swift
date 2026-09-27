@@ -113,7 +113,7 @@ struct BrowserPaneView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            BrowserTabStrip(browser: browser, tabs: model.tabs, selected: model.selectedTabID)
+            BrowserTabStrip(browser: browser, tabs: model.tabs, selected: model.selectedTabID, host: model.host)
             if let tab = model.selectedTab {
                 BrowserNavigationRow(browser: browser, tab: tab, focusRequests: model.addressFocusRequests)
                     .id(tab.id)
@@ -129,13 +129,16 @@ struct BrowserPaneView: View {
         }
     }
 
+    /// The page in front, or, in a pane opened with no tab, the one sentence
+    /// that says what the pane is for.
     @ViewBuilder
     private var page: some View {
         if let tab = model.selectedTab {
-            BrowserPageHost(page: tab.view)
+            BrowserPageHost(browser: browser)
                 .accessibilityLabel(BrowserText.tabTitle(title: tab.title, url: tab.url))
         } else {
-            Color.clear
+            EmptyState(model: EmptyStateModel(message: ProductStrings[.browserEmpty]))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -179,11 +182,20 @@ private struct BrowserTabStrip: View {
     let browser: BrowserCoordinator
     let tabs: [BrowserTab]
     let selected: BrowserTab.ID?
+    /// Whose each tab is, and which tasks are being cancelled.
+    let host: BrowserHostReducer
 
     var body: some View {
         HStack(spacing: Spacing.xxs) {
             ForEach(tabs) { tab in
-                BrowserTabChip(browser: browser, tab: tab, isSelected: tab.id == selected)
+                let task = host.owner(of: tab.id)?.task
+                BrowserTabChip(
+                    browser: browser,
+                    tab: tab,
+                    isSelected: tab.id == selected,
+                    task: task,
+                    cancelling: task.map(host.pendingRelease.contains) == true
+                )
             }
 
             Button { browser.newTab(profile: .shared) } label: {
@@ -203,15 +215,23 @@ private struct BrowserTabStrip: View {
     }
 }
 
-/// One tab: its title, a mark where it is private, and its close control.
+/// One tab: its title, a mark where it is private or a task's, and its close
+/// control.
 ///
 /// The tab in front sits on the secondary capsule; the others are plain words.
 /// Its close control carries Command-W, so the key closes the tab in front and
-/// the last one takes the pane with it.
+/// the last one takes the pane with it. A task's tab is not the person's to
+/// close: the same control cancels the task, once, and the task's release
+/// takes the tab.
 private struct BrowserTabChip: View {
     let browser: BrowserCoordinator
     @ObservedObject var tab: BrowserTab
     let isSelected: Bool
+    /// The task the tab belongs to, where it is a task's.
+    let task: BrowserTaskID?
+    /// Whether the person asked to cancel that task and its release has not
+    /// come yet.
+    let cancelling: Bool
 
     @State private var isHovering = false
 
@@ -219,6 +239,10 @@ private struct BrowserTabChip: View {
         HStack(spacing: Spacing.xxs) {
             Button { browser.select(tab) } label: {
                 HStack(spacing: Spacing.xxs) {
+                    if task != nil {
+                        Image(systemName: "sparkles")
+                            .accessibilityLabel(ProductStrings[.browserTaskTab])
+                    }
                     if tab.profile == .private {
                         Image(systemName: "eye.slash")
                             .accessibilityLabel(ProductStrings[.browserPrivateTab])
@@ -259,20 +283,28 @@ private struct BrowserTabChip: View {
     }
 
     /// Shown on the tab in front and on the one under the pointer, and always
-    /// there for VoiceOver.
+    /// there for VoiceOver. On a task's tab it cancels the task, and it is
+    /// dimmed while that cancel is on its way.
     private var close: some View {
         Button { browser.close(tab) } label: {
-            Label(ProductStrings[.browserCloseTab], systemImage: "xmark")
+            Label(ProductStrings[closeName], systemImage: task == nil ? "xmark" : "stop.fill")
                 .labelStyle(.iconOnly)
                 .font(.system(size: BrowserPaneMetrics.tabCloseSymbolSize, weight: .semibold))
                 .frame(width: BrowserPaneMetrics.tabCloseSize, height: BrowserPaneMetrics.tabCloseSize)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .disabled(cancelling)
         .opacity(isSelected || isHovering ? 1 : 0)
         .keyboardShortcut(isSelected ? KeyboardShortcut("w", modifiers: .command) : nil)
-        .help(ProductStrings[.browserCloseTab])
-        .accessibilityLabel(ProductStrings[.browserCloseTab])
+        .help(ProductStrings[closeName])
+        .accessibilityLabel(ProductStrings[closeName])
+    }
+
+    private var closeName: ProductStringKey {
+        guard task != nil else { return .browserCloseTab }
+
+        return cancelling ? .browserCancellingTask : .browserCancelTask
     }
 }
 
@@ -408,29 +440,53 @@ private struct BrowserNotice: View {
     }
 }
 
-/// The page in front, hosted as the engine built it.
+/// The pane's page area, hosted as the engine built each page.
 ///
-/// A container rather than the page itself, so choosing another tab moves the
-/// new page in and the old one out without SwiftUI rebuilding anything around
-/// it; the page keeps its own scroll position and state while it is out.
+/// It only builds the area and tells the coordinator it is there and when it
+/// is gone: the coordinator owns where every page is (plan §4.10), so it moves
+/// the page in front in and out, and a task's page to the host window when
+/// the pane is hidden or the window covered, by reparenting. SwiftUI rebuilds
+/// nothing around a page as it moves, and a page keeps its own scroll position
+/// and state while it is out.
 private struct BrowserPageHost: NSViewRepresentable {
-    let page: NSView
+    let browser: BrowserCoordinator
 
-    func makeNSView(context: Context) -> NSView {
-        NSView()
+    func makeCoordinator() -> BrowserCoordinator {
+        browser
     }
 
-    func updateNSView(_ container: NSView, context: Context) {
-        guard container.subviews.first !== page else { return }
+    func makeNSView(context: Context) -> BrowserPaneStage {
+        let stage = BrowserPaneStage()
+        browser.paneStageAppeared(stage)
 
-        container.subviews.forEach { $0.removeFromSuperview() }
+        return stage
+    }
+
+    func updateNSView(_ stage: BrowserPaneStage, context: Context) {}
+
+    static func dismantleNSView(_ stage: BrowserPaneStage, coordinator: BrowserCoordinator) {
+        coordinator.paneStageGone(stage)
+    }
+}
+
+/// The page area itself: the page it holds fills it.
+final class BrowserPaneStage: NSView, BrowserPageStage {
+    func hold(_ page: NSView) {
+        guard page.superview !== self else { return }
+
         page.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(page)
+        addSubview(page)
         NSLayoutConstraint.activate([
-            page.topAnchor.constraint(equalTo: container.topAnchor),
-            page.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            page.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            page.trailingAnchor.constraint(equalTo: container.trailingAnchor)
+            page.topAnchor.constraint(equalTo: topAnchor),
+            page.bottomAnchor.constraint(equalTo: bottomAnchor),
+            page.leadingAnchor.constraint(equalTo: leadingAnchor),
+            page.trailingAnchor.constraint(equalTo: trailingAnchor)
         ])
+    }
+
+    func release(_ page: NSView) {
+        guard page.superview === self else { return }
+
+        page.removeFromSuperview()
     }
 }

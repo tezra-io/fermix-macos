@@ -266,6 +266,8 @@ struct FixtureConfigurationTests {
             makeEngine: { _ in FixtureBrowserEngine() },
             profile: WebsiteProfileRecord(location: BrowserProfileLocation().location),
             workspace: FixtureWorkspaceOpener(),
+            session: FakeSessionAvailability(),
+            deadlines: ManualDeadlineScheduler(),
             paneShown: { _ in }
         )
         FixtureWebPage.openTabs(in: browser)

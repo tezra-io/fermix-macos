@@ -406,6 +406,10 @@
 "browser.dialog.thisPage" = "This page";
 "browser.dialog.ok" = "OK";
 "browser.dialog.cancel" = "Cancel";
+"browser.taskTab" = "A task is using this tab";
+"browser.cancelTask" = "Cancel task";
+"browser.cancellingTask" = "Cancelling task";
+"browser.empty" = "Open a page here, or watch a task use the browser.";
 
 /* MARK: Pet */
 "pet.callBegin" = "Begin voice call";

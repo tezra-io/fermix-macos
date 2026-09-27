@@ -36,3 +36,34 @@ public struct MainQueueDeadlineScheduler: DeadlineScheduling {
         }
     }
 }
+
+/// A scheduler on the main run loop itself, in its common modes.
+///
+/// For a deadline that must fire while AppKit holds a termination: the held
+/// quit spins a nested run loop, and work queued on the main queue behind the
+/// block that entered it never runs, while a run-loop timer does (plan §4.8).
+@MainActor
+public struct RunLoopDeadlineScheduler: DeadlineScheduling {
+    public init() {}
+
+    public func schedule(after seconds: TimeInterval, _ work: @escaping () -> Void) -> DeadlineToken {
+        let timer = Timer(timeInterval: seconds, repeats: false) { _ in
+            MainActor.assumeIsolated { work() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+
+        return TimerToken(timer)
+    }
+
+    private final class TimerToken: DeadlineToken {
+        private let timer: Timer
+
+        init(_ timer: Timer) {
+            self.timer = timer
+        }
+
+        func cancel() {
+            timer.invalidate()
+        }
+    }
+}

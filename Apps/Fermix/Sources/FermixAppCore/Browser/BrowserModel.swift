@@ -29,6 +29,10 @@ public final class BrowserModel: ObservableObject {
     /// Counts the times the address field was asked for the caret, so the
     /// pane moves focus once per ask rather than holding it.
     @Published public internal(set) var addressFocusRequests = 0
+    /// The host's own state: whose each tab is, and the tasks the person asked
+    /// to cancel, which the tab strip draws. The coordinator runs its
+    /// transitions and the pane reads it.
+    @Published public internal(set) var host = BrowserHostReducer(availability: .available)
 
     public init() {}
 

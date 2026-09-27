@@ -45,6 +45,9 @@ struct AppEnvironment {
     /// implementation links WebKit, which the agent must never load. A factory,
     /// because the engine is built over the website profile on the first tab.
     let makeBrowser: BrowserEngineMaking
+    /// Whether the pane's tabs can be driven now: this Mac's screen lock,
+    /// display sleep and the app's own quit.
+    let session: any SessionAvailabilityReporting
     /// The Mac's own opener for content: a page in the person's own browser,
     /// or a scheme another app owns.
     let workspace: any WorkspaceLinkOpening
@@ -128,6 +131,7 @@ extension AppEnvironment {
             updater: updater,
             mascot: mascot,
             makeBrowser: browser,
+            session: SessionAvailability.onThisMac(),
             workspace: WorkspaceLinkOpener(),
             chooser: OpenPanelDirectoryChooser(),
             processes: SystemProcessLiveness(),

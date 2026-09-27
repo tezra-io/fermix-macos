@@ -63,7 +63,7 @@ public enum BrowserAvailability: Equatable, Sendable {
 
 /// Why a task's request, or a tab a page opened, was refused rather than
 /// queued.
-public enum BrowserTabRefusal: Equatable, Sendable {
+public enum BrowserTabRefusal: Error, Equatable, Sendable {
     case notAttached
     case stopping
     case unavailable(BrowserUnavailableReason)

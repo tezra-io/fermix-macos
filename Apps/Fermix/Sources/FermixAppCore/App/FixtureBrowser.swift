@@ -12,8 +12,25 @@ import Foundation
 /// navigation controls to be seen in every state.
 @MainActor
 final class FixtureBrowserEngine: BrowserEngine {
+    let hostWindow: any BrowserPageStage = FixtureHostWindow()
+
     func makeTab(profile: BrowserProfile) -> BrowserTab {
         BrowserTab(profile: profile, page: FixtureBrowserPage())
+    }
+
+    /// Fake pages hold nothing to let go.
+    func releaseIdle() {}
+}
+
+/// The fixture attaches to no daemon, so no task ever has a page to hold.
+@MainActor
+final class FixtureHostWindow: BrowserPageStage {
+    func hold(_ page: NSView) {
+        preconditionFailure("the fixture runs no task, so no page runs in the host window")
+    }
+
+    func release(_ page: NSView) {
+        preconditionFailure("the fixture runs no task, so no page runs in the host window")
     }
 }
 

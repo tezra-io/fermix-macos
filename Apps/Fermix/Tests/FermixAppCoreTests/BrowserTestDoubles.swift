@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 
 @testable import FermixAppCore
@@ -74,6 +75,10 @@ extension BrowserPageSnapshot {
 final class FakeBrowserEngine: BrowserEngine {
     private(set) var pages: [FakeBrowserPage] = []
     private(set) var profiles: [BrowserProfile] = []
+    private(set) var idleReleases = 0
+    let stage = FakePageStage()
+
+    var hostWindow: any BrowserPageStage { stage }
 
     func makeTab(profile: BrowserProfile) -> BrowserTab {
         let page = FakeBrowserPage()
@@ -81,6 +86,94 @@ final class FakeBrowserEngine: BrowserEngine {
         profiles.append(profile)
 
         return BrowserTab(profile: profile, page: page)
+    }
+
+    func releaseIdle() { idleReleases += 1 }
+}
+
+/// A place a page can be, without a window: it records which pages it holds.
+@MainActor
+final class FakePageStage: BrowserPageStage {
+    private(set) var held: [NSView] = []
+    /// Every hold and release, in order, as "hold" or "release".
+    private(set) var moves: [String] = []
+
+    func hold(_ page: NSView) {
+        moves.append("hold")
+        guard !holds(page) else { return }
+
+        held.append(page)
+    }
+
+    func release(_ page: NSView) {
+        moves.append("release")
+        held.removeAll { $0 === page }
+    }
+
+    func holds(_ page: NSView) -> Bool {
+        held.contains { $0 === page }
+    }
+}
+
+/// The session's availability as a test states it.
+@MainActor
+final class FakeSessionAvailability: SessionAvailabilityReporting {
+    private let subject: CurrentValueSubject<BrowserAvailability, Never>
+    private(set) var terminatingCalls = 0
+
+    init(_ availability: BrowserAvailability = .available) {
+        subject = CurrentValueSubject(availability)
+    }
+
+    var availability: BrowserAvailability { subject.value }
+    var changes: AnyPublisher<BrowserAvailability, Never> { subject.eraseToAnyPublisher() }
+
+    func set(_ availability: BrowserAvailability) {
+        subject.send(availability)
+    }
+
+    func applicationTerminating() {
+        terminatingCalls += 1
+        subject.send(.unavailable(.appTerminating))
+    }
+}
+
+/// The daemon's end of the host wire, recorded: what the host told it, and
+/// the answer to `host_stopping` held for the test to give.
+@MainActor
+final class FakeHostLink: BrowserHostLink {
+    private(set) var reports: [BrowserAvailability] = []
+    private(set) var cancelled: [BrowserTaskID] = []
+    private(set) var closedTabs: [UUID] = []
+    private(set) var stoppingSent = 0
+    /// Every event in the order the host sent it.
+    private(set) var events: [String] = []
+    private var answer: (@MainActor () -> Void)?
+
+    func reportAvailability(_ availability: BrowserAvailability) {
+        reports.append(availability)
+        events.append("availability")
+    }
+
+    func tabClosed(_ tab: UUID, task: BrowserTaskID) {
+        closedTabs.append(tab)
+        events.append("tab.closed")
+    }
+
+    func cancelTask(_ task: BrowserTaskID) {
+        cancelled.append(task)
+        events.append("cancel")
+    }
+
+    func sendHostStopping(answered: @escaping @MainActor () -> Void) {
+        stoppingSent += 1
+        events.append("host_stopping")
+        answer = answered
+    }
+
+    /// The daemon's answer to `host_stopping` arrives.
+    func answerStopping() {
+        answer?()
     }
 }
 
@@ -152,11 +245,17 @@ struct BrowserHarness {
     let engine = FakeBrowserEngine()
     let workspace = RecordingWorkspaceOpener()
     let record = BrowserRecord()
+    let session: FakeSessionAvailability
+    /// The quit's bound, fired by hand.
+    let deadlines = ManualDeadlineScheduler()
+    /// The pane's page area, as SwiftUI would build it.
+    let pane = FakePageStage()
     let location: BootstrapLocation
     let coordinator: BrowserCoordinator
 
-    init() {
+    init(availability: BrowserAvailability = .available) {
         location = BrowserProfileLocation().location
+        session = FakeSessionAvailability(availability)
         coordinator = BrowserCoordinator(
             makeEngine: { [engine, record] profile in
                 record.enginesBuilt.append(profile)
@@ -164,6 +263,8 @@ struct BrowserHarness {
             },
             profile: WebsiteProfileRecord(location: location),
             workspace: workspace,
+            session: session,
+            deadlines: deadlines,
             paneShown: { [record] in record.paneShown.append($0) }
         )
     }
@@ -172,6 +273,9 @@ struct BrowserHarness {
 
     /// The fake page behind a tab, by the order the engine made it.
     func page(_ index: Int) -> FakeBrowserPage { engine.pages[index] }
+
+    /// The corner window's fake.
+    var hostWindow: FakePageStage { engine.stage }
 }
 
 /// A throwaway support folder, the one the website profile record lives in.

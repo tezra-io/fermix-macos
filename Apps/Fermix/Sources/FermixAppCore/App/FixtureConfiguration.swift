@@ -500,6 +500,9 @@ extension AppEnvironment {
             // Fake pages, so the pane is looked at with no web engine and no
             // network behind it.
             makeBrowser: { _ in FixtureBrowserEngine() },
+            // A session with nothing to hear: the fixture's Mac is unlocked
+            // and awake for the whole run.
+            session: SessionAvailability(standing: [], distributed: NotificationCenter(), workspace: NotificationCenter()),
             workspace: FixtureWorkspaceOpener(),
             chooser: FixtureDirectoryChooser(),
             processes: probes,

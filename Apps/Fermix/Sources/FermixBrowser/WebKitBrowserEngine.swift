@@ -30,6 +30,16 @@ public final class WebKitBrowserEngine: BrowserEngine {
         BrowserTab(profile: profile, page: WebKitBrowserPage(configuration: configuration(for: profile)))
     }
 
+    /// The corner window a task's pages run in while the pane cannot show
+    /// them.
+    public var hostWindow: any BrowserPageStage { cornerWindow }
+    private let cornerWindow = BrowserHostWindow()
+
+    /// With no tab of anyone's left, the corner window goes off screen.
+    public func releaseIdle() {
+        cornerWindow.close()
+    }
+
     /// The privacy defaults that need no vendored list (plan §4.6).
     ///
     /// Known hosts go to https before the request leaves, and every other http
