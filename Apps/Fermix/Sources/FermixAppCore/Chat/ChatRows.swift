@@ -69,6 +69,9 @@ private struct ChatReplyRow: View {
         Text(text)
             .fermixType(Typography.style(.body))
             .foregroundStyle(Palette.ink.color)
+            // A link takes the tint, and the text blue is the one that holds
+            // §9's floor on the dark ground; the root's accent does not.
+            .tint(Palette.accentText.color)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .ignore)
@@ -88,6 +91,7 @@ private struct ChatTurnRow: View {
                 Text(ChatText.reply(turn.text))
                     .fermixType(Typography.style(.body))
                     .foregroundStyle(Palette.ink.color)
+                    .tint(Palette.accentText.color)
             }
 
             if let tool = turn.tool {

@@ -264,7 +264,12 @@ enum FixtureCompanionScript {
             inReplyTo: "fixture-msg-14"
         ),
         row(16, "user", "Book the dentist for Friday morning if there is a slot.", clientMsgId: "fixture-msg-16"),
-        row(17, "assistant", "Friday has a slot at 9:30 with Dr Patel. Shall I book it?", inReplyTo: "fixture-msg-16"),
+        row(
+            17,
+            "assistant",
+            "Friday has a slot at 9:30 with Dr Patel, at the practice on [example.com](https://example.com/). Shall I book it?",
+            inReplyTo: "fixture-msg-16"
+        ),
         row(18, "user", "Yes, book it.", clientMsgId: "fixture-msg-18"),
         row(19, "assistant", "Booked for Friday at 9:30. It is on your calendar with the address and a reminder the evening before.", inReplyTo: "fixture-msg-18"),
         row(20, "user", "Will it rain on Saturday? I want to plan the hike.", clientMsgId: askedLast),

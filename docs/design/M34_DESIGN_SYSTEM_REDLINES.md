@@ -1434,7 +1434,8 @@ every button carries a title or an accessibility label; every sheet has a cancel
       window, titled "example.com says", with OK, and Cancel where the page asked a question.
       One at a time, and only for the tab in front: any other is dismissed at once, so a popup
       never stacks.
-    - **Links.** A link in a reply is live and opens through the one content link opener: a
+    - **Links.** A link in a reply is live, drawn in `accentText` (the root's accent does not
+      hold §9's floor on the dark ground), and opens through the one content link opener: a
       web page in a new tab of the pane, in front, by the app's own preference (Fermix, the
       default, or the person's browser, whose Settings row lands with the engine's browser
       section); any other scheme goes to the app that owns it. Provider sign-in and the prior
@@ -1454,8 +1455,8 @@ every button carries a title or an accessibility label; every sheet has a cancel
       (the toolbar and its search are the surface's beside it), a divider, find and zoom
       controls, a download, a tab overview.
     - **Looked at** with `--fixture --fixture-start browser`: Chat with the pane open on two
-      fake tabs over no network, the second private and the first in front. The pane closed is
-      `--fixture-start chat`.
+      fake tabs over no network, the second private and the first in front, beside a reply
+      carrying a link. The pane closed is `--fixture-start chat`.
 
 ## 9. Accessibility (DESIGN_SPEC §9, as build gates)
 

@@ -1,6 +1,22 @@
 import AppKit
 import SwiftUI
 
+/// The browser pane's own measures (redlines §8 decision 37). The pane's
+/// width is the window's, `WindowMetrics.browserPaneWidth`, because the window
+/// widens by it.
+enum BrowserPaneMetrics {
+    /// A tab gives up width to its neighbours down to this, and never takes
+    /// more than the widest; its title truncates in between.
+    static let tabMinWidth: Double = 72
+    static let tabMaxWidth: Double = 180
+    /// A tab's close control, a small circle inside the regular row.
+    static let tabCloseSize: Double = 16
+    static let tabCloseSymbolSize: Double = 9
+    /// The lock in the address capsule, a glyph beside the address rather than
+    /// a control.
+    static let lockSymbolSize: Double = 10
+}
+
 /// The words the pane draws for a tab and a page's dialog.
 enum BrowserText {
     /// A tab is named by its page's title, then by the page's host while the
@@ -34,6 +50,9 @@ enum BrowserText {
 struct BrowserPaneView: View {
     let browser: BrowserCoordinator
     @ObservedObject private var model: BrowserModel
+    /// What the person types into a page's prompt, reset to the page's own
+    /// default as each prompt arrives.
+    @State private var promptText = ""
 
     init(browser: BrowserCoordinator) {
         self.browser = browser
@@ -62,9 +81,33 @@ struct BrowserPaneView: View {
             isPresented: dialogShown,
             presenting: model.dialog
         ) { request in
-            BrowserDialogActions(request: request, answer: browser.answer)
+            dialogActions(request.dialog)
         } message: { request in
             Text(request.dialog.message)
+        }
+        .onChange(of: model.dialog?.id) {
+            guard case .prompt(let defaultText)? = model.dialog?.dialog.kind else { return }
+
+            promptText = defaultText
+        }
+    }
+
+    /// A page's dialog, answered once: OK alone for an alert, OK and Cancel for
+    /// a confirmation, and a field above them for a prompt, named by the page's
+    /// own question, which the alert already shows as its message.
+    @ViewBuilder
+    private func dialogActions(_ dialog: BrowserDialog) -> some View {
+        switch dialog.kind {
+        case .alert:
+            Button(ProductStrings[.browserDialogOK]) { browser.answer(.confirmed) }
+        case .confirm:
+            Button(ProductStrings[.browserDialogOK]) { browser.answer(.confirmed) }
+            Button(ProductStrings[.browserDialogCancel], role: .cancel) { browser.answer(.dismissed) }
+        case .prompt:
+            TextField(dialog.message, text: $promptText)
+                .labelsHidden()
+            Button(ProductStrings[.browserDialogOK]) { browser.answer(.text(promptText)) }
+            Button(ProductStrings[.browserDialogCancel], role: .cancel) { browser.answer(.dismissed) }
         }
     }
 
@@ -196,7 +239,11 @@ private struct BrowserTabChip: View {
         .foregroundStyle((isSelected ? Palette.ink : Palette.secondary).color)
         .padding(.leading, Spacing.s)
         .padding(.trailing, Spacing.xxs)
-        .frame(minWidth: 72, maxWidth: 180, minHeight: HitTarget.rowAction)
+        .frame(
+            minWidth: BrowserPaneMetrics.tabMinWidth,
+            maxWidth: BrowserPaneMetrics.tabMaxWidth,
+            minHeight: HitTarget.rowAction
+        )
         .background {
             if isSelected {
                 ButtonRecipe.shape.fill(ButtonRecipe.secondaryFill.color)
@@ -217,8 +264,8 @@ private struct BrowserTabChip: View {
         Button { browser.close(tab) } label: {
             Label(ProductStrings[.browserCloseTab], systemImage: "xmark")
                 .labelStyle(.iconOnly)
-                .font(.system(size: 9, weight: .semibold))
-                .frame(width: 16, height: 16)
+                .font(.system(size: BrowserPaneMetrics.tabCloseSymbolSize, weight: .semibold))
+                .frame(width: BrowserPaneMetrics.tabCloseSize, height: BrowserPaneMetrics.tabCloseSize)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -280,7 +327,7 @@ private struct BrowserNavigationRow: View {
         HStack(spacing: Spacing.xxs) {
             if tab.hasOnlySecureContent {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: BrowserPaneMetrics.lockSymbolSize, weight: .semibold))
                     .foregroundStyle(Palette.secondary.color)
                     .accessibilityLabel(ProductStrings[.browserSecure])
             }
@@ -358,46 +405,6 @@ private struct BrowserNotice: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background { FrameGlass() }
         .accessibilityAddTraits(.updatesFrequently)
-    }
-}
-
-/// A page's dialog, answered once: OK alone for an alert, OK and Cancel for a
-/// confirmation, and a field above them for a prompt.
-private struct BrowserDialogActions: View {
-    let request: BrowserDialogRequest
-    let answer: (BrowserDialogAnswer) -> Void
-
-    @State private var text: String
-
-    init(request: BrowserDialogRequest, answer: @escaping (BrowserDialogAnswer) -> Void) {
-        self.request = request
-        self.answer = answer
-        guard case .prompt(let defaultText) = request.dialog.kind else {
-            _text = State(initialValue: "")
-            return
-        }
-
-        _text = State(initialValue: defaultText)
-    }
-
-    var body: some View {
-        if case .prompt = request.dialog.kind {
-            // The page's own question is the field's name; the alert already
-            // shows it as its message, so the label is not drawn twice.
-            TextField(request.dialog.message, text: $text)
-                .labelsHidden()
-        }
-
-        switch request.dialog.kind {
-        case .alert:
-            Button(ProductStrings[.browserDialogOK]) { answer(.confirmed) }
-        case .confirm:
-            Button(ProductStrings[.browserDialogOK]) { answer(.confirmed) }
-            Button(ProductStrings[.browserDialogCancel], role: .cancel) { answer(.dismissed) }
-        case .prompt:
-            Button(ProductStrings[.browserDialogOK]) { answer(.text(text)) }
-            Button(ProductStrings[.browserDialogCancel], role: .cancel) { answer(.dismissed) }
-        }
     }
 }
 

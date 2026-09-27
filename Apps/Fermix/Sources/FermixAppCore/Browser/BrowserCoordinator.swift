@@ -87,6 +87,8 @@ public final class BrowserCoordinator {
         guard let index = model.tabs.firstIndex(where: { $0.id == tab.id }) else { return }
 
         if model.dialog?.tabID == tab.id { answer(.dismissed) }
+        // A page that is going answers anything it asks from now on by itself.
+        tab.delegate = nil
         tab.stop()
         model.tabs.remove(at: index)
         guard !model.tabs.isEmpty else {
