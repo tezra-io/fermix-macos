@@ -126,6 +126,7 @@ final class AppComposition {
             model: model,
             windows: windows,
             voice: voice,
+            browser: browser,
             settings: settings,
             presentation: settingsPresentation
         )
@@ -339,6 +340,7 @@ final class AppComposition {
         model: AppModel,
         windows: WindowCoordinator,
         voice: VoiceCoordinator,
+        browser: BrowserCoordinator,
         settings: SettingsModel,
         presentation: SettingsPresentation
     ) -> (lifecycle: LifecycleCoordinator, coordinator: AppCoordinator) {
@@ -368,6 +370,7 @@ final class AppComposition {
                 ),
                 gate: gate,
                 store: store,
+                hostQuitting: browser,
                 settings: settings,
                 presentation: presentation
             )
@@ -479,6 +482,7 @@ final class AppComposition {
         updates: any UpdateReconciling,
         gate: ServiceMutationGate,
         store: BootstrapStore,
+        hostQuitting: any BrowserHostQuitting,
         settings: SettingsModel,
         presentation: SettingsPresentation
     ) -> AppCoordinator {
@@ -492,6 +496,7 @@ final class AppComposition {
             bootstrap: { store.condition() },
             registrationBuild: { store.registrationBuild(matching: environment.configuration.buildNumber) },
             termination: environment.termination,
+            hostQuitting: hostQuitting,
             settings: settings,
             presentation: presentation,
             announcer: AppKitAccessibilityAnnouncer()

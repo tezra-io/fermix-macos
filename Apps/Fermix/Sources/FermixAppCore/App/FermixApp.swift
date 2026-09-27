@@ -43,10 +43,33 @@ public enum FermixApp {
         // process does with AppKit. The window host promotes the app to a
         // Dock app for exactly as long as a real window is open.
         application.setActivationPolicy(.accessory)
+        installSIGTERMHandler()
 
         let delegate = AppDelegate(plan: launchPlan(updater: updater, mascot: mascot, browser: browser))
         application.delegate = delegate
         application.run()
+    }
+
+    /// A bare `SIGTERM` bypasses `applicationShouldTerminate` entirely, which
+    /// is the one barrier a staged update's stop is spent on (plan §4.0). The
+    /// default disposition is replaced with a dispatch source so the signal
+    /// never simply kills the process, and its handler asks for the ordinary
+    /// termination through `perform(afterDelay:)` rather than calling
+    /// `NSApp.terminate` in the handler's own turn, so the request enters
+    /// through an ordinary run loop turn like every other quit.
+    private static var sigtermSource: DispatchSourceSignal?
+
+    @MainActor
+    private static func installSIGTERMHandler() {
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler {
+            MainActor.assumeIsolated {
+                NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0)
+            }
+        }
+        source.resume()
+        sigtermSource = source
     }
 
     /// Which of the app's declared configurations this launch asked for.
@@ -64,8 +87,10 @@ public enum FermixApp {
         let arguments = CommandLine.arguments
         let fixture = fixtureRequest(arguments)
         let development = developmentEngineRequest(arguments)
+        let background = backgroundRequest(arguments)
 
-        if fixture != nil, development { refuse(.combinedWithFixture) }
+        if fixture != nil, development { refuse(DevelopmentEngineLaunchRequest.Refusal.combinedWithFixture) }
+        if fixture != nil, background { refuse(BackgroundLaunchRequest.Refusal.combinedWithFixture) }
         if let fixture { return fixturePlan(named: fixture, mascot: mascot) }
         if development {
             return developmentEnginePlan(
@@ -76,7 +101,7 @@ public enum FermixApp {
             )
         }
 
-        return .product(updater: updater, mascot: mascot, browser: browser)
+        return .product(updater: updater, mascot: mascot, browser: browser, background: background)
     }
 
     /// The surface a fixture launch named, or nil where it asked for none.
@@ -100,6 +125,20 @@ public enum FermixApp {
             refuse(refusal)
         } catch {
             preconditionFailure("DevelopmentEngineLaunchRequest.parse throws only Refusal, got \(error)")
+        }
+    }
+
+    /// Whether this launch asked to start hidden, with no window and the
+    /// status item kept (plan §4.0). Compiled into every build, release
+    /// included: a task can start the app on any Mac running Fermix.
+    @MainActor
+    private static func backgroundRequest(_ arguments: [String]) -> Bool {
+        do {
+            return try BackgroundLaunchRequest.parse(arguments)
+        } catch let refusal as BackgroundLaunchRequest.Refusal {
+            refuse(refusal)
+        } catch {
+            preconditionFailure("BackgroundLaunchRequest.parse throws only Refusal, got \(error)")
         }
     }
 
@@ -150,6 +189,10 @@ public enum FermixApp {
     }
 
     private static func refuse(_ refusal: DevelopmentEngineLaunchRequest.Refusal) -> Never {
+        refuse(sentence: refusal.sentence)
+    }
+
+    private static func refuse(_ refusal: BackgroundLaunchRequest.Refusal) -> Never {
         refuse(sentence: refusal.sentence)
     }
 
@@ -206,22 +249,27 @@ struct AppLaunchPlan {
 
     /// The shipped launch: the product graph, opened at whatever the launch
     /// reason resolves to.
+    /// - Parameter background: `--background` on the command line (plan
+    ///   §4.0): a task started this launch with no host attached, and it
+    ///   opens no window, keeping the status item as a login launch does.
     static func product(
         updater: any UpdaterDriving,
         mascot: any MascotRendering,
-        browser: @escaping BrowserEngineMaking
+        browser: @escaping BrowserEngineMaking,
+        background: Bool
     ) -> AppLaunchPlan {
         AppLaunchPlan(
             compose: { AppComposition(updater: updater, mascot: mascot, browser: browser) },
-            present: openLaunchReason
+            present: { composition in openLaunchReason(composition, background: background) }
         )
     }
 
     /// What a real launch opens: whatever the launch reason resolves to.
-    static func openLaunchReason(_ composition: AppComposition) {
+    static func openLaunchReason(_ composition: AppComposition, background: Bool) {
         composition.coordinator.start(
             reason: LaunchClassifier.classify(
                 isLoginLaunch: LoginLaunchProbe.isLoginLaunch(),
+                isBackgroundLaunch: background,
                 destination: nil
             )
         )

@@ -1112,6 +1112,7 @@ final class HomeHarness {
             bootstrap: { .present },
             registrationBuild: { .thisBuild },
             termination: FakeTerminationRequester(),
+            hostQuitting: ImmediateHostQuitting(),
             settings: settings,
             presentation: SettingsPresentation(),
             announcer: RecordingAnnouncer()

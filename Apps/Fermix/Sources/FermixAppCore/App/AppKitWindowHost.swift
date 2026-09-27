@@ -155,6 +155,10 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
         position(window, descriptor)
         fit(window)
         window.contentView = surfaces.view(for: descriptor.kind)
+        // A launch that started hidden (`open -j`, plan §4.0) leaves `NSApp`
+        // in the hidden state macOS gives Command-H: a window can exist and
+        // still draw nothing until the app itself is unhidden.
+        NSApp.unhide(nil)
         // An accessory app that orders a window front without activating
         // leaves it behind whatever the user was in — the window "opens" and
         // nobody sees it (observed live). Presenting IS the activation intent.

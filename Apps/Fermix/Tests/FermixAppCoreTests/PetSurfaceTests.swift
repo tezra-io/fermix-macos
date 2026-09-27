@@ -364,6 +364,7 @@ final class PetHarness {
             bootstrap: { .present },
             registrationBuild: { .thisBuild },
             termination: FakeTerminationRequester(),
+            hostQuitting: ImmediateHostQuitting(),
             settings: SettingsFixture.model(gateway: try SettingsFixture.gateway()),
             presentation: SettingsPresentation(),
             announcer: RecordingAnnouncer()

@@ -275,6 +275,32 @@ struct LaunchReasonTests {
 
         #expect(AppCoordinator.presentation(for: reason, bootstrap: .absent) == .assistant(.recovery))
     }
+
+    /// `--background` opens no window, exactly as a login launch does
+    /// (plan §4.0): a task can start the app with nobody at the keyboard.
+    @Test("a background launch opens nothing and leaves the menu bar in charge")
+    func backgroundLaunchIsQuiet() {
+        let reason = LaunchClassifier.classify(isLoginLaunch: false, isBackgroundLaunch: true, destination: nil)
+
+        #expect(reason == .background)
+        #expect(AppCoordinator.presentation(for: reason, bootstrap: .present) == .menuBarOnly)
+        // A background launch never opens recovery either: a hidden launch
+        // puts nothing on screen, whatever the account's own condition is.
+        #expect(AppCoordinator.presentation(for: reason, bootstrap: .absent) == .menuBarOnly)
+    }
+
+    /// A url is an explicit request, so it wins over a launch that started
+    /// hidden, exactly as it wins over a login launch.
+    @Test("a url launch opens its route even when the launch started hidden")
+    func urlLaunchWinsOverBackground() {
+        let reason = LaunchClassifier.classify(
+            isLoginLaunch: false,
+            isBackgroundLaunch: true,
+            destination: .surface(.doctor)
+        )
+
+        #expect(reason == .route(.surface(.doctor)))
+    }
 }
 
 /// Window geometry and single-instance policy, over an injected host so no
