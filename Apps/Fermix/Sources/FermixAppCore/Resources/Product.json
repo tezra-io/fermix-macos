@@ -9,7 +9,7 @@
   "agent_service_label": "io.tezra.FermixPet.agent",
   "agent_search_path": "/usr/bin:/bin:/usr/sbin:/sbin",
   "support_directory_name": "Fermix",
-  "minimum_system_version": "15.0",
+  "minimum_system_version": "15.2",
   "supported_architectures": [
     "arm64",
     "x86_64"

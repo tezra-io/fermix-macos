@@ -14,7 +14,7 @@ let package = Package(
     // resolved through the same bundle machinery a translated build would use
     // rather than through a private catalogue format.
     defaultLocalization: "en",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS("15.2")],
     products: [
         .executable(name: "Fermix", targets: ["Fermix"]),
         .executable(name: "FermixAgent", targets: ["FermixAgent"]),

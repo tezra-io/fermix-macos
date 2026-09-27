@@ -160,11 +160,12 @@ check_linked_info_plist() {
     fail "linked Info.plist is stale; regenerate it with scripts/render_info_plist.sh"
 }
 
+# The floor is a minor release (15.2, for WebKit's HTTPS navigation policy), so
+# the manifest states it as a version string: `.v15` would mean 15.0 and let
+# the compiler accept a call the floor does not have.
 check_manifest_platform() {
-  local min_version major
-  min_version="$(product_config minimum_system_version)"
-  major="${min_version%%.*}"
-  require_literal "$MANIFEST" "platforms: [.macOS(.v$major)]" "the macOS deployment floor"
+  require_literal "$MANIFEST" "platforms: [.macOS(\"$(product_config minimum_system_version)\")]" \
+    "the macOS deployment floor"
 }
 
 check_project_spec() {

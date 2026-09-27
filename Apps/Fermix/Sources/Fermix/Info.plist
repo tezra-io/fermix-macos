@@ -22,7 +22,7 @@
   </array>
   <key>CFBundleShortVersionString</key><string>0.2.1</string>
   <key>CFBundleVersion</key><string>6</string>
-  <key>LSMinimumSystemVersion</key><string>15.0</string>
+  <key>LSMinimumSystemVersion</key><string>15.2</string>
   <!-- No LSUIElement: FermixApp.main() sets the accessory policy as its first
        AppKit act, and the window host promotes to a Dock app while a real
        window is open. The plist key would pin UIElement and (observed live on

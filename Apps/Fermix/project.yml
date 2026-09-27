@@ -29,13 +29,13 @@ options:
   bundleIdPrefix: io.tezra
   createIntermediateGroups: true
   deploymentTarget:
-    macOS: "15.0"
+    macOS: "15.2"
   generateEmptyDirectories: true
 
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MACOSX_DEPLOYMENT_TARGET: "15.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.2"
     MARKETING_VERSION: "0.2.1"
     CURRENT_PROJECT_VERSION: "6"
     ENABLE_HARDENED_RUNTIME: YES
