@@ -12,7 +12,7 @@ struct BrowserCoordinatorTests {
 
     @Test("a link opens in a new tab of the shared profile, in front, and opens the pane")
     func linkOpensATab() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
 
         harness.coordinator.open(Self.fermix)
 
@@ -27,7 +27,7 @@ struct BrowserCoordinatorTests {
     /// profile would be the person signed out of every website.
     @Test("the engine is built once, over the recorded website profile")
     func engineIsBuiltOnce() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
 
         harness.coordinator.open(Self.fermix)
         harness.coordinator.newTab(profile: .private)
@@ -39,7 +39,7 @@ struct BrowserCoordinatorTests {
 
     @Test("a new tab is blank, in front, with the caret in the address field")
     func newTabFocusesTheAddress() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
 
         harness.coordinator.newTab(profile: .private)
 
@@ -50,7 +50,7 @@ struct BrowserCoordinatorTests {
 
     @Test("closing a tab brings its neighbour to the front")
     func closingSelectsTheNeighbour() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
         harness.coordinator.open(Self.example)
         let first = try #require(harness.model.tabs.first)
@@ -66,7 +66,7 @@ struct BrowserCoordinatorTests {
 
     @Test("closing the last tab closes the pane")
     func lastTabClosesThePane() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
 
         harness.coordinator.close(try #require(harness.model.tabs.first))
@@ -80,7 +80,7 @@ struct BrowserCoordinatorTests {
     /// them.
     @Test("closing the pane keeps its tabs")
     func closingThePaneKeepsTabs() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
 
         harness.coordinator.closePane()
@@ -95,7 +95,7 @@ struct BrowserCoordinatorTests {
 
     @Test("an address loads in the tab in front")
     func addressLoadsInFront() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.newTab(profile: .shared)
 
         harness.coordinator.load(address: "fermix.ai")
@@ -106,7 +106,7 @@ struct BrowserCoordinatorTests {
 
     @Test("an address with no tab to load it in opens one")
     func addressWithoutATabOpensOne() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
 
         harness.coordinator.load(address: "https://example.com")
 
@@ -116,7 +116,7 @@ struct BrowserCoordinatorTests {
 
     @Test("something that is not an address says so and loads nothing")
     func nonAddressSaysSo() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.newTab(profile: .shared)
 
         harness.coordinator.load(address: "what is fermix")
@@ -132,7 +132,7 @@ struct BrowserCoordinatorTests {
     /// that opened it.
     @Test("a page's own window lands beside its opener, in front")
     func openedWindowLandsBesideItsOpener() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
         harness.coordinator.open(Self.example)
         let opener = try #require(harness.model.tabs.first)
@@ -146,7 +146,7 @@ struct BrowserCoordinatorTests {
 
     @Test("a page that closes its own window closes its tab")
     func pageClosesItsTab() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
         harness.coordinator.open(Self.example)
 
@@ -157,7 +157,7 @@ struct BrowserCoordinatorTests {
 
     @Test("the page in front may ask the person, and the answer reaches the page")
     func dialogsReachThePerson() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
         var answers: [BrowserDialogAnswer] = []
         let dialog = BrowserDialog(kind: .confirm, message: "Leave this page?", origin: "fermix.ai")
@@ -173,7 +173,7 @@ struct BrowserCoordinatorTests {
     /// One popup at a time, and only for the page the person is looking at.
     @Test("a second dialog, or one from a tab behind, is dismissed at once")
     func dialogsNeverStack() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
         harness.coordinator.open(Self.example)
         var behind: [BrowserDialogAnswer] = []
@@ -191,7 +191,7 @@ struct BrowserCoordinatorTests {
 
     @Test("closing a tab answers the dialog its page is waiting on")
     func closingAnswersThePendingDialog() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
         var answers: [BrowserDialogAnswer] = []
         let prompt = BrowserDialog(kind: .prompt(defaultText: ""), message: "Name?", origin: "fermix.ai")
@@ -205,7 +205,7 @@ struct BrowserCoordinatorTests {
 
     @Test("a download is refused with the pane's sentence")
     func downloadsAreRefusedWithASentence() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
 
         harness.page(0).events?.pageStartedDownload(URL(string: "https://fermix.ai/Fermix.dmg")!)
@@ -215,7 +215,7 @@ struct BrowserCoordinatorTests {
 
     @Test("another app's scheme goes to that app, and says so when none takes it")
     func externalSchemesGoToTheMac() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
         let mail = URL(string: "mailto:hello@fermix.ai")!
 
@@ -230,7 +230,7 @@ struct BrowserCoordinatorTests {
 
     @Test("the page in front opens in the person's own browser")
     func openInSystemBrowser() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
         harness.page(0).events?.pageChanged(BrowserPageState(url: Self.fermix, title: "Fermix"))
 
@@ -241,7 +241,7 @@ struct BrowserCoordinatorTests {
 
     @Test("a failed load is said for the tab in front only")
     func failuresAreForTheTabInFront() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         harness.coordinator.open(Self.fermix)
         harness.coordinator.open(Self.example)
 
@@ -256,7 +256,7 @@ struct BrowserCoordinatorTests {
     /// the sentence rather than a link going nowhere.
     @Test("an unreadable website profile opens the pane on its sentence")
     func unreadableProfileSaysSo() throws {
-        let harness = try BrowserHarness()
+        let harness = BrowserHarness()
         let record = WebsiteProfileRecord(location: harness.location)
         try FileManager.default.createDirectory(at: harness.location.directoryURL, withIntermediateDirectories: true)
         try Data("not a record".utf8).write(to: record.url)
@@ -297,5 +297,23 @@ struct BrowserAddressTests {
     ])
     func otherTextIsNotAnAddress(_ typed: String) {
         #expect(BrowserAddress.url(from: typed) == nil)
+    }
+}
+
+/// The words the pane draws for a tab and a dialog.
+@Suite("Browser pane words")
+struct BrowserTextTests {
+    @Test("a tab is named by its title, then its host, then as a new tab")
+    func tabTitles() {
+        #expect(BrowserText.tabTitle(title: "Fermix", url: URL(string: "https://fermix.ai")) == "Fermix")
+        #expect(BrowserText.tabTitle(title: "", url: URL(string: "https://fermix.ai/docs")) == "fermix.ai")
+        #expect(BrowserText.tabTitle(title: "", url: nil) == ProductStrings[.browserUntitledTab])
+        #expect(BrowserText.tabTitle(title: "", url: URL(string: "about:blank")) == ProductStrings[.browserUntitledTab])
+    }
+
+    @Test("a dialog speaks for the website that raised it")
+    func dialogTitles() {
+        #expect(BrowserText.dialogTitle(origin: "fermix.ai") == "fermix.ai says")
+        #expect(BrowserText.dialogTitle(origin: "") == "This page says")
     }
 }

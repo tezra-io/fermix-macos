@@ -654,6 +654,24 @@ struct ContainerRuleTests {
         #expect(!pane.contains("Text(SettingsPane.integrations.title)"), "the pane draws its title in the body")
     }
 
+    /// The browser pane sits beside the body inside the one split view, and it
+    /// draws no title: the window's title is the surface's beside it, so the
+    /// pane neither names itself in the toolbar nor draws a page title of its
+    /// own (plan §4.9).
+    @Test("the browser pane is a third pane beside the body, and draws no title")
+    func browserPaneSitsBesideTheBody() throws {
+        let files = try SourceTree.swiftFiles(under: "", excluding: false)
+        let pane = try #require(files.first { $0.path.hasSuffix("Browser/BrowserPaneView.swift") }?.text)
+        let window = try #require(files.first { $0.path.hasSuffix("App/MainWindowView.swift") }?.text)
+
+        #expect(!pane.contains(".navigationTitle("), "the pane names itself in the toolbar")
+        #expect(!pane.contains(".toolbar"), "the pane puts controls in the surface's toolbar")
+        #expect(pane.contains(".frame(width: WindowMetrics.browserPaneWidth)"), "the pane's width is not the token")
+        #expect(pane.contains("FrameGlass()"), "the header is not on the frame")
+        #expect(window.contains("BrowserPaneView(browser: browser)"))
+        #expect(window.contains("detailColumn.frame(minWidth: 0, minHeight: 0)"), "the body lost its floor")
+    }
+
     /// A row that opens something says so before it is clicked. The plugin rows
     /// opened a detail sheet with no chevron, no hover fill and no pointer
     /// change, so the one control the row advertised was its switch.

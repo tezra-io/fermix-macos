@@ -49,6 +49,10 @@ struct MainWindowView: View {
     /// coordinator's own transaction, not the command: the command asks, and
     /// this is what the sheet's action runs (M34 §5.10).
     let restart: () -> Void
+    /// The browser pane's owner. Held and not observed, like the settings
+    /// model: the pane observes its own model, so a page loading redraws the
+    /// pane and never the rail, the band or the body beside it.
+    let browser: BrowserCoordinator
 
     var body: some View {
         presented
@@ -243,8 +247,22 @@ struct MainWindowView: View {
             .frame(width: WindowMetrics.bodyCornerRadius, height: WindowMetrics.bodyCornerRadius)
     }
 
-    @ViewBuilder
+    /// What the body holds, then the browser pane when it is open (plan §4.3).
+    ///
+    /// The pane is the third pane inside the frame, the mirror of the settings
+    /// pane list: the band runs over it, its header continues the frame's glass
+    /// under the band, and the body's corners stay where they are, rounding the
+    /// surface or the form. Still one split view, and no divider: the seam is
+    /// the pane's own fill.
     private var detailColumn: some View {
+        HStack(spacing: 0) {
+            bodyColumn
+            BrowserPaneView(browser: browser)
+        }
+    }
+
+    @ViewBuilder
+    private var bodyColumn: some View {
         if presentation.isShowing {
             // Settings inside the frame: its pane list joins the rail as the
             // frame, the form is the body the corners round, and the rail

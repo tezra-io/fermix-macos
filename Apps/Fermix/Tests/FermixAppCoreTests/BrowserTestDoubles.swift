@@ -103,8 +103,8 @@ struct BrowserHarness {
     let location: BootstrapLocation
     let coordinator: BrowserCoordinator
 
-    init() throws {
-        location = try BrowserProfileLocation().location
+    init() {
+        location = BrowserProfileLocation().location
         coordinator = BrowserCoordinator(
             makeEngine: { [engine, record] profile in
                 record.enginesBuilt.append(profile)
@@ -126,7 +126,7 @@ struct BrowserHarness {
 struct BrowserProfileLocation {
     let location: BootstrapLocation
 
-    init() throws {
+    init() {
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("fermix-browser-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -174,7 +174,8 @@ struct SidebarSelectionFeedbackTests {
             settings: harness.settings,
             leaveSettings: {},
             openRecovery: {},
-            restart: {}
+            restart: {},
+            browser: BrowserHarness().coordinator
         )
     }
 }

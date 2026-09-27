@@ -388,6 +388,24 @@
 "browser.notice.profileUnavailable" = "The browser’s website data could not be read, so it cannot open pages.";
 "browser.notice.noApp" = "No app on this Mac opens that link.";
 "browser.notice.downloadRefused" = "Fermix does not download files. Open this page in your browser to download it.";
+"browser.newTab" = "New tab";
+"browser.newPrivateTab" = "New private tab";
+"browser.closeTab" = "Close tab";
+"browser.privateTab" = "Private tab";
+"browser.untitledTab" = "New tab";
+"browser.back" = "Back";
+"browser.forward" = "Forward";
+"browser.reload" = "Reload";
+"browser.cancelLoading" = "Cancel loading";
+"browser.address" = "Address";
+"browser.addressPrompt" = "Enter a web address";
+"browser.secure" = "Secure connection";
+"browser.openInBrowser" = "Open in your browser";
+"browser.hide" = "Hide browser";
+"browser.dialog.titleFormat" = "%@ says";
+"browser.dialog.thisPage" = "This page";
+"browser.dialog.ok" = "OK";
+"browser.dialog.cancel" = "Cancel";
 
 /* MARK: Pet */
 "pet.callBegin" = "Begin voice call";

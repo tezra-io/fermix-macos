@@ -177,7 +177,7 @@ struct BrowserZoomTests {
 struct WebsiteProfileRecordTests {
     @Test("the record lives in the app's support folder beside the bootstrap record")
     func recordLocation() throws {
-        let location = try BrowserProfileLocation().location
+        let location = BrowserProfileLocation().location
         let record = WebsiteProfileRecord(location: location)
 
         #expect(record.url.deletingLastPathComponent().path == location.directoryURL.path)
@@ -190,7 +190,7 @@ struct WebsiteProfileRecordTests {
     /// out of every website.
     @Test("the identifier is created once and read back ever after")
     func identifierIsKept() throws {
-        let location = try BrowserProfileLocation().location
+        let location = BrowserProfileLocation().location
 
         let first = try WebsiteProfileRecord(location: location).identifier()
         let second = try WebsiteProfileRecord(location: location).identifier()
@@ -210,7 +210,7 @@ struct WebsiteProfileRecordTests {
     /// word, so it is refused instead.
     @Test("an unreadable record is refused, never replaced")
     func unreadableRecordIsRefused() throws {
-        let location = try BrowserProfileLocation().location
+        let location = BrowserProfileLocation().location
         let record = WebsiteProfileRecord(location: location)
         try FileManager.default.createDirectory(at: location.directoryURL, withIntermediateDirectories: true)
         try Data("{\"identifier\": 7}".utf8).write(to: record.url)
@@ -224,7 +224,7 @@ struct WebsiteProfileRecordTests {
 
     @Test("the record's names are the ones a later build reads")
     func recordShape() throws {
-        let location = try BrowserProfileLocation().location
+        let location = BrowserProfileLocation().location
         let record = WebsiteProfileRecord(location: location)
         let identifier = try record.identifier()
 

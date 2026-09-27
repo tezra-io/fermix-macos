@@ -190,7 +190,8 @@ final class AppComposition {
             leaveSettings: { [coordinator] in coordinator.leaveSettings() },
             openRecovery: { [coordinator] in coordinator.enterRecovery() },
             restart: { [coordinator] in coordinator.restartDaemon() },
-            mascot: mascot
+            mascot: mascot,
+            browser: browser
         )
         // Every report goes through the coordinator, which owns whether a window
         // is on screen; the pet reads that answer rather than the raw signal.

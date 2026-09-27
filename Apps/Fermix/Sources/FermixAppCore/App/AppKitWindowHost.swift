@@ -26,6 +26,9 @@ struct AppSurfaces {
     /// The mascot renderer the executable handed in, carried by every window's
     /// root so the companion and Ready draw the one animation.
     let mascot: any MascotRendering
+    /// The browser pane's owner, whose pane sits beside the primary window's
+    /// body.
+    let browser: BrowserCoordinator
 
     func view(for kind: WindowKind) -> NSView {
         switch kind {
@@ -40,7 +43,8 @@ struct AppSurfaces {
                     settings: surfaces.settings,
                     leaveSettings: leaveSettings,
                     openRecovery: openRecovery,
-                    restart: restart
+                    restart: restart,
+                    browser: browser
                 )
             )
             // The primary window's toolbar and title are SwiftUI's, hosted in

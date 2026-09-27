@@ -433,6 +433,29 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case browserNoticeProfileUnavailable = "browser.notice.profileUnavailable"
     case browserNoticeNoApp = "browser.notice.noApp"
     case browserNoticeDownloadRefused = "browser.notice.downloadRefused"
+    /// The pane's controls, by what each does. The stop control is Cancel
+    /// loading: `Stop` leads no string in the product, which keeps the word for
+    /// the service.
+    case browserNewTab = "browser.newTab"
+    case browserNewPrivateTab = "browser.newPrivateTab"
+    case browserCloseTab = "browser.closeTab"
+    case browserPrivateTab = "browser.privateTab"
+    /// The title of a tab whose page has none yet.
+    case browserUntitledTab = "browser.untitledTab"
+    case browserBack = "browser.back"
+    case browserForward = "browser.forward"
+    case browserReload = "browser.reload"
+    case browserCancelLoading = "browser.cancelLoading"
+    case browserAddress = "browser.address"
+    case browserAddressPrompt = "browser.addressPrompt"
+    case browserSecure = "browser.secure"
+    case browserOpenInBrowser = "browser.openInBrowser"
+    case browserHide = "browser.hide"
+    /// A page's own dialog, titled by the website that raised it.
+    case browserDialogTitleFormat = "browser.dialog.titleFormat"
+    case browserDialogThisPage = "browser.dialog.thisPage"
+    case browserDialogOK = "browser.dialog.ok"
+    case browserDialogCancel = "browser.dialog.cancel"
 
     // Pet
     case petCallBegin = "pet.callBegin"
