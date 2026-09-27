@@ -72,6 +72,9 @@ let package = Package(
                 // The mascot's animation, authored in Rive. Copied as it is:
                 // a runtime file, not an image for the asset pipeline.
                 .copy("Resources/Mascot/FermixMascot.riv"),
+                // The browser pane's page script, read as text and evaluated in
+                // its own content world; copied verbatim, never processed.
+                .copy("Resources/Browser/ax_snapshot.js"),
                 .process("Resources/Fermix.icns"),
                 .process("Resources/Product.json"),
                 // The canonical wordmark SVG. `FermixWordmark` draws a 1:1
