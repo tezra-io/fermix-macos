@@ -843,14 +843,18 @@
     if (document.documentElement) walk.children(document.documentElement, root, { ...ROOT_CONTEXT, depth });
     sweep(walk.refs);
     reset();
-    return JSON.stringify({
+    // A plain object, exactly as every other function here answers: the one
+    // call that reaches this file (`WebKitPageScript.text`) does the whole
+    // answer's JSON.stringify itself, once, so a second one here would hand
+    // the app a string where it expects the object.
+    return {
       title: document.title,
       url: location.href,
       nodes: walk.nodes,
       elements: walk.elements,
       crossOriginFrames: walk.crossOriginFrames,
       closedShadowRoots: options.closedShadowRoots
-    });
+    };
   }
 
   // ------------------------------------------------------------------- actions

@@ -47,7 +47,9 @@ final class WebKitPageScript {
         }
     }
 
-    /// One of the script's functions, decoded.
+    /// One of the script's functions, decoded. `BrowserScriptResult.decode` is
+    /// the one place that turns the JSON text `text(_:_:)` answers into a
+    /// value: nothing here interprets it a second way.
     func call<Answer: Decodable>(
         _ function: String,
         _ arguments: [Any],
@@ -55,11 +57,7 @@ final class WebKitPageScript {
         within timeout: Duration? = nil
     ) async throws -> Answer {
         let json = try await text(function, arguments, within: timeout)
-        do {
-            return try JSONDecoder().decode(Answer.self, from: Data(json.utf8))
-        } catch {
-            throw BrowserPageDriveError.script("unreadable answer from \(function): \(error)")
-        }
+        return try BrowserScriptResult.decode(json, as: Answer.self)
     }
 
     private static func answer(_ result: Result<Any, any Error>) -> Result<String, any Error> {
