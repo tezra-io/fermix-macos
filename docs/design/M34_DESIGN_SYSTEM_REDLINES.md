@@ -1387,6 +1387,75 @@ every button carries a title or an accessibility label; every sheet has a cancel
     - **Looked at** with `--fixture --fixture-start chat`, a dozen rows of both sides with older
       ones behind them, a reply being written with a tool running and an approval waiting,
       and `--fixture-start chat-empty`, over a scripted companion socket.
+37. **The browser pane, the person's own browser** (2026-09-26), from the browser plan
+    (`CHAT_AND_BROWSER_PLAN.md` §4.2 to §4.7) and the owner's choice of its shape A: the pane
+    is where a person reads a link, and every task the engine runs keeps its managed Chrome.
+    §5.8's "no web view" keeps its meaning for the retired hosted setup; this pane is the one
+    web view in the app, built in the GUI-only `FermixBrowser` target, and the floor moves to
+    macOS 15.2 so its https policy needs no second path.
+    - **Where it sits.** A third pane inside the frame, beside the body, 600pt wide
+      (`WindowMetrics.browserPaneWidth`): the band runs over it, the body keeps its corners, so
+      its top trailing corner now rounds where the body meets the pane, and it is still one
+      split view with no divider, the seam being the pane's own fill. Opening it widens the
+      window to the right by the pane, shifted left where the right edge would pass the
+      screen's and held to the screen's width, with the floor raised from 760 to 1360 (never
+      past the screen); the chat or the form beside it keeps its width. Closing it gives the
+      width back only while the window is still the frame the app set; a window the person
+      moved or resized keeps their frame, and the floor comes back down. A window in full
+      screen or zoomed is not moved, and the pane takes its width from the body.
+    - **The header** is the frame's own glass under the band, since decision 35 retired
+      `WindowFrameRecipe.pane`, so in the pane the frame reaches down over two rows. The first
+      is the tab strip: each tab its title (its page's host until the title arrives, then New
+      tab for a blank one) and its close control, at the regular 24pt; the tab in front on the
+      secondary capsule in `ink`, the others plain in `secondary`; a private tab marked with
+      `eye.slash`; then a plain new-tab capsule, whose context menu offers a private one. The
+      second row is back, forward, and reload or Cancel loading as symbol capsules at the row
+      size, dimmed where they cannot act; the address capsule, a field on the secondary fill
+      with its hairline, the lock (`lock.fill`, "Secure connection") while every resource on
+      the page came over a secure connection, the page's address, and Return loading what is
+      typed; then Open in your browser and Hide browser. A 1pt accent hairline along the
+      header's foot shows loading progress. Under the header, only when there is one, a single
+      `calloutSmall` `secondary` line behind `exclamationmark.circle` says why something did
+      not happen: a download refused ("Fermix does not download files. Open this page in your
+      browser to download it."), text that is not a web address, a scheme no app on this Mac
+      opens, the website data unreadable, or a page that failed to load, in the system's own
+      sentence. It goes at the next thing the person does.
+    - **The address** is a web address, with or without its scheme; a bare host goes over
+      https. Anything else, a phrase, `mailto:` or `file:`, is refused with the sentence. There
+      is no search from the field: a search engine is a choice about who sees what is typed,
+      and nobody has made it.
+    - **The page** is the tab's own web view, hosted as it is; a page keeps its own ground,
+      white where it has no dark style. Tabs keep their pages while another is in front.
+      Hiding the pane keeps its tabs, so a link opened later lands beside them; closing the
+      last tab hides the pane. Nothing is restored across launches.
+    - **Keys**, while the pane is open: ⌘T a new tab, ⌘W the tab in front, ⇧⌘N a private tab,
+      ⌘L the address field.
+    - **A page's dialogs** (`alert`, `confirm`, `prompt`) are the system's alert over the
+      window, titled "example.com says", with OK, and Cancel where the page asked a question.
+      One at a time, and only for the tab in front: any other is dismissed at once, so a popup
+      never stacks.
+    - **Links.** A link in a reply is live and opens through the one content link opener: a
+      web page in a new tab of the pane, in front, by the app's own preference (Fermix, the
+      default, or the person's browser, whose Settings row lands with the engine's browser
+      section); any other scheme goes to the app that owns it. Provider sign-in and the prior
+      installer never enter the pane. A page's own window (`target=_blank`, `window.open`) is
+      a tab beside its opener, in front, keeping the opener's website data and its link back
+      to it, which a website's sign-in window needs; a page closing its window closes the tab.
+      A click on another app's scheme opens that app, and a script or a frame reaching for one
+      on its own is refused.
+    - **Privacy as built.** One persistent website profile, whose identifier the app keeps in
+      its support folder (`website-profile.json`, beside the bootstrap record), separate from
+      every other browser and from the development identity; a private tab keeps nothing.
+      Known hosts go to https before the request leaves and every other http navigation is
+      tried over https first, behind WebKit's own warning page; fraudulent website warnings
+      stay on; link previews are off; camera and microphone are refused; the inspector is in
+      debug builds only.
+    - **Never drawn**: a page title, a title or a control of the pane's in the window toolbar
+      (the toolbar and its search are the surface's beside it), a divider, find and zoom
+      controls, a download, a tab overview.
+    - **Looked at** with `--fixture --fixture-start browser`: Chat with the pane open on two
+      fake tabs over no network, the second private and the first in front. The pane closed is
+      `--fixture-start chat`.
 
 ## 9. Accessibility (DESIGN_SPEC §9, as build gates)
 
