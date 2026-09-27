@@ -43,7 +43,8 @@ final class WebKitPageActions {
             value: receipt.value,
             filled: receipt.filled,
             submitted: receipt.submitted,
-            uploaded: receipt.uploaded
+            uploaded: receipt.uploaded,
+            read: receipt.getValue
         )
     }
 
@@ -55,19 +56,22 @@ final class WebKitPageActions {
         var filled: [BrowserFieldReceipt]?
         var submitted: String?
         var uploaded: String?
+        var getValue: BrowserGetValue?
 
         init(
             input: BrowserInputPath,
             value: String? = nil,
             filled: [BrowserFieldReceipt]? = nil,
             submitted: String? = nil,
-            uploaded: String? = nil
+            uploaded: String? = nil,
+            getValue: BrowserGetValue? = nil
         ) {
             self.input = input
             self.value = value
             self.filled = filled
             self.submitted = submitted
             self.uploaded = uploaded
+            self.getValue = getValue
         }
     }
 
@@ -118,6 +122,14 @@ final class WebKitPageActions {
 
         case .upload(let ref, let path):
             return try await upload(ref: ref, path: path)
+
+        case .get(let field, let selector):
+            let value = try await get(field: field, selector: selector)
+            return ActReceipt(input: .scripted, getValue: value)
+
+        case .wait(let until, let text, let selector, let ref, let timeoutMs):
+            try await wait(until: until, text: text, selector: selector, ref: ref, timeoutMs: timeoutMs)
+            return ActReceipt(input: .scripted)
         }
     }
 
@@ -282,6 +294,64 @@ final class WebKitPageActions {
         return ActReceipt(input: .scripted, uploaded: name)
     }
 
+    // MARK: - Get and wait
+
+    /// `act` `kind=get`: a read of the page, decoded in the shape the field
+    /// answers. `rect` needs a selector to measure; the page script's own
+    /// `invalid_request` refusal is the fallback if one ever slips through.
+    private func get(field: BrowserGetField, selector: String?) async throws -> BrowserGetValue {
+        if field == .rect, selector == nil {
+            throw BrowserPageDriveError.invalidRequest("get field=rect needs a selector")
+        }
+
+        let selectorArgument: Any = selector.map { $0 as Any } ?? NSNull()
+        switch field {
+        case .text, .title, .html, .readyState:
+            return .text(try await readGetAnswer(field: field, selector: selectorArgument, as: TextGetAnswer.self).value)
+        case .count:
+            return .count(try await readGetAnswer(field: field, selector: selectorArgument, as: CountGetAnswer.self).value)
+        case .rect:
+            let rect = try await readGetAnswer(field: field, selector: selectorArgument, as: RectGetAnswer.self).value
+            return .rect(BrowserRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height))
+        }
+    }
+
+    private func readGetAnswer<Answer: Decodable>(
+        field: BrowserGetField, selector: Any, as: Answer.Type
+    ) async throws -> Answer {
+        let answer = try await script.call("get", [field.rawValue, selector], as: BrowserScriptAnswer<Answer>.self)
+        switch answer {
+        case .value(let value): return value
+        case .refused(let word): throw BrowserPageDriveError.script(word)
+        }
+    }
+
+    /// `act` `kind=wait`: polls the page script's own one-shot check on a
+    /// fixed interval until it answers `done` or `timeoutMs` runs out, so the
+    /// wait is bounded by the request's own timeout and never spins.
+    private func wait(until: BrowserWaitUntil, text: String?, selector: String?, ref: Int?, timeoutMs: Int) async throws {
+        if until == .element, selector == nil, ref == nil {
+            throw BrowserPageDriveError.invalidRequest("wait until=element needs a ref or a selector")
+        }
+
+        let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
+        while true {
+            let answer: WaitAnswer = try await script.call(
+                "waitCondition",
+                [
+                    until.rawValue,
+                    text.map { $0 as Any } ?? NSNull(),
+                    selector.map { $0 as Any } ?? NSNull(),
+                    ref.map { $0 as Any } ?? NSNull()
+                ],
+                as: WaitAnswer.self
+            )
+            if answer.done { return }
+            guard ContinuousClock.now < deadline else { throw BrowserPageDriveError.waitTimedOut }
+            try await Task.sleep(for: Self.pollInterval)
+        }
+    }
+
     // MARK: - Settling
 
     private func fingerprint() async throws -> BrowserPageFingerprint {
@@ -349,4 +419,27 @@ private struct OpenedChooser: Decodable {}
 
 private struct HeldFiles: Decodable {
     let names: [String]
+}
+
+private struct TextGetAnswer: Decodable {
+    let value: String
+}
+
+private struct CountGetAnswer: Decodable {
+    let value: Int
+}
+
+private struct RectGetAnswer: Decodable {
+    struct Rect: Decodable {
+        let x: Double
+        let y: Double
+        let width: Double
+        let height: Double
+    }
+
+    let value: Rect
+}
+
+private struct WaitAnswer: Decodable {
+    let done: Bool
 }

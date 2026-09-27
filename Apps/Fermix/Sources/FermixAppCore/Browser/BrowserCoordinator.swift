@@ -199,12 +199,23 @@ public final class BrowserCoordinator {
     // MARK: - The host
 
     /// The wire client attached. The first availability report goes at once.
-    public func hostAttached(_ link: any BrowserHostLink, caps: BrowserTabCaps) -> BrowserHostConnection? {
+    /// `caps` is nil for the `browser_host` wire client, which learns them
+    /// from the first `tab.open` (`establishTabCaps`) rather than a build
+    /// constant.
+    public func hostAttached(_ link: any BrowserHostLink, caps: BrowserTabCaps?) -> BrowserHostConnection? {
         guard let connection = model.host.attach(caps: caps) else { return nil }
 
         self.link = link
         link.reportAvailability(model.host.availability)
         return connection
+    }
+
+    /// `tab.open`'s own caps, adopted for the connection's life the first
+    /// time they arrive. False where a later `tab.open` names different
+    /// ones, which the wire client answers as a refusal rather than a quiet
+    /// change of policy mid-connection.
+    public func establishTabCaps(_ caps: BrowserTabCaps) -> Bool {
+        model.host.establishCaps(caps)
     }
 
     /// The connection is gone: every task's tabs are released, and a quit

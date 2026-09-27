@@ -8,8 +8,12 @@ import Foundation
 @MainActor
 public protocol BrowserHostCoordinating: AnyObject {
     var model: BrowserModel { get }
-    func hostAttached(_ link: any BrowserHostLink, caps: BrowserTabCaps) -> BrowserHostConnection?
+    func hostAttached(_ link: any BrowserHostLink, caps: BrowserTabCaps?) -> BrowserHostConnection?
     func hostDetached(_ connection: BrowserHostConnection)
+    /// `tab.open`'s own caps, adopted for the connection's life the first
+    /// time they are seen; false where they differ from what was already
+    /// established.
+    func establishTabCaps(_ caps: BrowserTabCaps) -> Bool
     func openTaskTab(_ url: URL, for task: BrowserTaskID) -> Result<BrowserTab.ID, BrowserTabRefusal>
     func closeTaskTab(_ tab: BrowserTab.ID)
     func releaseTask(_ task: BrowserTaskID)
@@ -67,13 +71,6 @@ public final class BrowserHostClient {
     /// value handed to `BrowserTab.act`/`.upload` where the daemon's own
     /// `observe` is false, and it is discarded there regardless.
     private static let noObservation = BrowserSnapshotRequest(mode: .interactive, maxChars: 1, depth: 1)
-
-    /// This build's own tab caps, sent to the coordinator at attach.
-    /// `BrowserHostReducer.attach` takes one cap set for the life of the
-    /// connection rather than one per request, so the per-request
-    /// `task_tab_cap`/`tab_cap` the daemon repeats on every `tab.open` name
-    /// the same policy rather than a new one each time.
-    public static let defaultTabCaps = BrowserTabCaps(perTask: 10, global: 60)
 
     private let lines: LineSocket
     private let socketPath: () throws -> String
@@ -256,11 +253,12 @@ public final class BrowserHostClient {
     /// Sends `attached`, then attaches locally: `BrowserCoordinator.hostAttached`
     /// answers this client's `reportAvailability(_:)` with the current report
     /// as part of attaching, which is this build's `availability` right
-    /// after `attached`, exactly the sequence the contract wants.
+    /// after `attached`, exactly the sequence the contract wants. No caps are
+    /// known yet: the first `tab.open` names them (`establishCaps`).
     private func attach() {
         send(.attached(hostVersion: hostVersion, profileId: resolvedProfileID))
 
-        guard let connection = coordinator.hostAttached(self, caps: Self.defaultTabCaps) else {
+        guard let connection = coordinator.hostAttached(self, caps: nil) else {
             log.error("the browser coordinator refused to attach")
             drop()
             return
@@ -382,9 +380,9 @@ public final class BrowserHostClient {
         case .pageSnapshot(let id, let payload):
             dispatchPageSnapshot(id: id, payload: payload)
         case .pageScreenshot(let id, let payload):
-            dispatchNotImplemented(id: id, tabId: payload.tabId, reason: .writeFailed, what: "page.screenshot")
-        case .pagePdf(let id, let tabId, _):
-            dispatchNotImplemented(id: id, tabId: tabId, reason: .writeFailed, what: "page.pdf")
+            dispatchPageScreenshot(id: id, payload: payload)
+        case .pagePdf(let id, let tabId, let path):
+            dispatchPagePdf(id: id, tabId: tabId, path: path)
         case .pageAct(let id, let payload):
             dispatchPageAct(id: id, payload: payload)
         case .pageUpload(let id, let tabId, let ref, let path):
@@ -392,9 +390,9 @@ public final class BrowserHostClient {
         case .dialogResolve(let id, let tabId, let accept, let text):
             dispatchDialogResolve(id: id, tabId: tabId, accept: accept, text: text)
         case .cookiesGet(let id, let tabId):
-            dispatchNotImplemented(id: id, tabId: tabId, reason: .hostUnavailable, what: "cookies.get")
+            dispatchCookiesGet(id: id, tabId: tabId)
         case .cookiesClear(let id, let tabId):
-            dispatchNotImplemented(id: id, tabId: tabId, reason: .hostUnavailable, what: "cookies.clear")
+            dispatchCookiesClear(id: id, tabId: tabId)
         case .hostStatus(let id):
             dispatchHostStatus(id: id)
         case .hostStopAck(let id):
@@ -406,6 +404,20 @@ public final class BrowserHostClient {
         let task = BrowserTaskID(payload.taskId)
         guard let url = URL(string: payload.url) else {
             respond(BrowserHostResponse(id: id, error: BrowserHostError(reason: .navigationRefused, message: "not a URL: \(payload.url)")))
+            return
+        }
+        guard let caps = BrowserTabCaps(taskTabCap: payload.taskTabCap, tabCap: payload.tabCap) else {
+            respond(BrowserHostResponse(
+                id: id,
+                error: BrowserHostError(reason: .invalidRequest, message: "task_tab_cap and tab_cap are not usable caps")
+            ))
+            return
+        }
+        guard coordinator.establishTabCaps(caps) else {
+            respond(BrowserHostResponse(
+                id: id,
+                error: BrowserHostError(reason: .invalidRequest, message: "task_tab_cap and tab_cap changed mid-connection")
+            ))
             return
         }
 
@@ -479,7 +491,8 @@ public final class BrowserHostClient {
                     tabId: Self.wireID(tab.id),
                     url: tab.url?.absoluteString ?? "",
                     title: tab.title,
-                    active: tab.id == coordinator.model.selectedTabID
+                    active: tab.id == coordinator.model.selectedTabID,
+                    openerTabId: coordinator.model.host.opener(of: tab.id).map(Self.wireID)
                 )
             }
 
@@ -527,14 +540,6 @@ public final class BrowserHostClient {
     private func dispatchPageAct(id: Int, payload: BrowserHostPageActRequest) {
         guard let tab = requiredTab(id: id, wireTabID: payload.tabId) else { return }
 
-        switch payload.kind {
-        case .get, .wait:
-            respond(BrowserHostResponse(id: id, error: notYetImplemented(.actFailed, "page.act(\(payload.kind.rawValue))")))
-            return
-        default:
-            break
-        }
-
         guard let action = Self.action(for: payload) else {
             respond(BrowserHostResponse(
                 id: id,
@@ -575,6 +580,87 @@ public final class BrowserHostClient {
         }
     }
 
+    private func dispatchPageScreenshot(id: Int, payload: BrowserHostPageScreenshotRequest) {
+        guard let tab = requiredTab(id: id, wireTabID: payload.tabId) else { return }
+        guard validatedPath(payload.path) else {
+            respond(BrowserHostResponse(id: id, error: BrowserHostError(reason: .writeFailed, message: "the path is outside the engine's workspace")))
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let capturing = tab.capturing else { throw BrowserPageDriveError.notDrivable }
+                let capture = try await capturing.screenshot(fullPage: payload.fullPage)
+                try capture.data.write(to: URL(fileURLWithPath: payload.path))
+                self.respond(BrowserHostResponse(id: id, result: .pageScreenshot(BrowserHostScreenshotResult(
+                    path: payload.path,
+                    mimeType: capture.mimeType,
+                    bytes: capture.data.count,
+                    url: tab.url?.absoluteString ?? "",
+                    devicePixelRatio: capture.devicePixelRatio
+                ))))
+            } catch {
+                self.respond(BrowserHostResponse(id: id, error: self.captureError(for: error)))
+            }
+        }
+    }
+
+    private func dispatchPagePdf(id: Int, tabId: String, path: String) {
+        guard let tab = requiredTab(id: id, wireTabID: tabId) else { return }
+        guard validatedPath(path) else {
+            respond(BrowserHostResponse(id: id, error: BrowserHostError(reason: .writeFailed, message: "the path is outside the engine's workspace")))
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let capturing = tab.capturing else { throw BrowserPageDriveError.notDrivable }
+                let data = try await capturing.pdf()
+                try data.write(to: URL(fileURLWithPath: path))
+                self.respond(BrowserHostResponse(id: id, result: .pagePdf(BrowserHostPdfResult(
+                    path: path, bytes: data.count, url: tab.url?.absoluteString ?? ""
+                ))))
+            } catch {
+                self.respond(BrowserHostResponse(id: id, error: self.captureError(for: error)))
+            }
+        }
+    }
+
+    private func dispatchCookiesGet(id: Int, tabId: String) {
+        guard let tab = requiredTab(id: id, wireTabID: tabId) else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let store = tab.cookieStore else { throw BrowserPageDriveError.notDrivable }
+                let cookies = try await store.cookies()
+                self.respond(BrowserHostResponse(
+                    id: id,
+                    result: .cookiesGet(url: tab.url?.absoluteString ?? "", cookies: cookies.map(Self.wireCookie))
+                ))
+            } catch {
+                self.respond(BrowserHostResponse(id: id, error: self.wireError(for: error)))
+            }
+        }
+    }
+
+    private func dispatchCookiesClear(id: Int, tabId: String) {
+        guard let tab = requiredTab(id: id, wireTabID: tabId) else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let store = tab.cookieStore else { throw BrowserPageDriveError.notDrivable }
+                let cleared = try await store.clearCookies()
+                self.respond(BrowserHostResponse(id: id, result: .cookiesClear(cleared: cleared)))
+            } catch {
+                self.respond(BrowserHostResponse(id: id, error: self.wireError(for: error)))
+            }
+        }
+    }
+
     private func dispatchDialogResolve(id: Int, tabId: String, accept: Bool, text: String?) {
         guard let tab = requiredTab(id: id, wireTabID: tabId) else { return }
         guard let dialog = coordinator.model.dialog, dialog.tabID == tab.id else {
@@ -608,12 +694,6 @@ public final class BrowserHostClient {
         let done = quitAnswered
         quitAnswered = nil
         done?()
-    }
-
-    private func dispatchNotImplemented(id: Int, tabId: String, reason: BrowserHostErrorReason, what: String) {
-        guard requiredTab(id: id, wireTabID: tabId) != nil else { return }
-
-        respond(BrowserHostResponse(id: id, error: notYetImplemented(reason, what)))
     }
 
     // MARK: - Mechanics
@@ -666,8 +746,23 @@ public final class BrowserHostClient {
         }
     }
 
-    private func notYetImplemented(_ reason: BrowserHostErrorReason, _ what: String) -> BrowserHostError {
-        BrowserHostError(reason: reason, message: "\(what) is not yet implemented by this build's browser host")
+    /// A screenshot or a PDF that could not be captured or written; the
+    /// contract's one reason for both (`write_failed`).
+    private func captureError(for error: Error) -> BrowserHostError {
+        BrowserHostError(reason: .writeFailed, message: "\(error)")
+    }
+
+    private static func wireCookie(_ cookie: BrowserCookie) -> BrowserHostCookie {
+        BrowserHostCookie(
+            name: cookie.name,
+            domain: cookie.domain,
+            path: cookie.path,
+            secure: cookie.secure,
+            httpOnly: cookie.httpOnly,
+            sameSite: cookie.sameSite,
+            expires: cookie.expires,
+            session: cookie.session
+        )
     }
 
     /// Whether `path` falls inside the engine's own workspace, the one root a
@@ -737,6 +832,10 @@ public final class BrowserHostClient {
             return BrowserHostError(reason: .actFailed, message: word)
         case .formStopped(let ref, _, let cause):
             return BrowserHostError(reason: .invalidRequest, message: "fill_form stopped at \(ref): \(wireError(for: cause).message)")
+        case .waitTimedOut:
+            return BrowserHostError(reason: .waitTimeout, message: "the wait condition never became true")
+        case .invalidRequest(let message):
+            return BrowserHostError(reason: .invalidRequest, message: message)
         }
     }
 
@@ -762,8 +861,18 @@ public final class BrowserHostClient {
         case .clickCoords:
             guard let x = payload.x, let y = payload.y else { return nil }
             return .clickCoordinates(x: x, y: y)
-        case .get, .wait:
-            return nil
+        case .get:
+            let field = payload.field ?? .text
+            return .get(field: BrowserGetField(rawValue: field.rawValue) ?? .text, selector: payload.selector)
+        case .wait:
+            guard let waitUntil = payload.waitUntil, let timeoutMs = payload.timeoutMs else { return nil }
+            return .wait(
+                until: BrowserWaitUntil(rawValue: waitUntil.rawValue) ?? .load,
+                text: payload.text,
+                selector: payload.selector,
+                ref: payload.ref,
+                timeoutMs: timeoutMs
+            )
         }
     }
 
@@ -775,7 +884,31 @@ public final class BrowserHostClient {
             page = nil
         }
 
-        return BrowserHostActResult(url: outcome.url, title: title, value: outcome.value.map(BrowserHostJSONValue.string), page: page)
+        return BrowserHostActResult(url: outcome.url, title: title, value: wireValue(outcome), page: page)
+    }
+
+    /// A `get`'s read takes precedence, in the shape its field answers; every
+    /// other kind's own textual `value` (a fill's or a select's) rides along
+    /// as a string, as it always has, though the engine reads it for `get`
+    /// alone (`act_receipt` in `host_server.ex`).
+    private static func wireValue(_ outcome: BrowserActOutcome) -> BrowserHostJSONValue? {
+        guard let read = outcome.read else {
+            return outcome.value.map(BrowserHostJSONValue.string)
+        }
+
+        switch read {
+        case .text(let value):
+            return .string(value)
+        case .count(let value):
+            return .integer(value)
+        case .rect(let rect):
+            return .object([
+                "x": .double(rect.x),
+                "y": .double(rect.y),
+                "width": .double(rect.width),
+                "height": .double(rect.height)
+            ])
+        }
     }
 
     private static func dialogAnswer(accept: Bool, text: String?) -> BrowserDialogAnswer {

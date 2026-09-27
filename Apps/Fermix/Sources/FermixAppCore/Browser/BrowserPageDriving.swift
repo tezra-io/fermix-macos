@@ -37,6 +37,46 @@ public struct BrowserFormField: Equatable, Sendable {
     }
 }
 
+/// A `get` act's target field (plan §4.8, `page.act` `kind=get`).
+public enum BrowserGetField: String, Equatable, Sendable {
+    case text
+    case title
+    case html
+    case count
+    case readyState = "ready_state"
+    case rect
+}
+
+/// A `wait` act's condition (plan §4.8, `page.act` `kind=wait`).
+public enum BrowserWaitUntil: String, Equatable, Sendable {
+    case text
+    case url
+    case element
+    case load
+}
+
+/// A viewport box, in the CSS-pixel space `click_coords` clicks in.
+public struct BrowserRect: Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
+/// What a `get` read, in the shape its field answers.
+public enum BrowserGetValue: Equatable, Sendable {
+    case text(String)
+    case count(Int)
+    case rect(BrowserRect)
+}
+
 /// The engine's act kinds (plan §4.1, `page.act` and `page.upload`), by the
 /// refs a snapshot handed out.
 public enum BrowserPageAction: Equatable, Sendable {
@@ -56,6 +96,13 @@ public enum BrowserPageAction: Equatable, Sendable {
     /// Scrolls by CSS pixels: the ref's own scroller, or the page with no ref.
     case scroll(ref: Int?, x: Double, y: Double)
     case upload(ref: Int, path: String)
+    /// Reads the page rather than acting on it; `selector` scopes a field
+    /// that takes one.
+    case get(field: BrowserGetField, selector: String?)
+    /// Polls the condition until it holds or `timeoutMs` runs out. `text` is
+    /// the target for `text`/`url`; `ref` or `selector` is the target for
+    /// `element`; `load` takes neither.
+    case wait(until: BrowserWaitUntil, text: String?, selector: String?, ref: Int?, timeoutMs: Int)
 }
 
 /// How the page received an action.
@@ -105,6 +152,8 @@ public struct BrowserActOutcome: Equatable, Sendable {
     public var submitted: String?
     /// The file name the page's file input holds after an upload.
     public var uploaded: String?
+    /// What a `get` read.
+    public var read: BrowserGetValue?
 
     public init(
         effect: BrowserPageEffect,
@@ -113,7 +162,8 @@ public struct BrowserActOutcome: Equatable, Sendable {
         value: String? = nil,
         filled: [BrowserFieldReceipt]? = nil,
         submitted: String? = nil,
-        uploaded: String? = nil
+        uploaded: String? = nil,
+        read: BrowserGetValue? = nil
     ) {
         self.effect = effect
         self.input = input
@@ -122,6 +172,7 @@ public struct BrowserActOutcome: Equatable, Sendable {
         self.filled = filled
         self.submitted = submitted
         self.uploaded = uploaded
+        self.read = read
     }
 }
 
@@ -152,6 +203,10 @@ public indirect enum BrowserPageDriveError: Error, Equatable, Sendable {
     case script(String)
     /// A `fill_form` stopped at a field; the ones before it were filled.
     case formStopped(at: Int, filled: [BrowserFieldReceipt], cause: BrowserPageDriveError)
+    /// A `wait` act's condition never became true within its own timeout.
+    case waitTimedOut
+    /// The request's fields do not fit its kind (plan §4.8's `invalid_request`).
+    case invalidRequest(String)
 
     /// The page script's one-word refusal, for the ref it was about.
     public static func refusal(_ word: String, ref: Int) -> BrowserPageDriveError {
@@ -184,3 +239,71 @@ public protocol BrowserPageActing: AnyObject {
 }
 
 public typealias BrowserPageDriving = BrowserPageReading & BrowserPageActing
+
+/// A capture of a tab's page, taken for `page.screenshot` or `page.pdf`.
+public struct BrowserPageCapture: Equatable, Sendable {
+    public var data: Data
+    public var mimeType: String
+    /// The screen's own scale, `1` for a PDF, which carries none.
+    public var devicePixelRatio: Double
+
+    public init(data: Data, mimeType: String, devicePixelRatio: Double) {
+        self.data = data
+        self.mimeType = mimeType
+        self.devicePixelRatio = devicePixelRatio
+    }
+}
+
+/// A page as the engine captures it (plan §4.9, `page.screenshot`, `page.pdf`).
+@MainActor
+public protocol BrowserPageCapturing: AnyObject {
+    /// The viewport, or the document's own height where WebKit renders a
+    /// taller snapshot; where it does not, the viewport this same call
+    /// answers is what a `full_page` request gets, and that is the whole of
+    /// the contract's own room for the difference (PROTOCOL.md carries no
+    /// field for which one happened).
+    func screenshot(fullPage: Bool) async throws -> BrowserPageCapture
+    func pdf() async throws -> Data
+}
+
+/// One cookie's metadata, never its value (plan §4.9, `cookies.get`).
+public struct BrowserCookie: Equatable, Sendable {
+    public var name: String
+    public var domain: String
+    public var path: String?
+    public var secure: Bool?
+    public var httpOnly: Bool?
+    public var sameSite: String?
+    public var expires: Double?
+    public var session: Bool?
+
+    public init(
+        name: String,
+        domain: String,
+        path: String? = nil,
+        secure: Bool? = nil,
+        httpOnly: Bool? = nil,
+        sameSite: String? = nil,
+        expires: Double? = nil,
+        session: Bool? = nil
+    ) {
+        self.name = name
+        self.domain = domain
+        self.path = path
+        self.secure = secure
+        self.httpOnly = httpOnly
+        self.sameSite = sameSite
+        self.expires = expires
+        self.session = session
+    }
+}
+
+/// A page as the engine reads and clears its cookies (plan §4.9,
+/// `cookies.get`, `cookies.clear`). Always the tab's own website data store,
+/// shared or private as the tab's profile is, never another tab's.
+@MainActor
+public protocol BrowserPageCookies: AnyObject {
+    func cookies() async throws -> [BrowserCookie]
+    /// The count of cookies removed.
+    func clearCookies() async throws -> Int
+}

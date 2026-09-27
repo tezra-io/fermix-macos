@@ -165,6 +165,10 @@ public final class BrowserTab: ObservableObject, Identifiable {
     /// The page as the engine reads and drives it, or nil for a page with no
     /// web engine behind it, as the fixture's pages have none.
     public var driver: (any BrowserPageDriving)? { page as? any BrowserPageDriving }
+    /// The page as the engine captures it, or nil for a page with none.
+    public var capturing: (any BrowserPageCapturing)? { page as? any BrowserPageCapturing }
+    /// The page's own cookie store, or nil for a page with none.
+    public var cookieStore: (any BrowserPageCookies)? { page as? any BrowserPageCookies }
 
     public func load(_ url: URL) { page.load(url) }
     public func back() { page.back() }

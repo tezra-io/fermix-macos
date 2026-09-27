@@ -1049,8 +1049,82 @@
     };
   }
 
+  // `act` `kind=get`: a read of the page, never an input. `selector`, where a
+  // field takes it, scopes the read to its first match; the field's own
+  // shape (a string, a count, or `rect`'s box) is what the app decodes.
+  function get(field, selector) {
+    switch (field) {
+      case "text":
+        return getText(selector);
+      case "title":
+        return { value: document.title };
+      case "html":
+        return getHtml(selector);
+      case "ready_state":
+        return { value: document.readyState };
+      case "count":
+        return { value: selector ? document.querySelectorAll(selector).length : document.getElementsByTagName("*").length };
+      case "rect":
+        return getRect(selector);
+      default:
+        return { error: "invalid_request" };
+    }
+  }
+
+  function getText(selector) {
+    if (!selector) return { value: collapse(document.body ? document.body.textContent : "").trim() };
+    const element = document.querySelector(selector);
+    return element ? { value: collapse(element.textContent || "").trim() } : { error: "no_box" };
+  }
+
+  function getHtml(selector) {
+    if (!selector) return { value: document.documentElement ? document.documentElement.outerHTML : "" };
+    const element = document.querySelector(selector);
+    return element ? { value: element.outerHTML } : { error: "no_box" };
+  }
+
+  function getRect(selector) {
+    if (!selector) return { error: "invalid_request" };
+    const element = document.querySelector(selector);
+    if (!element) return { error: "no_box" };
+    const box = element.getBoundingClientRect();
+    return { value: { x: box.left, y: box.top, width: box.width, height: box.height } };
+  }
+
+  // `act` `kind=wait`: one look at whether the condition already holds. The
+  // app polls this on its own bounded interval until it answers `done: true`
+  // or its own timeout elapses; nothing here ever loops or blocks.
+  function waitCondition(waitUntil, text, selector, ref) {
+    switch (waitUntil) {
+      case "load":
+        return { done: document.readyState === "complete" };
+      case "url":
+        return { done: typeof text === "string" && location.href.includes(text) };
+      case "text":
+        return { done: typeof text === "string" && document.body != null && document.body.innerText.includes(text) };
+      case "element":
+        return { done: elementWaitedFor(selector, ref) };
+      default:
+        return { error: "invalid_request" };
+    }
+  }
+
+  function elementWaitedFor(selector, ref) {
+    if (selector) return document.querySelector(selector) != null;
+    if (ref !== null && ref !== undefined) return nodeFor(ref) != null;
+    return false;
+  }
+
+  // The document's own height, for a `page.screenshot` `full_page` capture:
+  // the app asks WebKit for a snapshot as tall as this, which it renders
+  // where it can and otherwise crops to the viewport it already had.
+  function documentHeight() {
+    const root = document.documentElement;
+    return { value: root ? root.scrollHeight : window.innerHeight };
+  }
+
   globalThis.__fermixPage = Object.freeze({
     snapshot, locate, viewport: viewportInfo, prepareTyping, setValue, valueOf, selectOption,
-    submitControl, scrollBy, openChooser, files, fingerprint
+    submitControl, scrollBy, openChooser, files, fingerprint, get, waitCondition, documentHeight
   });
 })();

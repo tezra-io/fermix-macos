@@ -38,6 +38,16 @@ public struct BrowserTabCaps: Equatable, Sendable {
         self.perTask = perTask
         self.global = global
     }
+
+    /// From `tab.open`'s own `task_tab_cap`/`tab_cap`: nil for a pair the
+    /// contract's own bounds do not actually rule out on the wire (zero,
+    /// negative, or a task cap past the global one), which is refused rather
+    /// than let crash the precondition above.
+    public init?(taskTabCap: Int, tabCap: Int) {
+        guard taskTabCap > 0, tabCap >= taskTabCap else { return nil }
+
+        self.init(perTask: taskTabCap, global: tabCap)
+    }
 }
 
 /// One connection to the daemon's `browser_host.sock`, numbered by the host
@@ -135,6 +145,9 @@ public struct BrowserHostReducer: Equatable, Sendable {
     /// The registry: every live tab's owner. A record goes at the tab's first
     /// release or close, so a second finds nothing (BROWSER-2).
     public private(set) var owners: [BrowserTab.ID: BrowserTabOwner] = [:]
+    /// A popup's opener, for as long as the popup lives. Absent for a tab
+    /// nothing opened, which is every tab but a popup.
+    public private(set) var openers: [BrowserTab.ID: BrowserTab.ID] = [:]
     /// The tasks the person asked to cancel whose release has not arrived.
     public private(set) var pendingRelease: Set<BrowserTaskID> = []
     public private(set) var availability: BrowserAvailability
@@ -151,6 +164,12 @@ public struct BrowserHostReducer: Equatable, Sendable {
 
     public func owner(of tab: BrowserTab.ID) -> BrowserTabOwner? {
         owners[tab]
+    }
+
+    /// The tab that opened this one, for a popup still alive; nil for every
+    /// other tab, a popup whose own record has gone included.
+    public func opener(of tab: BrowserTab.ID) -> BrowserTab.ID? {
+        openers[tab]
     }
 
     public var taskTabCount: Int {
@@ -175,8 +194,10 @@ public struct BrowserHostReducer: Equatable, Sendable {
     // MARK: - The connection
 
     /// A connection attached. A quitting host attaches no more: stopping is
-    /// final for it (BROWSER-5).
-    public mutating func attach(caps: BrowserTabCaps) -> BrowserHostConnection? {
+    /// final for it (BROWSER-5). `caps` is for a caller that already knows
+    /// them; the `browser_host` wire client attaches with none and lets the
+    /// first `tab.open` establish them (`establishCaps`).
+    public mutating func attach(caps: BrowserTabCaps? = nil) -> BrowserHostConnection? {
         guard quit == .none else { return nil }
         precondition(connection == nil, "a host attaches once per connection")
 
@@ -186,6 +207,20 @@ public struct BrowserHostReducer: Equatable, Sendable {
         self.caps = caps
 
         return attached
+    }
+
+    /// `tab.open`'s own `task_tab_cap`/`tab_cap` become this connection's for
+    /// its life, the first time they arrive; a later `tab.open` naming
+    /// different ones is refused rather than silently adopted. False where
+    /// there is nothing to establish them on, or where they changed.
+    public mutating func establishCaps(_ proposed: BrowserTabCaps) -> Bool {
+        guard connection != nil else { return false }
+        guard let caps else {
+            self.caps = proposed
+            return true
+        }
+
+        return caps == proposed
     }
 
     /// The daemon went away: every task tab is released and the person's stay.
@@ -230,13 +265,15 @@ public struct BrowserHostReducer: Equatable, Sendable {
     /// A page opened a window of its own. The popup is its opener's owner's in
     /// this same step, and counted under that task's caps, where it is blocked
     /// at a cap (BROWSER-3). A popup from the person's tab is the person's.
+    /// Its opener is kept regardless of whose it is, so `tab.list` can carry
+    /// it (BROWSER-8).
     public mutating func openPopup(_ tab: BrowserTab.ID, from opener: BrowserTab.ID) -> BrowserTabAdmission {
         guard let owner = owners[opener] else { return .refused(.notTheTasksTab) }
-        guard let task = owner.task else { return register(tab, .person) }
+        guard let task = owner.task else { return register(tab, .person, opener: opener) }
         guard let caps else { return .refused(.notAttached) }
         if let refusal = capRefusal(for: task, caps: caps) { return .refused(refusal) }
 
-        return register(tab, owner)
+        return register(tab, owner, opener: opener)
     }
 
     /// A tab the person opened is theirs.
@@ -249,6 +286,7 @@ public struct BrowserHostReducer: Equatable, Sendable {
     public mutating func personClose(_ tab: BrowserTab.ID) -> BrowserPersonClose {
         guard let task = owners[tab]?.task else {
             owners[tab] = nil
+            openers[tab] = nil
             return .close
         }
 
@@ -274,7 +312,8 @@ public struct BrowserHostReducer: Equatable, Sendable {
     /// A page closed its own window. Its record goes, and its owner is
     /// answered so a task's closed tab can be told to the daemon.
     public mutating func pageClosed(_ tab: BrowserTab.ID) -> BrowserTabOwner? {
-        owners.removeValue(forKey: tab)
+        openers[tab] = nil
+        return owners.removeValue(forKey: tab)
     }
 
     /// The idle release. It reads the registry in the step that releases, so a
@@ -327,17 +366,21 @@ public struct BrowserHostReducer: Equatable, Sendable {
         return nil
     }
 
-    private mutating func register(_ tab: BrowserTab.ID, _ owner: BrowserTabOwner) -> BrowserTabAdmission {
+    private mutating func register(_ tab: BrowserTab.ID, _ owner: BrowserTabOwner, opener: BrowserTab.ID? = nil) -> BrowserTabAdmission {
         precondition(owners[tab] == nil, "a tab is registered once")
 
         owners[tab] = owner
+        openers[tab] = opener
         viewsHeld = true
         return .admitted(owner)
     }
 
     private mutating func drop(where matches: (BrowserTabOwner) -> Bool) -> Set<BrowserTab.ID> {
         let released = Set(owners.filter { matches($0.value) }.keys)
-        for tab in released { owners[tab] = nil }
+        for tab in released {
+            owners[tab] = nil
+            openers[tab] = nil
+        }
 
         return released
     }
