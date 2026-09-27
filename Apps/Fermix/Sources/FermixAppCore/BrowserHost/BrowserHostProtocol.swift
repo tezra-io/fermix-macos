@@ -614,7 +614,7 @@ extension BrowserHostEvent: Encodable {
 // MARK: - Responses (app → daemon)
 
 /// One of the host's enumerated error reasons.
-public enum BrowserHostErrorReason: String, Equatable, Sendable, Encodable {
+public enum BrowserHostErrorReason: String, Error, Equatable, Sendable, Encodable {
     case tabNotFound = "tab_not_found"
     case capReached = "cap_reached"
     case notOwner = "not_owner"

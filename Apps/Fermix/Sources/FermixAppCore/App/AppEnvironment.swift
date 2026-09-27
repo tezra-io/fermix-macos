@@ -61,6 +61,8 @@ struct AppEnvironment {
     /// The chat wire's line socket, which the composition wraps in the
     /// main-actor delivery. One socket for the one session.
     let companionLines: CompanionSocketClient.LineSocket
+    /// The browser host wire's own line socket, the same way.
+    let browserHostLines: BrowserHostClient.LineSocket
     /// Which steps activation runs on this configuration's machine.
     let activationPlan: ActivationPlan
     let sleeper: any Sleeping
@@ -141,6 +143,7 @@ extension AppEnvironment {
             installation: BundleInstallationProbe(home: location.homeDirectory.path),
             identities: ManagementDaemonIdentityProbe(),
             companionLines: CompanionSocketClient.lineSocket(),
+            browserHostLines: BrowserHostClient.lineSocket(),
             activationPlan: plan,
             sleeper: TaskSleeper(),
             reconciler: EngineReconciler(

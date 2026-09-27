@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import Darwin
 import Foundation
 
 /// The browser the fixture configuration stands on: fake pages that never
@@ -192,5 +193,23 @@ final class FixturePageView: NSView {
 /// another app.
 struct FixtureWorkspaceOpener: WorkspaceLinkOpening {
     func open(_ url: URL) -> Bool { true }
+}
+
+/// The browser host socket, never dialed: the fixture drives its two tabs
+/// locally (`FixtureWebPage.openTabs`), so there is nothing for a daemon to
+/// attach to and no socket to fail interestingly. Every connect answers as an
+/// engine that predates the wire would.
+final class FixtureBrowserHostTransport: LineSocketTransport, @unchecked Sendable {
+    var onMessage: ((BrowserHostInbound) -> Void)?
+    var onFailure: ((LineSocketFailure<BrowserHostDecodeFailure>) -> Void)?
+
+    func connect(path: String, completion: @escaping (Result<Void, LineSocketConnectFailure>) -> Void) {
+        completion(.failure(.system(errno: ENOENT)))
+    }
+
+    func send(_ line: Data) {}
+    func sendDroppable(_ line: Data) {}
+    func sendDroppable(producing line: @escaping @Sendable () -> Data) {}
+    func close() {}
 }
 #endif

@@ -67,6 +67,10 @@ final class AppComposition {
     /// The browser pane's one owner. It opens and closes the pane's room in
     /// the window through the window coordinator.
     let browser: BrowserCoordinator
+    /// The daemon's fourth wire: attaches as the browser's host and
+    /// dispatches every request onto `browser`. Connects once, at launch, and
+    /// stays connected for the life of the process (plan §4.10).
+    let browserHost: BrowserHostClient
     /// The one place a content link is opened: the pane or the person's own
     /// browser, by their preference. Sign-in and the installer never use it.
     let links: ContentLinkOpener
@@ -93,6 +97,13 @@ final class AppComposition {
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
         browser = Self.buildBrowser(environment: environment, location: location, windows: windows)
+        browserHost = Self.buildBrowserHost(
+            environment: environment,
+            store: store,
+            location: location,
+            configuration: configuration,
+            browser: browser
+        )
         links = ContentLinkOpener(
             preference: environment.linkPreference,
             browser: browser,
@@ -178,6 +189,10 @@ final class AppComposition {
         // update surface states that rather than the framework's own alert
         // (M34 §6, R2).
         updates.start(updater)
+        // The browser host wire is always-on: a task can drive the pane
+        // before the person ever opens it, so this asks for the connection
+        // once, here, rather than waiting for a surface to ask as chat does.
+        browserHost.connect()
         // A staged update replaces the bundle on any exit of this process, so
         // the quit path finishes the stop first (M34 §6, R3). The closure is a
         // backwards edge for the same reason the two below are: the update
@@ -278,6 +293,32 @@ final class AppComposition {
             session: environment.session,
             deadlines: RunLoopDeadlineScheduler(),
             paneShown: { [windows] open in windows.setBrowserPane(open: open) }
+        )
+    }
+
+    /// The browser host wire: the daemon's fourth socket, attached over the
+    /// same coordinator the pane draws. Unlike chat, nothing waits for a
+    /// surface to ask: a task can drive the pane before the person ever opens
+    /// it, so this connects from `finishAssembly()` instead.
+    private static func buildBrowserHost(
+        environment: AppEnvironment,
+        store: BootstrapStore,
+        location: BootstrapLocation,
+        configuration: ProductConfiguration,
+        browser: BrowserCoordinator
+    ) -> BrowserHostClient {
+        BrowserHostClient(
+            lines: MainActorLineDelivery(wrapping: environment.browserHostLines),
+            socketPath: { try store.browserHostSocketPath() },
+            // The website profile's own identifier, read (and, on a first
+            // attach, created) the same way `BrowserCoordinator` reads it for
+            // the first tab: attaching is itself a reason to have one, task
+            // automation being able to reach the pane before anyone opens it.
+            profileID: { try WebsiteProfileRecord(location: location).identifier().uuidString },
+            workspaceRoot: { try store.workspaceDirectoryURL() },
+            hostVersion: configuration.marketingVersion,
+            coordinator: browser,
+            deadlines: MainQueueDeadlineScheduler()
         )
     }
 
