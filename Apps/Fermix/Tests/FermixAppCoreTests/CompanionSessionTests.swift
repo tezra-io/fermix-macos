@@ -384,6 +384,16 @@ struct CompanionSessionTests {
         #expect(harness.model.search?.hits == [E.hit(88)])
         #expect(harness.model.search?.nextBeforeSeq == 88)
 
+        harness.session.searchOlder()
+        #expect(
+            try harness.sent().last
+                == wireObject(
+                    companion: .historySearch(profileId: "main", query: "dentist", limit: 50, beforeSeq: 88)
+                )
+        )
+        harness.socket.deliver(E.results("dentist", seqs: [40]))
+        #expect(harness.model.search?.hits == [E.hit(88), E.hit(40)])
+
         harness.session.clearSearch()
         #expect(harness.model.search == nil)
     }

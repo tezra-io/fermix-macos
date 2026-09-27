@@ -414,6 +414,40 @@ struct CompanionReducerTests {
         #expect(chat.search == nil)
     }
 
+    @Test("older hits are asked once from next_before_seq and extend the hits shown")
+    func olderHits() {
+        var chat = CompanionChat.holding(1...120)
+
+        #expect(CompanionReducer.searchOlder(&chat).isEmpty, "no search is on screen")
+        _ = CompanionReducer.search("dentist", into: &chat)
+        #expect(CompanionReducer.searchOlder(&chat).isEmpty, "the first page is not answered yet")
+
+        chat.receive(E.results("dentist", seqs: [100, 88], older: 88))
+        #expect(
+            CompanionReducer.searchOlder(&chat)
+                == [.historySearch(profileId: "main", query: "dentist", limit: CompanionProtocol.searchLimit, beforeSeq: 88)]
+        )
+        #expect(chat.search?.olderHitsAsked == 88)
+        #expect(CompanionReducer.searchOlder(&chat).isEmpty, "older hits are already asked for")
+
+        chat.receive(E.results("dentist", seqs: [40]))
+        #expect(chat.search == CompanionSearch(query: "dentist", hits: [E.hit(100), E.hit(88), E.hit(40)], nextBeforeSeq: nil))
+        #expect(CompanionReducer.searchOlder(&chat).isEmpty, "the daemon said no older hits exist")
+    }
+
+    @Test("a dropped connection forgets the older hits it asked for")
+    func disconnectForgetsOlderHits() {
+        var chat = CompanionChat.holding(1...120)
+        _ = CompanionReducer.search("dentist", into: &chat)
+        chat.receive(E.results("dentist", seqs: [88], older: 88))
+        _ = CompanionReducer.searchOlder(&chat)
+
+        CompanionReducer.disconnected(&chat)
+
+        #expect(chat.search == CompanionSearch(query: "dentist", hits: [E.hit(88)], nextBeforeSeq: 88))
+        #expect(CompanionReducer.searchOlder(&chat).count == 1)
+    }
+
     @Test("a query the daemon would refuse is not sent")
     func refusedQueries() {
         var chat = CompanionChat.holding(1...12)

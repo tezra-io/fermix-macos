@@ -110,6 +110,9 @@ public struct CompanionSearch: Equatable, Sendable {
     public internal(set) var hits: [CompanionSearchHit]?
     /// Where older hits start, when the daemon said older ones exist.
     public internal(set) var nextBeforeSeq: Int?
+    /// The `before_seq` of the older hits asked for and not yet answered. Its
+    /// answer extends the hits rather than replacing them.
+    public internal(set) var olderHitsAsked: Int? = nil
 }
 
 extension CompanionApproval: Identifiable {

@@ -114,6 +114,13 @@ public final class CompanionSession {
         reduce { CompanionReducer.search(query, into: &$0) }
     }
 
+    /// The hits older than the ones shown, where the daemon said some exist.
+    public func searchOlder() {
+        guard phase == .connected else { return }
+
+        reduce { CompanionReducer.searchOlder(&$0) }
+    }
+
     public func clearSearch() {
         update { CompanionReducer.clearSearch(&$0) }
     }

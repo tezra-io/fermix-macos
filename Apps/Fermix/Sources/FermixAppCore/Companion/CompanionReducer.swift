@@ -34,6 +34,7 @@ enum CompanionReducer {
     static func disconnected(_ chat: inout CompanionChat) {
         chat.historyPull = nil
         chat.turn = nil
+        chat.search?.olderHitsAsked = nil
         if chat.search?.hits == nil {
             chat.search = nil
         }
@@ -93,6 +94,25 @@ enum CompanionReducer {
                 query: query,
                 limit: CompanionProtocol.searchLimit,
                 beforeSeq: nil
+            )
+        ]
+    }
+
+    /// The hits older than the ones shown, when the daemon said older ones
+    /// exist and none are asked for already.
+    static func searchOlder(_ chat: inout CompanionChat) -> [CompanionClientEvent] {
+        guard var search = chat.search, search.hits != nil, search.olderHitsAsked == nil,
+              let before = search.nextBeforeSeq
+        else { return [] }
+
+        search.olderHitsAsked = before
+        chat.search = search
+        return [
+            .historySearch(
+                profileId: CompanionProtocol.profileId,
+                query: search.query,
+                limit: CompanionProtocol.searchLimit,
+                beforeSeq: before
             )
         ]
     }
@@ -228,11 +248,17 @@ enum CompanionReducer {
     }
 
     /// Results for the query on screen. An answer to a query since replaced or
-    /// cleared is not shown.
+    /// cleared is not shown, and the answer to older hits extends the ones
+    /// shown, which are newer.
     private static func show(_ results: CompanionSearchResults, in chat: inout CompanionChat) {
-        guard chat.search?.query == results.query else { return }
+        guard let search = chat.search, search.query == results.query else { return }
 
-        chat.search = CompanionSearch(query: results.query, hits: results.hits, nextBeforeSeq: results.nextBeforeSeq)
+        let shown = search.olderHitsAsked == nil ? [] : search.hits ?? []
+        chat.search = CompanionSearch(
+            query: results.query,
+            hits: shown + results.hits,
+            nextBeforeSeq: results.nextBeforeSeq
+        )
     }
 
     /// A refusal naming a request ends that request's delivery: it can never
