@@ -957,7 +957,7 @@ row and every state line under 34.
 **Main menu** (macOS title case, a recorded exception, kept in its own catalogue
 section): Fermix ("About Fermix", "Check for Updates…", "Settings…", Services, Hide,
 "Quit Fermix") · File ("Close Window", "Export Support Bundle…", "Reveal Log Folder") ·
-Edit · View ("Show Sidebar" / "Hide Sidebar", "Home", "Doctor", "Logs", "Pet",
+Edit · View ("Show Sidebar" / "Hide Sidebar", "Chat", "Home", "Doctor", "Logs", "Pet",
 "Run Local Checks", "Run Network Checks…", "Pause Logs") · Daemon ("Restart Fermix…",
 "Enable Background Service" / "Disable Background Service", "Open Setup Assistant") ·
 Window · Help ("Add the fermix Command to Terminal…").
@@ -1330,6 +1330,63 @@ every button carries a title or an accessibility label; every sheet has a cancel
     pane list together, and the corners round the form. `WindowFrameRecipe.pane` is retired.
     A glass of the pane's own colour was tried first: on dark it landed on the rail's tone, so
     the list read as frame anyway and the form beside it began in a square corner.
+36. **Chat, one conversation** (2026-09-26), from the chat plan (`CHAT_AND_BROWSER_PLAN.md`
+    §3.3 to §3.5) and the owner's brief. The rail's new first row opens the companion
+    timeline the phone shares; there is no session list and no new chat.
+    - **The fifth row, first.** Chat heads the rail as `bubble.left`, filled while it shows,
+      above Home, Doctor, Logs and Pet, and the arrow keys walk the six with Settings.
+      `fermix://chat` opens it; Home stays where a launch lands. The View menu carries Chat
+      first and the surfaces take ⌘1 to ⌘5 in the rail's order, so Home moves to ⌘2. Chat
+      sits on the calm ground, and its title is the toolbar's, "Chat", never a page title.
+    - **Two states.** With nothing in the timeline and nothing waiting, the composer stands in
+      the middle of the column under the mark and a greeting. The mark is `FermixMarkChat`,
+      the menu bar generator's fifth image, 48pt, in `ink` at 16%. The greeting is chosen by
+      the Mac's clock (Good morning from 5, Good afternoon from 12, Good evening from 18) and
+      takes the first name of About you's `personalization.user_name`, read through the one
+      settings model, where one is saved; under it, quieter, "What is on your mind?". Nothing
+      there moves. With anything in the timeline the transcript fills the column and the
+      composer sits on the bottom edge. The owner's first message moves it there as one step
+      crossfade (§6, 240ms ease, 150ms under Reduce Motion) while the greeting fades; a
+      transcript read from the daemon simply appears. It never returns to the middle while
+      the timeline has rows.
+    - **The transcript** is a 720pt column centred in the body, in the body rung and `ink`. The
+      owner's messages sit on the trailing side in a `chipFill` shape with 16pt corners, at
+      least 96pt from the leading edge. Fermix's replies, and deliveries, sit on the leading
+      side straight on the ground, in inline markdown with links left as text. The reply being
+      written shows its text so far and one quiet `calloutSmall` `faint` line for its latest
+      tool, "Using web_search" beside the activity mark and "Used web_search" once it stops.
+      A message the daemon has not accepted is drawn at 60% with "Sending" under it. An
+      approval is a card in `chipFill` with a standard hairline and 16pt corners: the
+      daemon's text and detail, and Approve and Deny as row-size secondary capsules, both
+      unavailable once an answer is on its way. The latest failure is one `calloutSmall`
+      `secondary` line behind `exclamationmark.circle`.
+    - **The composer** is a field in `chipFill` with a standard hairline: 36pt at one line, the
+      extra large control height, with its regular 24pt action 6pt in from the edge, and
+      keeping the 18pt corners as it grows to six lines. Return sends and Shift-Return is a
+      line break at the caret. The action is Send, the monochrome primary at the row size and
+      the default button, until a reply is being written; then it is Cancel, a secondary
+      capsule that is never the default, so Return cannot cancel a reply. Cancel is the wire's
+      own verb: `Stop` leads no string in the product, which keeps the word for the service.
+      Not connected, the composer is unavailable and the connection's sentence stands over it.
+    - **Scrolling.** The transcript opens on its bottom edge and keeps a reader there as rows
+      arrive and a reply grows; a reader who scrolled away keeps their place. Reaching the
+      top reads the page before the oldest held row, and the reader keeps their place when it
+      lands. The newest row on screen, in a window in front, moves the read frontier the
+      phone shares. Its indicators are never drawn and its edges take the system's fade.
+    - **Search is in the toolbar**, `searchable` where Logs has its own, and the engine's. The
+      daemon is asked once typing pauses for 300ms, or on Return. Its hits replace the
+      transcript, which stays underneath so the reader's place survives: each hit's excerpt
+      with its matches in `accentText` bold, who wrote it and when under it, newest first,
+      and "Show older matches" where the daemon said older ones exist; none is the system's
+      empty state, "No messages match". Choosing a hit returns to the transcript, reads back
+      page by page until its row is held, scrolls it to the middle and marks its matches.
+      Clearing the field returns to the transcript.
+    - **Never drawn**: a session list, a new chat, a page title, avatars, times on rows, code
+      blocks and tables (v2), opened links (no opener yet), a second search over the held
+      rows, an approval's token, and anything moving in the empty state.
+    - **Looked at** with `--fixture --fixture-start chat`, a dozen rows of both sides with older
+      ones behind them, a reply being written with a tool running and an approval waiting,
+      and `--fixture-start chat-empty`, over a scripted companion socket.
 
 ## 9. Accessibility (DESIGN_SPEC §9, as build gates)
 
