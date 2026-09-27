@@ -234,6 +234,70 @@ struct BrowserHostReducerTests {
         #expect(host.openPopup(UUID(), from: tab) == .refused(.notTheTasksTab))
     }
 
+    @Test("a popup's opener is kept, for tab.list to carry, and dropped with its own record")
+    func popupOpenerIsKeptAndDropped() throws {
+        let (host, _) = try Self.attached()
+        let tab = try Self.open(Self.first, in: host)
+        let popup = UUID()
+        _ = host.openPopup(popup, from: tab)
+
+        #expect(host.opener(of: popup) == tab)
+        #expect(host.opener(of: tab) == nil, "a tab nothing opened has no opener")
+
+        _ = host.release(Self.first)
+        #expect(host.opener(of: popup) == nil, "the opener goes with the popup's own record")
+    }
+
+    @Test("a person's own popup keeps its opener too")
+    func personsPopupKeepsItsOpener() {
+        let host = HostUnderTest(.available)
+        let person = UUID()
+        let popup = UUID()
+        host.openPersonTab(person)
+        _ = host.openPopup(popup, from: person)
+
+        #expect(host.opener(of: popup) == person)
+    }
+
+    // MARK: - Caps from the wire
+
+    @Test("tab.open's own caps are what govern the task, once established")
+    func establishedCapsGovernTheTask() throws {
+        let host = HostUnderTest(.available)
+        _ = host.attach(caps: nil)
+
+        #expect(host.establishCaps(BrowserTabCaps(perTask: 1, global: 1)))
+        _ = try Self.open(Self.first, in: host)
+
+        #expect(host.openTaskTab(UUID(), for: Self.first) == .refused(.taskCap))
+    }
+
+    @Test("the same caps a second tab.open names are accepted again")
+    func repeatingTheSameCapsIsAccepted() {
+        let host = HostUnderTest(.available)
+        _ = host.attach(caps: nil)
+
+        #expect(host.establishCaps(BrowserTabCaps(perTask: 2, global: 4)))
+        #expect(host.establishCaps(BrowserTabCaps(perTask: 2, global: 4)))
+    }
+
+    @Test("a later tab.open naming different caps is refused, not adopted")
+    func differentCapsAreRefused() {
+        let host = HostUnderTest(.available)
+        _ = host.attach(caps: nil)
+
+        #expect(host.establishCaps(BrowserTabCaps(perTask: 2, global: 4)))
+        #expect(!host.establishCaps(BrowserTabCaps(perTask: 3, global: 4)))
+        #expect(host.caps == BrowserTabCaps(perTask: 2, global: 4), "the first caps still stand")
+    }
+
+    @Test("caps cannot be established before a host attaches")
+    func capsNeedAConnection() {
+        let host = HostUnderTest(.available)
+
+        #expect(!host.establishCaps(BrowserTabCaps(perTask: 1, global: 1)))
+    }
+
     // MARK: - IdleReleaseSparesTaskTabs
 
     /// BROWSER-3's second path: a task waits between two steps with nothing in
@@ -446,7 +510,9 @@ final class HostUnderTest {
         state.requestRefusal(for: task, on: tab)
     }
 
-    func attach(caps: BrowserTabCaps) -> BrowserHostConnection? { state.attach(caps: caps) }
+    func attach(caps: BrowserTabCaps? = nil) -> BrowserHostConnection? { state.attach(caps: caps) }
+    func establishCaps(_ caps: BrowserTabCaps) -> Bool { state.establishCaps(caps) }
+    func opener(of tab: UUID) -> UUID? { state.opener(of: tab) }
     func detach(_ gone: BrowserHostConnection) -> BrowserHostDetach { state.detach(gone) }
     func availabilityChanged(_ now: BrowserAvailability) -> BrowserAvailability? { state.availabilityChanged(now) }
     func openTaskTab(_ tab: UUID, for task: BrowserTaskID) -> BrowserTabAdmission { state.openTaskTab(tab, for: task) }
