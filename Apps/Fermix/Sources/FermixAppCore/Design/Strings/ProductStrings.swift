@@ -388,6 +388,20 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case voiceTaskStatusFormat = "voice.task.statusFormat"
     case voiceCostFormat = "voice.costFormat"
 
+    // Companion chat
+    case companionConnectionEngineHasNoChat = "companion.connection.engineHasNoChat"
+    case companionConnectionReconnecting = "companion.connection.reconnecting"
+    case companionConnectionHomeUnavailable = "companion.connection.homeUnavailable"
+    /// The daemon's window starts above this build: the app is out of date.
+    case companionConnectionUpdateApp = "companion.connection.updateApp"
+    /// The daemon's window ends below this build: the engine is out of date.
+    case companionConnectionUpdateEngine = "companion.connection.updateEngine"
+    case companionErrorRefusedFormat = "companion.error.refusedFormat"
+    case companionErrorMessageTooLong = "companion.error.messageTooLong"
+    case companionErrorReplyStopped = "companion.error.replyStopped"
+    case companionErrorReplyInterrupted = "companion.error.replyInterrupted"
+    case companionErrorReplyFailedFormat = "companion.error.replyFailedFormat"
+
     // Pet
     case petCallBegin = "pet.callBegin"
     case petCallEnd = "pet.callEnd"

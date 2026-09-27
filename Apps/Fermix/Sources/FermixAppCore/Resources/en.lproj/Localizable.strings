@@ -352,6 +352,18 @@
 "voice.task.statusFormat" = "Task: %@";
 "voice.costFormat" = "Voice so far: %@";
 
+/* MARK: Companion chat */
+"companion.connection.engineHasNoChat" = "The Fermix engine on this Mac has no chat yet";
+"companion.connection.reconnecting" = "Chat cannot reach Fermix right now and is trying again";
+"companion.connection.homeUnavailable" = "Fermix cannot read its home on this Mac";
+"companion.connection.updateApp" = "This app is older than the Fermix engine it talks to. Update the app to chat.";
+"companion.connection.updateEngine" = "The Fermix engine is older than this app. Update the engine to chat.";
+"companion.error.refusedFormat" = "The daemon reported: %@";
+"companion.error.messageTooLong" = "The message is too long to send";
+"companion.error.replyStopped" = "The reply was stopped";
+"companion.error.replyInterrupted" = "The reply was interrupted";
+"companion.error.replyFailedFormat" = "The reply did not finish: %@";
+
 /* MARK: Pet */
 "pet.callBegin" = "Begin voice call";
 "pet.callEnd" = "End voice call";
