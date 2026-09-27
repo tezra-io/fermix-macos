@@ -428,6 +428,25 @@ struct WindowChromeTests {
     }
 }
 
+/// The titlebar keeps one height whatever the body shows.
+@Suite("Titlebar height")
+struct TitlebarHeightTests {
+    /// A body whose toolbar can be empty drops the window to the short
+    /// titlebar, and the band, the traffic lights and the title jump with it:
+    /// Pet did when the rail removed the sidebar toggle, and Settings did
+    /// whenever there was nothing to restart. Each body the window shows
+    /// carries the empty keeper, so the declaration and one use per body is
+    /// three.
+    @Test("every body the window shows keeps a toolbar to size the titlebar by")
+    func everyBodyKeepsTheToolbar() throws {
+        let text = try #require(try SourceTree.swiftFiles(matching: "App/MainWindowView.swift").first?.text)
+        let keepers = text.components(separatedBy: "toolbarKeeper").count - 1
+
+        #expect(keepers == 3, "found \(keepers)")
+        #expect(text.contains("toolbarKeeper\n                SettingsRestartControl("), "settings' toolbar can be empty")
+    }
+}
+
 /// The wordmark: a 1:1 path port of the approved SVG, pinned to the published
 /// glyph geometry so a redrawn approximation fails here.
 @Suite("Wordmark")

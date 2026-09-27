@@ -276,6 +276,7 @@ struct MainWindowView: View {
                     .overlay { bodyCorners }
             }
             .toolbar {
+                toolbarKeeper
                 SettingsRestartControl(model: settings, router: router, transaction: model.transactionInFlight)
             }
         } else {
@@ -284,14 +285,17 @@ struct MainWindowView: View {
         }
     }
 
-    /// One empty item every app surface carries, so the window always has a
-    /// toolbar to size its titlebar by.
+    /// One empty item every body the window shows carries, so the window always
+    /// has a toolbar to size its titlebar by.
     ///
     /// The system's sidebar toggle used to be that item. The rail removed it,
     /// and a surface with no toolbar of its own, which is Pet, then dropped the
     /// window to the short titlebar: the traffic lights and the title jumped
-    /// eleven points every time the selection crossed it. Zero sized, because a
-    /// one point item drew as a sliver of toolbar glass.
+    /// eleven points every time the selection crossed it. Settings carries it
+    /// too: its only item is Restart, so with nothing to restart the band
+    /// shrank as settings opened and grew back when Restart appeared (owner,
+    /// 2026-09-27). Zero sized, because a one point item drew as a sliver of
+    /// toolbar glass.
     @ToolbarContentBuilder
     private var toolbarKeeper: some ToolbarContent {
         ToolbarItem(placement: .status) {
