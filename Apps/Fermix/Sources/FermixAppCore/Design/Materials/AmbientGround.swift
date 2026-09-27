@@ -161,7 +161,7 @@ public enum AmbientIntensity: String, CaseIterable, Sendable {
 
         switch route {
         case .setup, .recovery, .pet: return .expressive
-        case .home, .doctor, .logs, .update, .uninstall: return .calm
+        case .chat, .home, .doctor, .logs, .update, .uninstall: return .calm
         }
     }
 

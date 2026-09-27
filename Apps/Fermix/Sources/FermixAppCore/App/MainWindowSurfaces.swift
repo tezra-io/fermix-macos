@@ -1,7 +1,7 @@
 import Foundation
 
-/// The four primary-window surfaces plus onboarding, built once and handed to
-/// the windows that draw them.
+/// The primary-window surfaces plus onboarding, built once and handed to the
+/// windows that draw them.
 ///
 /// They are assembled here rather than inside the views so each one keeps a
 /// single instance across route changes: a Doctor run and a Logs page survive

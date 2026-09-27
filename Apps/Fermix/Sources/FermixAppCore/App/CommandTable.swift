@@ -23,6 +23,7 @@ public enum AppCommand: String, CaseIterable, Sendable {
 
     // View
     case toggleSidebar
+    case showChat
     case showHome
     case showDoctor
     case showLogs
@@ -232,6 +233,7 @@ public enum CommandTable {
         case .revealLogFolder: return .fixed(.menuTitleRevealLogFolder)
         case .toggleSidebar:
             return .toggling(whenOn: .menuTitleHideSidebar, whenOff: .menuTitleShowSidebar)
+        case .showChat: return .fixed(.menuTitleChat)
         case .showHome: return .fixed(.menuTitleHome)
         case .showDoctor: return .fixed(.menuTitleDoctor)
         case .showLogs: return .fixed(.menuTitleLogs)
@@ -275,7 +277,7 @@ public enum CommandTable {
         // which is what the sheet it opens is titled (M34 §7.2).
         case .restartDaemon: return .settingsEngineSheetTitle
         case .pauseLogs: return nil
-        case .openFermix, .checkForUpdates, .openSettings, .quit, .toggleSidebar, .showHome,
+        case .openFermix, .checkForUpdates, .openSettings, .quit, .toggleSidebar, .showChat, .showHome,
              .showDoctor, .showLogs, .showPet, .runLocalChecks,
              .toggleBackgroundService, .toggleFloatingPet, .hideMenuBarItem,
              .linkCommandLineTool:
@@ -323,10 +325,12 @@ public enum CommandTable {
         case .openSettings: return CommandShortcut(",")
         case .quit: return CommandShortcut("q")
         case .toggleSidebar: return CommandShortcut("s", control: true)
-        case .showHome: return CommandShortcut("1")
-        case .showDoctor: return CommandShortcut("2")
-        case .showLogs: return CommandShortcut("3")
-        case .showPet: return CommandShortcut("4")
+        // The surfaces take Command-1 onwards in the rail's own order.
+        case .showChat: return CommandShortcut("1")
+        case .showHome: return CommandShortcut("2")
+        case .showDoctor: return CommandShortcut("3")
+        case .showLogs: return CommandShortcut("4")
+        case .showPet: return CommandShortcut("5")
         case .runLocalChecks: return CommandShortcut("r")
         default: return nil
         }
@@ -388,6 +392,7 @@ public enum CommandTable {
         CommandMenu(titleKey: .menuTitleView, entries: [
             .command(.toggleSidebar),
             .separator,
+            .command(.showChat),
             .command(.showHome),
             .command(.showDoctor),
             .command(.showLogs),
@@ -464,7 +469,8 @@ public enum CommandTable {
             return ToolbarSpec(secondary: [.pauseLogs], more: [.copyLogs, .exportLogs])
         case .home:
             return home(condition)
-        case .pet, .setup, .update, .uninstall, .recovery:
+        // Chat's search is the toolbar's search field, not a command.
+        case .chat, .pet, .setup, .update, .uninstall, .recovery:
             return ToolbarSpec()
         }
     }

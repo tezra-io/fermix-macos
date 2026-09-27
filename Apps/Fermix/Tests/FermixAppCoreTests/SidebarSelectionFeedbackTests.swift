@@ -69,7 +69,7 @@ struct SidebarSelectionFeedbackTests {
         #expect(publications == 2)
     }
 
-    @Test("repeating the current main route dispatches no navigation", arguments: [AppRoute.home, .doctor, .logs, .pet])
+    @Test("repeating the current main route dispatches no navigation", arguments: [AppRoute.chat, .home, .doctor, .logs, .pet])
     func repeatedMainSelectionIsIdle(_ route: AppRoute) async throws {
         let harness = try RouterHarness()
         harness.model.route = route

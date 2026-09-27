@@ -25,9 +25,9 @@ import SwiftUI
 /// arrow keys, full keyboard access and VoiceOver reach it exactly as they did
 /// when it carried words. What changed is what a row draws.
 ///
-/// The sidebar is the chat-ready shell: a future Chat row is one more entry in
-/// `SidebarItem.mainWindow`, and the pinned Settings row below them is the slot
-/// the owner named for the dropdown the tab list may become (decision D7).
+/// Chat is the first entry in `SidebarItem.mainWindow`, and the pinned Settings
+/// row below the rows is the slot the owner named for the dropdown the tab list
+/// may become (decision D7).
 struct MainWindowView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var sidebar: SidebarModel
@@ -157,13 +157,14 @@ struct MainWindowView: View {
         leaveSettings()
     }
 
-    /// Home, Doctor, Logs, Pet, and Settings pinned to the foot of the rail.
+    /// Chat, Home, Doctor, Logs, Pet, and Settings pinned to the foot of the
+    /// rail.
     ///
     /// Decision D2 puts Settings at the *bottom* of the sidebar, the slot the
     /// owner named for the dropdown the tab list may become (decision D7), and
     /// redlines §5.7 requires it "keyboard reachable in the same order as the
     /// rows above it": it is the last button of the one column, held down by a
-    /// spacer. The four are the published four in their published order and
+    /// spacer. The five are the published five in their published order and
     /// nothing else; the mascot that stood at the head of the rail for an
     /// afternoon was withdrawn the same day (2026-09-20).
     ///
@@ -318,6 +319,7 @@ struct MainWindowView: View {
                     guard let item = SidebarItem.mainWindow.first(where: { $0.id == identifier }) else { return }
 
                     switch item.route {
+                    case .chat: router.perform(.showChat)
                     case .home: router.perform(.showHome)
                     case .doctor: router.perform(.showDoctor)
                     case .logs: router.perform(.showLogs)
@@ -342,6 +344,8 @@ struct MainWindowView: View {
     @ViewBuilder
     private var detail: some View {
         switch model.route {
+        case .chat:
+            ChatSurfaceView(session: surfaces.companion, settings: settings)
         case .home:
             HomeView(model: surfaces.home, router: router)
         case .doctor:

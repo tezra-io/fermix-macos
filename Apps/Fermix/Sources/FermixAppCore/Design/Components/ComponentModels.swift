@@ -266,6 +266,7 @@ public struct SidebarItem: Identifiable, Equatable, Sendable {
     }
 
     public static let mainWindow: [SidebarItem] = [
+        SidebarItem(route: .chat, title: ProductStrings[.sidebarChat], systemImage: "bubble.left"),
         SidebarItem(route: .home, title: ProductStrings[.sidebarHome], systemImage: "house"),
         SidebarItem(route: .doctor, title: ProductStrings[.sidebarDoctor], systemImage: "stethoscope"),
         SidebarItem(route: .logs, title: ProductStrings[.sidebarLogs], systemImage: "list.bullet.rectangle"),

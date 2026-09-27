@@ -74,7 +74,7 @@ public final class CommandRouter: CommandPerforming {
         // the link, or this bundle ships none.
         case .linkCommandLineTool:
             return commandLine() != nil
-        case .openFermix, .openSettings, .quit, .revealLogFolder, .toggleSidebar, .showHome,
+        case .openFermix, .openSettings, .quit, .revealLogFolder, .toggleSidebar, .showChat, .showHome,
              .showDoctor, .showLogs, .showPet, .pauseLogs, .toggleFloatingPet:
             return true
         }
@@ -100,6 +100,8 @@ public final class CommandRouter: CommandPerforming {
         }
 
         switch command {
+        case .showChat:
+            coordinator.open(.chat)
         case .openFermix, .showHome:
             coordinator.open(.home)
         case .showDoctor:

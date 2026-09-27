@@ -28,6 +28,9 @@ public enum WindowKind: String, CaseIterable, Sendable {
 /// gating readiness failure names, or Settings when nothing gates (M34 §3.4).
 /// `SetupRouting` resolves that presentation from the daemon's readiness.
 public enum AppRoute: String, CaseIterable, Sendable {
+    /// The one conversation with Fermix, the rail's first row. Home stays
+    /// where a launch lands.
+    case chat
     case home
     case doctor
     case logs
@@ -62,6 +65,7 @@ public enum AppRoute: String, CaseIterable, Sendable {
     /// The sidebar row this route selects, where it is a sidebar destination.
     public var sidebarItemIdentifier: String? {
         switch self {
+        case .chat: return "chat"
         case .home: return "home"
         case .doctor: return "doctor"
         case .logs: return "logs"

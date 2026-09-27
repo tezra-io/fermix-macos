@@ -37,7 +37,7 @@ enum RailMetrics {
     }
 }
 
-/// The rail: the four surfaces, then Settings pinned to the foot.
+/// The rail: the five surfaces, then Settings pinned to the foot.
 ///
 /// Each destination is a button, so VoiceOver reads its name and whether it
 /// is the one showing, full keyboard access reaches every one in order, and a
@@ -46,7 +46,7 @@ enum RailMetrics {
 ///
 /// What the list gave for free is kept by hand: with a destination focused,
 /// the up and down arrows move the focus and the choice together through the
-/// five in order, as arrow keys walked the list's rows (redlines §5.7).
+/// six in order, as arrow keys walked the list's rows (redlines §5.7).
 struct RailColumn: View {
     let items: [SidebarItem]
     let selected: String?
@@ -83,7 +83,7 @@ struct RailColumn: View {
         .onMoveCommand(perform: move)
     }
 
-    /// The five destinations in keyboard order: the four, then Settings.
+    /// The six destinations in keyboard order: the five, then Settings.
     private var order: [String] {
         items.map(\.id) + [SidebarItem.settingsIdentifier]
     }

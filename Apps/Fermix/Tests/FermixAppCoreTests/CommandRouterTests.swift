@@ -18,6 +18,7 @@ struct CommandRouterTests {
         let harness = try RouterHarness()
 
         let routes: [(AppCommand, AppRoute)] = [
+            (.showChat, .chat),
             (.showDoctor, .doctor),
             (.showLogs, .logs),
             (.showPet, .pet),

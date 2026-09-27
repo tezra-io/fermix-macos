@@ -465,14 +465,15 @@ struct ContainerRuleTests {
         return nil
     }
 
-    /// M34 §5: setup is a task rather than a destination, so the sidebar is
-    /// four rows and the Setup row is gone. The pinned Settings row below them
-    /// is not one of these: it selects a presentation of this window rather
-    /// than a route, so it carries no `AppRoute` and is not a `SidebarItem`.
-    @Test("the sidebar is Home, Doctor, Logs and Pet, with Settings pinned under them")
+    /// M34 §5: setup is a task rather than a destination, so the Setup row is
+    /// gone, and Chat heads the rail (redlines §8 decision 36): five rows. The
+    /// pinned Settings row below them is not one of these: it selects a
+    /// presentation of this window rather than a route, so it carries no
+    /// `AppRoute` and is not a `SidebarItem`.
+    @Test("the sidebar is Chat, Home, Doctor, Logs and Pet, with Settings pinned under them")
     func sidebarRows() {
-        #expect(SidebarItem.mainWindow.map(\.title) == ["Home", "Doctor", "Logs", "Pet"])
-        #expect(SidebarItem.mainWindow.map(\.id) == ["home", "doctor", "logs", "pet"])
+        #expect(SidebarItem.mainWindow.map(\.title) == ["Chat", "Home", "Doctor", "Logs", "Pet"])
+        #expect(SidebarItem.mainWindow.map(\.id) == ["chat", "home", "doctor", "logs", "pet"])
 
         for item in SidebarItem.mainWindow {
             #expect(!item.systemImage.isEmpty, "\(item.title)")

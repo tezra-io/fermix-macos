@@ -318,8 +318,9 @@ struct RailRuleTests {
         #expect(!text.contains("SidebarItem.mainWindow.filter"), "the rail leaves a published row out")
         #expect(!text.contains("PetMark(") && !rail.contains("PetMark("), "the mascot is drawn in the rail again")
 
-        #expect(SidebarItem.mainWindow.map(\.route) == [.home, .doctor, .logs, .pet])
+        #expect(SidebarItem.mainWindow.map(\.route) == [.chat, .home, .doctor, .logs, .pet])
         #expect(SidebarItem.item(for: .pet)?.systemImage == "pawprint")
+        #expect(SidebarItem.item(for: .chat)?.systemImage == "bubble.left")
     }
 
     /// The Pet surface's still mascot is the generator's fourth image, shipped at

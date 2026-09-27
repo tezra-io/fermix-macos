@@ -95,6 +95,16 @@ struct AppRouteTests {
         #expect(try AppRoute.parse(URL(string: "fermix://recovery")!) == .surface(.recovery))
     }
 
+    /// Chat is the rail's first row and has its own url, and a launch that
+    /// names no surface still lands on Home (redlines §8 decision 36).
+    @Test("fermix://chat opens Chat, and a plain launch still lands on Home")
+    func chatRoute() throws {
+        #expect(try AppRoute.parse(URL(string: "fermix://chat")!) == .surface(.chat))
+        #expect(AppRoute.chat.sidebarItemIdentifier == "chat")
+        #expect(AppCoordinator.presentation(for: .route(.surface(.chat)), bootstrap: .present) == .main(.chat))
+        #expect(AppCoordinator.presentation(for: .user, bootstrap: .present) == .main(.home))
+    }
+
     /// Setup is a task rather than a sidebar destination, and the verb opens
     /// the assistant window (M34 §3.4). Where inside it is a question about the
     /// daemon's readiness, which `SetupRouting` answers.

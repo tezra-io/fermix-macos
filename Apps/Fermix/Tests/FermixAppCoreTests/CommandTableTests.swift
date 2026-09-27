@@ -30,17 +30,18 @@ struct CommandTableTests {
         }
     }
 
-    /// The View menu carries the four surfaces on Command-1 to Command-4 and
-    /// Show/Hide Sidebar on Control-Command-S.
-    @Test("the View menu carries the sidebar toggle and the four surface shortcuts")
+    /// The View menu carries the five surfaces on Command-1 to Command-5, in the
+    /// rail's own order, and Show/Hide Sidebar on Control-Command-S.
+    @Test("the View menu carries the sidebar toggle and the five surface shortcuts in rail order")
     func viewMenuShortcuts() throws {
         let view = try #require(CommandTable.mainMenu.first { $0.titleKey == .menuTitleView })
 
-        #expect(view.commands.prefix(5) == [.toggleSidebar, .showHome, .showDoctor, .showLogs, .showPet])
-        #expect(CommandTable.shortcut(of: .showHome) == CommandShortcut("1"))
-        #expect(CommandTable.shortcut(of: .showDoctor) == CommandShortcut("2"))
-        #expect(CommandTable.shortcut(of: .showLogs) == CommandShortcut("3"))
-        #expect(CommandTable.shortcut(of: .showPet) == CommandShortcut("4"))
+        #expect(view.commands.prefix(6) == [.toggleSidebar, .showChat, .showHome, .showDoctor, .showLogs, .showPet])
+        #expect(CommandTable.shortcut(of: .showChat) == CommandShortcut("1"))
+        #expect(CommandTable.shortcut(of: .showHome) == CommandShortcut("2"))
+        #expect(CommandTable.shortcut(of: .showDoctor) == CommandShortcut("3"))
+        #expect(CommandTable.shortcut(of: .showLogs) == CommandShortcut("4"))
+        #expect(CommandTable.shortcut(of: .showPet) == CommandShortcut("5"))
 
         let sidebar = try #require(CommandTable.shortcut(of: .toggleSidebar))
         #expect(sidebar.key == "s")
@@ -155,6 +156,7 @@ struct CommandTableTests {
         #expect(home.secondary.isEmpty)
         #expect(home.more.isEmpty)
         #expect(CommandTable.toolbar(for: .pet).isEmpty)
+        #expect(CommandTable.toolbar(for: .chat).isEmpty, "Chat's search is the toolbar's field, not a command")
     }
 
     /// Every command a toolbar draws needs a sentence-case label; the menu's
