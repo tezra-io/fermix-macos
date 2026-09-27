@@ -39,14 +39,18 @@ Every menu bar tier is 18 by 18 points, the canonical menu bar template size, so
 the system's own layout has room for it and nothing is clipped. The size is not
 a flag: the badge, the inset and the mark are all laid out against it.
 
-A fourth image is the same mark as the still mascot on the Pet surface
-(`M34_DESIGN_SYSTEM_REDLINES.md` §5.7):
+Two more images are the same mark standing still in the window
+(`M34_DESIGN_SYSTEM_REDLINES.md` §5.7 and §8 decision 36):
 
-  * FermixMarkPet: the running mark at 108 points. It is far over the size where
-    the eye floor binds, so its eyes are the master's own, which is the other
-    branch of the one eye rule above. It comes out of this generator rather than
-    a resize somewhere else, so the mascot in the window and the mark in the
-    menu bar cannot drift apart the next time the mascot is redrawn.
+  * FermixMarkPet: the running mark at 108 points, the Pet surface's mascot.
+  * FermixMarkChat: the running mark at 48 points, above the chat's empty
+    composer.
+
+Both are far over the size where the eye floor binds, so their eyes are the
+master's own, which is the other branch of the one eye rule above. They come
+out of this generator rather than a resize somewhere else, so the mascot in the
+window and the mark in the menu bar cannot drift apart the next time the mascot
+is redrawn.
 
 Output is deterministic, so scripts/check_brand_images.sh can regenerate and
 diff byte for byte.
@@ -71,10 +75,12 @@ IMAGE_POINTS = 18
 # The clear space around the mark inside the image box, in points.
 INSET_POINTS = 1
 
-# The Pet surface's still mascot: its image box, in points, and its name. One
-# state, running: the surface states the call's condition in words beside it.
-PET_POINTS = 108
-PET_NAME = "FermixMarkPet"
+# The window's still marks: each one's name and image box, in points. One
+# state, running: the surface each stands on says in words what is happening.
+STILLS = (
+    ("FermixMarkPet", 108),
+    ("FermixMarkChat", 48),
+)
 
 # The starting state's ink, as a fraction of the running state's. It is the
 # redline's own glyph-pulse floor (§6, `MenuBarGlyphInk.startingOpacity`),
@@ -378,10 +384,11 @@ def main(argv: list[str]) -> int:
                 write_rgba(out_dir / f"{name}{suffix}.png", rows)
             print(f"build_menu_bar_template: wrote {name} at {IMAGE_POINTS} by {IMAGE_POINTS} points")
 
-        for scale, suffix in ((1, ""), (2, "@2x")):
-            rows = to_alpha_rows(running(framed(body, eyes, marks, scale, PET_POINTS)))
-            write_rgba(out_dir / f"{PET_NAME}{suffix}.png", rows)
-        print(f"build_menu_bar_template: wrote {PET_NAME} at {PET_POINTS} by {PET_POINTS} points")
+        for name, points in STILLS:
+            for scale, suffix in ((1, ""), (2, "@2x")):
+                rows = to_alpha_rows(running(framed(body, eyes, marks, scale, points)))
+                write_rgba(out_dir / f"{name}{suffix}.png", rows)
+            print(f"build_menu_bar_template: wrote {name} at {points} by {points} points")
     except Failure as failure:
         print(f"build_menu_bar_template: {failure}", file=sys.stderr)
         return 1
