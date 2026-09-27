@@ -86,6 +86,13 @@ final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
     }
 }
 
+/// The link preference with no host state behind it: the suite never reads or
+/// writes the operator's real defaults.
+@MainActor
+final class InMemoryLinkPreferenceStore: LinkPreferenceStoring {
+    var linkDestination = UserDefaultsLinkPreferenceStore.defaultDestination
+}
+
 /// What a coordinator told the window and which profiles it built engines
 /// over, in order.
 @MainActor

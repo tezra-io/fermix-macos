@@ -411,7 +411,7 @@ struct FixtureDaemonIdentity: DaemonIdentityProbing {
     func identify(home: URL) async throws -> DaemonIdentityAnswer { .app }
 }
 
-/// The two remembered choices, in memory. User defaults are shared with the
+/// The remembered choices, in memory. User defaults are shared with the
 /// installed app under one bundle id, and a fixture run must not move the
 /// operator's last pane or sidebar.
 @MainActor
@@ -422,6 +422,13 @@ final class FixturePaneStore: SettingsPaneStoring {
 @MainActor
 final class FixtureSidebarStore: SidebarVisibilityStoring {
     var sidebarVisible: Bool?
+}
+
+/// The link preference at its default, the pane, and never written to the
+/// operator's defaults.
+@MainActor
+final class FixtureLinkPreferenceStore: LinkPreferenceStoring {
+    var linkDestination = UserDefaultsLinkPreferenceStore.defaultDestination
 }
 
 /// The browser, not opened. A fixture sign-in must not send the operator to a
@@ -476,6 +483,7 @@ extension AppEnvironment {
             microphone: FixtureMicrophone(),
             settingsPanes: FixturePaneStore(),
             sidebarVisibility: FixtureSidebarStore(),
+            linkPreference: FixtureLinkPreferenceStore(),
             opener: FixtureExternalOpener(),
             updater: UnwiredUpdater(),
             mascot: mascot,

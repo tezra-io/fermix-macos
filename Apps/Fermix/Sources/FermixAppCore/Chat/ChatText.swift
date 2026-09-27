@@ -71,21 +71,18 @@ enum ChatToolLine {
     }
 }
 
-/// Reply text as it is drawn: SwiftUI's inline markdown, with links left as
-/// text until the app has somewhere to open them, and a search's matches
-/// marked where the reader was sent to them.
+/// Reply text as it is drawn: SwiftUI's inline markdown, with its links
+/// live, and a search's matches marked where the reader was sent to them. A
+/// link opens through the surface's content link opener, in the pane or the
+/// person's own browser.
 enum ChatText {
     /// Inline markdown only; blocks and tables are drawn as the text they are.
     static func reply(_ text: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        var attributed = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
-        for run in attributed.runs where run.link != nil {
-            attributed[run.range].link = nil
-        }
 
-        return attributed
+        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
     }
 
     static func plain(_ text: String) -> AttributedString {

@@ -30,6 +30,8 @@ struct AppEnvironment {
     let microphone: any MicrophoneAuthorizationReading
     let settingsPanes: any SettingsPaneStoring
     let sidebarVisibility: any SidebarVisibilityStoring
+    /// Where a clicked link opens: the pane or the person's own browser.
+    let linkPreference: any LinkPreferenceStoring
     let opener: any ExternalOpening
     /// The updater behind the seam. It arrives from outside because the
     /// implementation links Sparkle, which only the GUI executable may do
@@ -121,6 +123,7 @@ extension AppEnvironment {
             microphone: SystemMicrophoneAuthorization(),
             settingsPanes: UserDefaultsSettingsPaneStore(),
             sidebarVisibility: UserDefaultsSidebarStore(),
+            linkPreference: UserDefaultsLinkPreferenceStore(),
             opener: WorkspaceExternalOpener(),
             updater: updater,
             mascot: mascot,

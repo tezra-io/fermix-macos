@@ -52,6 +52,8 @@ struct ChatSurfaceView: View {
     @ObservedObject var model: CompanionModel
     /// Read for the greeting's name, through the one settings model.
     let settings: SettingsModel
+    /// Where a link in a reply opens.
+    let links: ContentLinkOpener
 
     @State private var draft = ""
     @State private var query = ""
@@ -59,10 +61,11 @@ struct ChatSurfaceView: View {
     @State private var reveal: ChatReveal?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(session: CompanionSession, settings: SettingsModel) {
+    init(session: CompanionSession, settings: SettingsModel, links: ContentLinkOpener) {
         self.session = session
         self.model = session.model
         self.settings = settings
+        self.links = links
     }
 
     var body: some View {
@@ -89,6 +92,13 @@ struct ChatSurfaceView: View {
             // The session connects the first time a surface asks and then stays
             // connected, so coming back to Chat asks nothing new.
             .task { session.connect() }
+            // A link in a reply opens where the person's preference says,
+            // through the one content link opener, never through SwiftUI's own
+            // hop to the default browser.
+            .environment(\.openURL, OpenURLAction { url in
+                links.open(url)
+                return .handled
+            })
     }
 
     /// The transcript and the composer under it, or the composer alone in the

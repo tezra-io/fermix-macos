@@ -53,6 +53,8 @@ struct MainWindowView: View {
     /// model: the pane observes its own model, so a page loading redraws the
     /// pane and never the rail, the band or the body beside it.
     let browser: BrowserCoordinator
+    /// Where a link in a reply opens: the pane or the person's own browser.
+    let links: ContentLinkOpener
 
     var body: some View {
         presented
@@ -363,7 +365,7 @@ struct MainWindowView: View {
     private var detail: some View {
         switch model.route {
         case .chat:
-            ChatSurfaceView(session: surfaces.companion, settings: settings)
+            ChatSurfaceView(session: surfaces.companion, settings: settings, links: links)
         case .home:
             HomeView(model: surfaces.home, router: router)
         case .doctor:

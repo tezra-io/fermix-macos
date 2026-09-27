@@ -168,12 +168,14 @@ struct ChatSurfaceTests {
         #expect(ChatToolLine.sentence(tool(.unrecognized("paused"))) == "web_search")
     }
 
-    @Test("reply markdown is inline only, and its links are left as text")
+    /// The links are live: the surface hands them to the content link opener,
+    /// which opens them in the pane or the person's own browser.
+    @Test("reply markdown is inline only, and its links are live")
     func replyText() {
         let reply = ChatText.reply("See **the notes** at [the site](https://example.com).")
 
         #expect(String(reply.characters) == "See the notes at the site.")
-        #expect(reply.runs.allSatisfy { $0.link == nil })
+        #expect(reply.runs.compactMap(\.link) == [URL(string: "https://example.com")!])
         #expect(reply.runs.contains { $0.inlinePresentationIntent == .stronglyEmphasized })
     }
 

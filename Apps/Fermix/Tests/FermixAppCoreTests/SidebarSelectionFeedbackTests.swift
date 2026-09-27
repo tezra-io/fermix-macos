@@ -165,7 +165,9 @@ struct SidebarSelectionFeedbackTests {
     }
 
     private func mainView(_ harness: RouterHarness, commands: any CommandPerforming) -> MainWindowView {
-        MainWindowView(
+        let browser = BrowserHarness()
+
+        return MainWindowView(
             model: harness.model,
             sidebar: harness.sidebar,
             surfaces: harness.surfaces,
@@ -175,7 +177,12 @@ struct SidebarSelectionFeedbackTests {
             leaveSettings: {},
             openRecovery: {},
             restart: {},
-            browser: BrowserHarness().coordinator
+            browser: browser.coordinator,
+            links: ContentLinkOpener(
+                preference: InMemoryLinkPreferenceStore(),
+                browser: browser.coordinator,
+                workspace: RecordingWorkspaceOpener()
+            )
         )
     }
 }

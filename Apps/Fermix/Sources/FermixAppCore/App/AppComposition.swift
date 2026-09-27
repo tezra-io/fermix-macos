@@ -67,6 +67,9 @@ final class AppComposition {
     /// The browser pane's one owner. It opens and closes the pane's room in
     /// the window through the window coordinator.
     let browser: BrowserCoordinator
+    /// The one place a content link is opened: the pane or the person's own
+    /// browser, by their preference. Sign-in and the installer never use it.
+    let links: ContentLinkOpener
 
     /// The shipped configuration: this Mac, this account, this bundle, and the
     /// updater, mascot renderer and browser engine the executable owns.
@@ -90,6 +93,11 @@ final class AppComposition {
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
         browser = Self.buildBrowser(environment: environment, location: location, windows: windows)
+        links = ContentLinkOpener(
+            preference: environment.linkPreference,
+            browser: browser,
+            workspace: environment.workspace
+        )
         voice = Self.buildVoice(model: model, bootstrap: store)
         let companion = Self.buildCompanion(bootstrap: store, lines: environment.companionLines)
         services = ServiceController(loginItems: environment.loginItems, plists: environment.plists)
@@ -191,7 +199,8 @@ final class AppComposition {
             openRecovery: { [coordinator] in coordinator.enterRecovery() },
             restart: { [coordinator] in coordinator.restartDaemon() },
             mascot: mascot,
-            browser: browser
+            browser: browser,
+            links: links
         )
         // Every report goes through the coordinator, which owns whether a window
         // is on screen; the pet reads that answer rather than the raw signal.

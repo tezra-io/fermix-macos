@@ -29,6 +29,8 @@ struct AppSurfaces {
     /// The browser pane's owner, whose pane sits beside the primary window's
     /// body.
     let browser: BrowserCoordinator
+    /// Where a link in the owner's content opens.
+    let links: ContentLinkOpener
 
     func view(for kind: WindowKind) -> NSView {
         switch kind {
@@ -44,7 +46,8 @@ struct AppSurfaces {
                     leaveSettings: leaveSettings,
                     openRecovery: openRecovery,
                     restart: restart,
-                    browser: browser
+                    browser: browser,
+                    links: links
                 )
             )
             // The primary window's toolbar and title are SwiftUI's, hosted in
