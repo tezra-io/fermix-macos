@@ -4,8 +4,8 @@ import Foundation
 ///
 /// The graph in `AppComposition` is one shape with one wiring; this is the
 /// boundary that shape stands on — the account's directories, the management
-/// socket, `SMAppService`, the microphone, user defaults, the browser, the
-/// liveness probes, and the clock the waits sleep on. Naming the boundary once
+/// and companion sockets, `SMAppService`, the microphone, user defaults, the
+/// browser, the liveness probes, and the clock the waits sleep on. Naming the boundary once
 /// is what lets a second configuration exist without a second graph, and what
 /// keeps a surface from reaching past the graph to read the machine directly.
 ///
@@ -46,6 +46,9 @@ struct AppEnvironment {
     let ports: any PortProbing
     let installation: any InstallationProbing
     let identities: any DaemonIdentityProbing
+    /// The chat wire's line socket, which the composition wraps in the
+    /// main-actor delivery. One socket for the one session.
+    let companionLines: CompanionSocketClient.LineSocket
     /// Which steps activation runs on this configuration's machine.
     let activationPlan: ActivationPlan
     let sleeper: any Sleeping
@@ -116,6 +119,7 @@ extension AppEnvironment {
             ports: TCPPortProbe(),
             installation: BundleInstallationProbe(home: location.homeDirectory.path),
             identities: ManagementDaemonIdentityProbe(),
+            companionLines: CompanionSocketClient.lineSocket(),
             activationPlan: plan,
             sleeper: TaskSleeper(),
             reconciler: EngineReconciler(

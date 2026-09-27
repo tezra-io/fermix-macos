@@ -41,11 +41,15 @@ enum FixtureStart: Equatable {
     /// person. It is a state of Starting rather than a screen, so like Boot
     /// failed it opens on Starting and the machine produces the wait.
     case approvalStep
+    /// Chat over a timeline with nothing in it, which is the only way its
+    /// empty state is drawn: `chat` itself opens on the full timeline.
+    case emptyChat
 
     static let settingsPrefix = "settings/"
     static let assistantPrefix = "assistant/"
     static let restartSheetName = "restart-sheet"
     static let approvalStepName = "assistant/approval"
+    static let emptyChatName = "chat-empty"
 
     /// The start a launch argument named, or nil where this build publishes no
     /// such surface. A mistyped name is refused by the caller rather than
@@ -55,6 +59,8 @@ enum FixtureStart: Equatable {
             self = .restartSheet
         } else if name == Self.approvalStepName {
             self = .approvalStep
+        } else if name == Self.emptyChatName {
+            self = .emptyChat
         } else if let slug = name.dropping(prefix: Self.settingsPrefix) {
             guard let pane = SettingsPane(rawValue: slug) else { return nil }
             self = .settings(pane)
@@ -72,7 +78,7 @@ enum FixtureStart: Equatable {
         AppRoute.allCases.map(\.rawValue)
             + SettingsPane.allCases.map { settingsPrefix + $0.slug }
             + OnboardingStage.allCases.map { assistantPrefix + $0.rawValue }
-            + [restartSheetName, approvalStepName]
+            + [restartSheetName, approvalStepName, emptyChatName]
     }
 }
 
@@ -174,7 +180,14 @@ struct FixtureLaunch {
         case .surface(let route): return .route(route)
         case .settings(let pane): return .settings(pane)
         case .restartSheet: return .homeWithRestartSheet
+        case .emptyChat: return .route(.chat)
         }
+    }
+
+    /// The timeline the chat holds. Every start but the empty one gets the
+    /// full timeline, so Chat reached from any of them shows a conversation.
+    var companionTimeline: FixtureCompanionTimeline {
+        start == .emptyChat ? .empty : .full
     }
 
     /// A filesystem-safe name for this start, which is what keeps two starts
@@ -186,6 +199,7 @@ struct FixtureLaunch {
         case .assistant(let stage): return "assistant-\(stage.rawValue)"
         case .restartSheet: return FixtureStart.restartSheetName
         case .approvalStep: return "assistant-approval"
+        case .emptyChat: return FixtureStart.emptyChatName
         }
     }
 }
@@ -474,6 +488,7 @@ extension AppEnvironment {
                 canonicallyInstalled: launch.home != .notInApplications
             ),
             identities: FixtureDaemonIdentity(),
+            companionLines: FixtureCompanionTransport(timeline: launch.companionTimeline),
             // An installed machine: `notInApplications` exists to render the
             // location refusal, and the Starting ladder is looked at with the
             // registration row the shipped activation draws.

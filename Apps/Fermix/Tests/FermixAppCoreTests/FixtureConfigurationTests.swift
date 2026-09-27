@@ -110,6 +110,7 @@ struct FixtureConfigurationTests {
             #expect(FixtureStart(name: route.rawValue) == .surface(route))
         }
         #expect(FixtureStart(name: "restart-sheet") == .restartSheet)
+        #expect(FixtureStart(name: "chat-empty") == .emptyChat)
     }
 
     /// A name this build does not publish resolves to nothing, so the caller
@@ -128,7 +129,7 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 2)
+            + OnboardingStage.allCases.count + 3)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -226,7 +227,92 @@ struct FixtureConfigurationTests {
         case .approvalStep:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.onboardingStage == .starting)
+        case .emptyChat:
+            #expect(harness.windows.presented == [.main])
+            #expect(harness.model.route == .chat)
         }
+    }
+
+    // MARK: - The chat
+
+    /// Chat is looked at in both of its states, and only one start draws the
+    /// empty one: Chat reached from any other start shows a conversation.
+    @Test("chat-empty opens Chat on an empty timeline and every other start holds the full one")
+    func chatStartsNameTheirTimeline() {
+        #expect(FixtureLaunch(start: .emptyChat).presentation == .route(.chat))
+        #expect(FixtureLaunch(start: .emptyChat).companionTimeline == .empty)
+        #expect(FixtureLaunch(start: .surface(.chat)).companionTimeline == .full)
+        #expect(FixtureLaunch(start: .surface(.home)).companionTimeline == .full)
+        #expect(FixtureHome.forStart(.emptyChat) == .settled)
+    }
+
+    /// The scripted daemon, driven through the real adapter and the session:
+    /// the full timeline arrives as the contract's events, and the chat holds a
+    /// dozen rows with older ones behind them, a reply being written with a
+    /// tool running, and an approval.
+    @MainActor
+    @Test("the full timeline is a dozen rows, older rows, a running turn and an approval")
+    func fullTimelineArrives() {
+        let session = fixtureChat(.full)
+        session.connect()
+
+        #expect(session.model.connection == .connected)
+        #expect(session.model.rows.map(\.serverSeq) == Array(9...20))
+        #expect(Set(session.model.rows.compactMap(\.role)) == ["user", "assistant"])
+        #expect(session.model.hasOlder)
+        #expect(session.model.turn?.inReplyTo == FixtureCompanionScript.askedLast)
+        #expect(session.model.turn?.tool?.phase == .start)
+        #expect(session.model.approvals.map(\.approvalId) == [FixtureCompanionScript.approvalId])
+
+        session.pullOlder()
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...20))
+        #expect(!session.model.hasOlder)
+    }
+
+    @MainActor
+    @Test("the empty timeline holds nothing, and a message becomes a row and a turn")
+    func emptyTimelineTakesAMessage() {
+        let session = fixtureChat(.empty)
+        session.connect()
+
+        #expect(session.model.connection == .connected)
+        #expect(session.model.rows.isEmpty)
+        #expect(!session.model.hasOlder)
+        #expect(session.model.turn == nil)
+
+        session.send("Hello")
+        #expect(session.model.pending.isEmpty)
+        #expect(session.model.rows.map(\.text) == ["Hello"])
+        #expect(session.model.turn?.inReplyTo == "fixture-1")
+    }
+
+    @MainActor
+    @Test("the fixture daemon searches its own rows, newest first, a page at a time")
+    func fixtureSearch() {
+        let session = fixtureChat(.full)
+        session.connect()
+
+        session.search("calendar")
+        let hits = session.model.search?.hits ?? []
+        #expect(hits.map(\.serverSeq) == [19, 9, 8])
+        #expect(hits.allSatisfy { !$0.ranges.isEmpty })
+        #expect(session.model.search?.nextBeforeSeq == nil)
+    }
+
+    /// A session over the scripted daemon with no main-actor hop between them,
+    /// so every answer lands before the call that asked for it returns.
+    @MainActor
+    private func fixtureChat(_ timeline: FixtureCompanionTimeline) -> CompanionSession {
+        var issued = 0
+        return CompanionSession(
+            transport: CompanionSocketClient(lines: FixtureCompanionTransport(timeline: timeline)),
+            socketPath: { "/fixture/companion.sock" },
+            deadlines: ManualDeadlineScheduler(),
+            messageIds: {
+                issued += 1
+                return "fixture-\(issued)"
+            }
+        )
     }
 
     /// The throwaway home is under the per-user temporary directory and one per

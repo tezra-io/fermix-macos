@@ -83,7 +83,7 @@ final class AppComposition {
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
         voice = Self.buildVoice(model: model, bootstrap: store)
-        let companion = Self.buildCompanion(bootstrap: store)
+        let companion = Self.buildCompanion(bootstrap: store, lines: environment.companionLines)
         services = ServiceController(loginItems: environment.loginItems, plists: environment.plists)
         engineReconciler = environment.reconciler
         menuBar = MenuBarController(model: model)
@@ -241,10 +241,13 @@ final class AppComposition {
 
     /// The chat session, built once beside voice over its own socket. Nothing
     /// connects it until a surface first asks.
-    private static func buildCompanion(bootstrap: BootstrapStore) -> CompanionSession {
+    private static func buildCompanion(
+        bootstrap: BootstrapStore,
+        lines: CompanionSocketClient.LineSocket
+    ) -> CompanionSession {
         CompanionSession(
             transport: CompanionSocketClient(
-                lines: MainActorLineDelivery(wrapping: CompanionSocketClient.lineSocket())
+                lines: MainActorLineDelivery(wrapping: lines)
             ),
             // Resolved per attempt from the bootstrap record, as the voice
             // socket is.
