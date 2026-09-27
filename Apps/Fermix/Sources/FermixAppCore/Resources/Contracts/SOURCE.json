@@ -135,17 +135,17 @@
         "maximum": 1
       },
       "committed_upstream": true,
-      "provenance_note": "Taken from the fermix repository at 7f87896aee5b5939fba47ad003af215b0eec5b1f, the tip of pull request #94 (feat/browser-host-wire) as of 2026-09-27; that branch has not yet merged to dev, so this is this tree's first pin and one replace of the commit below (and this sentence) is what moves it once the merge lands. This is the tree's first pin. The browser host wire is newline-delimited JSON on browser_host.sock in the Fermix home, mode 0600, and direction is reversed from the other three wires: once the app has completed the client_hello/server_hello handshake and sent attached, the daemon is the one asking, with a numbered id per request, and the app answers ok or error or sends its own unsolicited events (attached, availability, tab.closed, dialog.opened, download.began/progress/finished, host_stopping). The verbs are the engine's own browser vocabulary rather than a CDP imitation: tab.open, tab.navigate, tab.list, tab.focus, tab.close, task.release; page.snapshot answering the accessibility node list browser/snapshot.ex renders, page.screenshot and page.pdf answering a workspace path; page.act's ten kinds (click, fill, fill_form, type, submit, press, hover, get, wait, click_coords) and page.upload; dialog.resolve; cookies.get and cookies.clear, metadata only, never a cookie's value; host.status and host.stop_ack, the daemon's answer to the app's host_stopping that a held quit waits on. Thirteen host error reasons answer a request without closing the connection, and fourteen daemon errors close it, tab_not_found, cap_reached, not_owner, navigation_refused, act_failed, stale_ref, dialog_blocked, no_dialog, wait_timeout, write_failed, upload_failed, invalid_request and host_unavailable being the app's own vocabulary for the first set. Protocol 1 on the 1 to 1 window, since this is the wire's first version.",
+      "provenance_note": "Taken from the fermix repository at a6b19b490e1738d5013795f2fd6c94aeaa860d53, the tip of pull request #94 (feat/browser-host-wire) as of 2026-09-27; that branch has not yet merged to dev, so one replace of the commit below (and this sentence) is what moves it once the merge lands. Since the previous pin, 7f87896aee5b5939fba47ad003af215b0eec5b1f, the branch gained one host event: task.cancel { task_id, reason }, sent by the app when the person cancels a task from its own tab in the pane. The daemon tells that task it was cancelled (failing its in-flight request, if any), writes its task.release behind that request exactly as on a quit mid-task, reaps the task with a cancelled sentence, and marks its turn so the turn's later browser calls answer the same sentence instead of running on Chrome; no other task on the connection is touched. The browser host wire is newline-delimited JSON on browser_host.sock in the Fermix home, mode 0600, and direction is reversed from the other three wires: once the app has completed the client_hello/server_hello handshake and sent attached, the daemon is the one asking, with a numbered id per request, and the app answers ok or error or sends its own unsolicited events (attached, availability, tab.closed, dialog.opened, download.began/progress/finished, host_stopping). The verbs are the engine's own browser vocabulary rather than a CDP imitation: tab.open, tab.navigate, tab.list, tab.focus, tab.close, task.release, task.cancel; page.snapshot answering the accessibility node list browser/snapshot.ex renders, page.screenshot and page.pdf answering a workspace path; page.act's ten kinds (click, fill, fill_form, type, submit, press, hover, get, wait, click_coords) and page.upload; dialog.resolve; cookies.get and cookies.clear, metadata only, never a cookie's value; host.status and host.stop_ack, the daemon's answer to the app's host_stopping that a held quit waits on. Thirteen host error reasons answer a request without closing the connection, and fourteen daemon errors close it, tab_not_found, cap_reached, not_owner, navigation_refused, act_failed, stale_ref, dialog_blocked, no_dialog, wait_timeout, write_failed, upload_failed, invalid_request and host_unavailable being the app's own vocabulary for the first set. Protocol 1 on the 1 to 1 window, since this is the wire's first version.",
       "files": [
         {
           "path": "browser_host/PROTOCOL.md",
           "source_path": "apps/fermix_core/priv/browser_host/PROTOCOL.md",
-          "sha256": "848636b97fc74406189098ba9f4eb0a9074e654ef10b3b26aa7db514d0a1caf8"
+          "sha256": "760338aa05a13415f213d79e9d7a2d0a4937a1899474ebfc160a7b76ec6b6ffb"
         },
         {
           "path": "browser_host/protocol.schema.json",
           "source_path": "apps/fermix_core/priv/browser_host/protocol.schema.json",
-          "sha256": "126be17e6f11c1cdd34a8b264e48b47b1e3c02c8ff133d83b6cb055d9d453898"
+          "sha256": "c244d41e46f51e71cafacd484b667edb54acfd48f08f89a6979303bd2e4a2138"
         },
         {
           "path": "browser_host/fixtures/requests.jsonl",
@@ -160,7 +160,7 @@
         {
           "path": "browser_host/fixtures/events.jsonl",
           "source_path": "apps/fermix_core/priv/browser_host/fixtures/events.jsonl",
-          "sha256": "47cb3408f00b61f377d285008f9012fc0142162b4aa031997244e25da3ef9020"
+          "sha256": "5fb1c961ca51d24eb947635a25e3c8c2480656b471a642baa5d881a87dfee3db"
         }
       ]
     }
