@@ -11,6 +11,10 @@ public enum VendoredContract: String, CaseIterable, Sendable {
     case management
     case realtime
     case companion
+    /// The daemon's fourth wire, direction reversed: the app is the client
+    /// that attaches as the host, and the daemon is the one asking
+    /// (`Resources/Contracts/browser_host/`).
+    case browserHost = "browser_host"
 }
 
 public enum VendoredContractError: Error, Equatable, Sendable {

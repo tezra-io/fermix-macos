@@ -13,10 +13,11 @@ struct VendoredContractTests {
     func pinnedFilesArePresent() throws {
         let entries = try VendoredContracts.checksums()
 
-        // Three contract trees: management's PROTOCOL.md, schema and four
-        // fixture files, and realtime's and companion's PROTOCOL.md, schema
-        // and two each.
-        #expect(entries.count == 14)
+        // Four contract trees: management's PROTOCOL.md, schema and four
+        // fixture files, realtime's and companion's PROTOCOL.md, schema and
+        // two each, and browser_host's PROTOCOL.md, schema and three
+        // (requests, responses, events).
+        #expect(entries.count == 19)
         for entry in entries {
             let url = try VendoredContracts.url(entry.path)
             #expect(FileManager.default.fileExists(atPath: url.path))
@@ -32,8 +33,8 @@ struct VendoredContractTests {
         }
     }
 
-    /// A manifest that lists thirteen of fourteen files verifies clean while the
-    /// fourteenth drifts, so completeness is asserted from the directory, not the manifest.
+    /// A manifest that lists eighteen of nineteen files verifies clean while the
+    /// nineteenth drifts, so completeness is asserted from the directory, not the manifest.
     @Test("the manifest lists every vendored contract file")
     func manifestCoversTheWholeTree() throws {
         let pinned = Set(try VendoredContracts.checksums().map(\.path))
