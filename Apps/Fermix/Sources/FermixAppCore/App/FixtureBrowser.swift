@@ -60,15 +60,24 @@ enum FixtureWebPage {
 
 /// One fake page: a history, and a white view carrying the heading and the
 /// text of whatever it was last asked to load.
+///
+/// The view is built the first time the pane shows it, so a test that drives
+/// the page's navigation never touches AppKit.
 @MainActor
 final class FixtureBrowserPage: BrowserPage {
     weak var events: (any BrowserPageEvents)?
 
-    private let page = FixturePageView()
+    private var built: FixturePageView?
     private var history: [URL] = []
     private var position = -1
 
-    var view: NSView { page }
+    var view: NSView {
+        let page = built ?? FixturePageView()
+        built = page
+        draw(page)
+
+        return page
+    }
 
     func load(_ url: URL) {
         history = Array(history.prefix(position + 1)) + [url]
@@ -95,10 +104,17 @@ final class FixtureBrowserPage: BrowserPage {
     func find(_ text: String) {}
     func zoom(_ zoom: BrowserZoom) {}
 
+    private func draw(_ page: FixturePageView) {
+        guard history.indices.contains(position) else { return }
+
+        let content = FixtureWebPage.content(of: history[position])
+        page.show(heading: content.heading, body: content.body)
+    }
+
     private func show() {
         let url = history[position]
         let content = FixtureWebPage.content(of: url)
-        page.show(heading: content.heading, body: content.body)
+        if let built { draw(built) }
         events?.pageChanged(
             BrowserPageState(
                 url: url,

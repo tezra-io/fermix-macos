@@ -93,6 +93,21 @@ struct BrowserCoordinatorTests {
         #expect(harness.record.paneShown == [true, false, true])
     }
 
+    @Test("hiding the pane answers the dialog waiting over it")
+    func hidingAnswersTheDialog() {
+        let harness = BrowserHarness()
+        harness.coordinator.open(Self.fermix)
+        var answers: [BrowserDialogAnswer] = []
+        harness.page(0).events?.pagePresented(BrowserDialog(kind: .alert, message: "Hi", origin: "fermix.ai")) {
+            answers.append($0)
+        }
+
+        harness.coordinator.closePane()
+
+        #expect(answers == [.dismissed])
+        #expect(harness.model.dialog == nil)
+    }
+
     @Test("an address loads in the tab in front")
     func addressLoadsInFront() throws {
         let harness = BrowserHarness()

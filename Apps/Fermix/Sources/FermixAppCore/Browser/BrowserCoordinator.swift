@@ -101,9 +101,12 @@ public final class BrowserCoordinator {
         select(model.tabs[min(index, model.tabs.count - 1)])
     }
 
+    /// Hides the pane and keeps its tabs. A dialog waiting over the pane is
+    /// answered as dismissed, because nobody can see it to answer it.
     public func closePane() {
         guard model.isOpen else { return }
 
+        answer(.dismissed)
         model.notice = nil
         model.isOpen = false
         paneShown(false)

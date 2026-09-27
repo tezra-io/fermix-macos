@@ -176,6 +176,7 @@ struct ChatSurfaceTests {
 
         #expect(String(reply.characters) == "See the notes at the site.")
         #expect(reply.runs.compactMap(\.link) == [URL(string: "https://example.com")!])
+        #expect(reply.runs.filter { $0.link != nil }.allSatisfy { $0.foregroundColor == Palette.accentText.color })
         #expect(reply.runs.contains { $0.inlinePresentationIntent == .stronglyEmphasized })
     }
 

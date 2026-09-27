@@ -77,12 +77,20 @@ enum ChatToolLine {
 /// person's own browser.
 enum ChatText {
     /// Inline markdown only; blocks and tables are drawn as the text they are.
+    ///
+    /// A link is drawn in the text blue, `accentText`, which holds §9's floor
+    /// on the dark ground: left to the window's tint it would be the accent,
+    /// which does not.
     static func reply(_ text: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
+        var attributed = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        for run in attributed.runs where run.link != nil {
+            attributed[run.range].foregroundColor = Palette.accentText.color
+        }
 
-        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        return attributed
     }
 
     static func plain(_ text: String) -> AttributedString {
