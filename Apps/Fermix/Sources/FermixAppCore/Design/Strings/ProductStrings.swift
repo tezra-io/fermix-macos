@@ -297,6 +297,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case attentionUpdateStagedBody = "attention.update.staged.body"
 
     // Sidebar
+    case sidebarChat = "sidebar.chat"
     case sidebarHome = "sidebar.home"
     case sidebarDoctor = "sidebar.doctor"
     case sidebarPet = "sidebar.pet"
@@ -401,6 +402,30 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case companionErrorReplyStopped = "companion.error.replyStopped"
     case companionErrorReplyInterrupted = "companion.error.replyInterrupted"
     case companionErrorReplyFailedFormat = "companion.error.replyFailedFormat"
+
+    // The chat surface. The greeting is chosen by the Mac's clock and takes
+    // the person's first name through the shared comma pair.
+    case chatGreetingMorning = "chat.greeting.morning"
+    case chatGreetingAfternoon = "chat.greeting.afternoon"
+    case chatGreetingEvening = "chat.greeting.evening"
+    /// The quieter line under the greeting, over the empty composer.
+    case chatInvitation = "chat.invitation"
+    case chatComposerPrompt = "chat.composer.prompt"
+    case chatSend = "chat.send"
+    /// The action while a reply is being written. The wire's own verb:
+    /// `Stop` leads no string in the product, which keeps it for the service.
+    case chatCancel = "chat.cancel"
+    /// Under a message the daemon has not yet accepted.
+    case chatSending = "chat.sending"
+    case chatApprove = "chat.approve"
+    case chatDeny = "chat.deny"
+    /// The turn's latest tool call, while it runs and once it has stopped.
+    case chatToolRunningFormat = "chat.tool.runningFormat"
+    case chatToolFinishedFormat = "chat.tool.finishedFormat"
+    case chatSearchPrompt = "chat.search.prompt"
+    case chatSearchSearching = "chat.search.searching"
+    case chatSearchNoMatches = "chat.search.noMatches"
+    case chatSearchOlder = "chat.search.older"
 
     // Pet
     case petCallBegin = "pet.callBegin"
@@ -759,6 +784,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case menuTitleFind = "menuTitle.find"
     case menuTitleShowSidebar = "menuTitle.showSidebar"
     case menuTitleHideSidebar = "menuTitle.hideSidebar"
+    case menuTitleChat = "menuTitle.chat"
     case menuTitleHome = "menuTitle.home"
     case menuTitleDoctor = "menuTitle.doctor"
     case menuTitleLogs = "menuTitle.logs"

@@ -262,6 +262,7 @@
 /* MARK: Background service, one wording everywhere it appears */
 
 /* MARK: Sidebar */
+"sidebar.chat" = "Chat";
 "sidebar.home" = "Home";
 "sidebar.doctor" = "Doctor";
 "sidebar.pet" = "Pet";
@@ -364,6 +365,24 @@
 "companion.error.replyInterrupted" = "The reply was interrupted";
 "companion.error.replyFailedFormat" = "The reply did not finish: %@";
 
+/* MARK: Chat */
+"chat.greeting.morning" = "Good morning";
+"chat.greeting.afternoon" = "Good afternoon";
+"chat.greeting.evening" = "Good evening";
+"chat.invitation" = "What is on your mind?";
+"chat.composer.prompt" = "Message Fermix";
+"chat.send" = "Send";
+"chat.cancel" = "Cancel";
+"chat.sending" = "Sending";
+"chat.approve" = "Approve";
+"chat.deny" = "Deny";
+"chat.tool.runningFormat" = "Using %@";
+"chat.tool.finishedFormat" = "Used %@";
+"chat.search.prompt" = "Search the conversation";
+"chat.search.searching" = "Searching";
+"chat.search.noMatches" = "No messages match";
+"chat.search.older" = "Show older matches";
+
 /* MARK: Pet */
 "pet.callBegin" = "Begin voice call";
 "pet.callEnd" = "End voice call";
@@ -433,6 +452,7 @@
 "menuTitle.find" = "Find…";
 "menuTitle.showSidebar" = "Show Sidebar";
 "menuTitle.hideSidebar" = "Hide Sidebar";
+"menuTitle.chat" = "Chat";
 "menuTitle.home" = "Home";
 "menuTitle.doctor" = "Doctor";
 "menuTitle.logs" = "Logs";
