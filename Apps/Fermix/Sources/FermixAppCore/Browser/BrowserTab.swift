@@ -162,6 +162,10 @@ public final class BrowserTab: ObservableObject, Identifiable {
     /// The page's own view, which the pane hosts as it is.
     public var view: NSView { page.view }
 
+    /// The page as the engine reads and drives it, or nil for a page with no
+    /// web engine behind it, as the fixture's pages have none.
+    public var driver: (any BrowserPageDriving)? { page as? any BrowserPageDriving }
+
     public func load(_ url: URL) { page.load(url) }
     public func back() { page.back() }
     public func forward() { page.forward() }
