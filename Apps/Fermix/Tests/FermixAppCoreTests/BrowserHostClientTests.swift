@@ -155,6 +155,28 @@ struct BrowserHostClientTests {
         #expect(sent["reason"] as? String == "the Mac is locked")
     }
 
+    /// The person's cancel of a task's tab reaches the daemon as `task.cancel`,
+    /// exactly once, naming the task and a reason bounded to the contract's
+    /// cap. `task.release` behind it, not this event, is what releases the
+    /// tab, so nothing local changes here.
+    @Test("cancelling a task sends the daemon exactly one task.cancel")
+    func cancelTaskSendsExactlyOneTaskCancel() throws {
+        let harness = BrowserHarness()
+        let (client, transport) = Self.attachedClient(harness: harness)
+        let before = try transport.sentObjects().count
+
+        client.cancelTask(BrowserTaskID("task-9"))
+
+        let sent = try transport.sentObjects()
+        #expect(sent.count == before + 1)
+        let cancel = try #require(sent.last)
+        #expect(cancel["type"] as? String == "task.cancel")
+        #expect(cancel["task_id"] as? String == "task-9")
+        let reason = try #require(cancel["reason"] as? String)
+        #expect(reason == ProductStrings[.browserHostReasonPersonCancelled])
+        #expect(reason.count <= BrowserHostProtocol.maximumReasonChars)
+    }
+
     // MARK: - Mechanics
 
     private static func makeClient(

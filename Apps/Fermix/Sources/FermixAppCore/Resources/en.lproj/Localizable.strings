@@ -418,6 +418,7 @@
 "browserHost.reason.displayAsleep" = "the display is asleep";
 "browserHost.reason.appTerminating" = "the app is quitting";
 "browserHost.reason.notAttached" = "the browser host is not attached";
+"browserHost.reason.personCancelled" = "Cancelled from the browser pane";
 
 /* MARK: Pet */
 "pet.callBegin" = "Begin voice call";

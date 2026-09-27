@@ -973,11 +973,11 @@ extension BrowserHostClient: BrowserHostLink {
         send(.tabClosed(tabId: Self.wireID(tab), by: .page))
     }
 
-    /// The browser_host contract carries no wire message for cancelling a
-    /// task (PROTOCOL.md's event and request tables have none); a person's
-    /// "Cancel task" reaches the daemon through no channel yet.
+    /// The person's "Cancel task", from its tab in the pane. The daemon's own
+    /// `task.release` behind this is what releases the tabs; this build's
+    /// local state keeps the tab until then.
     public func cancelTask(_ task: BrowserTaskID) {
-        log.error("browser_host has no wire message for cancelling a task; task \(task.rawValue, privacy: .public) was asked to cancel from the pane")
+        send(.taskCancel(taskId: task.rawValue, reason: ProductStrings[.browserHostReasonPersonCancelled]))
     }
 
     public func sendHostStopping(answered: @escaping @MainActor () -> Void) {

@@ -475,6 +475,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case browserHostReasonDisplayAsleep = "browserHost.reason.displayAsleep"
     case browserHostReasonAppTerminating = "browserHost.reason.appTerminating"
     case browserHostReasonNotAttached = "browserHost.reason.notAttached"
+    /// `task.cancel`'s own `reason`, sent to the daemon when the person
+    /// cancels a task from its tab in the pane.
+    case browserHostReasonPersonCancelled = "browserHost.reason.personCancelled"
 
     // Pet
     case petCallBegin = "pet.callBegin"
