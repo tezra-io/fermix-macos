@@ -6,8 +6,9 @@ import Foundation
 /// this owns. What is the voice wire's stays here: client events encoded as
 /// lines, lines decoded into server events, audio sent as droppable lines and
 /// every other event as a line that must arrive, and the bounds and deadlines
-/// a call needs. Callbacks arrive on the line socket's queue —
-/// `MainActorRealtimeDelivery` is what puts them on the main actor.
+/// a call needs. Callbacks arrive wherever the line socket under it calls back:
+/// in the app that socket is wrapped in `MainActorLineDelivery`, which is what
+/// puts them on the main actor.
 public final class RealtimeSocketClient: RealtimeTransport, @unchecked Sendable {
     public typealias LineSocket = any LineSocketTransport<RealtimeServerEvent, RealtimeDecodeFailure>
 
@@ -54,8 +55,9 @@ public final class RealtimeSocketClient: RealtimeTransport, @unchecked Sendable 
         self.init(lines: Self.lineSocket())
     }
 
-    /// The line socket the realtime wire runs on. Separate from `init` so a
-    /// test can shorten the deadlines and still read the socket's drop count.
+    /// The line socket the realtime wire runs on. Separate from `init` so the
+    /// composition can wrap it in the main-actor delivery, and so a test can
+    /// shorten the deadlines and still read the socket's drop count.
     static func lineSocket(
         maxPendingAudioChunks: Int = defaultMaxPendingAudioChunks,
         controlFlushDeadline: TimeInterval = defaultControlFlushDeadline,

@@ -221,7 +221,9 @@ final class AppComposition {
     /// The voice stack: one audio owner, one realtime session, one coordinator.
     private static func buildVoice(model: AppModel, bootstrap: BootstrapStore) -> VoiceCoordinator {
         let session = VoiceSession(
-            transport: MainActorRealtimeDelivery(wrapping: RealtimeSocketClient()),
+            transport: RealtimeSocketClient(
+                lines: MainActorLineDelivery(wrapping: RealtimeSocketClient.lineSocket())
+            ),
             // Resolved per connect from the bootstrap record, never from the
             // environment: §4 makes that record the sole macOS source.
             socketPath: { try bootstrap.realtimeSocketPath() },
