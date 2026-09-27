@@ -155,14 +155,21 @@ choose_os() {
       | sort_by(.version | split(".") | map(tonumber? // 0)) | last // empty' <<<"$list"
 }
 
+# Scaleway's own stock word per type, for the refusal a sold-out type ends in.
+stock_summary() {
+  scw_json apple-silicon server-type list zone="$ZONE" | jq -r 'map(.name + " " + .stock) | join(", ")' ||
+    echo "(the server types could not be listed)"
+}
+
 create_server() {
   local os id
   os="$(choose_os)" || exit 1
   [ -n "$os" ] || fail "no macOS matches '$MACOS_FILTER' for $TYPE in $ZONE; see scw apple-silicon os list zone=$ZONE server-type=$TYPE"
   say "creating $TYPE in $ZONE with $(jq -r '.name + " " + .version' <<<"$os"): the lease runs 24 hours minimum and its deletion is scheduled for the end of it"
   id="$(scw_json apple-silicon server create zone="$ZONE" type="$TYPE" name="$SERVER_NAME" os-id="$(jq -r .id <<<"$os")" commitment-type=duration_24h | jq -r .id)" ||
-    fail "the server was not created; check the Scaleway console"
-  [ -n "$id" ] && [ "$id" != null ] || fail "the server was not created; check the Scaleway console"
+    fail "$TYPE was not created. Stock in $ZONE right now: $(stock_summary). Pick one with --type, or try again later"
+  [ -n "$id" ] && [ "$id" != null ] ||
+    fail "$TYPE was not created. Stock in $ZONE right now: $(stock_summary). Pick one with --type, or try again later"
   scw_json apple-silicon server update "$id" zone="$ZONE" schedule-deletion=true >/dev/null ||
     fail "$SERVER_NAME ($id) was created but its deletion could not be scheduled; schedule it in the console or run down"
   printf '%s\n' "$id"

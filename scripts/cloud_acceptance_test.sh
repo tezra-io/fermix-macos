@@ -678,7 +678,14 @@ scw() {
     "iam ssh-key list") printf '[{"name": "laptop", "public_key": "%s"}]\n' "$(cat "$CONTROL/project-key")" ;;
     "apple-silicon server list") cat "$CONTROL/servers" ;;
     "apple-silicon os list") cat "$CONTROL/os-list" ;;
-    "apple-silicon server create") cat "$CONTROL/server" ;;
+    "apple-silicon server create")
+      if [ -f "$CONTROL/out-of-stock" ]; then
+        echo '{"message":"resource out of stock '"'"'server'"'"'","error":{"resource":"server"},"hint":"Try again later :-)"}'
+        return 1
+      fi
+      cat "$CONTROL/server"
+      ;;
+    "apple-silicon server-type list") printf '[{"name": "M1-M", "stock": "no_stock"}, {"name": "M4-SP", "stock": "low_stock"}]\n' ;;
     "apple-silicon server update") cat "$CONTROL/server" ;;
     "apple-silicon server get") cat "$CONTROL/server" ;;
     "apple-silicon server delete") echo '{}' ;;
@@ -996,6 +1003,14 @@ driver_case
 if run_driver --release --macos Ventura; then fail "an unmatched --macos did not stop the run"; fi
 grep -q "no macOS matches 'Ventura'" "$ERR" || fail "the macOS refusal was not clear: $(cat "$ERR")"
 pass "run --macos: an unmatched filter is a refusal before anything is created"
+
+driver_case
+touch "$CONTROL/out-of-stock"
+if run_driver --release; then fail "a sold-out type did not stop the run"; fi
+grep -q "M1-M was not created. Stock in fr-par-3 right now: M1-M no_stock, M4-SP low_stock. Pick one with --type" "$ERR" || fail "the stock refusal was not clear: $(cat "$ERR")"
+expect_no_event "schedule-deletion" "nothing to schedule for a server that was not created"
+expect_no_event "ssh " "no ssh without a server"
+pass "run: a sold-out type is a refusal that lists the stock"
 
 driver_case
 rm -f "$CONTROL/servers"
