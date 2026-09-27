@@ -1,12 +1,10 @@
 name: notarize
 
 # Reusable signing + notarization workflow. The signing steps live here ONCE so a
-# future macOS app under Apps/ calls this with its own package script instead of
+# future macOS app under Apps/ calls this with its own package script, with the
+# same `build` and `notarize` phases as scripts/package_release.sh, instead of
 # duplicating the flow. Gated by the protected `release-macos` environment (a
 # required reviewer must approve before the Apple secrets are exposed).
-#
-# NOTE (hardening): actions are pinned to major-version tags to match the proven
-# compux release flow. Pin to immutable commit SHAs for supply-chain hardening.
 on:
   workflow_call:
     inputs:
@@ -65,7 +63,7 @@ jobs:
       dmg_name: ${{ steps.out.outputs.dmg_name }}
       dmg_sha256: ${{ steps.out.outputs.dmg_sha256 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # The bundle and artifact names come from Product.json, resolved once
       # here: the steps below name the disk image in a shell glob and in a
@@ -118,7 +116,11 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 
-      - name: Build, sign, notarize + staple (DMG)
+      # Two steps, so each sees only the credentials it needs: the build runs
+      # SwiftPM, its dependencies and the engine download with the signing
+      # identity alone, and the notary password reaches only the step that
+      # runs notarytool.
+      - name: Build, sign + verify the app
         env:
           # Packaging downloads the pinned engine's release assets with gh,
           # which is unauthenticated without this and then shares the
@@ -127,15 +129,24 @@ jobs:
           # workflow's own, read-only.
           GH_TOKEN: ${{ github.token }}
           MACOS_DEVELOPER_ID: ${{ secrets.MACOS_DEVELOPER_ID }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           VERSION: ${{ inputs.version }}
           BUILD_NUMBER: ${{ inputs.build_number }}
           PACKAGE_SCRIPT: ${{ inputs.package_script }}
         run: |
           set -euo pipefail
-          "$PACKAGE_SCRIPT" "$VERSION" "$BUILD_NUMBER"
+          "$PACKAGE_SCRIPT" build "$VERSION" "$BUILD_NUMBER" "$RUNNER_TEMP/release-stage"
+
+      - name: Notarize + staple (app, then DMG)
+        env:
+          MACOS_DEVELOPER_ID: ${{ secrets.MACOS_DEVELOPER_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          VERSION: ${{ inputs.version }}
+          PACKAGE_SCRIPT: ${{ inputs.package_script }}
+        run: |
+          set -euo pipefail
+          "$PACKAGE_SCRIPT" notarize "$VERSION" "$RUNNER_TEMP/release-stage"
 
       - name: Gatekeeper quarantine-acceptance gate
         run: |
@@ -189,7 +200,7 @@ jobs:
           echo "dmg_sha256=$(cat "$dmg.sha256")" >> "$GITHUB_OUTPUT"
 
       - name: Upload DMG artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: fermix-dmg
           path: |
@@ -201,7 +212,7 @@ jobs:
       # job takes the item alone, and the two are produced by different steps
       # that fail for different reasons.
       - name: Upload appcast item artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: fermix-appcast-item
           path: appcast-item.xml
