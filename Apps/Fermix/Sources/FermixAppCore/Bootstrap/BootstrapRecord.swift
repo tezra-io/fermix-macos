@@ -141,6 +141,20 @@ public struct BootstrapRecord: Equatable, Sendable {
     public var companionSocketURL: URL {
         fermixHome.appendingPathComponent("companion.sock", isDirectory: false)
     }
+
+    /// The browser host socket for this home, the fourth wire, with its own
+    /// contract and its own direction: the app is the client that attaches as
+    /// the host, and the daemon is the one asking.
+    public var browserHostSocketURL: URL {
+        fermixHome.appendingPathComponent("browser_host.sock", isDirectory: false)
+    }
+
+    /// The engine's own workspace, the root every `download_dir` and every
+    /// `page.screenshot`, `page.pdf` and `page.upload` path the daemon names
+    /// must fall under. The host client refuses one that does not.
+    public var workspaceDirectoryURL: URL {
+        fermixHome.appendingPathComponent("workspace", isDirectory: true)
+    }
 }
 
 /// What this account's bootstrap record is.

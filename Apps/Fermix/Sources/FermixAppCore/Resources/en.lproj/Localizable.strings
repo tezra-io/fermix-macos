@@ -412,6 +412,13 @@
 "browser.empty" = "Open a page here, or watch a task use the browser.";
 "browser.show" = "Show browser";
 
+/* The browser host wire's own availability and refusal reasons: fragments
+   sent to the daemon over browser_host.sock, never shown in this app. */
+"browserHost.reason.screenLocked" = "the Mac is locked";
+"browserHost.reason.displayAsleep" = "the display is asleep";
+"browserHost.reason.appTerminating" = "the app is quitting";
+"browserHost.reason.notAttached" = "the browser host is not attached";
+
 /* MARK: Pet */
 "pet.callBegin" = "Begin voice call";
 "pet.callEnd" = "End voice call";

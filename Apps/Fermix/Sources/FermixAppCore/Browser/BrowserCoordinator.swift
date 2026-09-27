@@ -248,6 +248,15 @@ public final class BrowserCoordinator {
         remove(model.host.release(task))
     }
 
+    /// `tab.close`: one of the host's own tabs, closed directly. Unlike
+    /// `close(_:)`, which is the person's gesture on their own tab and
+    /// cancels a task's rather than closing it, the daemon closes one of its
+    /// own tabs outright. The wire client checks first that the tab is not
+    /// the person's; this is what carries out the close once it has.
+    public func closeTaskTab(_ tab: BrowserTab.ID) {
+        remove([tab])
+    }
+
     /// The engine's idle period has passed. The registry decides now whether
     /// the host holds no tab of anyone's, so a period that began idle and saw a
     /// tab open since lets nothing go.
@@ -505,3 +514,7 @@ extension BrowserCoordinator: BrowserTabDelegate {
         model.notice = reason
     }
 }
+
+/// The wire client's seam onto this coordinator (`BrowserHostClient.swift`),
+/// which the methods above already answer exactly.
+extension BrowserCoordinator: BrowserHostCoordinating {}

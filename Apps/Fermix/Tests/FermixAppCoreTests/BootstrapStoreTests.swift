@@ -64,6 +64,7 @@ struct BootstrapStoreTests {
         #expect(try store.resolvedHome() == location.defaultFermixHome)
         #expect(try store.realtimeSocketPath().hasSuffix("/.fermix/realtime.sock"))
         #expect(try store.companionSocketPath().hasSuffix("/.fermix/companion.sock"))
+        #expect(try store.browserHostSocketPath().hasSuffix("/.fermix/browser_host.sock"))
     }
 
     /// A record that exists and cannot be read is never quietly replaced by the

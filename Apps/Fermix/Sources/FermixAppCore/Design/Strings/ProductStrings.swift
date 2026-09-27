@@ -467,6 +467,15 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// sentence case rather than the menu's title case.
     case browserShow = "browser.show"
 
+    // The browser host wire's own reason fragments (plan §4.10): each
+    // finishes "the Fermix app's browser is no longer available: ..." or
+    // stands as a host error's message, sent to the daemon over
+    // browser_host.sock and never drawn in this app's own UI.
+    case browserHostReasonScreenLocked = "browserHost.reason.screenLocked"
+    case browserHostReasonDisplayAsleep = "browserHost.reason.displayAsleep"
+    case browserHostReasonAppTerminating = "browserHost.reason.appTerminating"
+    case browserHostReasonNotAttached = "browserHost.reason.notAttached"
+
     // Pet
     case petCallBegin = "pet.callBegin"
     case petCallEnd = "pet.callEnd"
