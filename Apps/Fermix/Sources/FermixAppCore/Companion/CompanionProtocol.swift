@@ -22,6 +22,24 @@ public enum CompanionProtocol {
     /// The one profile the daemon serves; any other is `unsupported_profile`.
     public static let profileId = "main"
 
+    /// How long the daemon has to answer `client_hello` with `server_hello`.
+    /// The contract sets no deadline; this is the client's, the realtime
+    /// wire's three seconds.
+    public static let handshakeTimeout: TimeInterval = 3
+
+    /// The most rows one `history_pull` may ask for, which is the page every
+    /// pull asks for: the contract's ceiling.
+    public static let historyPageLimit = 200
+
+    /// The most hits one `history_search` may ask for, and the page every
+    /// search asks for.
+    public static let searchLimit = 50
+
+    /// The longest `history_search` query, counted in Unicode scalar values as
+    /// the daemon counts it. A longer or empty query is `invalid_field`, which
+    /// closes the connection, so none is sent.
+    public static let maximumSearchQueryLength = 256
+
     /// What the reader holds: one daemon line of at most 16 MiB, and at most
     /// 32 MiB of unscanned inbound data at once.
     ///

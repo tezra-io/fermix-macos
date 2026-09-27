@@ -135,6 +135,12 @@ public struct BootstrapRecord: Equatable, Sendable {
     public var realtimeSocketURL: URL {
         fermixHome.appendingPathComponent("realtime.sock", isDirectory: false)
     }
+
+    /// The companion chat socket for this home, a third wire with its own
+    /// contract. An engine that predates chat serves no such socket.
+    public var companionSocketURL: URL {
+        fermixHome.appendingPathComponent("companion.sock", isDirectory: false)
+    }
 }
 
 /// What this account's bootstrap record is.

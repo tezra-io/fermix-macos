@@ -89,6 +89,12 @@ public struct BootstrapStore {
         BootstrapRecord(fermixHome: try resolvedHome()).realtimeSocketURL.path
     }
 
+    /// The chat socket for this account's home, named on the record for the
+    /// same reason.
+    public func companionSocketPath() throws -> String {
+        BootstrapRecord(fermixHome: try resolvedHome()).companionSocketURL.path
+    }
+
     @discardableResult
     public func save(fermixHome: URL) throws -> BootstrapRecord {
         try save(path: fermixHome.path)

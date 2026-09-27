@@ -22,6 +22,21 @@ struct CompanionProtocolTests {
         #expect(schema["x-max-line-bytes"] as? Int == CompanionProtocol.maximumClientLineBytes)
     }
 
+    /// A pull, a search or a query past the contract's bounds is `invalid_field`,
+    /// which closes the connection, so the bounds the session asks for are the
+    /// schema's own.
+    @Test("the page, search and query bounds are the ones the vendored schema publishes")
+    func requestBoundsMatchTheContract() throws {
+        let pull = try CompanionFixtures.definition("history_pull")["properties"] as? [String: Any]
+        let search = try CompanionFixtures.definition("history_search")["properties"] as? [String: Any]
+
+        #expect((pull?["limit"] as? [String: Any])?["maximum"] as? Int == CompanionProtocol.historyPageLimit)
+        #expect((search?["limit"] as? [String: Any])?["maximum"] as? Int == CompanionProtocol.searchLimit)
+        #expect(
+            (search?["query"] as? [String: Any])?["maxLength"] as? Int == CompanionProtocol.maximumSearchQueryLength
+        )
+    }
+
     @Test("every golden client event is produced by a typed value")
     func encodesEveryClientFixture() throws {
         let fixtures = try CompanionFixtures.load(.clientEvents)

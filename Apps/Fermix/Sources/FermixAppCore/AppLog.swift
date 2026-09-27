@@ -11,6 +11,7 @@ public enum AppLog {
     public enum Category: String {
         case app
         case voice
+        case companion
         case service
         case lifecycle
         case agent
