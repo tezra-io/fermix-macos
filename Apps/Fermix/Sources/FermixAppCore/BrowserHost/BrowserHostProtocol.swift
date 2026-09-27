@@ -23,7 +23,8 @@ public enum BrowserHostProtocol {
     /// The longest `message` an error carries (`x-max-message-chars`).
     public static let maximumMessageChars = 500
 
-    /// The longest `availability` reason (`x-max-reason-chars`).
+    /// The longest `availability` reason and the longest `task.cancel` reason
+    /// (`x-max-reason-chars`).
     public static let maximumReasonChars = 200
 
     /// The most nodes one `page` carries (`x-max-nodes`).
@@ -526,6 +527,9 @@ public enum BrowserHostEvent: Equatable, Sendable {
         bytes: Int?,
         reason: String?
     )
+    /// The person cancelled `taskId` from its own tab in the pane. `reason` is
+    /// bounded to `BrowserHostProtocol.maximumReasonChars` at encode time.
+    case taskCancel(taskId: String, reason: String)
     case hostStopping
 
     public var wireType: String {
@@ -538,6 +542,7 @@ public enum BrowserHostEvent: Equatable, Sendable {
         case .downloadBegan: return "download.began"
         case .downloadProgress: return "download.progress"
         case .downloadFinished: return "download.finished"
+        case .taskCancel: return "task.cancel"
         case .hostStopping: return "host_stopping"
         }
     }
@@ -554,6 +559,7 @@ extension BrowserHostEvent: Encodable {
         case downloadId = "download_id"
         case receivedBytes = "received_bytes"
         case totalBytes = "total_bytes"
+        case taskId = "task_id"
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -592,6 +598,9 @@ extension BrowserHostEvent: Encodable {
             try container.encodeIfPresent(path, forKey: .path)
             try container.encodeIfPresent(bytes, forKey: .bytes)
             try container.encodeIfPresent(reason, forKey: .reason)
+        case .taskCancel(let taskId, let reason):
+            try container.encode(taskId, forKey: .taskId)
+            try container.encode(String(reason.prefix(BrowserHostProtocol.maximumReasonChars)), forKey: .reason)
         case .hostStopping:
             break
         }

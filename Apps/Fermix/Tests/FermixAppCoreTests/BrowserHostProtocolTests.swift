@@ -150,6 +150,7 @@ struct BrowserHostProtocolTests {
                 downloadId: "d2", tabId: "t2", state: .failed,
                 path: nil, bytes: nil, reason: "the server closed the connection"
             ),
+            .taskCancel(taskId: "task-2", reason: "cancelled by the person"),
             .hostStopping
         ]
 
@@ -488,5 +489,16 @@ struct BrowserHostProtocolTests {
         let error = BrowserHostError(reason: .actFailed, message: over)
 
         #expect(error.message.count == BrowserHostProtocol.maximumMessageChars)
+    }
+
+    /// `task.cancel`'s `reason` never sends the daemon a value past the
+    /// contract's own cap, even if the caller passed a longer one.
+    @Test("a task.cancel reason is bounded to the contract's cap")
+    func taskCancelReasonIsBounded() throws {
+        let over = String(repeating: "a", count: BrowserHostProtocol.maximumReasonChars + 50)
+        let line = try BrowserHostEvent.taskCancel(taskId: "task-2", reason: over).line()
+        let object = try JSONSerialization.jsonObject(with: line) as? [String: Any]
+
+        #expect((object?["reason"] as? String)?.count == BrowserHostProtocol.maximumReasonChars)
     }
 }
