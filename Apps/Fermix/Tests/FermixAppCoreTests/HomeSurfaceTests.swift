@@ -111,6 +111,38 @@ struct HomeSurfaceTests {
         }
     }
 
+    /// Owner directive of 2026-09-27: a fresh install that signed in from
+    /// Settings rather than the assistant left Home saying "Setup required"
+    /// beside `Continue setup`, and nothing said what was missing. The toolbar
+    /// names the step the button opens: the first gating failure, which is the
+    /// screen `SetupRouting` lands on, so the two cannot disagree.
+    @Test("beside Continue setup, the toolbar names the step it opens")
+    func nextSetupStepNamesTheFirstGatingFailure() throws {
+        let state = try FakeDaemonGateway.fixtureResult(named: "setup_state_get", as: ManagementSetupState.self)
+        let home = try snapshot(readiness: "setup_required", setup: state)
+
+        #expect(home.nextSetupStep == ProductStrings[.attentionPersonalizationTitle])
+        #expect(
+            home.nextSetupStep == AttentionProjection.rows(for: state).first?.title,
+            "the same words as the row it leads"
+        )
+    }
+
+    @Test("a daemon that calls itself ready names no next step, whatever its failure list says")
+    func nextSetupStepFollowsReadiness() throws {
+        let state = try FakeDaemonGateway.fixtureResult(named: "setup_state_get", as: ManagementSetupState.self)
+
+        #expect(try snapshot(readiness: "ready", setup: state).nextSetupStep == nil)
+    }
+
+    @Test("advisory failures and an unread setup state name no next step")
+    func nextSetupStepIgnoresAdvisoryFailures() throws {
+        let advisory = try ManagementValueFixture.setupState(gating: false)
+
+        #expect(try snapshot(readiness: "setup_required", setup: advisory).nextSetupStep == nil)
+        #expect(try snapshot(readiness: "setup_required").nextSetupStep == nil)
+    }
+
     @Test("a daemon that cannot be reached says so rather than drawing a healthy header")
     func unreachableHeader() {
         let home = HomeSnapshot.unreachable(attention: .unavailable("the socket is not there"))

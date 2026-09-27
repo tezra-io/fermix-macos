@@ -23,9 +23,13 @@ struct HomeView: View {
         .paneScrollEdges()
         .navigationTitle(ProductStrings[.sidebarHome])
         .toolbar {
+            // Beside `Continue setup`, the step it opens (owner directive of
+            // 2026-09-27). Nil once the daemon calls itself ready, which is
+            // also when the button goes.
             SurfaceToolbar(
                 spec: CommandTable.toolbar(for: .home, condition: model.toolbarCondition),
-                router: router
+                router: router,
+                primaryCaption: model.snapshot.nextSetupStep
             )
         }
         .task { await model.refresh() }

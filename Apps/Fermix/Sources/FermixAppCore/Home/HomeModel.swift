@@ -230,12 +230,15 @@ public final class HomeModel: ObservableObject {
             // row shows is the one this poll just saw.
             let attention = await attention(update: update)
 
+            let setup = settings.setupState.value
+
             return HomeSnapshot(
                 hello: hello,
                 overview: overview,
                 attention: attention,
                 update: update,
-                setup: settings.setupState.value
+                setup: setup,
+                names: setup.map(names(for:)) ?? .unread
             )
         } catch {
             settings.noteEngineBuilds(.daemonUnreachable)

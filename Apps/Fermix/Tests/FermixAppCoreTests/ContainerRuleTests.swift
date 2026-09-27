@@ -549,22 +549,27 @@ struct ContainerRuleTests {
     /// Each macOS 26 modifier has a declared macOS 15 form, so the same tree
     /// renders on the floor rather than losing a control.
     ///
-    /// Two items hide the toolbar's shared background on macOS 26: the prominent
-    /// action, which draws its own capsule (§4.4), and the status sentence,
-    /// which sits on no glass at all. The floor has no shared background to
-    /// hide, so for both the macOS 15 form is the same item with the modifier
-    /// left off, and each branch is counted rather than merely present: a branch
-    /// that dropped its item would lose the control on the floor and nowhere
-    /// else, which is the failure this gate exists for.
+    /// Three items hide the toolbar's shared background on macOS 26: the
+    /// prominent action, which draws its own capsule (§4.4), the caption drawn
+    /// immediately before it, and the status sentence, which sits on no glass
+    /// at all. The floor has no shared background to hide, so for each the
+    /// macOS 15 form is the same item with the modifier left off, and each
+    /// branch is counted rather than merely present: a branch that dropped its
+    /// item would lose the control on the floor and nowhere else, which is the
+    /// failure this gate exists for.
     @Test("the macOS 26 toolbar sites declare their macOS 15 forms")
     func macOS15Forms() throws {
         let toolbar = try SourceTree.swiftFiles(matching: "Design/Components/SurfaceToolbar.swift")
         let text = try #require(toolbar.first?.text)
 
-        #expect(occurrences(of: ".sharedBackgroundVisibility(.hidden)", in: text) == 2)
+        #expect(occurrences(of: ".sharedBackgroundVisibility(.hidden)", in: text) == 3)
         #expect(
             occurrences(of: "ToolbarItem(placement: .primaryAction) { primaryButton(primary) }", in: text) == 2,
             "the prominent action has no macOS 15 form"
+        )
+        #expect(
+            occurrences(of: "ToolbarItem(placement: .primaryAction) { ToolbarSentence(text: caption) }", in: text) == 2,
+            "the primary action's caption has no macOS 15 form"
         )
         #expect(occurrences(of: "ToolbarItem(placement: .status) { label }", in: text) == 2, "the status item has one form")
     }

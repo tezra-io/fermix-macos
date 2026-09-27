@@ -12,6 +12,11 @@ struct SurfaceToolbar: ToolbarContent {
     let router: any CommandPerforming
     /// A sentence about what the surface is doing right now, where it has one.
     var statusText: String?
+    /// A sentence about the prominent action, drawn immediately before it in
+    /// the trailing group so the two read as one (owner directive of
+    /// 2026-09-27: what `Continue setup` opens, next to `Continue setup`). It
+    /// exists only while the action does.
+    var primaryCaption: String?
 
     var body: some ToolbarContent {
         if let statusText {
@@ -24,6 +29,10 @@ struct SurfaceToolbar: ToolbarContent {
         // stopped holding. Neither draws it dimmed: a permanently dead
         // prominent button is worse than no button.
         if let primary = spec.primary, router.canPerform(primary) {
+            if let primaryCaption {
+                captionItem(primaryCaption)
+            }
+
             primaryItem(primary)
         }
 
@@ -81,6 +90,19 @@ struct SurfaceToolbar: ToolbarContent {
         PrimaryToolbarButton(title: router.toolbarTitle(of: primary)) { router.perform(primary) }
     }
 
+    /// The caption in the same placement as the action, so the system lays it
+    /// out immediately before the button. Off the shared glass for the reason
+    /// the button and the status sentence are.
+    @ToolbarContentBuilder
+    private func captionItem(_ caption: String) -> some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            ToolbarItem(placement: .primaryAction) { ToolbarSentence(text: caption) }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .primaryAction) { ToolbarSentence(text: caption) }
+        }
+    }
+
     /// A secondary or overflow control. Both are plain buttons: the system
     /// draws the group, and the app draws no container of its own.
     private func button(_ command: AppCommand) -> some View {
@@ -136,11 +158,22 @@ struct ToolbarStatus: ToolbarContent {
                 ActivityMark().accessibilityHidden(true)
             }
 
-            Text(text)
-                .fermixType(Typography.style(.calloutSmall))
-                .foregroundStyle(Palette.secondary.color)
-                .accessibilityAddTraits(.updatesFrequently)
+            ToolbarSentence(text: text)
         }
+    }
+}
+
+/// One sentence in the toolbar's own secondary ink and size: the drawing the
+/// status placement and the primary action's caption share, so the two can
+/// never drift apart in type or colour.
+struct ToolbarSentence: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .fermixType(Typography.style(.calloutSmall))
+            .foregroundStyle(Palette.secondary.color)
+            .accessibilityAddTraits(.updatesFrequently)
     }
 }
 
