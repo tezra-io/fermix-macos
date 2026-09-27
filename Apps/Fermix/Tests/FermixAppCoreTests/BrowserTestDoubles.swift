@@ -48,6 +48,7 @@ final class RecordingTabDelegate: BrowserTabDelegate {
     private(set) var externals: [URL] = []
     private(set) var dialogs: [BrowserDialog] = []
     private(set) var downloads: [URL] = []
+    private(set) var failures: [String] = []
     var answer: BrowserDialogAnswer = .confirmed
 
     func newTabRequested(_ tab: BrowserTab, from opener: BrowserTab) -> Bool {
@@ -69,6 +70,56 @@ final class RecordingTabDelegate: BrowserTabDelegate {
     }
 
     func downloadStarted(_ url: URL) { downloads.append(url) }
+
+    func loadFailed(_ reason: String, in tab: BrowserTab) { failures.append(reason) }
+}
+
+/// The Mac's own opener for content links, recorded rather than opened.
+@MainActor
+final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
+    var succeeds = true
+    private(set) var opened: [URL] = []
+
+    func open(_ url: URL) -> Bool {
+        opened.append(url)
+        return succeeds
+    }
+}
+
+/// What a coordinator told the window and which profiles it built engines
+/// over, in order.
+@MainActor
+final class BrowserRecord {
+    var paneShown: [Bool] = []
+    var enginesBuilt: [UUID] = []
+}
+
+/// A coordinator over fake pages and a throwaway support folder.
+@MainActor
+struct BrowserHarness {
+    let engine = FakeBrowserEngine()
+    let workspace = RecordingWorkspaceOpener()
+    let record = BrowserRecord()
+    let location: BootstrapLocation
+    let coordinator: BrowserCoordinator
+
+    init() throws {
+        location = try BrowserProfileLocation().location
+        coordinator = BrowserCoordinator(
+            makeEngine: { [engine, record] profile in
+                record.enginesBuilt.append(profile)
+                return engine
+            },
+            profile: WebsiteProfileRecord(location: location),
+            workspace: workspace,
+            paneShown: { [record] in record.paneShown.append($0) }
+        )
+    }
+
+    var model: BrowserModel { coordinator.model }
+
+    /// The fake page behind a tab, by the order the engine made it.
+    func page(_ index: Int) -> FakeBrowserPage { engine.pages[index] }
 }
 
 /// A throwaway support folder, the one the website profile record lives in.

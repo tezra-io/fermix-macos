@@ -133,9 +133,11 @@ struct BrowserTabTests {
         page.events?.pageMetExternalScheme(mail)
         page.events?.pageStartedDownload(file)
         page.events?.pageAskedToClose()
+        page.events?.pageFailed("A server with the specified hostname could not be found.")
 
         #expect(delegate.externals == [mail])
         #expect(delegate.downloads == [file])
+        #expect(delegate.failures == ["A server with the specified hostname could not be found."])
         #expect(delegate.closeRequests.map(\.id) == [tab.id])
     }
 

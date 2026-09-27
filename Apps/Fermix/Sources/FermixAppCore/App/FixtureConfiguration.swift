@@ -479,6 +479,10 @@ extension AppEnvironment {
             opener: FixtureExternalOpener(),
             updater: UnwiredUpdater(),
             mascot: mascot,
+            // Fake pages, so the pane is looked at with no web engine and no
+            // network behind it.
+            makeBrowser: { _ in FixtureBrowserEngine() },
+            workspace: FixtureWorkspaceOpener(),
             chooser: FixtureDirectoryChooser(),
             processes: probes,
             paths: probes,

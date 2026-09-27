@@ -313,10 +313,13 @@ struct ContainerRuleTests {
     /// importer stays retired: the daemon's browser setup is not this app's.
     @Test("only the browser target imports WebKit")
     func noWebKit() throws {
-        let offenders = try SparkleAdapterSource.everySwiftFileUnderSources()
+        let importers = try SparkleAdapterSource.everySwiftFileUnderSources()
             .filter { $0.text.contains("import WebKit") || $0.text.contains("WKWebView") }
-            .filter { !$0.path.contains("/FermixBrowser/") }
+        let offenders = importers.filter { !$0.path.contains("/FermixBrowser/") }
 
+        // A scan that finds nothing passes every assertion it was written to
+        // make, so the browser target itself has to show up in it.
+        #expect(importers.contains { $0.path.contains("/FermixBrowser/") }, "the scan found no browser target")
         #expect(offenders.isEmpty, "web content outside the browser target in: \(offenders.map(\.path))")
     }
 

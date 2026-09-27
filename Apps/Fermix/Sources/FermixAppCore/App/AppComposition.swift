@@ -64,11 +64,18 @@ final class AppComposition {
     /// Asked on every restart whether the registered agent plist is still the
     /// bundled one (M34 §7.2 step 5).
     let engineReconciler: EngineReconciler
+    /// The browser pane's one owner. It opens and closes the pane's room in
+    /// the window through the window coordinator.
+    let browser: BrowserCoordinator
 
     /// The shipped configuration: this Mac, this account, this bundle, and the
-    /// updater and mascot renderer the executable owns.
-    convenience init(updater: any UpdaterDriving, mascot: any MascotRendering) {
-        self.init(environment: .product(updater: updater, mascot: mascot))
+    /// updater, mascot renderer and browser engine the executable owns.
+    convenience init(
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
+    ) {
+        self.init(environment: .product(updater: updater, mascot: mascot, browser: browser))
     }
 
     init(environment: AppEnvironment) {
@@ -82,6 +89,7 @@ final class AppComposition {
         model = AppModel()
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
+        browser = Self.buildBrowser(environment: environment, location: location, windows: windows)
         voice = Self.buildVoice(model: model, bootstrap: store)
         let companion = Self.buildCompanion(bootstrap: store, lines: environment.companionLines)
         services = ServiceController(loginItems: environment.loginItems, plists: environment.plists)
@@ -236,6 +244,22 @@ final class AppComposition {
             model: model,
             session: session,
             audio: AudioOwner(engine: AudioController(), deadlines: MainQueueDeadlineScheduler())
+        )
+    }
+
+    /// The browser pane: the engine the executable handed in, the website
+    /// profile's record in this account's support folder, and the window's
+    /// room for the pane.
+    private static func buildBrowser(
+        environment: AppEnvironment,
+        location: BootstrapLocation,
+        windows: WindowCoordinator
+    ) -> BrowserCoordinator {
+        BrowserCoordinator(
+            makeEngine: environment.makeBrowser,
+            profile: WebsiteProfileRecord(location: location),
+            workspace: environment.workspace,
+            paneShown: { [windows] open in windows.setBrowserPane(open: open) }
         )
     }
 

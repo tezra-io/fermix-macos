@@ -18,8 +18,15 @@ public enum FermixApp {
     ///   nothing.
     /// - Parameter mascot: the mascot renderer, handed in for the same reason:
     ///   its implementation links the Rive runtime.
+    /// - Parameter browser: the browser pane's engine, built over the website
+    ///   profile, handed in for the same reason: its implementation links
+    ///   WebKit.
     @MainActor
-    public static func main(updater: any UpdaterDriving, mascot: any MascotRendering) {
+    public static func main(
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
+    ) {
         // Maintenance entry, before any AppKit UI: the login-item
         // registrations belong to this bundle identity, so only the app
         // itself can withdraw them. This is the primitive the uninstall route
@@ -37,7 +44,7 @@ public enum FermixApp {
         // Dock app for exactly as long as a real window is open.
         application.setActivationPolicy(.accessory)
 
-        let delegate = AppDelegate(plan: launchPlan(updater: updater, mascot: mascot))
+        let delegate = AppDelegate(plan: launchPlan(updater: updater, mascot: mascot, browser: browser))
         application.delegate = delegate
         application.run()
     }
@@ -49,7 +56,11 @@ public enum FermixApp {
     /// two is refused rather than resolved to one of them: silently running the
     /// other would report the argument as having worked.
     @MainActor
-    private static func launchPlan(updater: any UpdaterDriving, mascot: any MascotRendering) -> AppLaunchPlan {
+    private static func launchPlan(
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
+    ) -> AppLaunchPlan {
         let arguments = CommandLine.arguments
         let fixture = fixtureRequest(arguments)
         let development = developmentEngineRequest(arguments)
@@ -60,11 +71,12 @@ public enum FermixApp {
             return developmentEnginePlan(
                 registerBackground: arguments.contains(DevelopmentEngineLaunchRequest.registrationFlag),
                 updater: updater,
-                mascot: mascot
+                mascot: mascot,
+                browser: browser
             )
         }
 
-        return .product(updater: updater, mascot: mascot)
+        return .product(updater: updater, mascot: mascot, browser: browser)
     }
 
     /// The surface a fixture launch named, or nil where it asked for none.
@@ -107,9 +119,10 @@ public enum FermixApp {
     private static func developmentEnginePlan(
         registerBackground: Bool,
         updater: any UpdaterDriving,
-        mascot: any MascotRendering
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
     ) -> AppLaunchPlan {
-        .developmentEngine(registerBackground: registerBackground, updater: updater, mascot: mascot)
+        .developmentEngine(registerBackground: registerBackground, updater: updater, mascot: mascot, browser: browser)
     }
     #else
     /// A release build has no fixture configuration compiled into it, so the
@@ -125,7 +138,8 @@ public enum FermixApp {
     private static func developmentEnginePlan(
         registerBackground: Bool,
         updater: any UpdaterDriving,
-        mascot: any MascotRendering
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
     ) -> AppLaunchPlan {
         refuse(DevelopmentEngineLaunchRequest.Refusal.notAvailableInThisBuild)
     }
@@ -192,8 +206,15 @@ struct AppLaunchPlan {
 
     /// The shipped launch: the product graph, opened at whatever the launch
     /// reason resolves to.
-    static func product(updater: any UpdaterDriving, mascot: any MascotRendering) -> AppLaunchPlan {
-        AppLaunchPlan(compose: { AppComposition(updater: updater, mascot: mascot) }, present: openLaunchReason)
+    static func product(
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
+    ) -> AppLaunchPlan {
+        AppLaunchPlan(
+            compose: { AppComposition(updater: updater, mascot: mascot, browser: browser) },
+            present: openLaunchReason
+        )
     }
 
     /// What a real launch opens: whatever the launch reason resolves to.
@@ -239,10 +260,15 @@ struct AppLaunchPlan {
     static func developmentEngine(
         registerBackground: Bool = false,
         updater: any UpdaterDriving,
-        mascot: any MascotRendering
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
     ) -> AppLaunchPlan {
         AppLaunchPlan(
-            compose: { AppComposition(environment: .developmentEngine(updater: updater, mascot: mascot)) },
+            compose: {
+                AppComposition(
+                    environment: .developmentEngine(updater: updater, mascot: mascot, browser: browser)
+                )
+            },
             present: { composition in
                 openDevelopmentLaunch(
                     coordinator: composition.coordinator,

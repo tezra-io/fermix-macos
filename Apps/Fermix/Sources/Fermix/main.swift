@@ -1,4 +1,5 @@
 import FermixAppCore
+import FermixBrowser
 import FermixRive
 import FermixSparkle
 import Foundation
@@ -15,7 +16,13 @@ import Foundation
 // needs.
 //
 // The mascot renderer is handed in the same way and for the same reason: it
-// links the Rive runtime, which the agent must not load either.
+// links the Rive runtime, which the agent must not load either. So is the
+// browser pane's engine, which links WebKit; it arrives as a factory because
+// it is built over the website profile on the pane's first tab.
 MainActor.assumeIsolated {
-    FermixApp.main(updater: SparkleUpdater(), mascot: RiveMascotRenderer())
+    FermixApp.main(
+        updater: SparkleUpdater(),
+        mascot: RiveMascotRenderer(),
+        browser: { WebKitBrowserEngine(websiteProfile: $0) }
+    )
 }

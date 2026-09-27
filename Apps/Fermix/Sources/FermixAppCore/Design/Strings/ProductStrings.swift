@@ -427,6 +427,13 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatSearchNoMatches = "chat.search.noMatches"
     case chatSearchOlder = "chat.search.older"
 
+    // The browser pane. Its one sentence says why something the person asked
+    // for did not happen.
+    case browserNoticeNotAnAddress = "browser.notice.notAnAddress"
+    case browserNoticeProfileUnavailable = "browser.notice.profileUnavailable"
+    case browserNoticeNoApp = "browser.notice.noApp"
+    case browserNoticeDownloadRefused = "browser.notice.downloadRefused"
+
     // Pet
     case petCallBegin = "pet.callBegin"
     case petCallEnd = "pet.callEnd"

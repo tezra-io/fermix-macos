@@ -110,6 +110,8 @@ public protocol BrowserPageEvents: AnyObject {
     func pageMetExternalScheme(_ url: URL)
     func pagePresented(_ dialog: BrowserDialog, answer: @escaping @MainActor (BrowserDialogAnswer) -> Void)
     func pageStartedDownload(_ url: URL)
+    /// A load never reached a page, in the system's own sentence.
+    func pageFailed(_ reason: String)
 }
 
 /// What a tab asks of the pane that shows it.
@@ -127,6 +129,7 @@ public protocol BrowserTabDelegate: AnyObject {
         answer: @escaping @MainActor (BrowserDialogAnswer) -> Void
     )
     func downloadStarted(_ url: URL)
+    func loadFailed(_ reason: String, in tab: BrowserTab)
 }
 
 /// One tab of the pane: what its page shows, and what a person can ask of it.
@@ -214,5 +217,9 @@ extension BrowserTab: BrowserPageEvents {
 
     public func pageStartedDownload(_ url: URL) {
         delegate?.downloadStarted(url)
+    }
+
+    public func pageFailed(_ reason: String) {
+        delegate?.loadFailed(reason, in: self)
     }
 }

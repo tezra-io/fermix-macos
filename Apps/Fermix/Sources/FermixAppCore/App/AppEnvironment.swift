@@ -39,6 +39,13 @@ struct AppEnvironment {
     /// reason: its implementation links the Rive runtime, which only the GUI
     /// executable may load.
     let mascot: any MascotRendering
+    /// The browser pane's engine, behind the same kind of seam: its
+    /// implementation links WebKit, which the agent must never load. A factory,
+    /// because the engine is built over the website profile on the first tab.
+    let makeBrowser: BrowserEngineMaking
+    /// The Mac's own opener for content: a page in the person's own browser,
+    /// or a scheme another app owns.
+    let workspace: any WorkspaceLinkOpening
     let chooser: any DirectoryChoosing
     let processes: any ProcessLiveness
     let paths: any PathPresence
@@ -64,8 +71,12 @@ struct AppEnvironment {
 extension AppEnvironment {
     /// The shipped configuration: this Mac, this account, this bundle, and the
     /// activation that registers the background service launchd runs.
-    static func product(updater: any UpdaterDriving, mascot: any MascotRendering) -> AppEnvironment {
-        onThisMac(activation: .installed, updater: updater, mascot: mascot)
+    static func product(
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
+    ) -> AppEnvironment {
+        onThisMac(activation: .installed, updater: updater, mascot: mascot, browser: browser)
     }
 
     /// The boundary this Mac provides, under one declared activation plan.
@@ -74,14 +85,15 @@ extension AppEnvironment {
     /// `DevelopmentEngineConfiguration.swift` is the second caller: the two
     /// differ in exactly this one value and in nothing else.
     ///
-    /// The updater and the mascot renderer are the two values this library
-    /// cannot build: their implementations link Sparkle and the Rive runtime,
-    /// which only the GUI executable may do (M34 §6), so the executable hands
-    /// them in.
+    /// The updater, the mascot renderer and the browser engine are the three
+    /// values this library cannot build: their implementations link Sparkle,
+    /// the Rive runtime and WebKit, which only the GUI executable may do
+    /// (M34 §6), so the executable hands them in.
     static func onThisMac(
         activation plan: ActivationPlan,
         updater: any UpdaterDriving,
-        mascot: any MascotRendering
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
     ) -> AppEnvironment {
         // A bundle that cannot answer these two questions is broken, not
         // degraded: there is no second place to read them from.
@@ -112,6 +124,8 @@ extension AppEnvironment {
             opener: WorkspaceExternalOpener(),
             updater: updater,
             mascot: mascot,
+            makeBrowser: browser,
+            workspace: WorkspaceLinkOpener(),
             chooser: OpenPanelDirectoryChooser(),
             processes: SystemProcessLiveness(),
             paths: FileSystemPathPresence(),

@@ -89,7 +89,7 @@ let package = Package(
         // that plist is generated from Product.json, never hand-written.
         .executableTarget(
             name: "Fermix",
-            dependencies: ["FermixAppCore", "FermixSparkle", "FermixRive"],
+            dependencies: ["FermixAppCore", "FermixSparkle", "FermixRive", "FermixBrowser"],
             exclude: ["Info.plist", "Fermix.entitlements"],
             linkerSettings: [
                 .unsafeFlags(
@@ -137,6 +137,15 @@ let package = Package(
                 "FermixAppCore",
                 .product(name: "RiveRuntime", package: "rive-ios")
             ]
+        ),
+        // The one place in the repository that imports WebKit, for the same
+        // reason again: FermixAgent links FermixAppCore and must never load a
+        // web engine. The core declares the `BrowserEngine` seam and this
+        // target, linked by the GUI executable alone, builds the browser pane's
+        // pages on it. WebKit is the system's, so there is no package to pin.
+        .target(
+            name: "FermixBrowser",
+            dependencies: ["FermixAppCore"]
         ),
         // The daemon launcher that SMAppService.agent registers.
         .executableTarget(

@@ -1,7 +1,7 @@
 # XcodeGen spec for the Fermix application.
 #
-# It mirrors Package.swift exactly: one core library, the updater adapter, two
-# thin executables, one test bundle. SwiftPM is the local build (this machine
+# It mirrors Package.swift exactly: one core library, the updater, animation
+# and browser adapters, two thin executables, one test bundle. SwiftPM is the local build (this machine
 # has Command Line Tools and no Xcode.app); this spec is what CI and Xcode
 # consume, and it is checked in while the generated Fermix.xcodeproj is not.
 #
@@ -109,6 +109,23 @@ targets:
       base:
         PRODUCT_NAME: FermixRive
 
+  # The one place that imports WebKit, for the same reason again: FermixAgent
+  # links FermixAppCore and must never load a web engine. A static library
+  # linked into the GUI executable, like FermixSparkle. WebKit is the
+  # system's, so there is no package to pin.
+  FermixBrowser:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Sources/FermixBrowser
+    dependencies:
+      - target: FermixAppCore
+        embed: false
+      - sdk: WebKit.framework
+    settings:
+      base:
+        PRODUCT_NAME: FermixBrowser
+
   # The GUI, the menu bar, the windows, and the only microphone principal. It
   # is also the only target that links the updater: the package appears here as
   # well as on FermixSparkle because a static library carries no link of its
@@ -130,6 +147,8 @@ targets:
       - target: FermixRive
         embed: false
       - package: RiveRuntime
+      - target: FermixBrowser
+        embed: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.tezra.FermixPet
