@@ -48,6 +48,17 @@ struct CommandTableTests {
         #expect(sidebar.holdsControl)
     }
 
+    /// "Show browser" sits after the five surfaces, with its own shortcut, so
+    /// it is reachable from the menu bar and not only from Chat's toolbar
+    /// (plan §4.10).
+    @Test("the View menu carries Show browser after the five surfaces")
+    func viewMenuCarriesShowBrowser() throws {
+        let view = try #require(CommandTable.mainMenu.first { $0.titleKey == .menuTitleView })
+
+        #expect(view.commands.contains(.showBrowser))
+        #expect(CommandTable.shortcut(of: .showBrowser) == CommandShortcut("b"))
+    }
+
     /// A command in the table is one this build performs. The router is the
     /// only place that answers that, so the two are checked against each other
     /// rather than against a list.
@@ -156,7 +167,11 @@ struct CommandTableTests {
         #expect(home.secondary.isEmpty)
         #expect(home.more.isEmpty)
         #expect(CommandTable.toolbar(for: .pet).isEmpty)
-        #expect(CommandTable.toolbar(for: .chat).isEmpty, "Chat's search is the toolbar's field, not a command")
+        // Chat's search is the toolbar's own field, not a command; "Show
+        // browser" is the one command it does carry (plan §4.10).
+        #expect(CommandTable.toolbar(for: .chat).secondary == [.showBrowser])
+        #expect(CommandTable.toolbar(for: .chat).primary == nil)
+        #expect(CommandTable.toolbar(for: .chat).more.isEmpty)
     }
 
     /// Every command a toolbar draws needs a sentence-case label; the menu's

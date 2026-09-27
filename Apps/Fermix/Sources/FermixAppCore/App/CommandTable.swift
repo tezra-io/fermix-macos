@@ -28,6 +28,9 @@ public enum AppCommand: String, CaseIterable, Sendable {
     case showDoctor
     case showLogs
     case showPet
+    /// Opens the browser pane on its own, with nothing to show yet, so the
+    /// person can watch or browse without waiting for a link (plan §4.10).
+    case showBrowser
     case runLocalChecks
     case runNetworkChecks
     case pauseLogs
@@ -238,6 +241,7 @@ public enum CommandTable {
         case .showDoctor: return .fixed(.menuTitleDoctor)
         case .showLogs: return .fixed(.menuTitleLogs)
         case .showPet: return .fixed(.menuTitlePet)
+        case .showBrowser: return .fixed(.menuTitleShowBrowser)
         case .runLocalChecks: return .fixed(.menuTitleRunLocalChecks)
         case .runNetworkChecks: return .fixed(.menuTitleRunNetworkChecks)
         case .pauseLogs:
@@ -276,6 +280,9 @@ public enum CommandTable {
         // while the reconcile is pending: there the button finishes an update,
         // which is what the sheet it opens is titled (M34 §7.2).
         case .restartDaemon: return .settingsEngineSheetTitle
+        // Chat's toolbar draws this one, and its sentence-case spelling is its
+        // own rather than the View menu's title case.
+        case .showBrowser: return .browserShow
         case .pauseLogs: return nil
         case .openFermix, .checkForUpdates, .openSettings, .quit, .toggleSidebar, .showChat, .showHome,
              .showDoctor, .showLogs, .showPet, .runLocalChecks,
@@ -313,6 +320,7 @@ public enum CommandTable {
     public static func symbol(of command: AppCommand) -> String? {
         switch command {
         case .runNetworkChecks: return "globe"
+        case .showBrowser: return "safari"
         case .pauseLogs: return "pause.circle"
         case .exportLogs, .exportSupportBundle: return "square.and.arrow.up"
         default: return nil
@@ -331,6 +339,7 @@ public enum CommandTable {
         case .showDoctor: return CommandShortcut("3")
         case .showLogs: return CommandShortcut("4")
         case .showPet: return CommandShortcut("5")
+        case .showBrowser: return CommandShortcut("b")
         case .runLocalChecks: return CommandShortcut("r")
         default: return nil
         }
@@ -397,6 +406,7 @@ public enum CommandTable {
             .command(.showDoctor),
             .command(.showLogs),
             .command(.showPet),
+            .command(.showBrowser),
             .separator,
             .command(.runLocalChecks),
             .command(.runNetworkChecks),
@@ -469,8 +479,11 @@ public enum CommandTable {
             return ToolbarSpec(secondary: [.pauseLogs], more: [.copyLogs, .exportLogs])
         case .home:
             return home(condition)
-        // Chat's search is the toolbar's search field, not a command.
-        case .chat, .pet, .setup, .update, .uninstall, .recovery:
+        // Chat's search is the toolbar's own search field, not a command; the
+        // pane opens from the toolbar too, on its own (plan §4.10).
+        case .chat:
+            return ToolbarSpec(secondary: [.showBrowser])
+        case .pet, .setup, .update, .uninstall, .recovery:
             return ToolbarSpec()
         }
     }

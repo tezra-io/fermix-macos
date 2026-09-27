@@ -365,7 +365,7 @@ struct MainWindowView: View {
     private var detail: some View {
         switch model.route {
         case .chat:
-            ChatSurfaceView(session: surfaces.companion, settings: settings, links: links)
+            ChatSurfaceView(session: surfaces.companion, settings: settings, links: links, router: router)
         case .home:
             HomeView(model: surfaces.home, router: router)
         case .doctor:

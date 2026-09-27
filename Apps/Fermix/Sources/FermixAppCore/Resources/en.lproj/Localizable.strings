@@ -410,6 +410,7 @@
 "browser.cancelTask" = "Cancel task";
 "browser.cancellingTask" = "Cancelling task";
 "browser.empty" = "Open a page here, or watch a task use the browser.";
+"browser.show" = "Show browser";
 
 /* MARK: Pet */
 "pet.callBegin" = "Begin voice call";
@@ -501,6 +502,7 @@
 "menuTitle.runDoctor" = "Run Doctor";
 "menuTitle.showPet" = "Show Pet";
 "menuTitle.hidePet" = "Hide Pet";
+"menuTitle.showBrowser" = "Show Browser";
 "menuTitle.hideMenuBarItem" = "Hide Menu Bar Item";
 "menuTitle.linkCommandLineTool" = "Add the fermix Command to Terminal…";
 

@@ -39,6 +39,19 @@ struct CommandRouterTests {
         #expect(harness.windows.presented == [.main])
     }
 
+    /// "Show browser" opens the pane on its own, with no tab in it, so the
+    /// person can watch or browse without waiting for a link (plan §4.10).
+    @Test("Show browser opens the pane with nothing to show yet")
+    func showBrowserOpensThePane() throws {
+        let harness = try RouterHarness()
+
+        #expect(!harness.browserHarness.model.isOpen)
+        harness.router.perform(.showBrowser)
+
+        #expect(harness.browserHarness.model.isOpen)
+        #expect(harness.browserHarness.model.tabs.isEmpty)
+    }
+
     /// Home's tinted primary takes the same route `fermix://setup` does: the
     /// assistant while a gating readiness failure stands, the settings
     /// presentation once none does (M34 §3.4, decision D1).
@@ -374,6 +387,9 @@ final class RouterHarness {
     /// The updater behind the `Check for Updates` row, scripted: the row
     /// follows what the updater would actually accept (M34 §6, R2).
     let updates = FakeUpdateChecker()
+    /// "Show browser"'s own owner, over the same fakes `BrowserHostCoordinatorTests`
+    /// proves the reducer's rules against.
+    let browserHarness = BrowserHarness()
 
     static let launcherPath = "/Applications/Fermix.app/Contents/MacOS/fermix"
     /// A throwaway account root: the router never writes a record, and a store
@@ -401,6 +417,7 @@ final class RouterHarness {
             bootstrap: { .present },
             registrationBuild: { .thisBuild },
             termination: termination,
+            hostQuitting: ImmediateHostQuitting(),
             settings: settings,
             presentation: presentation,
             announcer: RecordingAnnouncer()
@@ -460,7 +477,8 @@ final class RouterHarness {
             surfaces: surfaces,
             sidebar: sidebar,
             menuBar: menuBar,
-            updates: updates
+            updates: updates,
+            browser: browserHarness.coordinator
         )
     }
 

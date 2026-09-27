@@ -463,6 +463,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case browserCancellingTask = "browser.cancellingTask"
     /// The pane opened with no tab.
     case browserEmpty = "browser.empty"
+    /// "Show browser": Chat's toolbar spelling of `menuTitleShowBrowser`,
+    /// sentence case rather than the menu's title case.
+    case browserShow = "browser.show"
 
     // Pet
     case petCallBegin = "pet.callBegin"
@@ -843,6 +846,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case menuTitleRunDoctor = "menuTitle.runDoctor"
     case menuTitleShowPet = "menuTitle.showPet"
     case menuTitleHidePet = "menuTitle.hidePet"
+    case menuTitleShowBrowser = "menuTitle.showBrowser"
     case menuTitleHideMenuBarItem = "menuTitle.hideMenuBarItem"
     case menuTitleLinkCommandLineTool = "menuTitle.linkCommandLineTool"
 

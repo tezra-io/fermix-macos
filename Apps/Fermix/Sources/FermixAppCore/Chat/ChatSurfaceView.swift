@@ -54,6 +54,8 @@ struct ChatSurfaceView: View {
     let settings: SettingsModel
     /// Where a link in a reply opens.
     let links: ContentLinkOpener
+    /// "Show browser", the toolbar's one command (plan §4.10).
+    let router: any CommandPerforming
 
     @State private var draft = ""
     @State private var query = ""
@@ -61,11 +63,12 @@ struct ChatSurfaceView: View {
     @State private var reveal: ChatReveal?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(session: CompanionSession, settings: SettingsModel, links: ContentLinkOpener) {
+    init(session: CompanionSession, settings: SettingsModel, links: ContentLinkOpener, router: any CommandPerforming) {
         self.session = session
         self.model = session.model
         self.settings = settings
         self.links = links
+        self.router = router
     }
 
     var body: some View {
@@ -99,6 +102,9 @@ struct ChatSurfaceView: View {
                 links.open(url)
                 return .handled
             })
+            .toolbar {
+                SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router)
+            }
     }
 
     /// The transcript and the composer under it, or the composer alone in the

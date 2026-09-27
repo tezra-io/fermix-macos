@@ -157,7 +157,8 @@ final class AppComposition {
             companion: companion,
             settings: settings,
             menuBar: menuBar,
-            updates: updates
+            updates: updates,
+            browser: browser
         )
         surfaces = interface.surfaces
         sidebar = interface.sidebar
@@ -518,6 +519,7 @@ final class AppComposition {
         sidebar: SidebarModel,
         menuBar: MenuBarController,
         updates: any UpdateChecking,
+        browser: BrowserCoordinator,
         commandLine: @escaping () -> CoexistenceInstructions?
     ) -> (router: CommandRouter, mainMenu: MainMenuController, statusMenu: StatusMenuController) {
         let router = CommandRouter(
@@ -527,6 +529,7 @@ final class AppComposition {
             sidebar: sidebar,
             menuBar: menuBar,
             updates: updates,
+            browser: browser,
             commandLine: commandLine
         )
         // The status line reads the facts Home already resolved, so the two
@@ -573,7 +576,8 @@ final class AppComposition {
         companion: CompanionSession,
         settings: SettingsModel,
         menuBar: MenuBarController,
-        updates: any UpdateChecking
+        updates: any UpdateChecking,
+        browser: BrowserCoordinator
     ) -> UserInterface {
         // The Terminal link's plan, read once: the surfaces draw its row and the
         // Help menu names the same command.
@@ -601,6 +605,7 @@ final class AppComposition {
             sidebar: sidebar,
             menuBar: menuBar,
             updates: updates,
+            browser: browser,
             commandLine: { CoexistenceInstructions.commandLine(planner.plan()) }
         )
 
