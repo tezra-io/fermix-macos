@@ -400,9 +400,14 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
         return best ?? NSScreen.main
     }
 
-    /// A window that remembers its frame opens where the operator left it; one
-    /// that does not opens centred. Two configurations, one placement step.
+    /// A window that remembers its frame opens where the operator left it, the
+    /// pet hatches beside the primary window, and any other opens centred.
     private func position(_ window: NSWindow, _ descriptor: WindowDescriptor) {
+        if descriptor.kind == .pet {
+            window.setFrame(petFrame(size: window.frame.size), display: false)
+            return
+        }
+
         guard let name = descriptor.frameAutosaveName else {
             window.center()
             return
@@ -413,6 +418,15 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
         if !window.setFrameUsingName(autosave) {
             window.center()
         }
+    }
+
+    /// Beside the primary window while it is on screen, on the corner of the
+    /// screen otherwise (`PetPlacement`).
+    private func petFrame(size: CGSize) -> CGRect {
+        let primary = windows[.main].flatMap { $0.isVisible && !$0.isMiniaturized ? $0 : nil }
+        let visible = (primary?.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+
+        return PetPlacement.frame(size: size, beside: primary?.frame, within: visible)
     }
 
     private func styleMask(_ descriptor: WindowDescriptor) -> NSWindow.StyleMask {
