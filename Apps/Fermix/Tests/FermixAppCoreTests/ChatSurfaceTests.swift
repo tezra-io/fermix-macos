@@ -168,6 +168,32 @@ struct ChatSurfaceTests {
         #expect(ChatToolLine.sentence(tool(.unrecognized("paused"))) == "web_search")
     }
 
+    /// A turn is thinking until either a tool is named or text starts
+    /// arriving; a named tool stays shown even once text follows it; and a
+    /// turn with text and no tool is quiet, drawing nothing beneath it.
+    @Test("a turn is thinking, then a named tool, then quiet, read off its own fields alone")
+    func turnStatus() {
+        let tool = CompanionToolEvent(turnId: "turn-1", tool: "web_search", phase: .start, detail: nil)
+
+        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "", tool: nil)) == .thinking)
+        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "", tool: tool)) == .tool(tool))
+        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "So far", tool: nil)) == .quiet)
+        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "So far", tool: tool)) == .tool(tool))
+    }
+
+    /// The engine's provider-lifecycle `tool_event` (carried today as a tool
+    /// named "unknown") is never matched by name: it reads as any other named
+    /// tool, because the thinking state is read off the turn having no tool at
+    /// all rather than off what a tool happens to be called.
+    @Test("a tool named unknown is drawn as any other named tool, never as thinking")
+    func noSpecialCaseForUnknown() {
+        let tool = CompanionToolEvent(turnId: "turn-1", tool: "unknown", phase: .start, detail: nil)
+        let turn = CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "", tool: tool)
+
+        #expect(ChatTurnStatus(turn) == .tool(tool))
+        #expect(ChatTurnStatus(turn) != .thinking)
+    }
+
     /// The links are live: the surface hands them to the content link opener,
     /// which opens them in the pane or the person's own browser.
     @Test("reply markdown is inline only, and its links are live")

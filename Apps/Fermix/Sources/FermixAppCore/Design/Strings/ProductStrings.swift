@@ -419,6 +419,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatSending = "chat.sending"
     case chatApprove = "chat.approve"
     case chatDeny = "chat.deny"
+    /// The turn answering now, before anything names what it is doing: after
+    /// `turn_started`, before the first `text_delta` or a named tool call.
+    case chatThinking = "chat.thinking"
     /// The turn's latest tool call, while it runs and once it has stopped.
     case chatToolRunningFormat = "chat.tool.runningFormat"
     case chatToolFinishedFormat = "chat.tool.finishedFormat"

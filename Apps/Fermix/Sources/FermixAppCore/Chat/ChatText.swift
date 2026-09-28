@@ -71,6 +71,31 @@ enum ChatToolLine {
     }
 }
 
+/// The turn answering now, as one of three quiet states, in the order it
+/// passes through them: thinking, from `turn_started` until either a tool is
+/// named or text starts arriving; the latest tool call once one is named,
+/// which stays even once text follows it; and quiet, once there is reply text
+/// and no tool has been named for it.
+///
+/// Every case is read straight off `CompanionTurn`'s own fields: nothing here
+/// is a fact of its own, so a provider's own lifecycle (carried, today, as a
+/// `tool_event` naming no real tool) is never matched by name to reach it.
+enum ChatTurnStatus: Equatable {
+    case thinking
+    case tool(CompanionToolEvent)
+    case quiet
+
+    init(_ turn: CompanionTurn) {
+        if let tool = turn.tool {
+            self = .tool(tool)
+        } else if turn.text.isEmpty {
+            self = .thinking
+        } else {
+            self = .quiet
+        }
+    }
+}
+
 /// Reply text as it is drawn: SwiftUI's inline markdown, with its links
 /// live, and a search's matches marked where the reader was sent to them. A
 /// link opens through the surface's content link opener, in the pane or the

@@ -77,8 +77,8 @@ private struct ChatReplyRow: View {
     }
 }
 
-/// The turn answering now: its text so far, and under it one quiet line for the
-/// latest tool call. Before any of either it is the activity mark alone.
+/// The turn answering now: its text so far, and under it one quiet line for
+/// whichever of thinking or the latest tool call applies (`ChatTurnStatus`).
 private struct ChatTurnRow: View {
     let turn: CompanionTurn
 
@@ -90,23 +90,37 @@ private struct ChatTurnRow: View {
                     .foregroundStyle(Palette.ink.color)
             }
 
-            if let tool = turn.tool {
-                HStack(spacing: Spacing.xs) {
-                    if tool.phase == .start {
-                        ActivityMark().accessibilityHidden(true)
-                    }
-
-                    Text(ChatToolLine.sentence(tool))
-                        .fermixType(Typography.style(.calloutSmall))
-                        .foregroundStyle(Palette.faint.color)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.updatesFrequently)
-            } else if turn.text.isEmpty {
-                ActivityMark()
+            switch ChatTurnStatus(turn) {
+            case .thinking:
+                ChatQuietLine(text: ProductStrings[.chatThinking], showsMark: true)
+            case .tool(let tool):
+                ChatQuietLine(text: ChatToolLine.sentence(tool), showsMark: tool.phase == .start)
+            case .quiet:
+                EmptyView()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One quiet line under a turn's draft: the activity mark while it is
+/// running, beside the sentence that says what.
+private struct ChatQuietLine: View {
+    let text: String
+    let showsMark: Bool
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            if showsMark {
+                ActivityMark().accessibilityHidden(true)
+            }
+
+            Text(text)
+                .fermixType(Typography.style(.calloutSmall))
+                .foregroundStyle(Palette.faint.color)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.updatesFrequently)
     }
 }
 
