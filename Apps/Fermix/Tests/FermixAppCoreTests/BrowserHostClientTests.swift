@@ -195,6 +195,80 @@ struct BrowserHostClientTests {
         _ = client
     }
 
+    /// The reported defect: a daemon that attaches and drops right away must
+    /// not look like a fresh success on every attempt, or the backoff never
+    /// grows and the client hammers the daemon through its restart.
+    @Test("attach-then-loss inside the grace keeps the backoff growing")
+    func quickLossesGrowTheBackoff() throws {
+        let harness = BrowserHarness()
+        let transport = Transport()
+        let deadlines = ManualDeadlineScheduler()
+        let client = Self.makeClient(harness: harness, transport: transport, deadlines: deadlines)
+
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.fail(.peerClosed)
+        #expect(deadlines.scheduledDelays == [1])
+
+        deadlines.fireAll()
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.fail(.peerClosed)
+        #expect(deadlines.scheduledDelays == [2])
+        _ = client
+    }
+
+    @Test("an attach held past the grace resets the backoff")
+    func graceHeldResetsTheBackoff() throws {
+        let harness = BrowserHarness()
+        let transport = Transport()
+        let deadlines = ManualDeadlineScheduler()
+        let client = Self.makeClient(harness: harness, transport: transport, deadlines: deadlines)
+
+        // One quick loss first, so the backoff has already grown.
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.fail(.peerClosed)
+        #expect(deadlines.scheduledDelays == [1])
+
+        // Attach again, and this time let the grace elapse before any loss.
+        deadlines.fireAll()
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        #expect(deadlines.scheduledDelays == [ReconnectBackoff.grace])
+        deadlines.fireAll()
+
+        // A loss now starts the backoff over, not from where it left off.
+        transport.fail(.peerClosed)
+        #expect(deadlines.scheduledDelays == [1])
+        _ = client
+    }
+
+    @Test("no second connect attempt starts while one is in flight")
+    func noSecondAttemptWhileInFlight() {
+        let harness = BrowserHarness()
+        let transport = Transport()
+        transport.deferConnectCompletion = true
+        let client = Self.makeClient(harness: harness, transport: transport)
+
+        client.connect()
+
+        #expect(transport.connectedPaths.count == 1)
+        transport.completeConnect(.success(()))
+    }
+
+    @Test("a version window that excludes this build refuses and stops retrying")
+    func versionRefusalStopsRetrying() {
+        let harness = BrowserHarness()
+        let transport = Transport()
+        let deadlines = ManualDeadlineScheduler()
+        let client = Self.makeClient(harness: harness, transport: transport, deadlines: deadlines)
+
+        transport.deliver(.serverHello(minVersion: 2, maxVersion: 2))
+
+        #expect(transport.closeCount == 1)
+        #expect(deadlines.liveCount == 0)
+
+        client.connect()
+        #expect(transport.connectedPaths.count == 2)
+    }
+
     @Test("an availability change is forwarded to the daemon as it happens")
     func availabilityForwardedOnChange() throws {
         let harness = BrowserHarness()
