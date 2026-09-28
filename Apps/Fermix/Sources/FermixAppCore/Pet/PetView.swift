@@ -81,7 +81,8 @@ struct PetView: View {
         mascot?.mascot(
             pose: model.expression,
             level: { [model] in model.audioLevel },
-            animates: model.windowVisible && !reduceMotion
+            animates: model.windowVisible && !reduceMotion,
+            playsIntro: !reduceMotion
         )
     }
 }

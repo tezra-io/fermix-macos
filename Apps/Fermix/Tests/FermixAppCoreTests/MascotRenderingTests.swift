@@ -58,6 +58,17 @@ struct MascotAnimationTests {
         }
     }
 
+    /// A window shown again is built a moment before it reports itself on
+    /// screen, so an intro read from the window's visibility was skipped on
+    /// every show after the first. Only Reduce Motion skips it.
+    @Test("the intro plays on every show, and only Reduce Motion skips it")
+    func introFollowsReduceMotionOnly() throws {
+        let pet = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
+
+        #expect(pet.contains("playsIntro: !reduceMotion"))
+        #expect(!pet.contains("playsIntro: model.windowVisible"))
+    }
+
     /// The companion's click is the call. The animation publishes no listeners,
     /// and a view that took the click would swallow it before the tap below it
     /// saw it.
@@ -77,7 +88,7 @@ struct MascotAnimationTests {
 /// A renderer that draws nothing, for graphs that are built but never shown.
 @MainActor
 final class StillMascot: MascotRendering {
-    func mascot(pose: PetExpression, level: @escaping @MainActor () -> Float, animates: Bool) -> AnyView {
+    func mascot(pose: PetExpression, level: @escaping @MainActor () -> Float, animates: Bool, playsIntro: Bool) -> AnyView {
         AnyView(EmptyView())
     }
 }

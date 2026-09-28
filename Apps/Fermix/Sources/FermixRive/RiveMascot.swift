@@ -18,8 +18,8 @@ import SwiftUI
 public final class RiveMascotRenderer: MascotRendering {
     public init() {}
 
-    public func mascot(pose: PetExpression, level: @escaping @MainActor () -> Float, animates: Bool) -> AnyView {
-        AnyView(RiveMascotView(pose: pose, level: level, animates: animates))
+    public func mascot(pose: PetExpression, level: @escaping @MainActor () -> Float, animates: Bool, playsIntro: Bool) -> AnyView {
+        AnyView(RiveMascotView(pose: pose, level: level, animates: animates, playsIntro: playsIntro))
     }
 }
 
@@ -34,13 +34,12 @@ private struct RiveMascotView: View {
 
     @StateObject private var player: MascotPlayer
 
-    init(pose: PetExpression, level: @escaping @MainActor () -> Float, animates: Bool) {
+    init(pose: PetExpression, level: @escaping @MainActor () -> Float, animates: Bool, playsIntro: Bool) {
         self.pose = pose
         self.level = level
         self.animates = animates
-        // The intro is decided once, when the mascot first appears: a parked
-        // mascot (Reduce Motion, or no window on screen) takes its pose at once.
-        _player = StateObject(wrappedValue: MascotPlayer(playsIntro: animates))
+        // Decided once, when the mascot first appears.
+        _player = StateObject(wrappedValue: MascotPlayer(playsIntro: playsIntro))
     }
 
     var body: some View {

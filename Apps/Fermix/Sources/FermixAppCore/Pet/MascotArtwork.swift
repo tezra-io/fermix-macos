@@ -32,7 +32,7 @@ struct MascotArtwork: View {
     var body: some View {
         // The animation's own frame carries room for the pose's motion, so at
         // `size` the body is drawn at the painted still's size.
-        mascot?.mascot(pose: pose, level: { 0 }, animates: !reduceMotion)
+        mascot?.mascot(pose: pose, level: { 0 }, animates: !reduceMotion, playsIntro: !reduceMotion)
             .frame(width: size, height: size)
             .frame(width: size * Self.canvasScale, height: size * Self.canvasScale)
             .accessibilityHidden(true)

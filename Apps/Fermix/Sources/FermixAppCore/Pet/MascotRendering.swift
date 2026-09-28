@@ -18,8 +18,15 @@ public protocol MascotRendering: AnyObject {
     /// parks the loops (the window is off screen, or Reduce Motion is on); a
     /// new pose is still drawn.
     ///
+    /// `playsIntro` is read once, when the mascot first appears: true swells
+    /// it out of the jelly sphere, false shows it formed. It is its own value
+    /// rather than `animates`, because a window being shown again is built a
+    /// moment before it reports itself on screen, and the intro was skipped on
+    /// every show after the first (owner, 2026-09-27: "every time I disable and
+    /// enable it back I want the initial state as the sphere").
+    ///
     /// The view takes no clicks: the surface around it owns what a click does.
-    func mascot(pose: PetExpression, level: @escaping @MainActor () -> Float, animates: Bool) -> AnyView
+    func mascot(pose: PetExpression, level: @escaping @MainActor () -> Float, animates: Bool, playsIntro: Bool) -> AnyView
 }
 
 /// The animation the renderer plays, and the names it publishes, written once.
