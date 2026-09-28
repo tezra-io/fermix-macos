@@ -229,7 +229,7 @@ public final class BrowserHostClient {
             return
         }
 
-        attach()
+        attach(window: window)
     }
 
     /// A refusal that names a direction is the version window's; any other is
@@ -257,7 +257,7 @@ public final class BrowserHostClient {
     /// as part of attaching, which is this build's `availability` right
     /// after `attached`, exactly the sequence the contract wants. No caps are
     /// known yet: the first `tab.open` names them (`establishCaps`).
-    private func attach() {
+    private func attach(window: BrowserHostVersionWindow) {
         send(.attached(hostVersion: hostVersion, profileId: resolvedProfileID))
 
         guard let connection = coordinator.hostAttached(self, caps: nil) else {
@@ -269,6 +269,7 @@ public final class BrowserHostClient {
         self.connection = connection
         phase = .attached
         consecutiveFailures = 0
+        log.info("browser host attached, daemon window \(window.minimum, privacy: .public)-\(window.maximum, privacy: .public)")
     }
 
     private func route(_ inbound: BrowserHostInbound) {
@@ -363,9 +364,19 @@ public final class BrowserHostClient {
         }
     }
 
+    /// The diagnostic's own word for a report: the wire's reason code, never
+    /// the sentence `reasonText` sends the daemon, which is product copy.
+    private static func availabilityLogText(_ availability: BrowserAvailability) -> String {
+        guard case .unavailable(let reason) = availability else { return "available" }
+
+        return reason.rawValue
+    }
+
     // MARK: - Dispatch
 
     private func dispatch(_ request: BrowserHostRequest) {
+        log.info("browser host request: \(request.wireType, privacy: .public)")
+
         switch request {
         case .tabOpen(let id, let payload):
             dispatchTabOpen(id: id, payload: payload)
@@ -966,6 +977,7 @@ extension BrowserHostClient: BrowserHostLink {
     /// again on every change the coordinator observes.
     public func reportAvailability(_ availability: BrowserAvailability) {
         let available = availability == .available
+        log.info("browser host availability: \(Self.availabilityLogText(availability), privacy: .public)")
         send(.availability(available: available, reason: available ? nil : Self.reasonText(availability)))
     }
 
