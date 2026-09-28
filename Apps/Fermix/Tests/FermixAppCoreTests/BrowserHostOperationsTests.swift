@@ -295,7 +295,8 @@ struct BrowserHostOperationsTests {
     private static func openRequest(task: String, taskTabCap: Int = 10, tabCap: Int = 60) -> BrowserHostTabOpenRequest {
         BrowserHostTabOpenRequest(
             taskId: task, url: "https://example.com/", observe: false,
-            downloadDir: "/tmp/fermix-test/workspace/downloads", taskTabCap: taskTabCap, tabCap: tabCap, snapshot: nil
+            downloadDir: "/tmp/fermix-test/workspace/downloads", taskTabCap: taskTabCap, tabCap: tabCap, snapshot: nil,
+            visible: nil
         )
     }
 
@@ -440,7 +441,7 @@ private final class FakeHostCoordinator: BrowserHostCoordinating {
         model.host.establishCaps(caps)
     }
 
-    func openTaskTab(_ url: URL, for task: BrowserTaskID) -> Result<BrowserTab.ID, BrowserTabRefusal> {
+    func openTaskTab(_ url: URL, for task: BrowserTaskID, visible: Bool) -> Result<BrowserTab.ID, BrowserTabRefusal> {
         let newPage = FakeOperationsPage()
         let tab = BrowserTab(profile: .shared, page: newPage)
         switch model.host.openTaskTab(tab.id, for: task) {

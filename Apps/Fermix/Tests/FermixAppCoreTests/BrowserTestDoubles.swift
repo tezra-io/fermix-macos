@@ -237,6 +237,8 @@ final class InMemoryLinkPreferenceStore: LinkPreferenceStoring {
 final class BrowserRecord {
     var paneShown: [Bool] = []
     var enginesBuilt: [UUID] = []
+    /// How many times the primary window's present path was asked for.
+    var primaryWindowPresented = 0
 }
 
 /// A coordinator over fake pages and a throwaway support folder.
@@ -265,7 +267,8 @@ struct BrowserHarness {
             workspace: workspace,
             session: session,
             deadlines: deadlines,
-            paneShown: { [record] in record.paneShown.append($0) }
+            paneShown: { [record] in record.paneShown.append($0) },
+            presentPrimaryWindow: { [record] in record.primaryWindowPresented += 1 }
         )
     }
 

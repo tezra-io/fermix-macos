@@ -275,7 +275,8 @@ struct FixtureConfigurationTests {
             workspace: FixtureWorkspaceOpener(),
             session: FakeSessionAvailability(),
             deadlines: ManualDeadlineScheduler(),
-            paneShown: { _ in }
+            paneShown: { _ in },
+            presentPrimaryWindow: {}
         )
         FixtureWebPage.openTabs(in: browser)
 

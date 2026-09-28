@@ -14,7 +14,9 @@ public protocol BrowserHostCoordinating: AnyObject {
     /// time they are seen; false where they differ from what was already
     /// established.
     func establishTabCaps(_ caps: BrowserTabCaps) -> Bool
-    func openTaskTab(_ url: URL, for task: BrowserTaskID) -> Result<BrowserTab.ID, BrowserTabRefusal>
+    /// `visible` is `tab.open`'s own flag: true when the task runs on the
+    /// visible profile, which is what "launch the browser" means.
+    func openTaskTab(_ url: URL, for task: BrowserTaskID, visible: Bool) -> Result<BrowserTab.ID, BrowserTabRefusal>
     func closeTaskTab(_ tab: BrowserTab.ID)
     func releaseTask(_ task: BrowserTaskID)
     func select(_ tab: BrowserTab)
@@ -421,7 +423,7 @@ public final class BrowserHostClient {
             return
         }
 
-        switch coordinator.openTaskTab(url, for: task) {
+        switch coordinator.openTaskTab(url, for: task, visible: payload.visible ?? false) {
         case .failure(let refusal):
             respond(BrowserHostResponse(id: id, error: wireError(for: refusal, task: payload.taskId)))
         case .success(let tabID):

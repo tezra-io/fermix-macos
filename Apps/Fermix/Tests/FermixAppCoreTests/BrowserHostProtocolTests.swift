@@ -125,6 +125,32 @@ struct BrowserHostProtocolTests {
         #expect(untrustedHost.message?.contains("daemon did not start") == true)
     }
 
+    /// `visible` is not yet in the vendored fixtures: `tab.open` decodes with
+    /// it absent today, and a future golden line naming it true decodes
+    /// straight into the same optional, with no decoder change.
+    @Test("tab.open decodes visible as an optional, absent today and true once the engine sends it")
+    func tabOpenVisibleIsAnOptional() throws {
+        let withoutVisible = #"""
+            {"id":1,"type":"tab.open","task_id":"t","url":"https://x","observe":true,
+             "download_dir":"/d","task_tab_cap":1,"tab_cap":1}
+            """#
+        guard case .request(.tabOpen(1, let absent)) = try BrowserHostInbound.decode(Data(withoutVisible.utf8)) else {
+            Issue.record("id 1 is not tab.open")
+            return
+        }
+        #expect(absent.visible == nil)
+
+        let withVisible = #"""
+            {"id":1,"type":"tab.open","task_id":"t","url":"https://x","observe":true,
+             "download_dir":"/d","task_tab_cap":1,"tab_cap":1,"visible":true}
+            """#
+        guard case .request(.tabOpen(1, let present)) = try BrowserHostInbound.decode(Data(withVisible.utf8)) else {
+            Issue.record("id 1 is not tab.open")
+            return
+        }
+        #expect(present.visible == true)
+    }
+
     // MARK: - events.jsonl (encoded)
 
     @Test("every golden event is produced by a typed value")

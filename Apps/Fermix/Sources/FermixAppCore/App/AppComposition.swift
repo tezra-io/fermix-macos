@@ -292,7 +292,8 @@ final class AppComposition {
             workspace: environment.workspace,
             session: environment.session,
             deadlines: RunLoopDeadlineScheduler(),
-            paneShown: { [windows] open in windows.setBrowserPane(open: open) }
+            paneShown: { [windows] open in windows.setBrowserPane(open: open) },
+            presentPrimaryWindow: { [windows] in windows.show(.main) }
         )
     }
 

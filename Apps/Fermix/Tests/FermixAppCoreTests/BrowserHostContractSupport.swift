@@ -130,7 +130,8 @@ enum BrowserHostDaemonWire {
                 "download_dir": payload.downloadDir,
                 "task_tab_cap": payload.taskTabCap,
                 "tab_cap": payload.tabCap,
-                "snapshot": payload.snapshot.map(snapshotObject)
+                "snapshot": payload.snapshot.map(snapshotObject),
+                "visible": payload.visible
             ])
         case .tabNavigate(_, let payload):
             return present([

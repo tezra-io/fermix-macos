@@ -163,9 +163,14 @@ public struct BrowserHostTabOpenRequest: Equatable, Sendable, Decodable {
     public let taskTabCap: Int
     public let tabCap: Int
     public let snapshot: BrowserHostSnapshotOptions?
+    /// True when the task runs on the visible profile, which is what "launch
+    /// the browser" means. Absent until the engine's export carries it, and
+    /// decoded as an optional rather than defaulted so an absent field and an
+    /// explicit `false` are never confused.
+    public let visible: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case url, observe, snapshot
+        case url, observe, snapshot, visible
         case taskId = "task_id"
         case downloadDir = "download_dir"
         case taskTabCap = "task_tab_cap"

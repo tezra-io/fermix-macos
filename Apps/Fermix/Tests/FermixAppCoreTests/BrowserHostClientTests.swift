@@ -53,7 +53,8 @@ struct BrowserHostClientTests {
             downloadDir: "/tmp/fermix-test/workspace/downloads",
             taskTabCap: 10,
             tabCap: 60,
-            snapshot: nil
+            snapshot: nil,
+            visible: nil
         ))))
 
         await Self.waitUntil { transport.sent.count >= 4 }
@@ -64,6 +65,58 @@ struct BrowserHostClientTests {
         let result = try #require(response["result"] as? [String: Any])
         #expect(result["url"] as? String == "https://example.com/")
         #expect(harness.page(0).loaded == [URL(string: "https://example.com/")!])
+    }
+
+    /// `visible` true is what "launch the browser" means: the pane opens, the
+    /// "Show browser" path, and the primary window's own present path is asked
+    /// for too, in case the app launched hidden.
+    @Test("tab.open with visible true shows the pane and presents the primary window")
+    func visibleTabOpenShowsThePane() async throws {
+        let harness = BrowserHarness()
+        let (_, transport) = Self.attachedClient(harness: harness)
+
+        transport.deliver(.request(.tabOpen(id: 7, BrowserHostTabOpenRequest(
+            taskId: "task-1",
+            url: "https://example.com/",
+            observe: false,
+            downloadDir: "/tmp/fermix-test/workspace/downloads",
+            taskTabCap: 10,
+            tabCap: 60,
+            snapshot: nil,
+            visible: true
+        ))))
+
+        await Self.waitUntil { transport.sent.count >= 4 }
+
+        #expect(harness.record.paneShown == [true])
+        #expect(harness.record.primaryWindowPresented == 1)
+        #expect(harness.model.isOpen)
+    }
+
+    /// A task on the shared profile is not what "launch the browser" means,
+    /// so it never brings the pane or the window up: absent is the same as
+    /// `false`, until the engine's export always carries the field.
+    @Test("tab.open without visible does not show the pane")
+    func invisibleTabOpenLeavesThePaneAlone() async throws {
+        let harness = BrowserHarness()
+        let (_, transport) = Self.attachedClient(harness: harness)
+
+        transport.deliver(.request(.tabOpen(id: 7, BrowserHostTabOpenRequest(
+            taskId: "task-1",
+            url: "https://example.com/",
+            observe: false,
+            downloadDir: "/tmp/fermix-test/workspace/downloads",
+            taskTabCap: 10,
+            tabCap: 60,
+            snapshot: nil,
+            visible: nil
+        ))))
+
+        await Self.waitUntil { transport.sent.count >= 4 }
+
+        #expect(harness.record.paneShown.isEmpty)
+        #expect(harness.record.primaryWindowPresented == 0)
+        #expect(!harness.model.isOpen)
     }
 
     @Test("a request naming a tab the host does not have answers tab_not_found")

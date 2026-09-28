@@ -33,6 +33,10 @@ public final class BrowserCoordinator {
     /// The window's half of opening and closing the pane: the room beside the
     /// body, which `WindowCoordinator.setBrowserPane(open:)` owns.
     private let paneShown: (Bool) -> Void
+    /// The primary window's own present path (`WindowCoordinator.show(.main)`):
+    /// idempotent, and what a visible task's `tab.open` uses to come to the
+    /// front even where the app launched hidden (plan §4.0's `--background`).
+    private let presentPrimaryWindow: () -> Void
     private var engine: (any BrowserEngine)?
     /// The daemon's end of the attached connection, where there is one.
     private var link: (any BrowserHostLink)?
@@ -54,7 +58,8 @@ public final class BrowserCoordinator {
         workspace: any WorkspaceLinkOpening,
         session: any SessionAvailabilityReporting,
         deadlines: any DeadlineScheduling,
-        paneShown: @escaping (Bool) -> Void
+        paneShown: @escaping (Bool) -> Void,
+        presentPrimaryWindow: @escaping () -> Void
     ) {
         self.model = BrowserModel()
         self.makeEngine = makeEngine
@@ -63,6 +68,7 @@ public final class BrowserCoordinator {
         self.session = session
         self.deadlines = deadlines
         self.paneShown = paneShown
+        self.presentPrimaryWindow = presentPrimaryWindow
         availabilityChanges = session.changes.sink { [weak self] availability in
             self?.availabilityChanged(availability)
         }
@@ -229,10 +235,12 @@ public final class BrowserCoordinator {
         if detach.endsQuit { finishQuit() }
     }
 
-    /// `tab.open`: a tab of the shared profile, the task's, loading `url`. It
-    /// never opens the pane: a task does not bring the window forward. It
-    /// comes to the front only of a pane with nothing in front.
-    public func openTaskTab(_ url: URL, for task: BrowserTaskID) -> Result<BrowserTab.ID, BrowserTabRefusal> {
+    /// `tab.open`: a tab of the shared profile, the task's, loading `url`. A
+    /// task that is not visible never opens the pane: it comes to the front
+    /// only of a pane with nothing in front. A visible task is what "launch
+    /// the browser" means, so it opens the pane, the "Show browser" path, and
+    /// brings the primary window up too, in case the app launched hidden.
+    public func openTaskTab(_ url: URL, for task: BrowserTaskID, visible: Bool = false) -> Result<BrowserTab.ID, BrowserTabRefusal> {
         let engine: any BrowserEngine
         do {
             engine = try builtEngine()
@@ -251,6 +259,10 @@ public final class BrowserCoordinator {
             placePages()
         }
         tab.load(url)
+        if visible {
+            showPane()
+            presentPrimaryWindow()
+        }
         return .success(tab.id)
     }
 
