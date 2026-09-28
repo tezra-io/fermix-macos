@@ -605,8 +605,9 @@ struct ProductStringsTests {
         #expect(ProductStrings[.settingsSecretStored] == "Stored")
         #expect(ProductStrings[.settingsSecretReplace] == "Replace…")
         #expect(ProductStrings[.settingsSecretRemove] == "Remove")
-        // An absent secret is the field itself, so there is no `Add…` to press.
-        #expect(ProductStrings[.settingsSecretStore] == "Store")
+        // An absent secret is the field itself, and it stores as a text row
+        // commits, so there is neither an `Add…` nor a `Store` to press.
+        #expect(!ProductStringKey.allCases.contains { $0.rawValue == "settings.secret.store" })
         #expect(ProductStrings[.providerVerifyAndSave] == "Verify and save")
     }
 

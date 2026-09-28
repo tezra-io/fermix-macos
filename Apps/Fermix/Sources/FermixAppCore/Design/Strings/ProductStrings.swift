@@ -571,7 +571,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsSecretStored = "settings.secret.stored"
     case settingsSecretReplace = "settings.secret.replace"
     case settingsSecretRemove = "settings.secret.remove"
-    case settingsSecretStore = "settings.secret.store"
     case settingsSecretPrompt = "settings.secret.prompt"
     case settingsNumberPercentFormat = "settings.number.percentFormat"
     case settingsListAdd = "settings.list.add"

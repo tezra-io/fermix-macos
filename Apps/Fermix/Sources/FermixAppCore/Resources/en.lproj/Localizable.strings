@@ -596,7 +596,6 @@
 "settings.secret.stored" = "Stored";
 "settings.secret.replace" = "Replace…";
 "settings.secret.remove" = "Remove";
-"settings.secret.store" = "Store";
 "settings.secret.prompt" = "Paste the value";
 "settings.number.percentFormat" = "%.0f%%";
 "settings.list.add" = "Add";

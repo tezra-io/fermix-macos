@@ -3,9 +3,13 @@ import SwiftUI
 /// The one shape every secret takes (M34 §5, §7.4).
 ///
 /// A credential is typed in the row that owns it. An absent secret is the
-/// secure field itself with `Store` beside it; a stored one reads `Stored` with
+/// secure field itself, and it stores on Return, when the field loses focus and
+/// when the view it sits in goes away, exactly as a text row commits (owner,
+/// 2026-09-27: the `Store` button beside it "isnt intuitive", and a sheet's
+/// Done dismissed before it was pressed); a stored one reads `Stored` with
 /// `Replace…` and `Remove`, and `Replace…` swaps the value column for that same
-/// field in place. A sheet here stacked on whichever sheet the row was already
+/// field in place, which Escape, or leaving it with nothing typed, puts back. A
+/// sheet here stacked on whichever sheet the row was already
 /// inside, which put a key three windows deep (owner report of 2026-09-20): a
 /// popup never raises a second popup, so this row presents nothing.
 ///
@@ -93,15 +97,17 @@ struct SecretRow: View {
     }
 }
 
-/// Typing one secret in place: the secure input, the button that stores it, and
-/// `Cancel` where there is a state to go back to.
+/// Typing one secret in place: the secure input, which stores what was typed
+/// on Return, on losing focus and when the view goes away, and a way back to
+/// `Stored` where there is one.
 ///
 /// The value exists only inside this view's own state, for as long as it is
 /// being typed. It is never logged, never persisted, never put on the
 /// pasteboard, and a blank is never sent. It is dropped the moment the daemon
-/// confirms it, on `Cancel`, on Escape, and when the view goes away. A refusal
-/// keeps it, because `secret_store_failed` means the value never reached the
-/// store and dropping it would make the person type it again.
+/// confirms it and on Escape; a view that goes away with a value typed stores
+/// it first, so a sheet's Done cannot lose it. A refusal keeps it, because
+/// `secret_store_failed` means the value never reached the store and dropping
+/// it would make the person type it again.
 ///
 /// Only the daemon's sentence is handed up, so the row can state it under the
 /// whole row rather than inside the value column.
@@ -119,23 +125,12 @@ struct SecretEntry: View {
 
     var body: some View {
         HStack(spacing: Spacing.xs) {
-            SecretInput(label: label, value: $draft.value, prompted: cancel == nil, onSubmit: store)
+            SecretInput(label: label, value: $draft.value, onSubmit: store)
                 .focused($focused)
 
             if draft.storing {
                 ProgressView().controlSize(.small).accessibilityHidden(true)
             }
-
-            if cancel != nil {
-                Button(ProductStrings[.settingsSheetCancel], action: abandon)
-                    .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.settingsSheetCancel], label))
-            }
-
-            Button(ProductStrings[.settingsSecretStore], action: store)
-                // A blank is never sent: the button is the gate, so nothing
-                // downstream has to decide what an empty secret means.
-                .disabled(!draft.canStore)
-                .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.settingsSecretStore], label))
         }
         .disabled(draft.storing)
         .onAppear {
@@ -147,13 +142,30 @@ struct SecretEntry: View {
             // lost to it: `Replace…` left the cursor in the pane's first field.
             DispatchQueue.main.async { focused = true }
         }
-        .onChange(of: focused) { _, isFocused in claimEscape(isFocused) }
+        .onChange(of: focused) { _, isFocused in
+            claimEscape(isFocused)
+            guard !isFocused else { return }
+
+            leaveField()
+        }
         .onChange(of: model.editReverts) { _, _ in
             guard focused else { return }
 
             abandon()
         }
         .onDisappear(perform: leave)
+    }
+
+    /// Focus left the field. A typed value is stored, the way a text row
+    /// commits; nothing typed puts `Stored` back where there is one to go back
+    /// to. A value on its way to the daemon is neither: the field gave up its
+    /// focus because it was disabled while the daemon answered.
+    private func leaveField() {
+        if draft.canStore {
+            store()
+        } else if draft.value.isEmpty {
+            cancel?()
+        }
     }
 
     /// Escape ownership is keyed the way a draft is. A secret is addressed by
@@ -194,18 +206,25 @@ struct SecretEntry: View {
         }
     }
 
-    /// `Cancel` and Escape. Nothing was sent, so there is nothing to undo.
+    /// Escape. Nothing was sent, so there is nothing to undo; the value goes
+    /// before the focus, so the focus loss finds nothing to store and puts
+    /// `Stored` back.
     private func abandon() {
         draft.discard()
         refusal = nil
         focused = false
-        cancel?()
     }
 
     /// The view can go away with the field still focused: a closed sheet, a
-    /// pane left behind. A claim nobody released would swallow the next Escape.
+    /// pane left behind. A typed value is stored rather than lost, and a claim
+    /// nobody released would swallow the next Escape.
     private func leave() {
-        draft.discard()
+        if draft.canStore {
+            store()
+        } else {
+            draft.discard()
+        }
+
         model.endEditing(escapeKey)
     }
 }
@@ -254,16 +273,10 @@ struct SecretDraft {
 struct SecretInput: View {
     let label: String
     @Binding var value: String
-    /// Whether the empty field says what to do with it. It does wherever the
-    /// field is simply there, because the words are what mark it as the place
-    /// to type. A field that appeared focused because somebody asked for it
-    /// needs no invitation, and beside `Cancel` and `Store` in a sheet's value
-    /// column it has no room for one: the words clipped to `Paste the val`.
-    var prompted = true
     let onSubmit: () -> Void
 
     var body: some View {
-        SecureField(label, text: $value, prompt: prompted ? Text(ProductStrings[.settingsSecretPrompt]) : nil)
+        SecureField(label, text: $value, prompt: Text(ProductStrings[.settingsSecretPrompt]))
             .settingsTextField()
             .labelsHidden()
             .accessibilityLabel(label)
