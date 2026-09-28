@@ -33,7 +33,11 @@ public typealias BrowserHostTransportFailure = LineSocketFailure<BrowserHostDeco
 /// It connects when the app starts and stays connected: a connection that
 /// fails is tried again after a bounded backoff, forever, because the daemon
 /// may not be up yet or may restart, and every handshake re-attaches from
-/// scratch. Only a daemon this build cannot speak a version with ends that.
+/// scratch. Exactly one attempt is ever in flight, and `ReconnectBackoff`
+/// only resets once an attach has held past its grace, so a daemon that
+/// accepts and drops repeatedly is still treated as failing rather than as a
+/// run of fresh successes. Only a daemon this build cannot speak a version
+/// with ends that.
 ///
 /// The daemon answers one request at a time on its own side (BROWSER-4), but
 /// this client answers out-of-order-safe by `id` regardless: a navigation or
@@ -61,10 +65,6 @@ public final class BrowserHostClient {
         case refused
     }
 
-    /// How long each consecutive failure waits before the next attempt, the
-    /// companion wire's own sequence.
-    static let reconnectDelays: [TimeInterval] = [1, 2, 4, 8, 16, 30]
-
     /// How long a line may wait to be written before the connection is
     /// declared dead.
     static let flushDeadline: TimeInterval = 5
@@ -86,7 +86,7 @@ public final class BrowserHostClient {
 
     private var phase: Phase = .idle
     private var deadline: DeadlineToken?
-    private var consecutiveFailures = 0
+    private var backoff = ReconnectBackoff()
     private var connection: BrowserHostConnection?
     /// This attempt's own profile id, resolved once per attempt and held for
     /// `attached` and every `host.status`.
@@ -146,7 +146,7 @@ public final class BrowserHostClient {
     public func connect() {
         guard phase == .idle || phase == .refused else { return }
 
-        consecutiveFailures = 0
+        backoff = ReconnectBackoff()
         attempt()
     }
 
@@ -268,8 +268,22 @@ public final class BrowserHostClient {
 
         self.connection = connection
         phase = .attached
-        consecutiveFailures = 0
         log.info("browser host attached, daemon window \(window.minimum, privacy: .public)-\(window.maximum, privacy: .public)")
+        // The backoff resets only once this attach has held past the grace:
+        // a daemon that accepts and drops right away is still a failure, not
+        // a fresh start.
+        deadline = deadlines.schedule(after: ReconnectBackoff.grace) { [weak self] in
+            self?.graceHeld()
+        }
+    }
+
+    /// The grace held with no loss: the next loss starts the backoff over
+    /// rather than continuing to grow it.
+    private func graceHeld() {
+        guard phase == .attached else { return }
+
+        deadline = nil
+        backoff.reset()
     }
 
     private func route(_ inbound: BrowserHostInbound) {
@@ -305,11 +319,8 @@ public final class BrowserHostClient {
     }
 
     private func retry() {
-        let delay = Self.reconnectDelays[min(consecutiveFailures, Self.reconnectDelays.count - 1)]
-        consecutiveFailures += 1
-
         phase = .waiting
-        deadline = deadlines.schedule(after: delay) { [weak self] in
+        deadline = deadlines.schedule(after: backoff.nextDelay()) { [weak self] in
             self?.reconnectDue()
         }
     }
