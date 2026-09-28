@@ -26,13 +26,17 @@ public protocol MascotRendering: AnyObject {
 ///
 /// The file is authored in Rive: a state machine whose `mode` enum takes the
 /// four `PetExpression` raw values, and whose `level` number (0 to 1) drives
-/// the waveform mouth and the body's swell with the voice.
+/// the waveform mouth and the body's swell with the voice. Each time it starts,
+/// a jelly sphere swells into the pet over two seconds (owner, 2026-09-27: "the
+/// pet start as a sphere then transform into its shape"), unless `skipIntro`
+/// is set before the first frame.
 public enum MascotAnimation {
     public static let fileName = "FermixMascot"
     public static let fileExtension = ".riv"
     public static let stateMachine = "Pet"
     public static let modeProperty = "mode"
     public static let levelProperty = "level"
+    public static let skipIntroProperty = "skipIntro"
 
     /// The app's own resources, where the file ships.
     public static var bundle: Bundle { AppResources.bundle }

@@ -25,7 +25,8 @@ struct MascotAnimationTests {
 
         #expect(file.starts(with: Data("RIVE".utf8)), "the mascot file is not a Rive runtime file")
 
-        let names = [MascotAnimation.stateMachine, MascotAnimation.modeProperty, MascotAnimation.levelProperty]
+        let names = [MascotAnimation.stateMachine, MascotAnimation.modeProperty, MascotAnimation.levelProperty,
+                     MascotAnimation.skipIntroProperty]
             + PetExpression.allCases.map(\.rawValue)
         for name in names {
             #expect(file.range(of: Data(name.utf8)) != nil, "the animation does not publish \(name)")

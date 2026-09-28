@@ -32,7 +32,16 @@ private struct RiveMascotView: View {
     let level: @MainActor () -> Float
     let animates: Bool
 
-    @StateObject private var player = MascotPlayer()
+    @StateObject private var player: MascotPlayer
+
+    init(pose: PetExpression, level: @escaping @MainActor () -> Float, animates: Bool) {
+        self.pose = pose
+        self.level = level
+        self.animates = animates
+        // The intro is decided once, when the mascot first appears: a parked
+        // mascot (Reduce Motion, or no window on screen) takes its pose at once.
+        _player = StateObject(wrappedValue: MascotPlayer(playsIntro: animates))
+    }
 
     var body: some View {
         player.rive.view()
@@ -63,6 +72,7 @@ private final class MascotPlayer: ObservableObject {
     private static let levelStep: Float = 0.01
 
     let rive: RiveViewModel
+    private let playsIntro: Bool
     /// Held strongly: the runtime keeps no reference to the bound instance,
     /// and a released one stops taking writes.
     private var bound: RiveDataBindingViewModel.Instance?
@@ -72,7 +82,8 @@ private final class MascotPlayer: ObservableObject {
     private var sampler: Timer?
     private var parking: Task<Void, Never>?
 
-    init() {
+    init(playsIntro: Bool) {
+        self.playsIntro = playsIntro
         rive = RiveViewModel(
             fileName: MascotAnimation.fileName,
             extension: MascotAnimation.fileExtension,
@@ -85,6 +96,9 @@ private final class MascotPlayer: ObservableObject {
                 guard let self else { return }
 
                 self.bound = instance
+                // Bound as the state machine is set, before its first frame,
+                // which is when the intro layer reads this.
+                instance.booleanProperty(fromPath: MascotAnimation.skipIntroProperty)?.value = !self.playsIntro
                 // The instance can arrive after the first pose did.
                 if let pose = self.pose { self.write(pose: pose) }
             }
