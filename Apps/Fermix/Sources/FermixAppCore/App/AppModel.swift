@@ -376,6 +376,10 @@ public final class AppModel: ObservableObject {
         case .state(let turnState):
             return applyTurnState(turnState, audioIsPlaying: audioIsPlaying)
         case .audioDelta(let base64):
+            // Live pads its output with silence for the whole call, one chunk
+            // every 100 ms: padding plays, but it is not speech, and it must
+            // neither keep the pet speaking nor keep a stopped reply alive.
+            guard PCM16.isVoiced(base64: base64) else { return [.play(base64: base64)] }
             if stoppedReplyContinues() { return [] }
             // Every chunk of a reply lands here, tens a second. Only the first
             // changes anything, and each write publishes, so the window, the

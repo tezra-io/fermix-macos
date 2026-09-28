@@ -15,7 +15,7 @@ final class AudioController: VoiceAudioEngine {
     private var captureTapInstalled = false
     private var utteranceAnchorSampleTime: AVAudioFramePosition?
     private let playbackCounterLock = NSLock()
-    private var pendingPlaybackBuffers = 0
+    private var pendingVoiceBuffers = 0
     private let captureMuteLock = NSLock()
     private var captureMuted = true
     private let chunkHandlerLock = NSLock()
@@ -25,16 +25,20 @@ final class AudioController: VoiceAudioEngine {
     /// played PCM chunk. Drives the mascot's speaking-pulse visual.
     var onOutputLevel: ((Float) -> Void)?
 
-    /// Invoked on the main thread when the last scheduled playback buffer
-    /// finishes — i.e. audio has actually stopped leaving the speaker, which
-    /// is seconds after the model finished generating it. Lets the pet read as
-    /// speaking for the true audio duration, not just the delivery window.
+    /// Invoked on the main thread when the last scheduled buffer that carries
+    /// voice finishes — i.e. the reply has actually stopped leaving the
+    /// speaker, which is seconds after the model finished generating it. Lets
+    /// the pet read as speaking for the true audio duration, not just the
+    /// delivery window. Only voice counts: Live pads its output with silence
+    /// for the whole call, so a queue that holds padding never empties
+    /// (`PCM16`).
     var onPlaybackDrained: (() -> Void)?
 
+    /// Whether voice is still queued or playing. Padding does not count.
     var isPlayingBack: Bool {
         playbackCounterLock.lock()
         defer { playbackCounterLock.unlock() }
-        return pendingPlaybackBuffers > 0
+        return pendingVoiceBuffers > 0
     }
 
     init() {
@@ -256,6 +260,7 @@ final class AudioController: VoiceAudioEngine {
 
         Self.fillFloatBuffer(buffer, fromPCM16: data)
         emitOutputLevel(from: data)
+        let voiced = PCM16.isVoiced(data)
 
         if !engine.isRunning {
             do {
@@ -268,15 +273,17 @@ final class AudioController: VoiceAudioEngine {
 
         let wasPlaying = player.isPlaying
 
-        playbackCounterLock.lock()
-        pendingPlaybackBuffers += 1
-        playbackCounterLock.unlock()
+        if voiced {
+            playbackCounterLock.lock()
+            pendingVoiceBuffers += 1
+            playbackCounterLock.unlock()
+        }
 
         player.scheduleBuffer(buffer, completionHandler: { [weak self] in
-            guard let self else { return }
+            guard let self, voiced else { return }
             self.playbackCounterLock.lock()
-            self.pendingPlaybackBuffers = max(0, self.pendingPlaybackBuffers - 1)
-            let drained = self.pendingPlaybackBuffers == 0
+            self.pendingVoiceBuffers = max(0, self.pendingVoiceBuffers - 1)
+            let drained = self.pendingVoiceBuffers == 0
             self.playbackCounterLock.unlock()
 
             if drained {
@@ -294,22 +301,8 @@ final class AudioController: VoiceAudioEngine {
     /// where `AudioOwner` smooths it into the level the pet draws. Cheap:
     /// ~512 multiply-adds per chunk for a 24 kHz Realtime frame.
     private func emitOutputLevel(from data: Data) {
-        guard let callback = onOutputLevel else { return }
-        let count = data.count / MemoryLayout<Int16>.size
-        guard count > 0 else { return }
-
-        let rms = data.withUnsafeBytes { raw -> Float in
-            guard let ptr = raw.baseAddress?.assumingMemoryBound(to: Int16.self) else {
-                return 0
-            }
-            var sumSquares: Float = 0
-            let scale: Float = 1.0 / Float(Int16.max)
-            for index in 0..<count {
-                let sample = Float(ptr[index]) * scale
-                sumSquares += sample * sample
-            }
-            return (sumSquares / Float(count)).squareRoot()
-        }
+        guard let callback = onOutputLevel, data.count >= MemoryLayout<Int16>.size else { return }
+        let rms = PCM16.rms(data) / Float(Int16.max)
 
         DispatchQueue.main.async {
             callback(rms)
@@ -371,7 +364,7 @@ final class AudioController: VoiceAudioEngine {
         utteranceAnchorSampleTime = nil
 
         playbackCounterLock.lock()
-        pendingPlaybackBuffers = 0
+        pendingVoiceBuffers = 0
         playbackCounterLock.unlock()
     }
 

@@ -104,3 +104,20 @@ final class FakeVoiceAudioEngine: VoiceAudioEngine, @unchecked Sendable {
         "fake audio engine"
     }
 }
+
+/// Audio as the daemon relays it, base64 PCM16: a chunk of voice (a square
+/// wave well above `PCM16.voicedRMS`, distinct per `tag`), or Live's padding,
+/// the digital silence it sends between replies for the whole call.
+enum RelayedAudio {
+    static func voice(_ tag: Int = 1) -> String {
+        let amplitude = Int16(1_000 + tag * 10)
+        var samples = Data()
+        for index in 0..<480 {
+            var value = (index % 2 == 0 ? amplitude : -amplitude).littleEndian
+            withUnsafeBytes(of: &value) { samples.append(contentsOf: $0) }
+        }
+        return samples.base64EncodedString()
+    }
+
+    static let padding = Data(count: 4_800).base64EncodedString()
+}

@@ -101,9 +101,9 @@ struct AppModelRoutingTests {
         let model = negotiatedModel()
         model.voiceCallBegan()
 
-        let effects = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        let effects = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
-        #expect(effects == [.play(base64: "AAAA")])
+        #expect(effects == [.play(base64: RelayedAudio.voice(1))])
         #expect(model.voice.mode == .speaking)
         #expect(model.voice.audioActive)
     }
@@ -115,14 +115,14 @@ struct AppModelRoutingTests {
     func laterAudioDeltasPublishNothing() {
         let model = negotiatedModel()
         model.voiceCallBegan()
-        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
         var published = 0
         let subscription = model.objectWillChange.sink { _ in published += 1 }
         defer { subscription.cancel() }
-        let effects = model.apply(.audioDelta(base64: "BBBB"), audioIsPlaying: true)
+        let effects = model.apply(.audioDelta(base64: RelayedAudio.voice(2)), audioIsPlaying: true)
 
-        #expect(effects == [.play(base64: "BBBB")])
+        #expect(effects == [.play(base64: RelayedAudio.voice(2))])
         #expect(published == 0)
     }
 
@@ -133,7 +133,7 @@ struct AppModelRoutingTests {
     func speakingTailSurvivesStateChange() {
         let model = negotiatedModel()
         model.voiceCallBegan()
-        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
         _ = model.apply(.state(.listening), audioIsPlaying: true)
 
@@ -148,7 +148,7 @@ struct AppModelRoutingTests {
     func speakingTailEndsWhenDrained() {
         let model = negotiatedModel()
         model.voiceCallBegan()
-        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
         _ = model.apply(.state(.listening), audioIsPlaying: false)
 
@@ -160,7 +160,7 @@ struct AppModelRoutingTests {
     func leavingSpeakingResetsTheAnchor() {
         let model = negotiatedModel()
         model.voiceCallBegan()
-        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
         let effects = model.apply(.state(.listening), audioIsPlaying: false)
 
@@ -171,7 +171,7 @@ struct AppModelRoutingTests {
     func playbackStopReturnsToInput() {
         let model = negotiatedModel()
         model.voiceCallBegan()
-        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: true)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: true)
 
         let effects = model.apply(.playbackStop, audioIsPlaying: true)
 
@@ -505,7 +505,7 @@ struct StoppedReplyTests {
         model.voiceNegotiated()
         model.voiceCallBegan()
         _ = model.apply(.state(.listening), audioIsPlaying: false)
-        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
         return model
     }
 
@@ -521,14 +521,29 @@ struct StoppedReplyTests {
         clock.now += 0.1
         #expect(model.apply(.state(.speaking), audioIsPlaying: false).isEmpty)
         clock.now += 0.1
-        #expect(model.apply(.audioDelta(base64: "BBBB"), audioIsPlaying: false).isEmpty)
+        #expect(model.apply(.audioDelta(base64: RelayedAudio.voice(2)), audioIsPlaying: false).isEmpty)
         // Each chunk extends the window: a reply streams in a run of chunks.
         clock.now += AppModel.stoppedReplyGap - 0.1
-        #expect(model.apply(.audioDelta(base64: "CCCC"), audioIsPlaying: false).isEmpty)
+        #expect(model.apply(.audioDelta(base64: RelayedAudio.voice(3)), audioIsPlaying: false).isEmpty)
 
         #expect(model.voice.mode == .listening)
         #expect(model.voice.audioActive == false)
         #expect(model.voice.presentation.visualMode == .listening)
+    }
+
+    @Test("padding after Stop does not keep the stopped reply alive")
+    func paddingDoesNotExtendTheStoppedReply() {
+        let clock = Clock()
+        let model = speakingModel(clock)
+
+        model.voiceInterrupted()
+        for _ in 0..<12 {
+            clock.now += 0.1
+            #expect(model.apply(.audioDelta(base64: RelayedAudio.padding), audioIsPlaying: false) == [.play(base64: RelayedAudio.padding)])
+        }
+
+        #expect(model.apply(.audioDelta(base64: RelayedAudio.voice(9)), audioIsPlaying: false) == [.play(base64: RelayedAudio.voice(9))])
+        #expect(model.voice.mode == .speaking)
     }
 
     @Test("audio after the stopped reply has gone quiet is a new reply, and plays")
@@ -538,12 +553,12 @@ struct StoppedReplyTests {
 
         model.voiceInterrupted()
         clock.now += 0.1
-        _ = model.apply(.audioDelta(base64: "BBBB"), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(2)), audioIsPlaying: false)
 
         clock.now += AppModel.stoppedReplyGap + 0.1
-        let effects = model.apply(.audioDelta(base64: "NEW1"), audioIsPlaying: false)
+        let effects = model.apply(.audioDelta(base64: RelayedAudio.voice(9)), audioIsPlaying: false)
 
-        #expect(effects == [.play(base64: "NEW1")])
+        #expect(effects == [.play(base64: RelayedAudio.voice(9))])
         #expect(model.voice.mode == .speaking)
     }
 
@@ -557,7 +572,7 @@ struct StoppedReplyTests {
         model.voiceCallBegan()
         clock.now += 0.1
 
-        #expect(model.apply(.audioDelta(base64: "NEW1"), audioIsPlaying: false) == [.play(base64: "NEW1")])
+        #expect(model.apply(.audioDelta(base64: RelayedAudio.voice(9)), audioIsPlaying: false) == [.play(base64: RelayedAudio.voice(9))])
     }
 }
 
@@ -580,7 +595,31 @@ struct LiveReplyEndTests {
 
     private func speak(_ model: AppModel) {
         _ = model.apply(.state(.speaking), audioIsPlaying: false)
-        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
+    }
+
+    /// Live never stops its output: between replies it is digital silence,
+    /// one chunk every 100 ms (measured on the dev engine, 2026-09-28).
+    @Test("padding plays, but is not speech")
+    func paddingIsNotSpeech() {
+        let model = liveCall()
+
+        let effects = model.apply(.audioDelta(base64: RelayedAudio.padding), audioIsPlaying: false)
+
+        #expect(effects == [.play(base64: RelayedAudio.padding)])
+        #expect(model.voice.mode == .listening)
+        #expect(model.voice.audioActive == false)
+    }
+
+    @Test("padding after a reply does not keep the pet speaking")
+    func paddingAfterAReply() {
+        let model = liveCall()
+        speak(model)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.padding), audioIsPlaying: false)
+
+        model.voicePlaybackDrained()
+
+        #expect(model.voice.mode == .listening)
     }
 
     @Test("a reply that finishes playing with the user silent returns the pet to listening")
@@ -660,5 +699,34 @@ struct LiveReplyEndTests {
 
         speak(model)
         #expect(model.voice.presentation.visualMode == .speaking)
+    }
+}
+
+/// What counts as voice in the audio the daemon relays, against the levels
+/// measured on the dev engine: voice 244 to 3,667, padding 0 to 49.
+@Suite("Relayed audio")
+struct RelayedAudioTests {
+    private func chunk(rms: Int16) -> Data {
+        var data = Data()
+        for index in 0..<2_400 {
+            var value = (index % 2 == 0 ? rms : -rms).littleEndian
+            withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
+        }
+        return data
+    }
+
+    @Test("Live's quietest voice is voice, and its loudest padding is not")
+    func measuredLevels() {
+        #expect(PCM16.isVoiced(chunk(rms: 244)))
+        #expect(PCM16.isVoiced(chunk(rms: 3_667)))
+        #expect(!PCM16.isVoiced(chunk(rms: 49)))
+        #expect(!PCM16.isVoiced(chunk(rms: 0)))
+    }
+
+    @Test("audio that does not decode is not voice")
+    func undecodable() {
+        #expect(!PCM16.isVoiced(base64: "not base64!"))
+        #expect(PCM16.isVoiced(base64: RelayedAudio.voice()))
+        #expect(!PCM16.isVoiced(base64: RelayedAudio.padding))
     }
 }

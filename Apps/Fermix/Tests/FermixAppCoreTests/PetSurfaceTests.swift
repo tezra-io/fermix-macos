@@ -134,7 +134,7 @@ struct PetSurfaceTests {
         let harness = try harness()
 
         harness.appModel.voiceCallBegan()
-        harness.appModel.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        harness.appModel.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
         harness.appModel.apply(.state(.listening), audioIsPlaying: true)
 
         #expect(harness.model.visualMode == .speaking)
