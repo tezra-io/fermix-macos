@@ -377,6 +377,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case voiceErrorMicrophoneRestricted = "voice.error.microphoneRestricted"
     case voiceErrorNoInputDevice = "voice.error.noInputDevice"
     case voiceErrorOutputFormatUnavailable = "voice.error.outputFormatUnavailable"
+    case voiceErrorVoiceProcessingUnavailable = "voice.error.voiceProcessingUnavailable"
     case voiceErrorMicrophoneUnknown = "voice.error.microphoneUnknown"
     case voiceCaptionSpeakerUser = "voice.caption.speakerUser"
     case voiceCaptionSpeakerAssistant = "voice.caption.speakerAssistant"

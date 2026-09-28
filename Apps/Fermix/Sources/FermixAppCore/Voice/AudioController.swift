@@ -2,8 +2,8 @@ import AVFoundation
 import Foundation
 
 /// The production `VoiceAudioEngine`: 24 kHz mono PCM16 both ways, a warmed
-/// muted capture path, and a teardown that releases the input unit so macOS
-/// clears the microphone indicator.
+/// muted capture path cleaned by macOS voice processing, and a teardown that
+/// releases the input unit so macOS clears the microphone indicator.
 final class AudioController: VoiceAudioEngine {
     private static let realtimeSampleRate = 24_000.0
     private static let captureBufferFrames: AVAudioFrameCount = 4_800
@@ -135,14 +135,18 @@ final class AudioController: VoiceAudioEngine {
         // in beginStreaming; this guard only fires when there
         // is literally no mic Core Audio can see.
         let input = engine.inputNode
-        var format = Self.captureFormat(from: input)
 
-        if format == nil {
+        if Self.captureFormat(from: input) == nil {
             try startEngineIfNeeded()
-            format = Self.captureFormat(from: input)
         }
 
-        guard let format else { throw CaptureError.noInputDevice }
+        guard Self.captureFormat(from: input) != nil else { throw CaptureError.noInputDevice }
+
+        // Voice processing reshapes the input, so the tap's format is read
+        // after it is switched on.
+        try enableVoiceProcessing(on: input)
+
+        guard let format = Self.captureFormat(from: input) else { throw CaptureError.noInputDevice }
 
         guard let outputFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -153,7 +157,7 @@ final class AudioController: VoiceAudioEngine {
             throw CaptureError.outputFormatUnavailable
         }
 
-        guard let converter = AVAudioConverter(from: format, to: outputFormat) else {
+        guard let converter = Self.captureConverter(from: format, to: outputFormat) else {
             throw CaptureError.outputFormatUnavailable
         }
 
@@ -184,6 +188,55 @@ final class AudioController: VoiceAudioEngine {
             stopCapture()
             throw error
         }
+    }
+
+    /// Echo cancellation, noise suppression and voice gain, from macOS. Neither
+    /// voice API does this for the pet: GPT-Live takes no noise, echo or turn
+    /// detection settings at all, and Realtime's noise reduction runs on the
+    /// server, after the pet's own voice has already come back through the
+    /// microphone. Measured on 2026-09-28 (USB microphone, display speakers),
+    /// it lifts speech clear of key clicks by about 9 dB over the raw input.
+    /// It did not remove the echo on that route, whose audio arrives about
+    /// 90 ms after the 2 ms the display reports; the daemon takes no words
+    /// heard during a reply, or for 2 s after it, as the operator's for that
+    /// reason.
+    ///
+    /// Other audio is ducked as little as macOS allows, and only while someone
+    /// speaks, so a call does not quiet everything else for its whole length.
+    private func enableVoiceProcessing(on input: AVAudioInputNode) throws {
+        guard !input.isVoiceProcessingEnabled else { return }
+
+        // It can only be switched on a stopped engine, and the device check
+        // before it may have started this one.
+        if engine.isRunning {
+            engine.stop()
+        }
+
+        do {
+            try input.setVoiceProcessingEnabled(true)
+        } catch {
+            throw CaptureError.voiceProcessingUnavailable
+        }
+
+        input.voiceProcessingOtherAudioDuckingConfiguration = AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
+            enableAdvancedDucking: true,
+            duckingLevel: .min
+        )
+    }
+
+    /// The converter from the tap's format to the 24 kHz mono the call sends,
+    /// reading channel 0 only.
+    ///
+    /// With voice processing on, macOS hands the tap several channels (six
+    /// from a two-channel USB microphone, measured 2026-09-28), and a
+    /// converter left to map them to mono by itself produces digital silence:
+    /// the call would stream nothing but zeros. The processed voice is on
+    /// channel 0.
+    static func captureConverter(from format: AVAudioFormat, to outputFormat: AVAudioFormat) -> AVAudioConverter? {
+        guard let converter = AVAudioConverter(from: format, to: outputFormat) else { return nil }
+
+        converter.channelMap = [0]
+        return converter
     }
 
     private func stopCapture() {
@@ -392,7 +445,7 @@ final class AudioController: VoiceAudioEngine {
         return playerTime.sampleTime
     }
 
-    private static func pcm16Data(
+    static func pcm16Data(
         from buffer: AVAudioPCMBuffer,
         converter: AVAudioConverter,
         outputFormat: AVAudioFormat

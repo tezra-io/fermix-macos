@@ -7,6 +7,7 @@ public enum CaptureError: Error, Equatable, Sendable, LocalizedError {
     case microphoneRestricted
     case noInputDevice
     case outputFormatUnavailable
+    case voiceProcessingUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -14,6 +15,7 @@ public enum CaptureError: Error, Equatable, Sendable, LocalizedError {
         case .microphoneRestricted: return ProductStrings[.voiceErrorMicrophoneRestricted]
         case .noInputDevice: return ProductStrings[.voiceErrorNoInputDevice]
         case .outputFormatUnavailable: return ProductStrings[.voiceErrorOutputFormatUnavailable]
+        case .voiceProcessingUnavailable: return ProductStrings[.voiceErrorVoiceProcessingUnavailable]
         }
     }
 }
