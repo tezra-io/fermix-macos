@@ -179,6 +179,13 @@ struct FixtureConfigurationTests {
             guard let start = FixtureStart(name: name) else { continue }
 
             let harness = try CoordinatorHarness(bootstrap: .present)
+            // `fermix://setup` lands where the daemon's readiness says, and the
+            // machine it is looked at on gates on its primary's credential; the
+            // harness's daemon answers the golden, which is ready, so it is
+            // given that machine's answer for this one start.
+            if start == .surface(.setup) {
+                harness.settingsGateway.setupStateResult = try ManagementValueFixture.setupState(primaryConfigured: false)
+            }
             var restartSheetShown = false
             var browserOpened = false
             FixtureLaunch(start: start).present(
@@ -558,9 +565,11 @@ struct FixtureConfigurationTests {
         let client = try await negotiatedClient()
         let state = try await client.setupState()
 
-        // One provider configured and primary, one offered and not.
-        #expect(state.providers.contains { $0.configured && $0.primary })
-        #expect(state.providers.contains { !$0.configured })
+        // The primary is the one with no credential, which is the gate the
+        // Attention section and Connect your AI are looked at through; the
+        // rest are offered and not configured.
+        #expect(state.providers.contains { $0.primary && !$0.configured })
+        #expect(state.providers.contains { !$0.primary })
 
         // Every channel the Channels pane draws, one answering and the rest
         // offered: the list is the daemon's, and a home carrying one channel
@@ -574,9 +583,9 @@ struct FixtureConfigurationTests {
         #expect(state.restart.required)
         #expect(!state.restart.reasons.isEmpty)
 
-        // One gating failure and one advisory one, so Home draws both shapes.
+        // One gating failure and two advisory ones, so Home draws both shapes.
         #expect(state.readiness.failures.filter(\.gating).count == 1)
-        #expect(state.readiness.failures.filter { !$0.gating }.count == 1)
+        #expect(state.readiness.failures.filter { !$0.gating }.count == 2)
 
         // One coexistence descriptor, which is what the Attention section and
         // Doctor both answer for.
@@ -585,10 +594,11 @@ struct FixtureConfigurationTests {
 
     /// The three machines a fixture launch runs on, over one golden.
     ///
-    /// The engine publishes one `setup.state.get` and one `overview.get` — the
-    /// machine with one gating failure standing — so Ready and a first run are
-    /// derived from it rather than from a second golden nobody upstream
-    /// maintains. The derivation is what these assert, and each home is asserted
+    /// The engine publishes one `setup.state.get` and one `overview.get`, a
+    /// ready home with two advisory rows, so the gated machine, Ready and a
+    /// first run are all derived from it rather than from a second golden
+    /// nobody upstream maintains. The derivation is what these assert, and each
+    /// home is asserted
     /// in BOTH places: Home drew `Running` with four Attention rows and
     /// `Continue setup` at once the last time the two disagreed.
     @Test("each fixture home answers one readiness in both places")
@@ -625,8 +635,9 @@ struct FixtureConfigurationTests {
         #expect(state.restart.required)
     }
 
-    /// A first run: no configured provider, no personalization, no channel. It
-    /// is the machine the assistant's decision screens are actually used on,
+    /// A first run: no configured provider and no channel, with the
+    /// personalization the daemon's first boot seeds from the machine. It is
+    /// the machine the assistant's decision screens are actually used on,
     /// and no fixture home was ever in it — which is how the two first-run
     /// defects on Connect your AI shipped without anyone seeing them.
     @Test("the fresh home has nothing set up")
@@ -641,9 +652,10 @@ struct FixtureConfigurationTests {
         #expect(!state.providers.contains { $0.primary })
         #expect(state.channels.count == 5)
         #expect(!state.channels.contains { $0.enabled || $0.configured })
-        #expect(!state.personalization.present.userName)
-        #expect(!state.personalization.present.timezone)
-        #expect(!state.personalization.present.communicationStyle)
+        // Seeded before any screen: the name, the time zone and a default style.
+        #expect(state.personalization.present.userName)
+        #expect(state.personalization.present.timezone)
+        #expect(state.personalization.present.communicationStyle)
         #expect(!state.features.voice)
         #expect(!state.restart.required)
         #expect(!state.coexistence.legacyServiceUnit.present)

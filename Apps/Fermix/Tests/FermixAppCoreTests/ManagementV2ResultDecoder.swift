@@ -59,6 +59,16 @@ enum ManagementV2ResultDecoder {
             try read(ManagementPluginOAuthClientRow.self, payload, identifier, method)
         case .computerUsePermissionsGet:
             try read(ManagementComputerUsePermissions.self, payload, identifier, method)
+        case .mobileStatus:
+            try read(ManagementMobileStatus.self, payload, identifier, method)
+        case .mobilePairStart:
+            try read(ManagementPairingStart.self, payload, identifier, method)
+        case .mobilePairGet, .mobilePairDecide, .mobilePairCancel:
+            try read(ManagementPairingSession.self, payload, identifier, method)
+        case .mobileDevicesList:
+            try read(ManagementMobileDevices.self, payload, identifier, method)
+        case .mobileDevicesRevoke:
+            try read(ManagementMobileDeviceRevoked.self, payload, identifier, method)
 
         // Every remaining method answers the uniform job view.
         case .providersProbeStart, .jobGet, .jobCancel, .authImportStart, .pluginsInstallStart,

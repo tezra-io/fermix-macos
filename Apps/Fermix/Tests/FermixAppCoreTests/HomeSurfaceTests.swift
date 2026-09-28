@@ -118,14 +118,16 @@ struct HomeSurfaceTests {
     /// screen `SetupRouting` lands on, so the two cannot disagree.
     @Test("beside Continue setup, the toolbar names the step it opens")
     func nextSetupStepNamesTheFirstGatingFailure() throws {
-        let state = try FakeDaemonGateway.fixtureResult(named: "setup_state_get", as: ManagementSetupState.self)
+        // The golden home is ready; a primary with no credential is the gate.
+        let state = try ManagementValueFixture.setupState(primaryConfigured: false)
         let home = try snapshot(readiness: "setup_required", setup: state)
 
-        #expect(home.nextSetupStep == ProductStrings[.attentionPersonalizationTitle])
+        #expect(home.nextSetupStep != nil)
         #expect(
             home.nextSetupStep == AttentionProjection.rows(for: state).first?.title,
             "the same words as the row it leads"
         )
+        #expect(home.nextSetupStep != ProductStrings[.attentionPersonalizationTitle], "the advisory row is not the step")
     }
 
     @Test("a daemon that calls itself ready names no next step, whatever its failure list says")
@@ -137,7 +139,7 @@ struct HomeSurfaceTests {
 
     @Test("advisory failures and an unread setup state name no next step")
     func nextSetupStepIgnoresAdvisoryFailures() throws {
-        let advisory = try ManagementValueFixture.setupState(gating: false)
+        let advisory = try ManagementValueFixture.setupState()
 
         #expect(try snapshot(readiness: "setup_required", setup: advisory).nextSetupStep == nil)
         #expect(try snapshot(readiness: "setup_required").nextSetupStep == nil)

@@ -58,16 +58,17 @@ struct CommandRouterTests {
     @Test("Continue setup lands where fermix://setup lands")
     func continueSetupOpensTheSameSurface() async throws {
         let harness = try RouterHarness()
+        // The golden home is ready; the gate is a primary with no credential.
+        harness.gateway.setupStateResult = try ManagementValueFixture.setupState(primaryConfigured: false)
 
         // The route asks the daemon where to land before it lands (M34 §3.4):
-        // the golden home's gating failure is the personalization one, so it
-        // opens the screen that clears it. Starting is where it lands when
-        // nothing answers, not where it lands because nothing has been asked
-        // yet.
+        // the gating failure is the primary's missing credential, so it opens
+        // the screen that clears it. Starting is where it lands when nothing
+        // answers, not where it lands because nothing has been asked yet.
         harness.router.perform(.continueSetup)
         try await harness.coordinator.drainPendingWork()
         #expect(harness.windows.presented == [.main])
-        #expect(harness.model.onboardingStage == .aboutYou)
+        #expect(harness.model.onboardingStage == .connectAI)
         #expect(!harness.presentation.isShowing)
     }
 

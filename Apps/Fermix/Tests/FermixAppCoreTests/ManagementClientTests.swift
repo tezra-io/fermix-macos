@@ -98,7 +98,7 @@ struct ManagementClientResultTests {
         #expect(hello.protocolRange.currentVersion == 2)
         #expect(hello.protocolRange.minimum == 1)
         #expect(hello.protocolRange.maximum == 2)
-        #expect(hello.capabilities.methods.count == 42)
+        #expect(hello.capabilities.methods.count == 49)
         #expect(hello.engine.engineId == "fermix-core")
         #expect(hello.engine.productVersion == "0.9.0")
         #expect(hello.engine.distributionIdentity == "macos_app")
@@ -308,7 +308,7 @@ struct ManagementClientErrorTests {
     @Test("every published error code surfaces as a typed failure")
     func errorFixturesSurfaceTyped() async throws {
         let fixtures = try ManagementFixtures.load(.errors)
-        #expect(fixtures.count == 20)
+        #expect(fixtures.count == 22)
 
         for fixture in fixtures {
             let envelope = try fixture.object("response")

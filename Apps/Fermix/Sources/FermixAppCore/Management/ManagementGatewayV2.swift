@@ -192,4 +192,34 @@ extension ManagementGateway {
     public func computerUsePermissions() async throws -> ManagementComputerUsePermissions {
         try await negotiated().computerUsePermissions()
     }
+
+    // MARK: - The phone channel
+
+    public func mobileStatus() async throws -> ManagementMobileStatus {
+        try await negotiated().mobileStatus()
+    }
+
+    public func startPairing() async throws -> ManagementPairingStart {
+        try await negotiated().startPairing()
+    }
+
+    public func pairingSession(id: String) async throws -> ManagementPairingSession {
+        try await negotiated().pairingSession(id: id)
+    }
+
+    public func decidePairing(id: String, approved: Bool) async throws -> ManagementPairingSession {
+        try await negotiated().decidePairing(id: id, approved: approved)
+    }
+
+    public func cancelPairing(id: String) async throws -> ManagementPairingSession {
+        try await negotiated().cancelPairing(id: id)
+    }
+
+    public func mobileDevices() async throws -> ManagementMobileDevices {
+        try await negotiated().mobileDevices()
+    }
+
+    public func revokeMobileDevice(id: String) async throws -> ManagementMobileDeviceRevoked {
+        try await negotiated().revokeMobileDevice(id: id)
+    }
 }

@@ -279,6 +279,36 @@ extension FakeDaemonGateway {
         try answer(.computerUsePermissionsGet, "computer_use_permissions_get")
     }
 
+    // MARK: - The phone channel
+
+    func mobileStatus() async throws -> ManagementMobileStatus {
+        try answer(.mobileStatus, "mobile_status")
+    }
+
+    func startPairing() async throws -> ManagementPairingStart {
+        try answer(.mobilePairStart, "mobile_pair_start")
+    }
+
+    func pairingSession(id: String) async throws -> ManagementPairingSession {
+        try answer(.mobilePairGet, "mobile_pair_get_awaiting_decision")
+    }
+
+    func decidePairing(id: String, approved: Bool) async throws -> ManagementPairingSession {
+        try answer(.mobilePairDecide, "mobile_pair_decide")
+    }
+
+    func cancelPairing(id: String) async throws -> ManagementPairingSession {
+        try answer(.mobilePairCancel, "mobile_pair_cancel")
+    }
+
+    func mobileDevices() async throws -> ManagementMobileDevices {
+        try answer(.mobileDevicesList, "mobile_devices_list")
+    }
+
+    func revokeMobileDevice(id: String) async throws -> ManagementMobileDeviceRevoked {
+        try answer(.mobileDevicesRevoke, "mobile_devices_revoke")
+    }
+
     // MARK: - One answer
 
     /// Record the call, apply the version gate, then decode the named fixture.

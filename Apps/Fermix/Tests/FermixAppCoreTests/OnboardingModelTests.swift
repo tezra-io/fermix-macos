@@ -12,14 +12,15 @@ struct OnboardingModelTests {
     @Test("beginning runs activation and lands on the screen the daemon's readiness names")
     func beginActivates() async throws {
         let harness = try OnboardingHarness()
+        try harness.gateOnPrimaryCredential()
 
         harness.model.begin()
         await harness.model.drainPendingWork()
 
         #expect(harness.activation.runs == 1)
-        // The golden setup state's one gating failure is the personalization
-        // one, which is the About you screen.
-        #expect(harness.model.stage == .aboutYou)
+        // The one gating failure is the primary's missing credential, which
+        // Connect your AI is the screen that clears.
+        #expect(harness.model.stage == .connectAI)
     }
 
     /// Activation's stages reach the ladder, so the headline the user reads is
@@ -243,12 +244,13 @@ struct OnboardingModelTests {
     @Test("readiness is read through the one settings model")
     func readinessFromSettings() async throws {
         let harness = try OnboardingHarness()
+        try harness.gateOnPrimaryCredential()
 
         await harness.model.refreshReadiness()
 
         #expect(harness.gateway.calls.contains(.v2(.setupStateGet)))
         #expect(harness.model.readiness.daemonLive)
-        #expect(harness.model.readiness.gaps == [.personalization])
+        #expect(harness.model.readiness.gaps == [.provider])
         #expect(!harness.model.readiness.canFinish)
     }
 
@@ -302,6 +304,7 @@ struct OnboardingModelTests {
     @Test("what Starting read is adopted rather than re-asked")
     func rowFourIsAdopted() async throws {
         let harness = try OnboardingHarness()
+        try harness.gateOnPrimaryCredential()
 
         harness.model.begin()
         await harness.model.drainPendingWork()
@@ -994,6 +997,20 @@ final class OnboardingHarness {
                 loginItems: loginItems
             ),
             sleeper: NoWaitSleeper()
+        )
+    }
+
+    /// A daemon whose primary has no credential, in both places the assistant
+    /// reads it: what Starting hands over and what a later re-read answers. It
+    /// is the one gating failure the daemon publishes, so it is the home the
+    /// decision screens are looked at on; the golden home is ready.
+    func gateOnPrimaryCredential() throws {
+        let state = try ManagementValueFixture.setupState(primaryConfigured: false)
+
+        gateway.setupStateResult = state
+        activation.prepared = ActivationPreparation(
+            state: state,
+            detections: try ManagementValueFixture.detections()
         )
     }
 

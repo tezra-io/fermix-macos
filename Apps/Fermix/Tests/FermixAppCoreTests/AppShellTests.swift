@@ -123,11 +123,11 @@ struct AppRouteTests {
     /// than being folded onto a neighbour.
     @Test("fermix://setup lands on the screen the gating failure names")
     func setupRoutingFollowsTheGatingFailure() throws {
-        let state = try ManagementValueFixture.setupState()
+        let state = try ManagementValueFixture.setupState(primaryConfigured: false)
 
-        // The golden home gates on the personalization one, which the About
-        // you screen is what clears.
-        #expect(SetupRouting.presentation(for: state) == .assistant(.aboutYou))
+        // A primary with no credential is the one gating failure the daemon
+        // publishes, and Connect your AI is the screen that clears it.
+        #expect(SetupRouting.presentation(for: state) == .assistant(.connectAI))
         // No daemon has answered, so Starting is the screen that finds out.
         #expect(SetupRouting.presentation(for: nil) == .assistant(.starting))
     }
@@ -136,8 +136,9 @@ struct AppRouteTests {
     /// or at Providers when there is none.
     @Test("fermix://setup with no gating failure opens Settings")
     func setupRoutingFallsToSettings() throws {
-        let advisoryOnly = try ManagementValueFixture.setupState(gating: false)
-        let clean = try ManagementValueFixture.setupState(gating: false, failures: false)
+        // The golden home is the advisory-only one: personalization first.
+        let advisoryOnly = try ManagementValueFixture.setupState()
+        let clean = try ManagementValueFixture.setupState(failures: false)
 
         #expect(SetupRouting.presentation(for: advisoryOnly) == .settings(.personality))
         #expect(SetupRouting.presentation(for: clean) == .settings(.providers))

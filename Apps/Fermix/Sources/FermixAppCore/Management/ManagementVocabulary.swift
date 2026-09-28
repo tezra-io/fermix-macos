@@ -44,9 +44,10 @@ extension ManagementVocabulary {
 /// Every published management method.
 ///
 /// The eleven the engine serves today have a minimum protocol version of 1; the
-/// thirty-one M34 §7.3 adds have a minimum of 2. The minimum is read from the
-/// contract (`ManagementContract.minimumVersion(for:)`), never restated here:
-/// one fact, in the checksum-pinned artifact.
+/// thirty-one M34 §7.3 adds and the seven the phone channel added have a
+/// minimum of 2. The minimum is read from the contract
+/// (`ManagementContract.minimumVersion(for:)`), never restated here: one fact,
+/// in the checksum-pinned artifact.
 public enum ManagementMethod: String, CaseIterable, Sendable {
     case hello = "hello"
     case overviewGet = "overview.get"
@@ -91,6 +92,15 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case meetingsSigninStart = "meetings.signin.start"
     case computerUseGrantStart = "computer_use.grant.start"
     case computerUsePermissionsGet = "computer_use.permissions.get"
+    // The phone channel (engine 534a5858, 2026-09-27): a pairing session is
+    // polled rather than a job, and the paired-phone list is read and revoked.
+    case mobileStatus = "mobile.status"
+    case mobilePairStart = "mobile.pair.start"
+    case mobilePairGet = "mobile.pair.get"
+    case mobilePairDecide = "mobile.pair.decide"
+    case mobilePairCancel = "mobile.pair.cancel"
+    case mobileDevicesList = "mobile.devices.list"
+    case mobileDevicesRevoke = "mobile.devices.revoke"
 
     /// The method name in a form the request-id pattern accepts.
     public var identifierSlug: String { rawValue.replacingOccurrences(of: ".", with: "-") }
@@ -118,6 +128,9 @@ public enum ManagementErrorCode: ManagementVocabulary {
     case externalChange
     /// `config.toml` could not be read or parsed. Added in v2.
     case configUnreadable
+    /// The pairing session is not retained by this daemon. Added with the phone
+    /// channel.
+    case unknownPairingSession
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -136,7 +149,8 @@ public enum ManagementErrorCode: ManagementVocabulary {
         "secret_store_failed": .secretStoreFailed,
         "unknown_job": .unknownJob,
         "external_change": .externalChange,
-        "config_unreadable": .configUnreadable
+        "config_unreadable": .configUnreadable,
+        "unknown_pairing_session": .unknownPairingSession
     ]
 
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }

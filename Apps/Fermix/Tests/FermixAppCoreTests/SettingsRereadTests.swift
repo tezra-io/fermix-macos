@@ -40,7 +40,7 @@ struct SettingsRereadTests {
     func setupStateStaysOnScreen() async throws {
         let harness = try SettingsHarness()
         await harness.model.refreshSetupState()
-        let changed = try ManagementValueFixture.setupState(gating: false, failures: false)
+        let changed = try ManagementValueFixture.setupState(failures: false)
         harness.gateway.setupStateResult = changed
 
         let seen = await Self.published(harness.model.$setupState) { await harness.model.refreshSetupState() }

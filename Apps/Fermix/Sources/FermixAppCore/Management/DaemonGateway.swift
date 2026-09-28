@@ -84,6 +84,13 @@ public protocol DaemonQuerying: Sendable {
     func startMeetingsSignIn() async throws -> ManagementJob
     func startComputerUseGrant() async throws -> ManagementJob
     func computerUsePermissions() async throws -> ManagementComputerUsePermissions
+    func mobileStatus() async throws -> ManagementMobileStatus
+    func startPairing() async throws -> ManagementPairingStart
+    func pairingSession(id: String) async throws -> ManagementPairingSession
+    func decidePairing(id: String, approved: Bool) async throws -> ManagementPairingSession
+    func cancelPairing(id: String) async throws -> ManagementPairingSession
+    func mobileDevices() async throws -> ManagementMobileDevices
+    func revokeMobileDevice(id: String) async throws -> ManagementMobileDeviceRevoked
 }
 
 /// The production gateway: one negotiated client, shared by every surface.

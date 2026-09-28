@@ -114,8 +114,9 @@ enum FixtureHome: Equatable {
     /// the Connect your AI screen are looked at through, so on that machine
     /// Ready draws its refusal notice and the screen itself was unreachable.
     case configured
-    /// Nothing has been set up: no configured provider, no personalization, no
-    /// channel. It is the machine the assistant's decision screens are actually
+    /// Nothing has been set up: no configured provider and no channel, with the
+    /// personalization the daemon's first boot seeds from the machine. It is
+    /// the machine the assistant's decision screens are actually
     /// used on, and no fixture home was ever in it — which is how the two
     /// first-run defects on Connect your AI shipped without anyone seeing them
     /// (M34 §4).

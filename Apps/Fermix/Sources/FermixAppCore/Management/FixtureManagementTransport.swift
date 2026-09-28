@@ -152,7 +152,30 @@ struct FixtureManagementTransport: ManagementTransport {
             grouped[record.method, default: []].append(record)
         }
 
-        return grouped
+        return atStatusMoment(grouped)
+    }
+
+    /// The moment this daemon answers from.
+    ///
+    /// `mobile.pair.get` publishes one golden per session state and
+    /// `mobile.pair.start` two (the window opened, and the refusal with the
+    /// channel off), every one for the same request, so no selector tells them
+    /// apart: they are moments of one session, not answers to different
+    /// questions. A daemon answers from one moment, and `mobile.status` names
+    /// it under `pairing`: the session, in the state it is in. The start that
+    /// opened that session and the read that shows it in that state are this
+    /// machine's answers; the other records are other moments. A status that
+    /// names no session leaves the records as published, and `resolve` says so.
+    private static func atStatusMoment(_ grouped: [String: [Record]]) -> [String: [Record]] {
+        guard let moment = grouped[ManagementMethod.mobileStatus.rawValue]?.first?.moment else { return grouped }
+
+        var records = grouped
+        records[ManagementMethod.mobilePairStart.rawValue] = grouped[ManagementMethod.mobilePairStart.rawValue]?
+            .filter { $0.moment?.sessionId == moment.sessionId }
+        records[ManagementMethod.mobilePairGet.rawValue] = grouped[ManagementMethod.mobilePairGet.rawValue]?
+            .filter { $0.moment == moment }
+
+        return records
     }
 
     /// One golden record: its name, the method it answers, the request params it
@@ -165,11 +188,20 @@ struct FixtureManagementTransport: ManagementTransport {
         let name: String
         let method: String
         let selector: [String: String]
+        /// The pairing session this answer is a moment of, where it is one.
+        let moment: PairingMoment?
         let result: Data
 
         func answers(_ params: [String: Any]) -> Bool {
             selector.allSatisfy { key, value in params[key] as? String == value }
         }
+    }
+
+    /// A pairing session's id and state: the two facts that place one golden
+    /// among the others published for the same request.
+    private struct PairingMoment: Equatable {
+        let sessionId: String?
+        let state: String
     }
 
     private static func read(line: Substring, number: Int) throws -> Record {
@@ -188,8 +220,29 @@ struct FixtureManagementTransport: ManagementTransport {
             name: name,
             method: method,
             selector: selector(method: method, result: result),
+            moment: pairingMoment(method: method, result: result),
             result: try JSONSerialization.data(withJSONObject: result)
         )
+    }
+
+    /// The pairing session an answer speaks of: `mobile.status` under
+    /// `pairing`, a start or a read as the whole result. Nil for every other
+    /// method, and for a status with no session.
+    private static func pairingMoment(method: String, result: Any) -> PairingMoment? {
+        guard let object = result as? [String: Any] else { return nil }
+
+        let session: [String: Any]?
+        switch method {
+        case ManagementMethod.mobileStatus.rawValue:
+            session = object["pairing"] as? [String: Any]
+        case ManagementMethod.mobilePairStart.rawValue, ManagementMethod.mobilePairGet.rawValue:
+            session = object
+        default:
+            return nil
+        }
+        guard let session, let state = session["state"] as? String else { return nil }
+
+        return PairingMoment(sessionId: session["session_id"] as? String, state: state)
     }
 
     /// The request params a record answers for, read from the answer itself.
@@ -256,25 +309,28 @@ struct FixtureManagementTransport: ManagementTransport {
 
 /// The readiness a fixture home reports, over the contract's own goldens.
 ///
-/// The engine publishes one `setup.state.get` and one `overview.get`, and they
-/// are the machine with one gating failure standing. Two of the three machines
-/// the app has to be looked at on are not that one, so they are derived from it
-/// — Ready by clearing what a passing machine has cleared, a first run by
-/// emptying what it has not filled in yet — rather than by a second golden
-/// nobody upstream maintains.
+/// The engine publishes one `setup.state.get` and one `overview.get`, and since
+/// its first boot began seeding personalization (2026-09-27) they are a ready
+/// home with two advisory rows. None of the three machines the app has to be
+/// looked at on is that one, so each is derived from it — the gate a surface is
+/// looked at through by withdrawing the primary provider's credential, Ready by
+/// clearing the advisory rows, a first run by emptying what it has not filled
+/// in yet — rather than by a second golden nobody upstream maintains.
 enum FixtureReadiness: Equatable {
-    /// The machine the golden publishes: one gating failure and one advisory.
+    /// The golden's home with its primary provider's credential withdrawn: one
+    /// gating failure, the provider, beside the golden's two advisory rows.
     case gatingFailure
     /// Every gate passed, which is the only machine Ready renders on.
     case ready
-    /// A first run: no configured provider, no personalization, no channel.
+    /// A first run: no configured provider and no channel. Personalization is
+    /// present, because the daemon's first boot seeds it before any screen.
     case fresh
 
     /// This machine's `setup.state.get`, from the golden.
     func setupState(_ golden: [String: Any]) -> [String: Any] {
         switch self {
         case .gatingFailure:
-            return golden
+            return Self.providerGate(golden)
         case .ready:
             var state = golden
             state["readiness"] = ["status": "ready", "failures": [[String: Any]]()]
@@ -282,6 +338,55 @@ enum FixtureReadiness: Equatable {
         case .fresh:
             return Self.firstRun(golden)
         }
+    }
+
+    /// The golden's primary provider, which every derived machine gates on.
+    private static func primaryProvider(_ golden: [String: Any]) -> String {
+        let providers = golden["providers"] as? [[String: Any]] ?? []
+        guard let primary = providers.first(where: { $0["primary"] as? Bool == true }),
+              let id = primary["id"] as? String
+        else { preconditionFailure("the setup.state.get golden names no primary provider") }
+
+        return id
+    }
+
+    /// Readiness gated on the primary: the row the daemon publishes for a primary
+    /// whose credential is missing, ahead of whatever advisory rows the machine
+    /// keeps.
+    private static func gated(primary: String, advisory: [[String: Any]]) -> [String: Any] {
+        let failure: [String: Any] = [
+            "component": "provider:\(primary)",
+            "gating": true,
+            "pane": "providers",
+            "detail_key": "provider:missing_credentials:\(primary)"
+        ]
+
+        return ["status": "setup_required", "failures": [failure] + advisory]
+    }
+
+    /// The golden's home with the primary's credential withdrawn: still the
+    /// primary, with nothing to answer with.
+    private static func providerGate(_ golden: [String: Any]) -> [String: Any] {
+        let primary = primaryProvider(golden)
+        let advisory = ((golden["readiness"] as? [String: Any])?["failures"] as? [[String: Any]] ?? [])
+            .filter { $0["gating"] as? Bool == false }
+        var state = golden
+        state["providers"] = (golden["providers"] as? [[String: Any]] ?? []).map { provider in
+            provider["id"] as? String == primary ? unauthenticated(provider) : provider
+        }
+        state["readiness"] = gated(primary: primary, advisory: advisory)
+
+        return state
+    }
+
+    private static func unauthenticated(_ provider: [String: Any]) -> [String: Any] {
+        var entry = provider
+        entry["configured"] = false
+        entry["present_key"] = false
+        entry["account_label"] = NSNull()
+        entry["token_state"] = NSNull()
+
+        return entry
     }
 
     /// This machine's `overview.get`, whose readiness is derived from the
@@ -299,17 +404,19 @@ enum FixtureReadiness: Equatable {
 
     /// A machine nothing has been set up on, from the one the golden publishes.
     ///
-    /// The readiness failures are the golden's own: a first run has no provider
-    /// credentials and no configured channel, which is exactly what those two
-    /// entries say. Everything else is emptied rather than rewritten, so no
-    /// value here is one the contract does not already publish.
+    /// The one readiness failure is the provider gate: a first run has no
+    /// provider credential and, with every channel silenced, nothing else to
+    /// report. Personalization is present, because the daemon's first boot seeds
+    /// it from the machine. Everything else is emptied rather than rewritten, so
+    /// no value here is one the contract does not already publish.
     private static func firstRun(_ golden: [String: Any]) -> [String: Any] {
         var state = golden
         state["providers"] = (golden["providers"] as? [[String: Any]] ?? []).map(unconfigured)
         state["channels"] = (golden["channels"] as? [[String: Any]] ?? []).map(silent)
+        state["readiness"] = gated(primary: primaryProvider(golden), advisory: [])
         state["restart"] = ["required": false, "reasons": [[String: Any]]()]
         state["personalization"] = [
-            "present": ["user_name": false, "timezone": false, "communication_style": false]
+            "present": ["user_name": true, "timezone": true, "communication_style": true]
         ]
         state["features"] = [
             "voice": false,

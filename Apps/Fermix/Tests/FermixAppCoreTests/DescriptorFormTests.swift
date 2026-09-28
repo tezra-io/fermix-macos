@@ -446,7 +446,7 @@ struct DescriptorCoverageTests {
             sections += 1
         }
 
-        #expect(sections == 26)
+        #expect(sections == 27)
         #expect(!mixed.isEmpty, "no section mixes the two, so the flag reads as section-wide")
 
         let state: ManagementSetupState = try FakeDaemonGateway.fixtureResult(

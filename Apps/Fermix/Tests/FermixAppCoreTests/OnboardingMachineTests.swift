@@ -455,11 +455,12 @@ struct OnboardingMachineTests {
         let readiness = OnboardingReadiness(state: state)
 
         #expect(readiness.daemonLive)
-        // The golden home has its provider connected and its own description
-        // missing, so the gate is the personalization one and the advisory is a
-        // channel that is switched on with nothing to answer with.
-        #expect(readiness.gaps == [.personalization])
-        #expect(readiness.advisory == [.channels])
+        // The golden home has its provider connected and its personalization
+        // seeded by the daemon's first boot, so nothing gates: the missing
+        // communication style and a channel switched on with nothing to answer
+        // with are both advisory. The restart it owes is what keeps Ready shut.
+        #expect(readiness.gaps.isEmpty)
+        #expect(readiness.advisory == [.personality, .channels])
         #expect(readiness.restartRequired)
         #expect(!readiness.canFinish)
     }

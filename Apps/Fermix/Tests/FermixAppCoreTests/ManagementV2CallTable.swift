@@ -152,7 +152,22 @@ enum ManagementV2Calls {
         },
         "meetings_signin_start": { _ = try await $0.startMeetingsSignIn() },
         "computer_use_grant_start": { _ = try await $0.startComputerUseGrant() },
-        "computer_use_permissions_get": { _ = try await $0.computerUsePermissions() }
+        "computer_use_permissions_get": { _ = try await $0.computerUsePermissions() },
+
+        "mobile_status": { _ = try await $0.mobileStatus() },
+        "mobile_pair_start": { _ = try await $0.startPairing() },
+        "mobile_pair_get": { _ = try await $0.pairingSession(id: "5b0c7d2e-8f41-4a6b-9c3d-2e7f1a8b4c60") },
+        "mobile_pair_decide": {
+            _ = try await $0.decidePairing(id: "5b0c7d2e-8f41-4a6b-9c3d-2e7f1a8b4c60", approved: true)
+        },
+        "mobile_pair_decide_deny": {
+            _ = try await $0.decidePairing(id: "5b0c7d2e-8f41-4a6b-9c3d-2e7f1a8b4c60", approved: false)
+        },
+        "mobile_pair_cancel": { _ = try await $0.cancelPairing(id: "5b0c7d2e-8f41-4a6b-9c3d-2e7f1a8b4c60") },
+        "mobile_devices_list": { _ = try await $0.mobileDevices() },
+        "mobile_devices_revoke": {
+            _ = try await $0.revokeMobileDevice(id: "3f4a1a55-69a0-4f8a-9132-17d6ac728f84")
+        }
     ]
 
 }
