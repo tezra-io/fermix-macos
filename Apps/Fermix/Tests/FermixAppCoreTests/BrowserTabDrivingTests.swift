@@ -68,4 +68,52 @@ struct BrowserTabDrivingTests {
             _ = try await tab.act(.click(ref: 9), observing: BrowserSnapshotRequest(mode: .interactive, maxChars: 4000, depth: 5))
         }
     }
+
+    // MARK: - Waiting for the page to be ready
+
+    @Test("a page already loaded snapshots at once")
+    func snapshotWhenAlreadyReady() async throws {
+        let page = FakeDrivablePage()
+        page.snapshotResult = .success(.empty)
+        let tab = BrowserTab(profile: .shared, page: page)
+
+        _ = try await tab.snapshot(mode: .interactive, maxChars: 4000, depth: 5)
+
+        #expect(page.readyWaits == 1, "the wait ran and answered at once")
+        #expect(page.snapshotRequests.count == 1)
+    }
+
+    @Test("a page still loading defers the snapshot until it finishes")
+    func snapshotWaitsForALoadInFlightToFinish() async throws {
+        let page = FakeDrivablePage()
+        page.readyGate = AsyncGate()
+        page.snapshotResult = .success(.empty)
+        let tab = BrowserTab(profile: .shared, page: page)
+
+        let snapshot = Task { try await tab.snapshot(mode: .interactive, maxChars: 4000, depth: 5) }
+        await Task.yield()
+        #expect(page.snapshotRequests.isEmpty, "the snapshot has not been asked for yet")
+
+        page.readyGate?.release()
+        _ = try await snapshot.value
+
+        #expect(page.snapshotRequests.count == 1)
+    }
+
+    @Test("a load that fails answers the error, and no snapshot is taken")
+    func snapshotThrowsWhenTheLoadItWasWaitingOnFails() async throws {
+        let page = FakeDrivablePage()
+        page.readyGate = AsyncGate()
+        page.readyFailure = BrowserPageDriveError.navigationFailed("a server with the specified hostname could not be found")
+        let tab = BrowserTab(profile: .shared, page: page)
+
+        let snapshot = Task { try await tab.snapshot(mode: .interactive, maxChars: 4000, depth: 5) }
+        await Task.yield()
+        page.readyGate?.release()
+
+        await #expect(throws: BrowserPageDriveError.navigationFailed("a server with the specified hostname could not be found")) {
+            _ = try await snapshot.value
+        }
+        #expect(page.snapshotRequests.isEmpty, "a page that never loaded is never read")
+    }
 }

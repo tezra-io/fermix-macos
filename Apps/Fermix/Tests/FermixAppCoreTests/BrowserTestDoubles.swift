@@ -38,6 +38,13 @@ final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
     var snapshotResult: Result<BrowserPageSnapshot, any Error> = .success(.empty)
     var actResult: Result<BrowserActOutcome, any Error> = .success(.init(effect: .unchanged, input: .trusted, url: ""))
 
+    /// The test's own gate on `waitUntilReady()`: nil answers at once, set
+    /// answers once the test releases it, and `readyFailure` is thrown then
+    /// instead of returning, as a failed navigation would.
+    var readyGate: AsyncGate?
+    var readyFailure: (any Error)?
+    private(set) var readyWaits = 0
+
     func load(_ url: URL) {}
     func back() {}
     func forward() {}
@@ -46,7 +53,13 @@ final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
     func find(_ text: String) {}
     func zoom(_ zoom: BrowserZoom) {}
 
-    func waitUntilReady() async throws {}
+    func waitUntilReady() async throws {
+        readyWaits += 1
+        guard let readyGate else { return }
+
+        await readyGate.wait()
+        if let readyFailure { throw readyFailure }
+    }
 
     func snapshot(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot {
         snapshotRequests.append(request)
