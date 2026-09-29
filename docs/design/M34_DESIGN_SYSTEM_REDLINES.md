@@ -1359,7 +1359,14 @@ every button carries a title or an accessibility label; every sheet has a cancel
       approval is a card in `chipFill` with a standard hairline and 16pt corners: the
       daemon's text and detail, and Approve and Deny as row-size secondary capsules, both
       unavailable once an answer is on its way. The latest failure is one `calloutSmall`
-      `secondary` line behind `exclamationmark.circle`.
+      `secondary` line behind `exclamationmark.circle`. (2026-09-28) The owner found the
+      transcript cluttered next to ChatGPT's own app: a turn (a user row and the reply that
+      follows it) now opens 32pt of air from the turn before and after it
+      (`ChatMetrics.turnGap`, added on top of the unchanged 16pt row rhythm,
+      `ChatMetrics.rowGap`, so the pair inside one turn still reads at the old gap), and the
+      chip's own padding grows from 12pt horizontal by 8pt vertical to 16pt by 12pt
+      (`ChatMetrics.userChipPadding`). The 720pt column already capped a row's width in a wide
+      window, composer included.
     - **The composer** is a field in `chipFill` with a standard hairline: 36pt at one line, the
       extra large control height, with its regular 24pt action 6pt in from the edge, and
       keeping the 18pt corners as it grows to six lines. Return sends and Shift-Return is a
@@ -1368,11 +1375,16 @@ every button carries a title or an accessibility label; every sheet has a cancel
       capsule that is never the default, so Return cannot cancel a reply. Cancel is the wire's
       own verb: `Stop` leads no string in the product, which keeps the word for the service.
       Not connected, the composer is unavailable and the connection's sentence stands over it.
+      (2026-09-28) The gap it keeps from the last row grows from 8pt to 12pt
+      (`ChatMetrics.composerTopGap`), a little more breathing room off the docked edge.
     - **Scrolling.** The transcript opens on its bottom edge and keeps a reader there as rows
       arrive and a reply grows; a reader who scrolled away keeps their place. Reaching the
       top reads the page before the oldest held row, and the reader keeps their place when it
       lands. The newest row on screen, in a window in front, moves the read frontier the
       phone shares. Its indicators are never drawn and its edges take the system's fade.
+      (2026-09-28) Sending follows regardless of where the reader was, so their own message and
+      the reply streaming under it stay in view without their hand; a row that arrives while
+      they are elsewhere still does not move them.
     - **Search is in the toolbar**, `searchable` where Logs has its own, and the engine's. The
       daemon is asked once typing pauses for 300ms, or on Return. Its hits replace the
       transcript, which stays underneath so the reader's place survives: each hit's excerpt
