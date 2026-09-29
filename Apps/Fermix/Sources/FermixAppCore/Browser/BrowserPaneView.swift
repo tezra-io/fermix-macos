@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 /// The browser pane's own measures (redlines §8 decision 37). The pane's
-/// width is the window's, `WindowMetrics.browserPaneWidth`, because the window
-/// widens by it.
+/// width is the split's (`PaneSplit`): 600pt as the window widens for it, more
+/// where the body cannot use the width, down to its floor on a small screen.
 enum BrowserPaneMetrics {
     /// A tab gives up width to its neighbours down to this, and never takes
     /// more than the widest; its title truncates in between.
@@ -73,8 +73,7 @@ struct BrowserPaneView: View {
             }
             page
         }
-        .frame(width: WindowMetrics.browserPaneWidth)
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(alignment: .topLeading) { BrowserShortcuts(browser: browser) }
         .alert(
             model.dialog.map { BrowserText.dialogTitle(origin: $0.dialog.origin) } ?? "",

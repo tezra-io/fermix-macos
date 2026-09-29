@@ -143,9 +143,19 @@ public enum WindowMetrics {
     /// not resize and does not collapse.
     public static let settingsSidebarWidth: Double = 240
     /// The browser pane beside the body (plan §4.3). The window widens by this
-    /// much when the pane opens, so the surface beside it keeps its width; a
-    /// drag handle that changes it is for later.
+    /// much when the pane opens, and it is the width the pane prefers; the
+    /// split (`PaneSplit`) gives it more when the body cannot use the width,
+    /// and less, down to its floor, when the screen cannot give it.
     public static let browserPaneWidth: Double = 600
+    /// The pane's floor and the width it prefers, the range the split holds it
+    /// in. A page still reads and reflows at the floor, which is what a task
+    /// needs; a person who wants more opens the page in their own browser.
+    public static let browserPaneWidths: ClosedRange<Double> = 480 ... browserPaneWidth
+    /// The body beside an open pane, from the floor that keeps a chat column
+    /// or a settings form usable to the ceiling past which the chat column
+    /// (720pt) and its gutters (24pt each side) only grow their margins. The
+    /// split gives the page everything past the ceiling.
+    public static let bodyWidthsBesidePane: ClosedRange<Double> = 480 ... 768
     /// The detail column's content ceiling, so a widened window grows its
     /// margins rather than its line length.
     public static let settingsContentMaxWidth: Double = 640

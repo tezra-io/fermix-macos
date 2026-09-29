@@ -255,9 +255,9 @@ struct MainWindowView: View {
     /// pane list: the band runs over it, its header continues the frame's glass
     /// under the band, and the body's corners stay where they are, rounding the
     /// surface or the form. Still one split view, and no divider: the seam is
-    /// the pane's own fill.
+    /// the pane's own fill. The two share the column by `PaneSplit`'s rule.
     private var detailColumn: some View {
-        HStack(spacing: 0) {
+        PaneSplitLayout(body: WindowMetrics.bodyWidthsBesidePane, pane: WindowMetrics.browserPaneWidths) {
             bodyColumn
             BrowserPaneView(browser: browser)
         }

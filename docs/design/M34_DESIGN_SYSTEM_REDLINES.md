@@ -1410,13 +1410,18 @@ every button carries a title or an accessibility label; every sheet has a cancel
     cask's `depends_on macos:` cannot express a minor release, and a 15.2 floor would hand a
     Mac still on 15.0 or 15.1 a `brew upgrade` bundle it refuses to open. The policy is set
     behind `if #available(macOS 15.2, *)`, and below that WebKit's default stands in its place.
-    - **Where it sits.** A third pane inside the frame, beside the body, 600pt wide
-      (`WindowMetrics.browserPaneWidth`): the band runs over it, the body keeps its corners, so
-      its top trailing corner now rounds where the body meets the pane, and it is still one
-      split view with no divider, the seam being the pane's own fill. Opening it widens the
-      window to the right by the pane, shifted left where the right edge would pass the
-      screen's and held to the screen's width, with the floor raised from 760 to 1360 (never
-      past the screen); the chat or the form beside it keeps its width. Closing it gives the
+    - **Where it sits.** A third pane inside the frame, beside the body, at the width the
+      split gives it (`PaneSplit`, 2026-09-28): the band runs over it, the body keeps its
+      corners, so its top trailing corner now rounds where the body meets the pane, and it is
+      still one split view with no divider, the seam being the pane's own fill. The column is
+      shared in a fixed order: the pane's floor of 480pt, the body's floor of 480pt, the pane
+      up to the 600pt it prefers (`WindowMetrics.browserPaneWidth`), the body up to 768pt,
+      the chat column with its gutters, and everything past that to the page, so a wider
+      window grows the page and a small screen narrows the page before it starves the chat;
+      Settings beside it keeps its list and, on a 1024pt screen, 252pt of form. Opening the
+      pane widens the window to the right by 600pt, shifted left where the right edge would
+      pass the screen's and held to the screen's width, with the floor raised from 760 to 1360
+      (never past the screen); the body beside it keeps the width the split gives it. Closing it gives the
       width back only while the window is still the frame the app set; a window the person
       moved or resized keeps their frame, and the floor comes back down. A window in full
       screen or zoomed is not moved, and the pane takes its width from the body.

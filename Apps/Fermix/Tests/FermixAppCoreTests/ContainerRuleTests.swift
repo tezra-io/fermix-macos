@@ -671,9 +671,10 @@ struct ContainerRuleTests {
 
         #expect(!pane.contains(".navigationTitle("), "the pane names itself in the toolbar")
         #expect(!pane.contains(".toolbar"), "the pane puts controls in the surface's toolbar")
-        #expect(pane.contains(".frame(width: WindowMetrics.browserPaneWidth)"), "the pane's width is not the token")
+        #expect(!pane.contains(".frame(width: WindowMetrics.browserPaneWidth)"), "the pane fixes its own width instead of taking the split's")
         #expect(pane.contains("FrameGlass()"), "the header is not on the frame")
         #expect(window.contains("BrowserPaneView(browser: browser)"))
+        #expect(window.contains("PaneSplitLayout(body: WindowMetrics.bodyWidthsBesidePane, pane: WindowMetrics.browserPaneWidths)"), "the body and the pane do not share the column by the split")
         #expect(window.contains("detailColumn.frame(minWidth: 0, minHeight: 0)"), "the body lost its floor")
     }
 
