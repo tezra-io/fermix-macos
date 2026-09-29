@@ -1352,7 +1352,9 @@ every button carries a title or an accessibility label; every sheet has a cancel
     - **The transcript** is a 720pt column centred in the body, in the body rung and `ink`. The
       owner's messages sit on the trailing side in a `chipFill` shape with 16pt corners, at
       least 96pt from the leading edge. Fermix's replies, and deliveries, sit on the leading
-      side straight on the ground, in inline markdown with links left as text. The reply being
+      side straight on the ground, in inline markdown with links left as text, a heading
+      line drawn as its text in bold and a fenced block as code, their marks gone
+      (2026-09-28). The reply being
       written shows its text so far and one quiet `calloutSmall` `faint` line for its latest
       tool, "Using web_search" beside the activity mark and "Used web_search" once it stops.
       A message the daemon has not accepted is drawn at 60% with "Sending" under it. An

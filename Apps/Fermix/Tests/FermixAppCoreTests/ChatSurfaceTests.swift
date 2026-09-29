@@ -236,6 +236,22 @@ struct ChatSurfaceTests {
         #expect(reply.runs.contains { $0.inlinePresentationIntent == .stronglyEmphasized })
     }
 
+    /// A heading line is drawn as its text in bold and a fenced block as code
+    /// spans, their marks gone; a `#` that is not a heading, and every other
+    /// block mark, stays the text it is.
+    @Test("a heading line is drawn in bold and a fenced block as code, and other block marks stay")
+    func replyBlocks() {
+        let reply = ChatText.reply(
+            "Plan\n### What to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n```text\n/tmp/a.png\n\nx `y`\n```\nDone"
+        )
+
+        #expect(String(reply.characters) == "Plan\nWhat to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n/tmp/a.png\n\nx `y`\nDone")
+        let bold = reply.runs.filter { $0.inlinePresentationIntent == .stronglyEmphasized }
+        #expect(bold.map { String(reply[$0.range].characters) } == ["What to expect"])
+        let code = reply.runs.filter { $0.inlinePresentationIntent == .code }
+        #expect(code.map { String(reply[$0.range].characters) } == ["/tmp/a.png", "x `y`"])
+    }
+
     @Test("marking finds every occurrence of each term, ignoring case")
     func marking() {
         let marked = ChatText.marking(["the"], in: ChatText.plain("The dentist and the hygienist"))

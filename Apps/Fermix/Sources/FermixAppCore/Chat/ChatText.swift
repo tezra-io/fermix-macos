@@ -101,7 +101,11 @@ enum ChatTurnStatus: Equatable {
 /// link opens through the surface's content link opener, in the pane or the
 /// person's own browser.
 enum ChatText {
-    /// Inline markdown only; blocks and tables are drawn as the text they are.
+    /// Inline markdown only; blocks and tables are drawn as the text they
+    /// are, except a heading line, drawn as its text in bold, and a fenced
+    /// code block, drawn as code without its fence: a reply is a
+    /// conversation, and those two marks read as noise on the ground rather
+    /// than as structure (owner, 2026-09-28).
     ///
     /// A link is drawn in the text blue, `accentText`, which holds §9's floor
     /// on the dark ground: left to the window's tint it would be the accent,
@@ -110,6 +114,7 @@ enum ChatText {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
+        let text = blocksInlined(text)
         var attributed = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
         for run in attributed.runs where run.link != nil {
             attributed[run.range].foregroundColor = Palette.accentText.color
@@ -120,6 +125,39 @@ enum ChatText {
 
     static func plain(_ text: String) -> AttributedString {
         AttributedString(text)
+    }
+
+    /// The two block marks drawn inline: a heading line, one to six `#` then
+    /// a space then its text, becomes that text strongly emphasised, and a
+    /// fenced code block loses its fence lines while each line inside becomes
+    /// a code span. Every other line is left as it is.
+    static func blocksInlined(_ text: String) -> String {
+        var fenced = false
+        return text.split(separator: "\n", omittingEmptySubsequences: false)
+            .compactMap { line -> String? in
+                if line.hasPrefix("```") {
+                    fenced.toggle()
+                    return nil
+                }
+                if fenced { return codeSpan(line) }
+                return heading(line).map { "**\($0)**" } ?? String(line)
+            }
+            .joined(separator: "\n")
+    }
+
+    /// The text of a heading line, or nil for any other line.
+    private static func heading(_ line: Substring) -> String? {
+        let marks = line.prefix { $0 == "#" }
+        guard (1...6).contains(marks.count), line.dropFirst(marks.count).first == " " else { return nil }
+        let title = line.dropFirst(marks.count + 1).trimmingCharacters(in: .whitespaces)
+        return title.isEmpty ? nil : title
+    }
+
+    /// One line of a fenced block as a code span; a line with its own
+    /// backtick takes the two-backtick fence, and an empty line stays empty.
+    private static func codeSpan(_ line: Substring) -> String {
+        if line.isEmpty { return "" }
+        return line.contains("`") ? "`` \(line) ``" : "`\(line)`"
     }
 
     /// Every occurrence of each term, marked. Case is ignored, as the search
