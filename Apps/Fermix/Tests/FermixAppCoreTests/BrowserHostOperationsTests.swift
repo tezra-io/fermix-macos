@@ -119,8 +119,8 @@ struct BrowserHostOperationsTests {
 
     // MARK: - screenshot
 
-    @Test("a screenshot path outside the workspace is refused before any capture")
-    func screenshotOutsideWorkspaceRefused() async throws {
+    @Test("a screenshot path outside the engine's browser directory is refused before any capture")
+    func screenshotOutsideBrowserDirectoryRefused() async throws {
         let (client, transport, tab) = try await Self.attachedWithOneTab()
         let outside = "/tmp/fermix-host-ops-outside/\(UUID().uuidString).png"
 
@@ -136,10 +136,27 @@ struct BrowserHostOperationsTests {
         _ = client
     }
 
-    @Test("a screenshot inside the workspace is written and answered")
-    func screenshotWritesTheFile() async throws {
+    @Test("a screenshot path inside the upload workspace is refused: captures have their own root")
+    func screenshotInsideWorkspaceRefused() async throws {
         let (client, transport, tab) = try await Self.attachedWithOneTab()
         let path = tab.workspace.appendingPathComponent("shot.png").path
+
+        let response = try await Self.send(
+            transport,
+            .pageScreenshot(id: 10, BrowserHostPageScreenshotRequest(tabId: tab.wireID, fullPage: false, path: path))
+        )
+
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["reason"] as? String == "write_failed")
+        #expect(tab.page.screenshotFullPageRequests.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: path))
+        _ = client
+    }
+
+    @Test("a screenshot inside the engine's browser directory is written and answered")
+    func screenshotWritesTheFile() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        let path = try tab.capturePath("screenshots/1.png")
         tab.page.screenshotResult = .success(BrowserPageCapture(data: Data("png-bytes".utf8), mimeType: "image/png", devicePixelRatio: 2))
 
         let response = try await Self.send(
@@ -159,8 +176,8 @@ struct BrowserHostOperationsTests {
 
     // MARK: - pdf
 
-    @Test("a pdf path outside the workspace is refused before any capture")
-    func pdfOutsideWorkspaceRefused() async throws {
+    @Test("a pdf path outside the engine's browser directory is refused before any capture")
+    func pdfOutsideBrowserDirectoryRefused() async throws {
         let (client, transport, tab) = try await Self.attachedWithOneTab()
         let outside = "/tmp/fermix-host-ops-outside/\(UUID().uuidString).pdf"
 
@@ -172,10 +189,10 @@ struct BrowserHostOperationsTests {
         _ = client
     }
 
-    @Test("a pdf inside the workspace is written and answered")
+    @Test("a pdf inside the engine's browser directory is written and answered")
     func pdfWritesTheFile() async throws {
         let (client, transport, tab) = try await Self.attachedWithOneTab()
-        let path = tab.workspace.appendingPathComponent("page.pdf").path
+        let path = try tab.capturePath("pdfs/1.pdf")
         tab.page.pdfResult = .success(Data("pdf-bytes".utf8))
 
         let response = try await Self.send(transport, .pagePdf(id: 10, tabId: tab.wireID, path: path))
@@ -317,6 +334,7 @@ struct BrowserHostOperationsTests {
             socketPath: { "/tmp/fermix-test/browser_host.sock" },
             profileID: { "profile-1" },
             workspaceRoot: { coordinator.workspace },
+            browserRoot: { coordinator.browserDirectory },
             hostVersion: "0.2.0",
             coordinator: coordinator,
             deadlines: ManualDeadlineScheduler()
@@ -358,6 +376,15 @@ private struct OpenTab {
     let wireID: String
     let page: FakeOperationsPage
     var workspace: URL { coordinator.workspace }
+    var browserDirectory: URL { coordinator.browserDirectory }
+
+    /// A capture path as the engine names one: under its browser directory's
+    /// `artifacts/<task>/<kind>`, a directory the engine has made before it asks.
+    func capturePath(_ file: String) throws -> String {
+        let path = browserDirectory.appendingPathComponent("artifacts/task-1/\(file)")
+        try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+        return path.path
+    }
 }
 
 /// A page with a web engine, a capture surface and a cookie store behind it,
@@ -419,13 +446,18 @@ private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, Browser
 @MainActor
 private final class FakeHostCoordinator: BrowserHostCoordinating {
     let model = BrowserModel()
-    let workspace: URL = {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    /// The engine's upload root and its capture root, laid out as the engine
+    /// lays out its home: uploads under `workspace`, captures under `browser`.
+    let workspace: URL
+    let browserDirectory: URL
+
+    init() {
+        let home = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("fermix-browser-host-ops-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        return root
-    }()
+        workspace = home.appendingPathComponent("workspace", isDirectory: true)
+        browserDirectory = home.appendingPathComponent("browser", isDirectory: true)
+    }
 
     /// The one page behind the last tab `openTaskTab` admitted, for a case
     /// that opens one tab and drives it.

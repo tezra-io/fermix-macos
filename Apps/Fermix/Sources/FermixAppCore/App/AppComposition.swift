@@ -317,6 +317,7 @@ final class AppComposition {
             // automation being able to reach the pane before anyone opens it.
             profileID: { try WebsiteProfileRecord(location: location).identifier().uuidString },
             workspaceRoot: { try store.workspaceDirectoryURL() },
+            browserRoot: { try store.browserDirectoryURL() },
             hostVersion: configuration.marketingVersion,
             coordinator: browser,
             deadlines: MainQueueDeadlineScheduler()

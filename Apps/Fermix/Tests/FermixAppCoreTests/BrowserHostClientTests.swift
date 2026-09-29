@@ -318,6 +318,7 @@ struct BrowserHostClientTests {
             socketPath: { "/tmp/fermix-test/browser_host.sock" },
             profileID: { profileID },
             workspaceRoot: { URL(fileURLWithPath: "/tmp/fermix-test/workspace", isDirectory: true) },
+            browserRoot: { URL(fileURLWithPath: "/tmp/fermix-test/browser", isDirectory: true) },
             hostVersion: hostVersion,
             coordinator: harness.coordinator,
             deadlines: deadlines ?? ManualDeadlineScheduler()

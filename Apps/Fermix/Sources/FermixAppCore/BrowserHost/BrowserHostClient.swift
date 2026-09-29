@@ -78,6 +78,7 @@ public final class BrowserHostClient {
     private let socketPath: () throws -> String
     private let profileID: () throws -> String
     private let workspaceRoot: () throws -> URL
+    private let browserRoot: () throws -> URL
     private let hostVersion: String
     private let coordinator: any BrowserHostCoordinating
     private let deadlines: any DeadlineScheduling
@@ -100,6 +101,7 @@ public final class BrowserHostClient {
         socketPath: @escaping () throws -> String,
         profileID: @escaping () throws -> String,
         workspaceRoot: @escaping () throws -> URL,
+        browserRoot: @escaping () throws -> URL,
         hostVersion: String,
         coordinator: any BrowserHostCoordinating,
         deadlines: any DeadlineScheduling,
@@ -109,6 +111,7 @@ public final class BrowserHostClient {
         self.socketPath = socketPath
         self.profileID = profileID
         self.workspaceRoot = workspaceRoot
+        self.browserRoot = browserRoot
         self.hostVersion = hostVersion
         self.coordinator = coordinator
         self.deadlines = deadlines
@@ -588,7 +591,7 @@ public final class BrowserHostClient {
 
     private func dispatchPageUpload(id: Int, tabId: String, ref: Int, path: String) {
         guard let tab = requiredTab(id: id, wireTabID: tabId) else { return }
-        guard validatedPath(path) else {
+        guard validatedPath(path, under: workspaceRoot) else {
             respond(BrowserHostResponse(id: id, error: BrowserHostError(reason: .uploadFailed, message: "the path is outside the engine's workspace")))
             return
         }
@@ -606,8 +609,8 @@ public final class BrowserHostClient {
 
     private func dispatchPageScreenshot(id: Int, payload: BrowserHostPageScreenshotRequest) {
         guard let tab = requiredTab(id: id, wireTabID: payload.tabId) else { return }
-        guard validatedPath(payload.path) else {
-            respond(BrowserHostResponse(id: id, error: BrowserHostError(reason: .writeFailed, message: "the path is outside the engine's workspace")))
+        guard validatedPath(payload.path, under: browserRoot) else {
+            respond(BrowserHostResponse(id: id, error: BrowserHostError(reason: .writeFailed, message: "the path is outside the engine's browser directory")))
             return
         }
 
@@ -632,8 +635,8 @@ public final class BrowserHostClient {
 
     private func dispatchPagePdf(id: Int, tabId: String, path: String) {
         guard let tab = requiredTab(id: id, wireTabID: tabId) else { return }
-        guard validatedPath(path) else {
-            respond(BrowserHostResponse(id: id, error: BrowserHostError(reason: .writeFailed, message: "the path is outside the engine's workspace")))
+        guard validatedPath(path, under: browserRoot) else {
+            respond(BrowserHostResponse(id: id, error: BrowserHostError(reason: .writeFailed, message: "the path is outside the engine's browser directory")))
             return
         }
 
@@ -789,10 +792,11 @@ public final class BrowserHostClient {
         )
     }
 
-    /// Whether `path` falls inside the engine's own workspace, the one root a
-    /// screenshot, a PDF or an upload path may write inside.
-    private func validatedPath(_ path: String) -> Bool {
-        guard let root = try? workspaceRoot() else { return false }
+    /// Whether `path` falls inside `root`: the engine's browser directory for
+    /// a screenshot or a PDF the app writes, its workspace for an upload the
+    /// app reads. Each kind has the one root the engine keeps it under.
+    private func validatedPath(_ path: String, under root: () throws -> URL) -> Bool {
+        guard let root = try? root() else { return false }
 
         let standardizedRoot = root.standardizedFileURL.path
         let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path

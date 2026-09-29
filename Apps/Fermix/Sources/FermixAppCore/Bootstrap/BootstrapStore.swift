@@ -101,10 +101,16 @@ public struct BootstrapStore {
         BootstrapRecord(fermixHome: try resolvedHome()).browserHostSocketURL.path
     }
 
-    /// The engine's workspace directory for this account's home, the root a
-    /// screenshot, a PDF or an upload path must fall under.
+    /// The engine's workspace directory for this account's home, the root an
+    /// upload path must fall under.
     public func workspaceDirectoryURL() throws -> URL {
         BootstrapRecord(fermixHome: try resolvedHome()).workspaceDirectoryURL
+    }
+
+    /// The engine's browser directory for this account's home, the root a
+    /// screenshot or a PDF path must fall under.
+    public func browserDirectoryURL() throws -> URL {
+        BootstrapRecord(fermixHome: try resolvedHome()).browserDirectoryURL
     }
 
     @discardableResult

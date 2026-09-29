@@ -149,11 +149,19 @@ public struct BootstrapRecord: Equatable, Sendable {
         fermixHome.appendingPathComponent("browser_host.sock", isDirectory: false)
     }
 
-    /// The engine's own workspace, the root every `download_dir` and every
-    /// `page.screenshot`, `page.pdf` and `page.upload` path the daemon names
-    /// must fall under. The host client refuses one that does not.
+    /// The engine's own workspace, the root a `page.upload` path the daemon
+    /// names must fall under: the file a page receives is one the engine keeps
+    /// there. The host client refuses one that does not.
     public var workspaceDirectoryURL: URL {
         fermixHome.appendingPathComponent("workspace", isDirectory: true)
+    }
+
+    /// The engine's browser directory, the root every `page.screenshot` and
+    /// `page.pdf` path and every `download_dir` the daemon names must fall
+    /// under: the engine keeps its captures and downloads there, never in the
+    /// workspace. The host client refuses a capture path that does not.
+    public var browserDirectoryURL: URL {
+        fermixHome.appendingPathComponent("browser", isDirectory: true)
     }
 }
 
