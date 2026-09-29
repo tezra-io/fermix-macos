@@ -37,8 +37,7 @@ private struct ChatUserRow: View {
                 .fermixType(Typography.style(.body))
                 .foregroundStyle(Palette.ink.color)
                 .textSelection(.enabled)
-                .padding(.horizontal, Spacing.s)
-                .padding(.vertical, Spacing.xs)
+                .padding(ChatMetrics.userChipPadding)
                 .background(
                     RoundedRectangle(cornerRadius: ChatMetrics.rowRadius, style: .continuous)
                         .fill(Palette.chipFill.color)

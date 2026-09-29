@@ -8,6 +8,20 @@ enum ChatMetrics {
     /// The room a message the owner wrote leaves on its leading side, so the
     /// two sides of the conversation read as two sides.
     static let userRowLeadingRoom: Double = Spacing.xxl * 2
+    /// The transcript's base rhythm: the gap inside one turn (a user's row and
+    /// the reply that follows it), and the default gap between every other
+    /// pair of adjacent rows.
+    static let rowGap: Double = Spacing.m
+    /// The gap between one turn and the next, added at the seam on top of
+    /// `rowGap`'s base rhythm, so turns read apart from each other the way
+    /// they do not read apart internally (owner: the transcript sits too
+    /// close next to ChatGPT's, 2026-09-28).
+    static let turnGap: Double = Spacing.xl
+    /// The user chip's own padding: a shape, not bare text, so it wants more
+    /// room than a reply's leading text needs (2026-09-28).
+    static let userChipPadding = EdgeInsets(top: Spacing.s, leading: Spacing.m, bottom: Spacing.s, trailing: Spacing.m)
+    /// The gap between the last row and the docked composer (2026-09-28).
+    static let composerTopGap: Double = Spacing.s
     /// How strongly a message the daemon has not accepted yet is drawn.
     static let sendingStrength: Double = 0.6
     /// The composer grows to this many lines and then scrolls inside itself.
@@ -142,7 +156,7 @@ struct ChatSurfaceView: View {
             )
             .frame(maxWidth: ChatMetrics.columnWidth)
             .padding(.horizontal, Spacing.l)
-            .padding(.top, docked ? Spacing.xs : 0)
+            .padding(.top, docked ? ChatMetrics.composerTopGap : 0)
             .padding(.bottom, docked ? Spacing.m : 0)
 
             if !docked {

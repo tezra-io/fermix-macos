@@ -60,6 +60,24 @@ struct ChatSurfaceTests {
         #expect(ChatTimeline.items(rows: [], turn: nil, approvals: [], pending: [], lastError: nil).isEmpty)
     }
 
+    /// The seam between a user's own row (or a message not yet accepted) and
+    /// the reply that follows it is one turn; every other seam, including two
+    /// user rows in a row, opens a new one.
+    @Test("a user row and the reply after it are one turn; every other seam opens a new one")
+    func turnSeams() {
+        let userRow = ChatItem.row(Self.row(1, role: "user"))
+        let replyRow = ChatItem.row(Self.row(2, role: "assistant"))
+        let turn = ChatItem.turn(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "So far", tool: nil))
+        let pending = ChatItem.pending(clientMsgId: "mac-1", text: "Hello")
+
+        #expect(ChatTimeline.opensNewTurn(after: nil, before: userRow) == false)
+        #expect(ChatTimeline.opensNewTurn(after: userRow, before: replyRow) == false)
+        #expect(ChatTimeline.opensNewTurn(after: pending, before: turn) == false)
+        #expect(ChatTimeline.opensNewTurn(after: replyRow, before: userRow) == true)
+        #expect(ChatTimeline.opensNewTurn(after: userRow, before: userRow) == true)
+        #expect(ChatTimeline.opensNewTurn(after: turn, before: .approval(Self.approval, answering: false)) == true)
+    }
+
     // MARK: - Where a hit is
 
     @Test("a held hit is scrolled to, an older one is read towards, and one past the oldest page is not")

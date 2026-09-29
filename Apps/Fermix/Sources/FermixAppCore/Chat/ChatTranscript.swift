@@ -34,13 +34,17 @@ struct ChatTranscript: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: Spacing.m) {
+                LazyVStack(alignment: .leading, spacing: ChatMetrics.rowGap) {
                     if model.hasOlder {
                         ChatOlderMarker().id(ChatItemID.older)
                     }
 
-                    ForEach(items) { item in
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        let previous = index > 0 ? items[index - 1] : nil
+                        let opensNewTurn = ChatTimeline.opensNewTurn(after: previous, before: item)
+
                         ChatItemView(item: item, marked: marked(item), answer: session.answerApproval)
+                            .padding(.top, opensNewTurn ? ChatMetrics.turnGap - ChatMetrics.rowGap : 0)
                             .id(item.id)
                     }
                 }

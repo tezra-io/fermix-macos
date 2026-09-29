@@ -34,6 +34,24 @@ enum ChatItem: Equatable, Identifiable {
         case .error: return .error
         }
     }
+
+    /// A message this client sent and the daemon has not yet accepted: the
+    /// signal, in `ChatTranscript`, that the reader just sent it themselves.
+    var isPending: Bool {
+        if case .pending = self { return true }
+        return false
+    }
+
+    /// Whether the owner, not the daemon, wrote this item: their own row, or
+    /// a message not yet accepted. Everything else is what a turn answers
+    /// with.
+    fileprivate var isUserAuthored: Bool {
+        switch self {
+        case .row(let row): return ChatSpeaker.isUser(row.role)
+        case .pending: return true
+        case .turn, .approval, .error: return false
+        }
+    }
 }
 
 /// The transcript as a list: every fact the chat model publishes, in reading
@@ -70,6 +88,15 @@ enum ChatTimeline {
             pending: model.pending,
             lastError: model.lastError
         )
+    }
+
+    /// Whether the seam between two adjacent items opens a new turn: every
+    /// seam does, except the one between a user's own row (or a message not
+    /// yet accepted) and the reply that follows it, which is one turn.
+    static func opensNewTurn(after previous: ChatItem?, before current: ChatItem) -> Bool {
+        guard let previous else { return false }
+
+        return !(previous.isUserAuthored && !current.isUserAuthored)
     }
 
     private static func message(_ entry: CompanionOutboxEntry) -> ChatItem? {
