@@ -201,7 +201,7 @@ grep -F "<key>CFBundleIdentifier</key><string>io.tezra.FermixPet</string>" \
   "$INSTALLED_APP/Contents/Info.plist" >/dev/null
 grep -F "<key>CFBundleExecutable</key><string>Fermix</string>" \
   "$INSTALLED_APP/Contents/Info.plist" >/dev/null
-grep -F "<key>LSMinimumSystemVersion</key><string>15.2</string>" \
+grep -F "<key>LSMinimumSystemVersion</key><string>15.0</string>" \
   "$INSTALLED_APP/Contents/Info.plist" >/dev/null
 # The app registers its url scheme, and carries NO LSUIElement: the accessory
 # policy is set in code as the first AppKit act, and the window host promotes to

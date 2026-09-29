@@ -16,7 +16,7 @@ struct ProductConfigurationTests {
         #expect(configuration.agentExecutableName == "FermixAgent")
         #expect(configuration.agentServiceLabel == "io.tezra.FermixPet.agent")
         #expect(configuration.supportDirectoryName == "Fermix")
-        #expect(configuration.minimumSystemVersion == "15.2")
+        #expect(configuration.minimumSystemVersion == "15.0")
         #expect(configuration.supportedArchitectures == ["arm64", "x86_64"])
     }
 
