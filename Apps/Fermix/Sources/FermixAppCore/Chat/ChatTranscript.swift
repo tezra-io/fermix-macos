@@ -88,10 +88,17 @@ struct ChatTranscript: View {
         return reveal.terms
     }
 
-    /// The newest item changed or grew. A reader on the bottom edge is kept
-    /// there; one who scrolled away keeps their place.
+    /// The newest item changed or grew. Sending it carries the reader to the
+    /// bottom edge regardless of where they were reading, and once there the
+    /// turn it starts keeps following as it grows; otherwise a reader already
+    /// on the bottom edge is kept there, and one who scrolled away keeps their
+    /// place.
     private func follow(_ proxy: ScrollViewProxy) {
-        guard atBottom, let newest = items.last else { return }
+        guard let newest = items.last else { return }
+
+        let sent = newest.isPending
+        if sent { atBottom = true }
+        guard ChatFollow.follows(atBottom: atBottom, sent: sent) else { return }
 
         proxy.scrollTo(newest.id, anchor: .bottom)
     }
@@ -143,6 +150,17 @@ struct ChatTranscript: View {
         guard appearsActive, model.cursor > 0, visible.contains(.row(model.cursor)) else { return }
 
         session.newestRowSeen()
+    }
+}
+
+/// Whether the newest item's arrival carries the reader to the bottom edge.
+enum ChatFollow {
+    /// True once they sent it themselves: sending means they want to see it
+    /// and the reply that follows, wherever they were reading. Otherwise true
+    /// only when they were on the bottom edge already, so a row arriving
+    /// while they read up the transcript does not move them.
+    static func follows(atBottom: Bool, sent: Bool) -> Bool {
+        sent || atBottom
     }
 }
 

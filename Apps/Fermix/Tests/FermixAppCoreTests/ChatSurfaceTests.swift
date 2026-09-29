@@ -78,6 +78,18 @@ struct ChatSurfaceTests {
         #expect(ChatTimeline.opensNewTurn(after: turn, before: .approval(Self.approval, answering: false)) == true)
     }
 
+    // MARK: - Following the conversation
+
+    /// A reader on the bottom edge follows a new row; one who scrolled up to
+    /// read holds their place; sending follows regardless of where they were.
+    @Test("at bottom follows, scrolled up holds, and sending follows regardless")
+    func followRule() {
+        #expect(ChatFollow.follows(atBottom: true, sent: false) == true)
+        #expect(ChatFollow.follows(atBottom: false, sent: false) == false)
+        #expect(ChatFollow.follows(atBottom: false, sent: true) == true)
+        #expect(ChatFollow.follows(atBottom: true, sent: true) == true)
+    }
+
     // MARK: - Where a hit is
 
     @Test("a held hit is scrolled to, an older one is read towards, and one past the oldest page is not")
