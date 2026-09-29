@@ -1403,8 +1403,11 @@ every button carries a title or an accessibility label; every sheet has a cancel
     (`CHAT_AND_BROWSER_PLAN.md` §4.2 to §4.7) and the owner's choice of its shape A: the pane
     is where a person reads a link, and every task the engine runs keeps its managed Chrome.
     §5.8's "no web view" keeps its meaning for the retired hosted setup; this pane is the one
-    web view in the app, built in the GUI-only `FermixBrowser` target, and the floor moves to
-    macOS 15.2 so its https policy needs no second path.
+    web view in the app, built in the GUI-only `FermixBrowser` target. The floor stays macOS
+    15: raising it to 15.2 for the https navigation policy was reverted, because the Homebrew
+    cask's `depends_on macos:` cannot express a minor release, and a 15.2 floor would hand a
+    Mac still on 15.0 or 15.1 a `brew upgrade` bundle it refuses to open. The policy is set
+    behind `if #available(macOS 15.2, *)`, and below that WebKit's default stands in its place.
     - **Where it sits.** A third pane inside the frame, beside the body, 600pt wide
       (`WindowMetrics.browserPaneWidth`): the band runs over it, the body keeps its corners, so
       its top trailing corner now rounds where the body meets the pane, and it is still one
