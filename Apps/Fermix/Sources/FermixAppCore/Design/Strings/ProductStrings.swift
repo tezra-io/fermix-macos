@@ -666,7 +666,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case providerDetails = "provider.details"
     case providerSignOut = "provider.signOut"
     /// The key of a provider that signs in, kept behind its sign-in.
-    case providerUseKeyInstead = "provider.useKeyInstead"
 
     // Channels
     case channelStatusOff = "channel.status.off"

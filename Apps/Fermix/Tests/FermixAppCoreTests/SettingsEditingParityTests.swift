@@ -38,6 +38,20 @@ struct SettingsEditingParityTests {
         #expect(write.values[descriptor.key] == .list([]))
     }
 
+    /// A model row whose options are only suggestions is typed, with the
+    /// daemon's listing matching what is typed in its own dropdown; only a
+    /// row with no options at all goes to the paginated picker (owner,
+    /// 2026-09-28: no second popup for a model).
+    @Test("a suggested model row is typed with matching, and only an empty one opens the picker")
+    func suggestedModelRowIsTyped() throws {
+        let suggested = try #require(DescriptorCoverageTests.rows(inSection: "providers.openrouter")
+            .first { $0.key == "default_model" })
+
+        #expect(suggested.suggestions && !suggested.options.isEmpty)
+        #expect(suggested.modelRowForm == .typeahead)
+        #expect(!suggested.needsModelPicker)
+    }
+
     @Test("a provider with no discovered models still accepts a custom model ID")
     func customModelDoesNotRequireDiscovery() async throws {
         let gateway = try SettingsFixture.gateway()

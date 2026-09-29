@@ -302,29 +302,31 @@ public enum ProviderRowProjection {
     /// Which of a provider's own rows its detail draws in which block, so no
     /// key gets two controls (M34 §5.1).
     ///
-    /// The credential is the auth mode, where the daemon publishes one, and
-    /// every secret: choosing the key is what the mode row means, so the two
-    /// travel together. For a provider that signs in they sit behind one
-    /// disclosure under its sign-in; for a key-only provider they are the
-    /// detail's first block. Everything else is the provider's settings.
+    /// The mode is the daemon's "Sign in with" row, where it publishes one,
+    /// and it leads the connection: what it says decides whether the sign-in
+    /// doors or the secrets follow it (owner, 2026-09-28). The secrets are
+    /// every secret row, less the ones the chosen mode hides. Everything else
+    /// is the provider's settings.
     ///
     /// Read off each row's own shape and the one key the contract names, never
     /// a list of fields: which rows a provider publishes is the daemon's answer
     /// (M34 §7.7).
     ///
-    /// - Parameter hidden: the credentials the chosen auth mode hides, which is
+    /// - Parameter hidden: the secrets the chosen auth mode hides, which is
     ///   `SettingsModel.providerCredentialExclusions`.
     public static func detailBlocks(
         rows: [ManagementSettingRow],
         hidden: Set<String>
     ) -> ProviderDetailBlocks {
-        let credential = Set(rows.filter { $0.key == authModeKey || $0.kind == .secret }.map(\.key))
-        let settings = Set(rows.map(\.key)).subtracting(credential)
-
+        let mode = Set(rows.filter { $0.key == authModeKey }.map(\.key))
+        let secrets = Set(rows.filter { $0.kind == .secret }.map(\.key))
+        let settings = Set(rows.map(\.key)).subtracting(mode).subtracting(secrets)
         return ProviderDetailBlocks(
-            credentialExcluding: settings.union(hidden),
-            settingsExcluding: credential,
-            hasCredential: !credential.subtracting(hidden).isEmpty,
+            modeExcluding: secrets.union(settings),
+            secretExcluding: mode.union(settings).union(hidden),
+            settingsExcluding: mode.union(secrets),
+            hasMode: !mode.isEmpty,
+            hasSecret: !secrets.subtracting(hidden).isEmpty,
             hasSettings: !settings.isEmpty
         )
     }
@@ -411,15 +413,19 @@ public struct ProviderDoor: Equatable, Sendable {
 /// What each block of a provider's detail leaves out of the provider's one
 /// section, which is how the descriptor form is told what to draw.
 public struct ProviderDetailBlocks: Equatable, Sendable {
-    /// Left out of the credential block: every setting, and the credentials the
-    /// chosen auth mode hides.
-    public let credentialExcluding: Set<String>
-    /// Left out of the settings block: the credential, which has its own.
+    /// Left out of the mode block: everything but the daemon's auth mode row.
+    public let modeExcluding: Set<String>
+    /// Left out of the secret block: the mode, every setting, and the secrets
+    /// the chosen auth mode hides.
+    public let secretExcluding: Set<String>
+    /// Left out of the settings block: the mode and the secrets, which have
+    /// their own.
     public let settingsExcluding: Set<String>
-    /// Whether the credential block would draw anything. A provider that only
-    /// signs in publishes no key, and a disclosure over nothing is a control
-    /// that opens onto an empty row.
-    public let hasCredential: Bool
+    /// Whether the provider publishes a "Sign in with" row to lead with.
+    public let hasMode: Bool
+    /// Whether the secret block would draw anything. A provider that only
+    /// signs in publishes no key, and a block over nothing is an empty row.
+    public let hasSecret: Bool
     public let hasSettings: Bool
 }
 

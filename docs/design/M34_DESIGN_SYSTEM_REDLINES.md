@@ -854,9 +854,17 @@ and raises nothing (§5.8).
 api keys and sigin at the same level causes user to scroll"). The sign-in doors lead, as
 "Sign in with browser", "Import Claude Code sign-in", "Import Codex sign-in" and the
 "Setup token" row with its caption "Use a setup token to connect your Claude account."; the
-API key sits behind one collapsed disclosure, "Use an API key instead", which carries the
-daemon's auth mode row and the key's own secret row. A provider whose only way in is a key
-draws that secret row directly, focused. Then the provider's own descriptor rows, then
+API key sat behind one collapsed disclosure, "Use an API key instead", which carried the
+daemon's auth mode row and the key's own secret row; since 2026-09-28 (owner: "the hidden
+use api instead and inside that one more drop down is confusing") the daemon's "Sign in
+with" row leads the block instead, a subscription puts the sign-in doors under it and an API
+key puts the key's secret row there, and nothing waits behind a disclosure. A provider whose
+only way in is a key draws that secret row directly, focused. A model row whose options are
+only suggestions is one combo box (owner: "no second popup for the model, pattern matching
+in the same dropdown"): typing takes any model, its dropdown lists the daemon's suggestions
+until something is typed and then the models the daemon's listing matches to what was typed,
+and the row commits and reverts as a text row does. Only a row with no options at all keeps
+"Choose…" to the paginated listing. Then the provider's own descriptor rows, then
 "Sign out" and "Use as primary" beside "Done". Every provider's sheet fits the default
 window without scrolling, which a test measures.
 **Anthropic keeps all three doors whatever is selected or connected** (owner: "for claude,

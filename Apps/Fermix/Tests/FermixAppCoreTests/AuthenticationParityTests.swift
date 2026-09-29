@@ -23,7 +23,7 @@ struct AuthenticationParityTests {
     /// That door used to vanish on a Mac with no Claude Code sign-in, which left
     /// the detail with no sign-in in it and nothing to say one existed. It
     /// stays now, unavailable until the daemon detects one. The API key is the
-    /// third way in, and `detailBlocks` puts it behind the disclosure.
+    /// third way in, drawn when the daemon's "Sign in with" row says so.
     @Test("Claude's detail always draws its Claude Code sign-in, ready only once it is detected")
     func claudeReplacementActions() throws {
         let detected = ProviderRowProjection.detailDoors(
@@ -116,6 +116,12 @@ struct AuthenticationParityTests {
         // is the taller Claude, because the door that is not ready yet carries
         // a line saying what makes it ready.
         var claude: [CGFloat] = []
+        // Anthropic's doors are drawn under a subscription, which is where
+        // the unready door's caption is measured: the mode row decides what
+        // follows it (owner, 2026-09-28).
+        harness.gateway.providerSettings = try StatefulProviderSettings(section: "providers.anthropic")
+        await harness.model.loadSection("providers.anthropic")
+        #expect(await harness.model.apply(section: "providers.anthropic", key: "auth_mode", value: .text("oauth")))
         for detected in [false, true] {
             if detected { await harness.model.refreshDetections([.claudeCode, .codexCLI, .existingPrimary]) }
 
@@ -129,12 +135,12 @@ struct AuthenticationParityTests {
 
             for row in rows {
                 let shut = providerDetailHeight(row, keyStored: false, model: harness.model)
-                // A stored key opens the key door with the sheet, which is the
-                // tallest the detail gets.
+                // A stored key no longer moves the detail: the mode row says
+                // what is drawn, and a stored key is the same field.
                 let open = providerDetailHeight(row, keyStored: true, model: harness.model)
 
                 #expect(shut > 0, "\(row.id) measured nothing")
-                #expect(open >= shut, "\(row.id)")
+                #expect(open == shut, "\(row.id): the key's presence moved the detail")
                 #expect(open <= room, "\(row.id) needs \(open) points of a \(room)-point window")
                 if row.id == "anthropic" { claude.append(open) }
             }
@@ -152,14 +158,19 @@ struct AuthenticationParityTests {
             signingIn: nil,
             descriptorRows: harness.model.providerDescriptorRows(for: state.providers)
         )
-        // And the key door is really there to open on a provider that signs in,
-        // and really absent on one that only takes a key.
+        // The mode row is what changes the shape of a provider that signs in:
+        // a subscription draws its doors and an API key draws its key field,
+        // and the two are not the same height. A key-only provider has no
+        // mode row and draws its key either way.
         let signsIn = try #require(rows.first { $0.id == "xai" })
         let keyOnly = try #require(rows.first { $0.id == "openrouter" })
-        #expect(
-            providerDetailHeight(signsIn, keyStored: true, model: harness.model)
-                > providerDetailHeight(signsIn, keyStored: false, model: harness.model)
-        )
+        harness.gateway.providerSettings = try StatefulProviderSettings(section: "providers.xai")
+        await harness.model.loadSection("providers.xai")
+        #expect(await harness.model.apply(section: "providers.xai", key: "auth_mode", value: .text("api_key")))
+        let withKey = providerDetailHeight(signsIn, keyStored: false, model: harness.model)
+        #expect(await harness.model.apply(section: "providers.xai", key: "auth_mode", value: .text("oauth")))
+        let withDoors = providerDetailHeight(signsIn, keyStored: false, model: harness.model)
+        #expect(withKey > 0 && withDoors > 0 && withKey != withDoors, "key \(withKey), doors \(withDoors)")
         #expect(
             providerDetailHeight(keyOnly, keyStored: true, model: harness.model)
                 == providerDetailHeight(keyOnly, keyStored: false, model: harness.model)

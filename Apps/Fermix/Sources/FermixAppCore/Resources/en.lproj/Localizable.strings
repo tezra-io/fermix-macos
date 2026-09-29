@@ -789,5 +789,4 @@
 "provider.models.choose" = "Choose…";
 "provider.details" = "Details…";
 "provider.signOut" = "Sign out";
-"provider.useKeyInstead" = "Use an API key instead";
 "settings.voice.microphoneSection" = "Microphone";

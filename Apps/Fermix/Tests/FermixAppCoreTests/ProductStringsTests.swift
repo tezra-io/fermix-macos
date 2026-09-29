@@ -611,16 +611,15 @@ struct ProductStringsTests {
         #expect(ProductStrings[.providerVerifyAndSave] == "Verify and save")
     }
 
-    /// The key of a provider that signs in waits behind one disclosure. Its
-    /// title opens nothing new, so it carries no ellipsis: on the Mac an
-    /// ellipsis promises a window or a sheet, and this is neither.
-    @Test("the key door's title is a sentence-case line with no ellipsis")
-    func keyDoorTitle() {
-        let title = ProductStrings[.providerUseKeyInstead]
+    /// The setup token is a row label, so it is a noun phrase with no ellipsis:
+    /// on the Mac an ellipsis promises a window or a sheet, and a field is
+    /// neither.
+    @Test("the setup token's label is a sentence-case noun with no ellipsis")
+    func setupTokenLabel() {
+        let label = ProductStrings[.providerSetupTokenLabel]
 
-        #expect(title == "Use an API key instead")
-        #expect(!title.hasSuffix("…"))
-        #expect(ProductStrings[.providerSetupTokenLabel] == "Setup token")
+        #expect(label == "Setup token")
+        #expect(!label.hasSuffix("…"))
     }
 
     /// The line under Claude's sign-in while this Mac has none to adopt. It
