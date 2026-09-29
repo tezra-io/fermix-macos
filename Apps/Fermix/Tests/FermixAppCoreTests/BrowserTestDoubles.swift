@@ -46,6 +46,8 @@ final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
     func find(_ text: String) {}
     func zoom(_ zoom: BrowserZoom) {}
 
+    func waitUntilReady() async throws {}
+
     func snapshot(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot {
         snapshotRequests.append(request)
         return try snapshotResult.get()

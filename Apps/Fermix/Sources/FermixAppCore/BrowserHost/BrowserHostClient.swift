@@ -858,6 +858,8 @@ public final class BrowserHostClient {
             return BrowserHostError(reason: .invalidRequest, message: "fill_form stopped at \(ref): \(wireError(for: cause).message)")
         case .waitTimedOut:
             return BrowserHostError(reason: .waitTimeout, message: "the wait condition never became true")
+        case .navigationFailed(let reason):
+            return BrowserHostError(reason: .navigationRefused, message: reason)
         case .invalidRequest(let message):
             return BrowserHostError(reason: .invalidRequest, message: message)
         }

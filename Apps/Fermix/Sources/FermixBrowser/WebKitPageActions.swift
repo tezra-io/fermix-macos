@@ -24,11 +24,21 @@ final class WebKitPageActions {
     /// Set immediately before the click that opens a file chooser, so the
     /// page's own `runOpenPanelWith` delegate call knows what to answer.
     private let expectUpload: (String) -> Void
+    /// The page's own wait for a navigation in flight to finish, taken before
+    /// the after-snapshot so a click or a submit that starts one never reads
+    /// the page it just asked for mid-load.
+    private let waitUntilReady: @MainActor () async throws -> Void
 
-    init(webView: WKWebView, script: WebKitPageScript, expectUpload: @escaping (String) -> Void) {
+    init(
+        webView: WKWebView,
+        script: WebKitPageScript,
+        expectUpload: @escaping (String) -> Void,
+        waitUntilReady: @escaping @MainActor () async throws -> Void
+    ) {
         self.webView = webView
         self.script = script
         self.expectUpload = expectUpload
+        self.waitUntilReady = waitUntilReady
     }
 
     func perform(_ action: BrowserPageAction, observing request: BrowserSnapshotRequest) async throws -> BrowserActOutcome {
@@ -372,6 +382,7 @@ final class WebKitPageActions {
             guard let fingerprint = try? await fingerprint() else { return (.unobserved, before.url) }
             last = fingerprint
             if !last.isSamePage(as: before) {
+                guard (try? await waitUntilReady()) != nil else { return (.unobserved, last.url) }
                 guard let snapshot = try? await WebKitPageSnapshot(script: script).take(request) else {
                     return (.unobserved, last.url)
                 }

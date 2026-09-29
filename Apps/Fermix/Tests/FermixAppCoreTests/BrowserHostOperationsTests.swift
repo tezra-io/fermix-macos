@@ -390,6 +390,8 @@ private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, Browser
     func find(_ text: String) {}
     func zoom(_ zoom: BrowserZoom) {}
 
+    func waitUntilReady() async throws {}
+
     func snapshot(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot { .empty }
 
     func act(_ action: BrowserPageAction, observing request: BrowserSnapshotRequest) async throws -> BrowserActOutcome {

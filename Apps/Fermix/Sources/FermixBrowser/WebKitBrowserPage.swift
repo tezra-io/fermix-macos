@@ -20,6 +20,10 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     /// The path an in-flight `upload` action expects the next open panel to
     /// answer with; `runOpenPanelWith` below is the one reader.
     var pendingUploadPath: String?
+    /// Every call parked in `waitUntilReady()` for the navigation in flight
+    /// when it was made; `didFinish` and `didFail` are what resolve them
+    /// (`WebKitBrowserPage+Driving.swift` is the one caller).
+    var readyWaiters: [ReadyWaiter] = []
 
     init(configuration: WKWebViewConfiguration) {
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -101,6 +105,31 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         case .allow, .newTab, .cancel: return
         }
     }
+
+    /// Every waiter parked for the navigation that just finished or failed,
+    /// released at once and in the order they asked.
+    func resolveReadyWaiters(_ result: Result<Void, any Error>) {
+        let waiters = readyWaiters
+        readyWaiters = []
+        for waiter in waiters { waiter.finish(result) }
+    }
+}
+
+/// A `waitUntilReady()` call parked on the navigation in flight: finishes
+/// once, with the delegate's own answer or the timeout, whichever comes
+/// first, the same shape as `WebKitPageScript`'s own pending call.
+@MainActor
+final class ReadyWaiter {
+    var continuation: CheckedContinuation<Void, any Error>?
+    var timer: Task<Void, Never>?
+
+    func finish(_ result: Result<Void, any Error>) {
+        guard let continuation else { return }
+
+        self.continuation = nil
+        timer?.cancel()
+        continuation.resume(with: result)
+    }
 }
 
 // MARK: - Navigation
@@ -138,12 +167,28 @@ extension WebKitBrowserPage: WKNavigationDelegate {
         decisionHandler(decision == .allow ? .allow : .cancel)
     }
 
+    /// The navigation every `waitUntilReady()` call was parked on.
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        resolveReadyWaiters(.success(()))
+    }
+
     /// A load that never reached a page says why, in the system's own words.
-    /// A navigation the person or the policy cancelled is not a failure.
+    /// A navigation the person or the policy cancelled is not a failure: a
+    /// fresh one superseded it, and that one's own `didFinish` is still ahead.
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
         guard !Self.wasCancelled(error) else { return }
 
         events?.pageFailed(error.localizedDescription)
+        resolveReadyWaiters(.failure(BrowserPageDriveError.navigationFailed(error.localizedDescription)))
+    }
+
+    /// A load that reached the page but failed once committed (a resource the
+    /// main frame needed never arrived).
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        guard !Self.wasCancelled(error) else { return }
+
+        events?.pageFailed(error.localizedDescription)
+        resolveReadyWaiters(.failure(BrowserPageDriveError.navigationFailed(error.localizedDescription)))
     }
 
     private static func isAttachment(_ response: URLResponse) -> Bool {

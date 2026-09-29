@@ -203,8 +203,13 @@ public indirect enum BrowserPageDriveError: Error, Equatable, Sendable {
     case script(String)
     /// A `fill_form` stopped at a field; the ones before it were filled.
     case formStopped(at: Int, filled: [BrowserFieldReceipt], cause: BrowserPageDriveError)
-    /// A `wait` act's condition never became true within its own timeout.
+    /// A `wait` act's condition never became true within its own timeout, or
+    /// a snapshot's own wait for the page to finish loading ran out first.
     case waitTimedOut
+    /// The navigation a snapshot or an explicit `page.snapshot` was waiting
+    /// on failed before it read the page, in the system's own sentence
+    /// (`BrowserPageEvents.pageFailed`'s reason).
+    case navigationFailed(String)
     /// The request's fields do not fit its kind (plan §4.8's `invalid_request`).
     case invalidRequest(String)
 
@@ -238,7 +243,17 @@ public protocol BrowserPageActing: AnyObject {
     func act(_ action: BrowserPageAction, observing request: BrowserSnapshotRequest) async throws -> BrowserActOutcome
 }
 
-public typealias BrowserPageDriving = BrowserPageReading & BrowserPageActing
+/// The one wait an observe snapshot, an explicit `page.snapshot` and an act's
+/// after-snapshot all share, so none of them ever reads a page still loading:
+/// a page with a navigation in flight defers until it finishes, throwing the
+/// reported reason if it fails instead, bounded so a page that never answers
+/// never hangs a caller. A page with nothing in flight answers at once.
+@MainActor
+public protocol BrowserPageReadiness: AnyObject {
+    func waitUntilReady() async throws
+}
+
+public typealias BrowserPageDriving = BrowserPageReading & BrowserPageActing & BrowserPageReadiness
 
 /// A capture of a tab's page, taken for `page.screenshot` or `page.pdf`.
 public struct BrowserPageCapture: Equatable, Sendable {
