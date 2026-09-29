@@ -50,8 +50,15 @@ public final class WebKitBrowserEngine: BrowserEngine {
     private func configuration(for profile: BrowserProfile) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = profile == .shared ? sharedStore : .nonPersistent()
+        // Unconditional: available since macOS 11.3, well under the floor.
         configuration.upgradeKnownHostsToHTTPS = true
-        configuration.defaultWebpagePreferences.preferredHTTPSNavigationPolicy = .userMediatedFallbackToHTTP
+        // `preferredHTTPSNavigationPolicy` is macOS 15.2. The floor stays 15.0
+        // (the Homebrew cask cannot express a minor release), so on 15.0 and
+        // 15.1 the policy is left at WebKit's own default rather than raising
+        // the floor for this one property.
+        if #available(macOS 15.2, *) {
+            configuration.defaultWebpagePreferences.preferredHTTPSNavigationPolicy = .userMediatedFallbackToHTTP
+        }
         configuration.preferences.isFraudulentWebsiteWarningEnabled = true
 
         return configuration
