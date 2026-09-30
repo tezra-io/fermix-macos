@@ -143,6 +143,9 @@ struct UnixSocketManagementTransportTests {
     /// starts, and the short one has its answer long before the long one ends.
     /// The margins are wide so a loaded machine cannot fail it: queued behind
     /// the long one, the short one would wait the whole ten seconds.
+    /// The wait for the slow request to reach the peer is only setup, so it is
+    /// wider still: at five seconds a loaded CI runner missed it twice on one
+    /// commit while the same run passed elsewhere (2026-09-30).
     @Test("a slow exchange does not hold the next one")
     func exchangesRunSideBySide() async throws {
         let peer = try ManagementSocketTestPeer(behavior: .silence)
@@ -150,8 +153,8 @@ struct UnixSocketManagementTransportTests {
 
         let transport = UnixSocketManagementTransport(socketPath: peer.path, limits: limits)
         let payload = Data(#"{"a":1}"#.utf8)
-        _ = Task { try await transport.exchange(payload, timeout: .seconds(10)) }
-        try #require(peer.requestPayload(timeout: 5) != nil, "the slow exchange never reached the peer")
+        _ = Task { try await transport.exchange(payload, timeout: .seconds(30)) }
+        try #require(peer.requestPayload(timeout: 20) != nil, "the slow exchange never reached the peer")
 
         let started = ContinuousClock.now
         await #expect(throws: ManagementTransportFailure.timedOut(after: .milliseconds(200))) {
