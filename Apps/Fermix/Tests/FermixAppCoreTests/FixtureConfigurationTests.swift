@@ -412,14 +412,17 @@ struct FixtureConfigurationTests {
 
     /// The params one method is asked with.
     ///
-    /// Three methods are keyed on their params, because the contract publishes
-    /// more than one golden for each: `settings.get` answers per section, and
-    /// `secret.set` and `secret.clear` answer per secret, so asking any of them
-    /// with none would be asking for something the contract does not publish.
-    /// Every other method answers one shape.
+    /// Five methods are keyed on their params, because the contract publishes
+    /// more than one golden for each: `settings.get` answers per section,
+    /// `settings.apply` per key it changes, `job.get` per job, and `secret.set` and `secret.clear`
+    /// answer per secret, so asking any of them with none would be asking for
+    /// something the contract does not publish. Every other method answers one
+    /// shape.
     static func params(for method: ManagementMethod) -> [String: Any] {
         switch method {
         case .settingsGet: return ["section": "realtime"]
+        case .settingsApply: return ["section": "realtime", "values": ["realtime_enabled": true]]
+        case .jobGet: return ["job_id": "job:2Kd9mQ"]
         case .secretSet, .secretClear: return ["id": "openai_api_key"]
         default: return [:]
         }

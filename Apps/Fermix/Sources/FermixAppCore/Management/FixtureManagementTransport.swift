@@ -71,7 +71,7 @@ struct FixtureManagementTransport: ManagementTransport {
         let result = try Self.resolve(
             published,
             method: method,
-            params: frame["params"] as? [String: Any] ?? [:]
+            params: Self.selectable(method: method, params: frame["params"] as? [String: Any] ?? [:])
         )
 
         // The daemon commits the shutdown and then answers, in that order.
@@ -247,7 +247,7 @@ struct FixtureManagementTransport: ManagementTransport {
 
     /// The request params a record answers for, read from the answer itself.
     ///
-    /// Three methods publish more than one golden, and each result names the
+    /// Five methods publish more than one golden, and each result names the
     /// request it answers under its own key: `settings.get` answers per section
     /// (`id` is the section), and `secret.set` and `secret.clear` answer per
     /// secret (`id` is the secret). Reading it off the answer keeps the selector
@@ -256,7 +256,19 @@ struct FixtureManagementTransport: ManagementTransport {
     /// joins this switch, which is what `secret.clear` did when the sandbox
     /// environment family gave it one.
     static func selector(method: String, result: Any) -> [String: String] {
-        guard let identifier = (result as? [String: Any])?["id"] as? String else { return [:] }
+        let object = result as? [String: Any]
+        // `settings.apply` answers per key it changed: its answer lists them
+        // under `applied`, and the request names them under `values`.
+        if method == ManagementMethod.settingsApply.rawValue {
+            guard let applied = (object?["applied"] as? [String])?.sorted().first else { return [:] }
+            return ["applied": applied]
+        }
+        // `job.get` answers per job: its answer names the job under `job_id`.
+        if method == ManagementMethod.jobGet.rawValue {
+            guard let job = object?["job_id"] as? String else { return [:] }
+            return ["job_id": job]
+        }
+        guard let identifier = object?["id"] as? String else { return [:] }
 
         switch method {
         case ManagementMethod.settingsGet.rawValue:
@@ -266,6 +278,18 @@ struct FixtureManagementTransport: ManagementTransport {
         default:
             return [:]
         }
+    }
+
+    /// The request params as a record's selector reads them: `settings.apply`
+    /// names the first key it changes under `applied`, the way its answer does.
+    private static func selectable(method: String, params: [String: Any]) -> [String: Any] {
+        guard method == ManagementMethod.settingsApply.rawValue,
+              let values = params["values"] as? [String: Any],
+              let first = values.keys.sorted().first
+        else { return params }
+        var selectable = params
+        selectable["applied"] = first
+        return selectable
     }
 
     /// Which record answers this request.

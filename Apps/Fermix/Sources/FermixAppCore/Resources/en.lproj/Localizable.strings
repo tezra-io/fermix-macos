@@ -548,6 +548,8 @@
 "settings.pane.codingAgents" = "Coding agents";
 "settings.pane.search" = "Search";
 "settings.pane.images" = "Images";
+"settings.pane.browser" = "Browser";
+"settings.pane.secrets" = "Secrets";
 "settings.pane.sandbox" = "Sandbox";
 "settings.pane.permissions" = "Permissions";
 
@@ -563,6 +565,8 @@
 "settings.keywords.codingAgents" = "harness delegate command line tools";
 "settings.keywords.search" = "web places brave tavily duckduckgo";
 "settings.keywords.images" = "picture generation render backend";
+"settings.keywords.browser" = "tabs profile hosts chrome chromium download";
+"settings.keywords.secrets" = "keychain file store password";
 "settings.keywords.sandbox" = "commands environment permissions strict";
 "settings.keywords.permissions" = "microphone screen accessibility login items";
 

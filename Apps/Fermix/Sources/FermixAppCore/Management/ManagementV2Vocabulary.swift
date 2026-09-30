@@ -25,7 +25,9 @@ public enum ManagementSettingsPane: ManagementVocabulary {
     case codingAgents
     case search
     case images
+    case browser
     case sandbox
+    case secrets
     case permissions
     case unrecognized(String)
 
@@ -41,7 +43,9 @@ public enum ManagementSettingsPane: ManagementVocabulary {
         "coding": .codingAgents,
         "search": .search,
         "images": .images,
+        "browser": .browser,
         "sandbox": .sandbox,
+        "secrets": .secrets,
         "permissions": .permissions
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
@@ -126,6 +130,7 @@ public enum ManagementJobKind: ManagementVocabulary, Hashable {
     case capabilityInstall
     case meetingsSignin
     case computerUseGrant
+    case browserInstall
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -138,7 +143,8 @@ public enum ManagementJobKind: ManagementVocabulary, Hashable {
         "plugin_workspace_select": .pluginWorkspaceSelect,
         "capability_install": .capabilityInstall,
         "meetings_signin": .meetingsSignin,
-        "computer_use_grant": .computerUseGrant
+        "computer_use_grant": .computerUseGrant,
+        "browser_install": .browserInstall
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
     public var unrecognizedValue: String? {

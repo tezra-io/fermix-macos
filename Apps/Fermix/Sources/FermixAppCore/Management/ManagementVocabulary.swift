@@ -92,6 +92,7 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case meetingsSigninStart = "meetings.signin.start"
     case computerUseGrantStart = "computer_use.grant.start"
     case computerUsePermissionsGet = "computer_use.permissions.get"
+    case browserInstallStart = "browser.install.start"
     // The phone channel (engine 534a5858, 2026-09-27): a pairing session is
     // polled rather than a job, and the paired-phone list is read and revoked.
     case mobileStatus = "mobile.status"

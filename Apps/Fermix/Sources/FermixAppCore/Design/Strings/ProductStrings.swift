@@ -517,6 +517,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsPaneCodingAgents = "settings.pane.codingAgents"
     case settingsPaneSearch = "settings.pane.search"
     case settingsPaneImages = "settings.pane.images"
+    case settingsPaneBrowser = "settings.pane.browser"
+    case settingsPaneSecrets = "settings.pane.secrets"
     case settingsPaneSandbox = "settings.pane.sandbox"
     case settingsPanePermissions = "settings.pane.permissions"
 
@@ -532,6 +534,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsKeywordsCodingAgents = "settings.keywords.codingAgents"
     case settingsKeywordsSearch = "settings.keywords.search"
     case settingsKeywordsImages = "settings.keywords.images"
+    case settingsKeywordsBrowser = "settings.keywords.browser"
+    case settingsKeywordsSecrets = "settings.keywords.secrets"
     case settingsKeywordsSandbox = "settings.keywords.sandbox"
     case settingsKeywordsPermissions = "settings.keywords.permissions"
 

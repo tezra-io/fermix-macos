@@ -311,9 +311,10 @@ public enum ManagementPairingAttestationStatus: ManagementVocabulary {
 public enum ManagementMobileListenerStatus: ManagementVocabulary {
     case ready
     case down
+    case unavailable
     case unrecognized(String)
 
-    public static let publishedValues: [String: Self] = ["ready": .ready, "down": .down]
+    public static let publishedValues: [String: Self] = ["ready": .ready, "down": .down, "unavailable": .unavailable]
 
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
 

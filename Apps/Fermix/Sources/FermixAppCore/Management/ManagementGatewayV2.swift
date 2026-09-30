@@ -189,6 +189,10 @@ extension ManagementGateway {
         try await negotiated().startComputerUseGrant()
     }
 
+    public func startBrowserInstall() async throws -> ManagementJob {
+        try await negotiated().startBrowserInstall()
+    }
+
     public func computerUsePermissions() async throws -> ManagementComputerUsePermissions {
         try await negotiated().computerUsePermissions()
     }

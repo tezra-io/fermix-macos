@@ -83,6 +83,7 @@ public protocol DaemonQuerying: Sendable {
     func startCapabilityInstall(target: ManagementCapabilityTarget) async throws -> ManagementJob
     func startMeetingsSignIn() async throws -> ManagementJob
     func startComputerUseGrant() async throws -> ManagementJob
+    func startBrowserInstall() async throws -> ManagementJob
     func computerUsePermissions() async throws -> ManagementComputerUsePermissions
     func mobileStatus() async throws -> ManagementMobileStatus
     func startPairing() async throws -> ManagementPairingStart
@@ -211,7 +212,7 @@ public enum ManagementMessage {
 
     /// The daemon's own words for a structured refusal.
     ///
-    /// `message` is fixed per code. Two codes cover a whole family of distinct
+    /// `message` is fixed per code. Three codes cover a whole family of distinct
     /// refusals and carry the sentence that separates them in `details.sentence`
     /// — `invalid_params` (`This provider has no browser sign-in.`, `A secret
     /// cannot be empty.`, every settings validation) and `config_unreadable`
@@ -219,7 +220,7 @@ public enum ManagementMessage {
     /// the operator has to read; everywhere else `message` already is.
     private static func daemonSentence(_ failure: ManagementFailure) -> String {
         switch failure.code {
-        case .invalidParams, .configUnreadable:
+        case .invalidParams, .configUnreadable, .unavailable:
             guard let sentence = failure.details.sentence, !sentence.isEmpty else {
                 return failure.message
             }

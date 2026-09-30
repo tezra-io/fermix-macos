@@ -209,7 +209,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 85, "every success record was decoded")
+        #expect(seen.count == 91, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -282,7 +282,7 @@ struct ManagementV2FixtureTests {
     /// The sentence an operator is shown for a daemon refusal is the daemon's
     /// own, for every error record the contract publishes.
     ///
-    /// `message` is fixed per code, and two codes carry the sentence that says
+    /// `message` is fixed per code, and three codes carry the sentence that says
     /// what actually happened in `details.sentence`. Rendering `message` alone
     /// showed `Request parameters are invalid.` for the whole `invalid_params`
     /// family — every settings validation, `This provider has no browser
@@ -306,7 +306,7 @@ struct ManagementV2FixtureTests {
             carried += 1
         }
 
-        #expect(carried == 2, "the contract publishes a detail sentence for two codes")
+        #expect(carried == 3, "the contract publishes a detail sentence for three codes")
     }
 
     /// The two codes that carry one, by name, so the accessor cannot quietly
@@ -496,7 +496,7 @@ struct ManagementV2FixtureTests {
     @Test("no job kind is doctor, in the schema or in the app")
     func doctorIsNotAJobKind() throws {
         #expect(ManagementJobKind.publishedValues["doctor"] == nil)
-        #expect(ManagementJobKind.publishedValues.count == 10)
+        #expect(ManagementJobKind.publishedValues.count == 11)
 
         let jobs: ManagementJobList = try FakeDaemonGateway.fixtureResult(
             named: "job_list",

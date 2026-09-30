@@ -20,37 +20,37 @@
         "maximum": 2
       },
       "committed_upstream": true,
-      "provenance_note": "Re-pinned on 2026-09-29 at fcd1f6b7, the commit the v0.12.0 release was built from, which the app now ships: every file is byte for byte the previous provenance's, proven with verify_protocol_contract.sh --source against that commit. Taken from the fermix repository at 2aee1697 on dev, the tip after the first-boot seeding change and the provider-golden fix; origin carries that branch, so committed_upstream is true. Since 3f5b6afd, the previous provenance, five engine commits moved this export. The phone channel arrived on the protocol: seven methods under minimum version 2 (mobile.status, mobile.pair.start, mobile.pair.get, mobile.pair.decide, mobile.pair.cancel, mobile.devices.list, mobile.devices.revoke), one error code (unknown_pairing_session), the channels.mobile settings section, and a mobile channel row after the inventory channels in setup.state.get, each with its golden. A text value that names something is one line: settings.apply trims it and refuses a line break, because config.toml strings are TOML basic strings. default_model is the model in force, never the config value alone: the provider row in setup.state.get, the Model row of its settings section and provider.model in overview.get carry the configured model or the catalog default, so the goldens' unconfigured rows name a model where they carried null or an empty value. And readiness no longer gates on personalization: the daemon's first boot seeds it from the machine (the system time zone, the account's full name, a default style), so provider failures alone gate, the personalization failure is advisory, and the setup_state_get golden is a ready home with two advisory rows where it carried a gating one; the app derives the gated and first-run machines it is looked at on from that golden. Protocol 2 on the 1 to 2 window, unchanged: every addition is a method under a minimum, a field inside a row that exists, or a readiness flag the client already reads. At 2aee1697 the four provider settings goldens whose Model options lagged the catalog were regenerated from it, so every golden choice row holds one of its own options, and the engine's contract test now holds them there.",
+      "provenance_note": "Re-vendored on 2026-09-29 at fcd1f6b7, the commit the v0.12.0 release was built from, which the app now ships. Since 2aee1697: the browser settings section (browser_executable, read-only, naming the browser the launcher would start or carrying its refusal in the footer; browser_default_profile with the managed profile names fermix, fermix_headless and fermix_visible; browser_max_tabs; browser_allowed_hosts replacing the whole list; every row restart false) and browser.install.start, a job of kind browser_install with phases sidecar_downloading and downloading under a 900000 ms budget that completes with installed and the browser's name; the secrets section with the closed choice secret_store, keyring or file, applied at once; mobile.status carrying the refusal class, listener.reason and the push state, devices listed and revoked while the channel is not running, and the pairing verbs refusing a caller that is not the owner with a sentence, which unavailable now carries as details.sentence. New goldens: settings_apply_browser, browser_install_start, job.get for a browser download completed and failed, unavailable_owner_decision; the provider settings goldens moved with their catalog. Protocol 2 on the 1 to 2 window, unchanged. Before that: Taken from the fermix repository at 2aee1697 on dev, the tip after the first-boot seeding change and the provider-golden fix; origin carries that branch, so committed_upstream is true. Since 3f5b6afd, the previous provenance, five engine commits moved this export. The phone channel arrived on the protocol: seven methods under minimum version 2 (mobile.status, mobile.pair.start, mobile.pair.get, mobile.pair.decide, mobile.pair.cancel, mobile.devices.list, mobile.devices.revoke), one error code (unknown_pairing_session), the channels.mobile settings section, and a mobile channel row after the inventory channels in setup.state.get, each with its golden. A text value that names something is one line: settings.apply trims it and refuses a line break, because config.toml strings are TOML basic strings. default_model is the model in force, never the config value alone: the provider row in setup.state.get, the Model row of its settings section and provider.model in overview.get carry the configured model or the catalog default, so the goldens' unconfigured rows name a model where they carried null or an empty value. And readiness no longer gates on personalization: the daemon's first boot seeds it from the machine (the system time zone, the account's full name, a default style), so provider failures alone gate, the personalization failure is advisory, and the setup_state_get golden is a ready home with two advisory rows where it carried a gating one; the app derives the gated and first-run machines it is looked at on from that golden. Protocol 2 on the 1 to 2 window, unchanged: every addition is a method under a minimum, a field inside a row that exists, or a readiness flag the client already reads. At 2aee1697 the four provider settings goldens whose Model options lagged the catalog were regenerated from it, so every golden choice row holds one of its own options, and the engine's contract test now holds them there.",
       "files": [
         {
           "path": "management/PROTOCOL.md",
           "source_path": "apps/fermix_core/priv/management/PROTOCOL.md",
-          "sha256": "53e7da8d06f1e135e8a1fcf6aa161a1993deb2ab72dc5b5050633f1aaa0394cf"
+          "sha256": "27b9775c7103de155386753d49cd363db255747186e62a7861c25b579dd52de3"
         },
         {
           "path": "management/protocol.schema.json",
           "source_path": "apps/fermix_core/priv/management/protocol.schema.json",
-          "sha256": "2bbe7a603058cc1976e9947b67e18e1c305e8abf770ff950d35e739c2bf8b27e"
+          "sha256": "be3c75a5c79551d8ee16cf7609d334690a5d8a25d9c265aa02f627e2cdf82b12"
         },
         {
           "path": "management/fixtures/compatibility.jsonl",
           "source_path": "apps/fermix_core/priv/management/fixtures/compatibility.jsonl",
-          "sha256": "042f1571ec5b04dc8f99d54486e1fd4346437f34a8455aa8f5beb715fa717806"
+          "sha256": "9ec4d36c04165334ba6686b59ceea834a65da4d609c1a4c42a46cc89114644ac"
         },
         {
           "path": "management/fixtures/errors.jsonl",
           "source_path": "apps/fermix_core/priv/management/fixtures/errors.jsonl",
-          "sha256": "8cf822a842744b1ba819ebde9af60c25211d4252212044a391cd742aff058427"
+          "sha256": "39a189304e956d4f601d151585b895400f73a6a0dc4f049e11bbebf98d186637"
         },
         {
           "path": "management/fixtures/requests.jsonl",
           "source_path": "apps/fermix_core/priv/management/fixtures/requests.jsonl",
-          "sha256": "0a12d80ee9a98b8146fd4f82a29132698518ca811fff21193f1f0346196e6b30"
+          "sha256": "27f775cf80609f2bb96d30dd14e5c46916a5260840dbb4c1835df208137c6032"
         },
         {
           "path": "management/fixtures/success.jsonl",
           "source_path": "apps/fermix_core/priv/management/fixtures/success.jsonl",
-          "sha256": "49e3a096198aeaa9d66f0a284b5722fcfcf105c566401d96a91a0e6331d9ac77"
+          "sha256": "89cc5e939a98b27e89d822119d01856c7943bb30e78738b17598401be209bebb"
         }
       ]
     },
@@ -65,12 +65,12 @@
         "maximum": 2
       },
       "committed_upstream": true,
-      "provenance_note": "Re-pinned on 2026-09-29 at fcd1f6b7, the commit the v0.12.0 release was built from, which the app now ships: every file is byte for byte the previous provenance's, proven with verify_protocol_contract.sh --source against that commit. Taken from the same commit, 2aee1697 on dev; every file is byte for byte the 3f5b6afd pin's, the previous provenance. One file changed since f9ff0152, the v0.11.0 release the app pins and the previous provenance: PROTOCOL.md gains twelve lines from the engine's Live relay fix. Live publishes no turn boundaries, so the daemon now reads the turn from the audio it relays and sends state thinking once the microphone, having carried speech, has been quiet for a moment with no reply started, and state listening once a reply's audio has had time to play out, both for the pet's presentation only, and the Live call sequence shows those two frames; and because Live cannot cancel a reply, an interrupt stops it at the relay, where the daemon answers playback_stop and state listening and forwards none of the rest of that reply. The schema and both fixture files are byte for byte v0.11.0's: thinking and listening were already documented state values and interrupt and playback_stop already frames, which the daemon now sends in more places, so the protocol stays 2 on the 1 to 2 window. Protocol 2 is the one that added the frames the Live engine needs: task_cancel from the pet, call_ready, caption and task from the daemon, the Live fields on usage, and kind, detail and required_for on error. The window is 1 to 2, so a pet speaking 1 still runs the Realtime engine against this daemon.",
+      "provenance_note": "Re-vendored on 2026-09-29 at fcd1f6b7, the commit the v0.12.0 release was built from, which the app now ships. Since 2aee1697 PROTOCOL.md alone changed: a Client audio section (24 kHz mono PCM16 in 100 ms chunks from listening to the end of the call, silence included, voice processing on the client's side, channel 0 of a multichannel microphone), and the Live relay reading thinking from Live's own recognition rather than the microphone, with words heard during a reply or for 2 s after it taken as its echo, and Live's output carrying digital silence between replies so a pet reads speaking from state and from the voice in the audio, never from audio merely arriving. The schema and both fixture files are byte for byte the previous pin's. Protocol 2 on the 1 to 2 window, unchanged. Before that: Taken from the same commit, 2aee1697 on dev; every file is byte for byte the 3f5b6afd pin's, the previous provenance. One file changed since f9ff0152, the v0.11.0 release the app pins and the previous provenance: PROTOCOL.md gains twelve lines from the engine's Live relay fix. Live publishes no turn boundaries, so the daemon now reads the turn from the audio it relays and sends state thinking once the microphone, having carried speech, has been quiet for a moment with no reply started, and state listening once a reply's audio has had time to play out, both for the pet's presentation only, and the Live call sequence shows those two frames; and because Live cannot cancel a reply, an interrupt stops it at the relay, where the daemon answers playback_stop and state listening and forwards none of the rest of that reply. The schema and both fixture files are byte for byte v0.11.0's: thinking and listening were already documented state values and interrupt and playback_stop already frames, which the daemon now sends in more places, so the protocol stays 2 on the 1 to 2 window. Protocol 2 is the one that added the frames the Live engine needs: task_cancel from the pet, call_ready, caption and task from the daemon, the Live fields on usage, and kind, detail and required_for on error. The window is 1 to 2, so a pet speaking 1 still runs the Realtime engine against this daemon.",
       "files": [
         {
           "path": "realtime/PROTOCOL.md",
           "source_path": "apps/fermix_core/priv/realtime/PROTOCOL.md",
-          "sha256": "02eeb6f841f10b7ccfac1098626fc874cadc2747e4315b87dbc38e01460d8d6c"
+          "sha256": "511e9acc511193bd5d68902945c5e7e27e65e0a2ee35c261df6b4fd27a16729e"
         },
         {
           "path": "realtime/protocol.schema.json",
@@ -100,17 +100,17 @@
         "maximum": 1
       },
       "committed_upstream": true,
-      "provenance_note": "Re-pinned on 2026-09-29 at fcd1f6b7, the commit the v0.12.0 release was built from, which the app now ships: every file is byte for byte the previous provenance's, proven with verify_protocol_contract.sh --source against that commit. Taken from the same commit, 2aee1697 on dev; first pinned at 3f5b6afd, the merge commit of engine pull request #90. Since then PROTOCOL.md gained one refusal, unidentified_client, closed: before it reads a line the daemon asks the kernel which process connected, a turn from a process the daemon itself started or from a detached one with no terminal runs unattended, and a connection whose process it cannot identify is refused; the schema and both fixture files are unchanged. The companion chat wire is newline-delimited JSON on companion.sock in the Fermix home, mode 0600, at most four connections, opened by the same one-shot client_hello and server_hello handshake as the realtime socket, and it carries the chat vocabulary the mobile wire already speaks (msg, command, accepted, the turn's text_delta, tool_event, text_done and turn_error, approval and approval_resolved, read_state) plus cancel naming its request, history_search with search_results, a row announcement for every timeline row written outside a turn's completion, and a backward cursor on history_pull and history_page. The timeline, its server_seq numbering and its read frontier are the ones the phone shares, msg and command are at least once behind a durable accepted receipt keyed on client_msg_id, and the protocol is 1 on the 1 to 1 window.",
+      "provenance_note": "Re-vendored on 2026-09-29 at fcd1f6b7, the commit the v0.12.0 release was built from, which the app now ships. Since 2aee1697: a history message may carry link_previews (url, site, title, optional description and image_ref, at most four, the key present only with one); every sequence field is bounded to u64; tool_event.detail and turn_error.message are capped at 512 bytes; a history_page is kept to about 60 KiB and never empty while a row exists, with its cursor naming the last row sent; read_state never passes the newest row; cancel and read_state are honoured whichever client sent the request; and the phones hear this socket's rows as their own. One golden more: approval_resolved with outcome expired. Protocol 1 on the 1 to 1 window, unchanged. Before that: Taken from the same commit, 2aee1697 on dev; first pinned at 3f5b6afd, the merge commit of engine pull request #90. Since then PROTOCOL.md gained one refusal, unidentified_client, closed: before it reads a line the daemon asks the kernel which process connected, a turn from a process the daemon itself started or from a detached one with no terminal runs unattended, and a connection whose process it cannot identify is refused; the schema and both fixture files are unchanged. The companion chat wire is newline-delimited JSON on companion.sock in the Fermix home, mode 0600, at most four connections, opened by the same one-shot client_hello and server_hello handshake as the realtime socket, and it carries the chat vocabulary the mobile wire already speaks (msg, command, accepted, the turn's text_delta, tool_event, text_done and turn_error, approval and approval_resolved, read_state) plus cancel naming its request, history_search with search_results, a row announcement for every timeline row written outside a turn's completion, and a backward cursor on history_pull and history_page. The timeline, its server_seq numbering and its read frontier are the ones the phone shares, msg and command are at least once behind a durable accepted receipt keyed on client_msg_id, and the protocol is 1 on the 1 to 1 window.",
       "files": [
         {
           "path": "companion/PROTOCOL.md",
           "source_path": "apps/fermix_core/priv/companion/PROTOCOL.md",
-          "sha256": "e1dddc1df7d3dcb9cf037ab7ab1a49fa6207344e6b4b8cc026694110988af7ab"
+          "sha256": "3d7da3eb0233d3ce34a4e6ac6b85f0fc451aec223a46e6b834e97ebaf49a10f2"
         },
         {
           "path": "companion/protocol.schema.json",
           "source_path": "apps/fermix_core/priv/companion/protocol.schema.json",
-          "sha256": "9127ad772ae9cff9b11dc796534c51ce6ebfc157634b2f54b0e3c07adb1c5ad6"
+          "sha256": "3394f1e01f441b8881ed8a66e396b16bb78202ab18195eccbc693c984e204df7"
         },
         {
           "path": "companion/fixtures/client_events.jsonl",
@@ -120,7 +120,7 @@
         {
           "path": "companion/fixtures/server_events.jsonl",
           "source_path": "apps/fermix_core/priv/companion/fixtures/server_events.jsonl",
-          "sha256": "aee91bd809e383a0deebb75b32798f264f2b75d8f5718335301cdc3e699ff1de"
+          "sha256": "903f22c35a85e56fc8df501f28f2be1bfb4ce32c0a88d3c6207fa4d5c96a1e8f"
         }
       ]
     },
@@ -135,22 +135,22 @@
         "maximum": 1
       },
       "committed_upstream": true,
-      "provenance_note": "Re-pinned on 2026-09-29 at fcd1f6b7, the commit the v0.12.0 release was built from, which the app now ships: every file is byte for byte the previous provenance's, proven with verify_protocol_contract.sh --source against that commit. Taken from the fermix repository at a6b19b490e1738d5013795f2fd6c94aeaa860d53, the tip of pull request #94 (feat/browser-host-wire) as of 2026-09-27, since merged: v0.12.0 carries these same bytes. Since the previous pin, 7f87896aee5b5939fba47ad003af215b0eec5b1f, the branch gained one host event: task.cancel { task_id, reason }, sent by the app when the person cancels a task from its own tab in the pane. The daemon tells that task it was cancelled (failing its in-flight request, if any), writes its task.release behind that request exactly as on a quit mid-task, reaps the task with a cancelled sentence, and marks its turn so the turn's later browser calls answer the same sentence instead of running on Chrome; no other task on the connection is touched. The browser host wire is newline-delimited JSON on browser_host.sock in the Fermix home, mode 0600, and direction is reversed from the other three wires: once the app has completed the client_hello/server_hello handshake and sent attached, the daemon is the one asking, with a numbered id per request, and the app answers ok or error or sends its own unsolicited events (attached, availability, tab.closed, dialog.opened, download.began/progress/finished, host_stopping). The verbs are the engine's own browser vocabulary rather than a CDP imitation: tab.open, tab.navigate, tab.list, tab.focus, tab.close, task.release, task.cancel; page.snapshot answering the accessibility node list browser/snapshot.ex renders, page.screenshot and page.pdf answering a workspace path; page.act's ten kinds (click, fill, fill_form, type, submit, press, hover, get, wait, click_coords) and page.upload; dialog.resolve; cookies.get and cookies.clear, metadata only, never a cookie's value; host.status and host.stop_ack, the daemon's answer to the app's host_stopping that a held quit waits on. Thirteen host error reasons answer a request without closing the connection, and fourteen daemon errors close it, tab_not_found, cap_reached, not_owner, navigation_refused, act_failed, stale_ref, dialog_blocked, no_dialog, wait_timeout, write_failed, upload_failed, invalid_request and host_unavailable being the app's own vocabulary for the first set. Protocol 1 on the 1 to 1 window, since this is the wire's first version.",
+      "provenance_note": "Re-vendored on 2026-09-29 at fcd1f6b7, the commit the v0.12.0 release was built from, which the app now ships. Since a6b19b49, since merged: tab.open carries visible, true for a task on the visible profile or the automatic profile resolving visible (an explicit headless override aside) and absent for a task that runs unseen, so the app shows the pane and its window for it; the requests golden carries it. Protocol 1 on the 1 to 1 window, unchanged. Before that: Taken from the fermix repository at a6b19b490e1738d5013795f2fd6c94aeaa860d53, the tip of pull request #94 (feat/browser-host-wire) as of 2026-09-27, since merged: v0.12.0 carries these same bytes. Since the previous pin, 7f87896aee5b5939fba47ad003af215b0eec5b1f, the branch gained one host event: task.cancel { task_id, reason }, sent by the app when the person cancels a task from its own tab in the pane. The daemon tells that task it was cancelled (failing its in-flight request, if any), writes its task.release behind that request exactly as on a quit mid-task, reaps the task with a cancelled sentence, and marks its turn so the turn's later browser calls answer the same sentence instead of running on Chrome; no other task on the connection is touched. The browser host wire is newline-delimited JSON on browser_host.sock in the Fermix home, mode 0600, and direction is reversed from the other three wires: once the app has completed the client_hello/server_hello handshake and sent attached, the daemon is the one asking, with a numbered id per request, and the app answers ok or error or sends its own unsolicited events (attached, availability, tab.closed, dialog.opened, download.began/progress/finished, host_stopping). The verbs are the engine's own browser vocabulary rather than a CDP imitation: tab.open, tab.navigate, tab.list, tab.focus, tab.close, task.release, task.cancel; page.snapshot answering the accessibility node list browser/snapshot.ex renders, page.screenshot and page.pdf answering a workspace path; page.act's ten kinds (click, fill, fill_form, type, submit, press, hover, get, wait, click_coords) and page.upload; dialog.resolve; cookies.get and cookies.clear, metadata only, never a cookie's value; host.status and host.stop_ack, the daemon's answer to the app's host_stopping that a held quit waits on. Thirteen host error reasons answer a request without closing the connection, and fourteen daemon errors close it, tab_not_found, cap_reached, not_owner, navigation_refused, act_failed, stale_ref, dialog_blocked, no_dialog, wait_timeout, write_failed, upload_failed, invalid_request and host_unavailable being the app's own vocabulary for the first set. Protocol 1 on the 1 to 1 window, since this is the wire's first version.",
       "files": [
         {
           "path": "browser_host/PROTOCOL.md",
           "source_path": "apps/fermix_core/priv/browser_host/PROTOCOL.md",
-          "sha256": "760338aa05a13415f213d79e9d7a2d0a4937a1899474ebfc160a7b76ec6b6ffb"
+          "sha256": "7e1d5a85777e1b466b0ac7e9569a12dc1fd37884d1db3e3dbe5fc139f29ba4dc"
         },
         {
           "path": "browser_host/protocol.schema.json",
           "source_path": "apps/fermix_core/priv/browser_host/protocol.schema.json",
-          "sha256": "c244d41e46f51e71cafacd484b667edb54acfd48f08f89a6979303bd2e4a2138"
+          "sha256": "ddac78b8bc3e1fda4ec834d8f68455d29d69351b47a4e22fece3b58cfe693b04"
         },
         {
           "path": "browser_host/fixtures/requests.jsonl",
           "source_path": "apps/fermix_core/priv/browser_host/fixtures/requests.jsonl",
-          "sha256": "2ae981f2eda70a1bfd19e8227fc31587a7e34bb691f142a087f5f31c6ca920b9"
+          "sha256": "72ca73860beed7345a596c0d45ce1cc3486765fa47fc3635ce90af334333edd0"
         },
         {
           "path": "browser_host/fixtures/responses.jsonl",

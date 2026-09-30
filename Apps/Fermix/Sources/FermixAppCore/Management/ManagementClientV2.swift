@@ -316,6 +316,14 @@ extension ManagementClient {
         )
     }
 
+    public func startBrowserInstall() async throws -> ManagementJob {
+        try await send(
+            .browserInstallStart,
+            params: ManagementEmptyParams(),
+            as: ManagementJob.self
+        )
+    }
+
     public func computerUsePermissions() async throws -> ManagementComputerUsePermissions {
         try await send(
             .computerUsePermissionsGet,

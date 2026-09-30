@@ -28,7 +28,7 @@ public enum SettingsPaneGroup: String, CaseIterable, Sendable {
     }
 }
 
-/// The thirteen Settings panes (M34 §5, §3.4).
+/// The fifteen Settings panes (M34 §5, §3.4).
 ///
 /// The raw value is the `fermix://settings/<pane>` slug **and** the wire value
 /// `settings.sections` publishes, so the route family, the sidebar and the
@@ -53,9 +53,11 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
     case codingAgents = "coding"
     case search
     case images
+    case browser
 
     // System
     case sandbox
+    case secrets
     case permissions
 
     public var id: String { rawValue }
@@ -69,9 +71,9 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
             return .assistant
         case .channels, .integrations:
             return .connections
-        case .voice, .meetings, .computer, .codingAgents, .search, .images:
+        case .voice, .meetings, .computer, .codingAgents, .search, .images, .browser:
             return .capabilities
-        case .sandbox, .permissions:
+        case .sandbox, .secrets, .permissions:
             return .system
         }
     }
@@ -89,7 +91,9 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
         case .codingAgents: return .settingsPaneCodingAgents
         case .search: return .settingsPaneSearch
         case .images: return .settingsPaneImages
+        case .browser: return .settingsPaneBrowser
         case .sandbox: return .settingsPaneSandbox
+        case .secrets: return .settingsPaneSecrets
         case .permissions: return .settingsPanePermissions
         }
     }
@@ -109,7 +113,9 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
         case .codingAgents: return "chevron.left.forwardslash.chevron.right"
         case .search: return "magnifyingglass"
         case .images: return "photo"
+        case .browser: return "safari"
         case .sandbox: return "shield.lefthalf.filled"
+        case .secrets: return "key"
         case .permissions: return "lock.shield"
         }
     }
@@ -130,7 +136,9 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
         case .codingAgents: return .settingsKeywordsCodingAgents
         case .search: return .settingsKeywordsSearch
         case .images: return .settingsKeywordsImages
+        case .browser: return .settingsKeywordsBrowser
         case .sandbox: return .settingsKeywordsSandbox
+        case .secrets: return .settingsKeywordsSecrets
         case .permissions: return .settingsKeywordsPermissions
         }
     }

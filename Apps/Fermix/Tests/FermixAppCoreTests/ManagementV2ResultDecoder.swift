@@ -73,7 +73,8 @@ enum ManagementV2ResultDecoder {
         // Every remaining method answers the uniform job view.
         case .providersProbeStart, .jobGet, .jobCancel, .authImportStart, .pluginsInstallStart,
              .pluginsCheckStart, .pluginsWorkspacesDiscoverStart, .pluginsWorkspaceSelectStart,
-             .capabilitiesInstallStart, .meetingsSigninStart, .computerUseGrantStart:
+             .capabilitiesInstallStart, .meetingsSigninStart, .computerUseGrantStart,
+             .browserInstallStart:
             try read(ManagementJob.self, payload, identifier, method)
         }
     }

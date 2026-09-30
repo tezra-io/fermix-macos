@@ -687,7 +687,7 @@ struct SettingsModelTests {
 
         #expect(harness.model.panes(matching: "voice", in: .capabilities) == [.voice])
         #expect(harness.model.panes(matching: "zoom", in: .capabilities) == [.meetings])
-        #expect(harness.model.panes(matching: "", in: .system) == [.sandbox, .permissions])
+        #expect(harness.model.panes(matching: "", in: .system) == [.sandbox, .secrets, .permissions])
         #expect(harness.model.panes(matching: "nothing here", in: .assistant).isEmpty)
 
         // A row label only matches once the pane's section has been read.

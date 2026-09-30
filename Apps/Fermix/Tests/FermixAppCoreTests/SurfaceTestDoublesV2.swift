@@ -275,6 +275,10 @@ extension FakeDaemonGateway {
         try answer(.computerUseGrantStart, "computer_use_grant_start")
     }
 
+    func startBrowserInstall() async throws -> ManagementJob {
+        try answer(.browserInstallStart, "browser_install_start")
+    }
+
     func computerUsePermissions() async throws -> ManagementComputerUsePermissions {
         try answer(.computerUsePermissionsGet, "computer_use_permissions_get")
     }

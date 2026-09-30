@@ -79,6 +79,12 @@ enum ManagementV2Calls {
                 values: ["sandbox_env_allow": .list(["HOME", "PATH"])]
             )
         },
+        "settings_apply_browser": {
+            _ = try await $0.applySettings(
+                section: "browser",
+                values: ["browser_default_profile": .text("fermix_headless")]
+            )
+        },
         "settings_reload": { _ = try await $0.reloadSettings() },
         "secret_set": {
             _ = try await $0.setSecret(id: "openai_api_key", value: "sk-fixture-not-a-real-key")
@@ -152,6 +158,7 @@ enum ManagementV2Calls {
         },
         "meetings_signin_start": { _ = try await $0.startMeetingsSignIn() },
         "computer_use_grant_start": { _ = try await $0.startComputerUseGrant() },
+        "browser_install_start": { _ = try await $0.startBrowserInstall() },
         "computer_use_permissions_get": { _ = try await $0.computerUsePermissions() },
 
         "mobile_status": { _ = try await $0.mobileStatus() },
