@@ -28,6 +28,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/product_config.sh"
 # shellcheck source=scripts/sparkle.sh
 source "$ROOT_DIR/scripts/sparkle.sh"
+# shellcheck source=scripts/rive.sh
+source "$ROOT_DIR/scripts/rive.sh"
 
 BUNDLE_ID="$(product_config bundle_identifier)"
 RESOURCE_BUNDLE_NAME="$(product_config swift_resource_bundle_name)"
@@ -37,6 +39,7 @@ AGENT_LABEL="$(product_config agent_service_label)"
 ENGINE_RELATIVE_PATH="$(product_config engine_relative_path)"
 TOOLS_RELATIVE_PATH="$(product_config tools_relative_path)"
 SPARKLE_FRAMEWORK="$(product_config frameworks_relative_path)/$SPARKLE_FRAMEWORK_NAME"
+RIVE_FRAMEWORK="$(product_config frameworks_relative_path)/$RIVE_FRAMEWORK_NAME"
 ENTITLEMENTS="$ROOT_DIR/Apps/Fermix/Sources/Fermix/Fermix.entitlements"
 ENGINE_ENTITLEMENTS="$ROOT_DIR/scripts/entitlements/engine.entitlements"
 
@@ -48,19 +51,20 @@ fail() {
 # Refuse Mach-O this script has no signing rule for, BEFORE signing anything.
 #
 # M34 section 7 requires a release to fail on unknown executable content rather
-# than ship it unsigned. Four classes are known and every one of their
+# than ship it unsigned. Five classes are known and every one of their
 # members is signed individually below: the two Contents/MacOS executables,
 # the engine trees under the Engine slot (ERTS executables, NIFs, dylibs —
 # signed with the engine entitlement set on executables), the bundled
-# cosign under the Tools slot, and the updater framework's library with its
-# four retained helpers. Anything outside those classes stops the release
-# instead of being signed with someone else's rules or skipped.
+# cosign under the Tools slot, the updater framework's library with its
+# four retained helpers, and the animation runtime's one library. Anything
+# outside those classes stops the release instead of being signed with
+# someone else's rules or skipped.
 #
-# The updater's members are named one by one from scripts/sparkle.sh rather
-# than admitted by a directory rule: "anything under Frameworks" would sign
-# whatever a future dependency drops there, which is exactly what this
-# refusal exists to prevent. A Sparkle version that moves a helper fails here
-# and is re-declared deliberately.
+# The two frameworks' members are named one by one from scripts/sparkle.sh and
+# scripts/rive.sh rather than admitted by a directory rule: "anything under
+# Frameworks" would sign whatever a future dependency drops there, which is
+# exactly what this refusal exists to prevent. A version that moves or adds a
+# program fails here and is re-declared deliberately.
 refuse_unknown_nested_code() {
   local unexpected known macho
   [ -d "$APP" ] || fail "no staged bundle at $APP"
@@ -72,6 +76,9 @@ refuse_unknown_nested_code() {
   known+=$'\n'"$TOOLS_RELATIVE_PATH/cosign"
   for macho in "${SPARKLE_MACHO_PATHS[@]}"; do
     known+=$'\n'"$SPARKLE_FRAMEWORK/$macho"
+  done
+  for macho in "${RIVE_MACHO_PATHS[@]}"; do
+    known+=$'\n'"$RIVE_FRAMEWORK/$macho"
   done
   # `file` reports a universal binary once for the fat header and once per
   # slice, the per-slice lines carrying a " (for architecture x)" suffix, so the
@@ -171,6 +178,24 @@ sign_sparkle() {
 
 sign_sparkle
 
+# The animation runtime, signed before the app seals it, in the order
+# scripts/rive.sh declares. It carries no program of its own, so its versioned
+# bundle is the whole of it; left unsigned, codesign refuses to seal the app
+# over it. No entitlements, and the hardened runtime for notarization, as the
+# updater's members have.
+sign_rive() {
+  local framework="$APP/$RIVE_FRAMEWORK" member
+  [ -d "$framework" ] || fail "the animation runtime is not staged at $RIVE_FRAMEWORK"
+  for member in "${RIVE_SIGNING_ORDER[@]}"; do
+    [ -e "$framework/$member" ] ||
+      fail "the animation runtime carries no $member; the pinned version moved it"
+    codesign --force "${timestamp[@]}" --options runtime --sign "$IDENTITY" "$framework/$member" ||
+      fail "could not sign animation runtime component $member"
+  done
+}
+
+sign_rive
+
 # The agent is nested Mach-O inside Contents/MacOS, so it is signed before the
 # outer bundle too. It carries no entitlements: the GUI is the only microphone
 # principal, and one consent never implies another. Its signing identifier is
@@ -203,10 +228,15 @@ fi
 # Every retained helper is sealed on its own. `--verify --deep` above walks
 # the app's nested code and a helper that failed to sign would surface
 # there; this says so in the updater's own words, per member, so a Sparkle
-# upgrade that quietly stops shipping one is not read as success.
+# upgrade that quietly stops shipping one is not read as success. The
+# animation runtime's one member is said the same way, in its own words.
 for member in "${SPARKLE_SIGNING_ORDER[@]}"; do
   codesign --verify --strict "$APP/$SPARKLE_FRAMEWORK/$member" ||
     fail "updater component $member is not validly signed"
+done
+for member in "${RIVE_SIGNING_ORDER[@]}"; do
+  codesign --verify --strict "$APP/$RIVE_FRAMEWORK/$member" ||
+    fail "animation runtime component $member is not validly signed"
 done
 
 echo "sign_app: signed $APP (identity: $IDENTITY)"

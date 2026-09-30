@@ -22,6 +22,9 @@
 "starting.title" = "Starting Fermix";
 "starting.caption" = "macOS may mention a new background item. That is Fermix.";
 "starting.row.service" = "Registering the background service";
+"starting.row.awaitingApproval" = "Waiting for you to allow Fermix in the background";
+"starting.approval.body" = "Open Login Items settings and turn Fermix on. Setup carries on by itself.";
+"starting.approval.bodySwitchedOff" = "Fermix is turned off in Login Items. Turn it back on there and setup carries on by itself.";
 "starting.row.daemon" = "Starting the daemon";
 "starting.row.answering" = "Checking it answers";
 "starting.row.reading" = "Reading what is already set up";
@@ -102,7 +105,6 @@
 "bootFailed.viewLog" = "View full log";
 "bootFailed.tryAgain" = "Try again";
 "bootFailed.cause.timedOut" = "The daemon didn’t respond within 90 seconds. Your configuration hasn’t been touched, and Doctor can usually tell you exactly what happened.";
-"bootFailed.cause.approvalPending" = "macOS is waiting for you to allow Fermix to run in the background. Your configuration hasn’t been touched, so open Login Items settings, turn Fermix on, then try again.";
 "bootFailed.cause.backgroundItemDisabled" = "Fermix is turned off in Login Items. Your configuration hasn’t been touched, so open Login Items settings, turn Fermix back on, then try again.";
 "bootFailed.cause.incompatibleVersion" = "The running daemon speaks a protocol this version of the app cannot use. Your configuration hasn’t been touched, so update Fermix, then try again.";
 "bootFailed.cause.crashLoop" = "The daemon exited three times in a row while starting. Your configuration hasn’t been touched, and the last log lines below name the failure.";
@@ -148,6 +150,8 @@
 "home.attention.newerEngine.title" = "This Fermix engine is one release behind";
 "home.attention.unavailable.title" = "The daemon could not report what needs attention";
 "home.attention.unread" = "Fermix has not read the daemon yet";
+"home.attention.backgroundApproval.title" = "Allow Fermix to run in the background";
+"home.attention.backgroundApproval.body" = "Fermix can’t start until you turn it on in Login Items settings.";
 "home.runtime.engine" = "Engine";
 "home.runtime.protocol" = "Management protocol";
 "home.runtime.uptime" = "Uptime";
@@ -246,6 +250,7 @@
 "daemon.error.requiresNewerEngine" = "Restart to finish updating Fermix";
 "lifecycle.daemonNotManaged" = "Fermix’s background service isn’t registered on this Mac, so a restart would stop Fermix and nothing would start it again. Run the Setup Assistant to register it.";
 "lifecycle.serviceBusy" = "Fermix is already changing the background service, so nothing was changed. Try again once it has finished.";
+"lifecycle.registrationRefused" = "macOS refused to register the Fermix background item. Open Login Items settings, turn Fermix on, then try again.";
 "lifecycle.serviceNeverAnswered" = "The background service did not answer while Fermix was checking that it started, so Fermix is not running yet. Open Doctor to see what it found.";
 "lifecycle.restarting" = "Restarting Fermix";
 "lifecycle.enabling" = "Enabling the background service";
@@ -257,6 +262,7 @@
 /* MARK: Background service, one wording everywhere it appears */
 
 /* MARK: Sidebar */
+"sidebar.chat" = "Chat";
 "sidebar.home" = "Home";
 "sidebar.doctor" = "Doctor";
 "sidebar.pet" = "Pet";
@@ -335,6 +341,7 @@
 "voice.error.microphoneRestricted" = "Microphone access is restricted";
 "voice.error.noInputDevice" = "No microphone is available";
 "voice.error.outputFormatUnavailable" = "Voice audio could not be prepared";
+"voice.error.voiceProcessingUnavailable" = "Echo cancellation could not start on this microphone";
 "voice.error.microphoneUnknown" = "The microphone could not start";
 "voice.caption.speakerUser" = "You";
 "voice.caption.speakerAssistant" = "Fermix";
@@ -346,6 +353,74 @@
 "voice.task.cancelled" = "Task cancelled";
 "voice.task.statusFormat" = "Task: %@";
 "voice.costFormat" = "Voice so far: %@";
+
+/* MARK: Companion chat */
+"companion.connection.engineHasNoChat" = "The Fermix engine on this Mac has no chat yet";
+"companion.connection.reconnecting" = "Chat cannot reach Fermix right now and is trying again";
+"companion.connection.homeUnavailable" = "Fermix cannot read its home on this Mac";
+"companion.connection.updateApp" = "This app is older than the Fermix engine it talks to. Update the app to chat.";
+"companion.connection.updateEngine" = "The Fermix engine is older than this app. Update the engine to chat.";
+"companion.error.refusedFormat" = "The daemon reported: %@";
+"companion.error.messageTooLong" = "The message is too long to send";
+"companion.error.replyStopped" = "The reply was stopped";
+"companion.error.replyInterrupted" = "The reply was interrupted";
+"companion.error.replyFailedFormat" = "The reply did not finish: %@";
+
+/* MARK: Chat */
+"chat.greeting.morning" = "Good morning";
+"chat.greeting.afternoon" = "Good afternoon";
+"chat.greeting.evening" = "Good evening";
+"chat.invitation" = "What is on your mind?";
+"chat.composer.prompt" = "Message Fermix";
+"chat.send" = "Send";
+"chat.cancel" = "Cancel";
+"chat.sending" = "Sending";
+"chat.approve" = "Approve";
+"chat.deny" = "Deny";
+"chat.thinking" = "Thinking";
+"chat.tool.runningFormat" = "Using %@";
+"chat.tool.finishedFormat" = "Used %@";
+"chat.search.prompt" = "Search the conversation";
+"chat.search.searching" = "Searching";
+"chat.search.noMatches" = "No messages match";
+"chat.search.older" = "Show older matches";
+
+/* MARK: Browser */
+"browser.notice.notAnAddress" = "Enter a web address, such as fermix.ai.";
+"browser.notice.profileUnavailable" = "The browser’s website data could not be read, so it cannot open pages.";
+"browser.notice.noApp" = "No app on this Mac opens that link.";
+"browser.notice.downloadRefused" = "Fermix does not download files. Open this page in your browser to download it.";
+"browser.newTab" = "New tab";
+"browser.newPrivateTab" = "New private tab";
+"browser.closeTab" = "Close tab";
+"browser.privateTab" = "Private tab";
+"browser.untitledTab" = "New tab";
+"browser.back" = "Back";
+"browser.forward" = "Forward";
+"browser.reload" = "Reload";
+"browser.cancelLoading" = "Cancel loading";
+"browser.address" = "Address";
+"browser.addressPrompt" = "Enter a web address";
+"browser.secure" = "Secure connection";
+"browser.openInBrowser" = "Open in your browser";
+"browser.hide" = "Hide browser";
+"browser.dialog.titleFormat" = "%@ says";
+"browser.dialog.thisPage" = "This page";
+"browser.dialog.ok" = "OK";
+"browser.dialog.cancel" = "Cancel";
+"browser.taskTab" = "A task is using this tab";
+"browser.cancelTask" = "Cancel task";
+"browser.cancellingTask" = "Cancelling task";
+"browser.empty" = "Open a page here, or watch a task use the browser.";
+"browser.show" = "Show browser";
+
+/* The browser host wire's own availability and refusal reasons: fragments
+   sent to the daemon over browser_host.sock, never shown in this app. */
+"browserHost.reason.screenLocked" = "the Mac is locked";
+"browserHost.reason.displayAsleep" = "the display is asleep";
+"browserHost.reason.appTerminating" = "the app is quitting";
+"browserHost.reason.notAttached" = "the browser host is not attached";
+"browserHost.reason.personCancelled" = "Cancelled from the browser pane";
 
 /* MARK: Pet */
 "pet.callBegin" = "Begin voice call";
@@ -416,6 +491,7 @@
 "menuTitle.find" = "Find…";
 "menuTitle.showSidebar" = "Show Sidebar";
 "menuTitle.hideSidebar" = "Hide Sidebar";
+"menuTitle.chat" = "Chat";
 "menuTitle.home" = "Home";
 "menuTitle.doctor" = "Doctor";
 "menuTitle.logs" = "Logs";
@@ -436,6 +512,7 @@
 "menuTitle.runDoctor" = "Run Doctor";
 "menuTitle.showPet" = "Show Pet";
 "menuTitle.hidePet" = "Hide Pet";
+"menuTitle.showBrowser" = "Show Browser";
 "menuTitle.hideMenuBarItem" = "Hide Menu Bar Item";
 "menuTitle.linkCommandLineTool" = "Add the fermix Command to Terminal…";
 
@@ -471,6 +548,8 @@
 "settings.pane.codingAgents" = "Coding agents";
 "settings.pane.search" = "Search";
 "settings.pane.images" = "Images";
+"settings.pane.browser" = "Browser";
+"settings.pane.secrets" = "Secrets";
 "settings.pane.sandbox" = "Sandbox";
 "settings.pane.permissions" = "Permissions";
 
@@ -486,6 +565,8 @@
 "settings.keywords.codingAgents" = "harness delegate command line tools";
 "settings.keywords.search" = "web places brave tavily duckduckgo";
 "settings.keywords.images" = "picture generation render backend";
+"settings.keywords.browser" = "tabs profile hosts chrome chromium download";
+"settings.keywords.secrets" = "keychain file store password";
 "settings.keywords.sandbox" = "commands environment permissions strict";
 "settings.keywords.permissions" = "microphone screen accessibility login items";
 
@@ -493,6 +574,7 @@
 "settings.back.accessibility" = "Back to Fermix";
 "settings.openPaneFormat" = "Open %@";
 "settings.searchPrompt" = "Search settings";
+"settings.searchNoResultsFormat" = "No settings match “%@”";
 "settings.requiresNewerEngine" = "This needs the newer engine in this copy of Fermix. Restart to finish updating.";
 "settings.engineBehindApp" = "Settings needs a newer Fermix engine than this copy ships.";
 "settings.rowUnsupported" = "This copy of Fermix is older than the daemon and has no control for this setting. Update Fermix to change it here.";
@@ -520,7 +602,6 @@
 "settings.secret.stored" = "Stored";
 "settings.secret.replace" = "Replace…";
 "settings.secret.remove" = "Remove";
-"settings.secret.store" = "Store";
 "settings.secret.prompt" = "Paste the value";
 "settings.number.percentFormat" = "%.0f%%";
 "settings.list.add" = "Add";
@@ -712,5 +793,4 @@
 "provider.models.choose" = "Choose…";
 "provider.details" = "Details…";
 "provider.signOut" = "Sign out";
-"provider.useKeyInstead" = "Use an API key instead";
 "settings.voice.microphoneSection" = "Microphone";

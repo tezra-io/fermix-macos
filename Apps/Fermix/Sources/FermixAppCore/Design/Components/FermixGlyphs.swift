@@ -114,17 +114,47 @@ struct PetMark: View {
             .frame(width: Self.size, height: Self.size)
     }
 
-    /// Loaded once. A missing raster is a packaging defect, so it traps, as the
-    /// menu bar's templates do.
+    /// Loaded once.
     @MainActor
-    private static let template: NSImage = {
-        guard let image = AppResources.bundle.image(forResource: resourceName) else {
-            preconditionFailure("Missing \(resourceName) in the application resource bundle")
-        }
+    private static let template = stillMark(resourceName, size: size)
+}
 
-        image.isTemplate = true
-        image.size = NSSize(width: size, height: size)
+/// The mark above the chat's empty composer (redlines §8 decision 36): the
+/// same one-ink mascot at 48 points, the generator's fifth image.
+///
+/// It is drawn in the ground's own ink at a fraction of its strength, so it
+/// sits on the calm ground as a watermark rather than as a second headline,
+/// and it is decorative: the greeting under it is what the surface says.
+struct ChatMark: View {
+    static let resourceName = "FermixMarkChat"
+    /// The size the generator draws the mark at.
+    static let size: Double = 48
+    /// How much of `ink` the mark takes: low contrast on both grounds.
+    static let inkStrength: Double = 0.16
 
-        return image
-    }()
+    var body: some View {
+        Image(nsImage: Self.template)
+            .renderingMode(.template)
+            .foregroundStyle(Palette.ink.color.opacity(Self.inkStrength))
+            .frame(width: Self.size, height: Self.size)
+            .accessibilityHidden(true)
+    }
+
+    @MainActor
+    private static let template = stillMark(resourceName, size: size)
+}
+
+/// One still mark from the resource bundle, as a template at its drawn size.
+/// A missing raster is a packaging defect, so it traps, as the menu bar's
+/// templates do.
+@MainActor
+private func stillMark(_ name: String, size: Double) -> NSImage {
+    guard let image = AppResources.bundle.image(forResource: name) else {
+        preconditionFailure("Missing \(name) in the application resource bundle")
+    }
+
+    image.isTemplate = true
+    image.size = NSSize(width: size, height: size)
+
+    return image
 }

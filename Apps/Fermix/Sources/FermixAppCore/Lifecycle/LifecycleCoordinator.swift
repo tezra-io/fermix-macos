@@ -58,6 +58,10 @@ public struct ManagementControlPlane: DaemonControlPlane {
 /// What a completed transaction did.
 public enum LifecycleOutcome: Equatable, Sendable {
     case enabled(pid: Int32)
+    /// The registration is made and macOS is holding it until the person
+    /// switches Fermix on in Login Items. Nothing is half-done, and launchd
+    /// starts the daemon once they do, with no second registration.
+    case awaitingApproval
     case disabled
     case restarted(previousPid: Int32, currentPid: Int32)
 }
@@ -93,17 +97,21 @@ public enum LifecycleFailure: Error, Equatable, Sendable {
     /// The one sentence a surface shows for this failure, where this build has
     /// copy for it.
     ///
-    /// Two states have one: the preflight refusal, and a verify that found
-    /// nothing answering. The second is what the 2026-09-17 upgrade produced —
-    /// the registration was made, the daemon never came up, and the only record
-    /// was one line in the log while the window sat on its progress screen. The
-    /// remaining cases are steps that stopped part-way, which the journal
-    /// records and Recovery reads; inventing a sentence per case here would put
-    /// copy on states no screen renders.
+    /// Three states have one: the preflight refusal, a registration macOS
+    /// refused, and a verify that found nothing answering. The last is what the
+    /// 2026-09-17 upgrade produced — the registration was made, the daemon never
+    /// came up, and the only record was one line in the log while the window
+    /// sat on its progress screen. The remaining cases are steps that stopped
+    /// part-way, which the journal records and Recovery reads; inventing a
+    /// sentence per case here would put copy on states no screen renders.
     public var sentence: String? {
         switch self {
         case .daemonNotManaged:
             return ProductStrings[.lifecycleDaemonNotManaged]
+        // Home's switch reached no sentence at all when macOS refused it. The
+        // unregister half keeps none: its remedy is not a switch to turn on.
+        case .registration(.registrationFailed):
+            return ProductStrings[.lifecycleRegistrationRefused]
         // Every way a transaction can reach its verify phase and find nothing
         // answering, whichever transaction it was.
         case .socketNeverAppeared, .webNeverAnswered, .daemonNeverReturned:
@@ -111,8 +119,8 @@ public enum LifecycleFailure: Error, Equatable, Sendable {
         // Enumerated rather than defaulted: a failure added later has to be
         // decided about here instead of silently reaching no screen at all,
         // which is how this one came to.
-        case .bootstrapMissing, .registration, .socketNeverReleased, .daemonNeverExited,
-             .deferredWhileBusy, .negotiationFailed, .daemonIdentityUnreadable,
+        case .bootstrapMissing, .registration(.unregistrationFailed), .socketNeverReleased,
+             .daemonNeverExited, .deferredWhileBusy, .negotiationFailed, .daemonIdentityUnreadable,
              .journalUnavailable, .recoveryPending:
             return nil
         }
@@ -174,6 +182,10 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
 
     /// Validate the bootstrap, rebuild the agent registration, wait for the
     /// socket, negotiate, then verify the local web surface answers.
+    ///
+    /// A registration macOS holds for the person ends the transaction there:
+    /// launchd creates no socket until they allow it, so verifying would only
+    /// wait out the budget and report a daemon that never started.
     public func enableBackgroundService() async throws -> LifecycleOutcome {
         let record = try loadBootstrap()
         let registration = services.status(.agent)
@@ -181,7 +193,11 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
 
         do {
             try advance(&entry, to: .mutate)
-            try rebuildRegistration(from: registration)
+            guard try rebuildRegistration(from: registration) else {
+                log.log("the background item is waiting for the person's approval")
+                try journal.clear()
+                return .awaitingApproval
+            }
 
             try advance(&entry, to: .verify)
             try await waitForSocket(at: record.daemonSocketURL.path)
@@ -214,10 +230,23 @@ public struct LifecycleCoordinator: DaemonLifecycleControlling {
     /// An agent that was never registered has nothing to withdraw, so the
     /// status decides rather than a swallowed unregister failure: every other
     /// status is an item macOS knows about and this one owns.
-    private func rebuildRegistration(from registration: ServiceRegistrationStatus) throws {
+    ///
+    /// - Returns: whether macOS allows the new registration to run, which is
+    ///   false where it is holding it for the person. Withdrawing first does
+    ///   not reset their choice: an item they switched off stays off.
+    private func rebuildRegistration(from registration: ServiceRegistrationStatus) throws -> Bool {
         if registration != .notRegistered { try unregister() }
 
-        try register()
+        switch services.requestBackgroundService() {
+        case .enabled:
+            return true
+        case .awaitingApproval:
+            return false
+        case .refused(let status, let underlying):
+            throw LifecycleFailure.registration(
+                .registrationFailed(principal: .agent, underlying: underlying ?? "macOS reports it \(status.rawValue)")
+            )
+        }
     }
 
     // MARK: - Disable

@@ -89,6 +89,30 @@ public struct BootstrapStore {
         BootstrapRecord(fermixHome: try resolvedHome()).realtimeSocketURL.path
     }
 
+    /// The chat socket for this account's home, named on the record for the
+    /// same reason.
+    public func companionSocketPath() throws -> String {
+        BootstrapRecord(fermixHome: try resolvedHome()).companionSocketURL.path
+    }
+
+    /// The browser host socket for this account's home, named on the record
+    /// for the same reason.
+    public func browserHostSocketPath() throws -> String {
+        BootstrapRecord(fermixHome: try resolvedHome()).browserHostSocketURL.path
+    }
+
+    /// The engine's workspace directory for this account's home, the root an
+    /// upload path must fall under.
+    public func workspaceDirectoryURL() throws -> URL {
+        BootstrapRecord(fermixHome: try resolvedHome()).workspaceDirectoryURL
+    }
+
+    /// The engine's browser directory for this account's home, the root a
+    /// screenshot or a PDF path must fall under.
+    public func browserDirectoryURL() throws -> URL {
+        BootstrapRecord(fermixHome: try resolvedHome()).browserDirectoryURL
+    }
+
     @discardableResult
     public func save(fermixHome: URL) throws -> BootstrapRecord {
         try save(path: fermixHome.path)

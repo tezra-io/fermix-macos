@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -100,11 +101,29 @@ struct AppModelRoutingTests {
         let model = negotiatedModel()
         model.voiceCallBegan()
 
-        let effects = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        let effects = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
-        #expect(effects == [.play(base64: "AAAA")])
+        #expect(effects == [.play(base64: RelayedAudio.voice(1))])
         #expect(model.voice.mode == .speaking)
         #expect(model.voice.audioActive)
+    }
+
+    /// A reply arrives as tens of chunks a second, and every publish redraws the
+    /// window, the status item and the pet. Only the first chunk changes the
+    /// voice state, so only the first may publish.
+    @Test("audio chunks after the first publish nothing")
+    func laterAudioDeltasPublishNothing() {
+        let model = negotiatedModel()
+        model.voiceCallBegan()
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
+
+        var published = 0
+        let subscription = model.objectWillChange.sink { _ in published += 1 }
+        defer { subscription.cancel() }
+        let effects = model.apply(.audioDelta(base64: RelayedAudio.voice(2)), audioIsPlaying: true)
+
+        #expect(effects == [.play(base64: RelayedAudio.voice(2))])
+        #expect(published == 0)
     }
 
     /// The daemon returns to listening as soon as it stops generating, while
@@ -114,7 +133,7 @@ struct AppModelRoutingTests {
     func speakingTailSurvivesStateChange() {
         let model = negotiatedModel()
         model.voiceCallBegan()
-        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
         _ = model.apply(.state(.listening), audioIsPlaying: true)
 
@@ -122,11 +141,14 @@ struct AppModelRoutingTests {
         #expect(model.voice.presentation.visualMode == .speaking)
     }
 
-    @Test("the speaking tail ends when playback has drained")
+    /// The Realtime engine's order: it says listening while audio still plays,
+    /// and the tail ends when the daemon's next state finds nothing playing.
+    /// The drain itself is `LiveReplyEndTests`.
+    @Test("the speaking tail ends when the daemon moves on with nothing playing")
     func speakingTailEndsWhenDrained() {
         let model = negotiatedModel()
         model.voiceCallBegan()
-        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
         _ = model.apply(.state(.listening), audioIsPlaying: false)
 
@@ -138,7 +160,7 @@ struct AppModelRoutingTests {
     func leavingSpeakingResetsTheAnchor() {
         let model = negotiatedModel()
         model.voiceCallBegan()
-        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
         let effects = model.apply(.state(.listening), audioIsPlaying: false)
 
@@ -149,7 +171,7 @@ struct AppModelRoutingTests {
     func playbackStopReturnsToInput() {
         let model = negotiatedModel()
         model.voiceCallBegan()
-        _ = model.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: true)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: true)
 
         let effects = model.apply(.playbackStop, audioIsPlaying: true)
 
@@ -459,5 +481,252 @@ struct VoicePresentationTests {
         let presentation = VoicePresentation(mode: .idle, callActive: false, audioActive: true)
 
         #expect(presentation.visualMode == .idle)
+    }
+}
+
+/// Stopping a reply stops it for good.
+///
+/// The Live engine answers `interrupt` with `playback_stop` and `listening`
+/// but leaves the provider's response running, so the rest of the reply keeps
+/// arriving, each run announced by `state: speaking`. Played, it made Stop look
+/// broken: the pet went quiet and then carried on talking (owner report of
+/// 2026-09-25).
+@Suite("Stopping a reply")
+@MainActor
+struct StoppedReplyTests {
+    /// A clock the test moves by hand, so the quiet gap is proved without
+    /// waiting on it.
+    private final class Clock {
+        var now: TimeInterval = 100
+    }
+
+    private func speakingModel(_ clock: Clock) -> AppModel {
+        let model = AppModel(now: { clock.now })
+        model.voiceNegotiated()
+        model.voiceCallBegan()
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
+        return model
+    }
+
+    @Test("the rest of a stopped reply is not played, and the pet stays listening")
+    func stoppedReplyIsDropped() {
+        let clock = Clock()
+        let model = speakingModel(clock)
+
+        model.voiceInterrupted()
+        _ = model.apply(.playbackStop, audioIsPlaying: false)
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+
+        clock.now += 0.1
+        #expect(model.apply(.state(.speaking), audioIsPlaying: false).isEmpty)
+        clock.now += 0.1
+        #expect(model.apply(.audioDelta(base64: RelayedAudio.voice(2)), audioIsPlaying: false).isEmpty)
+        // Each chunk extends the window: a reply streams in a run of chunks.
+        clock.now += AppModel.stoppedReplyGap - 0.1
+        #expect(model.apply(.audioDelta(base64: RelayedAudio.voice(3)), audioIsPlaying: false).isEmpty)
+
+        #expect(model.voice.mode == .listening)
+        #expect(model.voice.audioActive == false)
+        #expect(model.voice.presentation.visualMode == .listening)
+    }
+
+    @Test("padding after Stop does not keep the stopped reply alive")
+    func paddingDoesNotExtendTheStoppedReply() {
+        let clock = Clock()
+        let model = speakingModel(clock)
+
+        model.voiceInterrupted()
+        for _ in 0..<12 {
+            clock.now += 0.1
+            #expect(model.apply(.audioDelta(base64: RelayedAudio.padding), audioIsPlaying: false) == [.play(base64: RelayedAudio.padding)])
+        }
+
+        #expect(model.apply(.audioDelta(base64: RelayedAudio.voice(9)), audioIsPlaying: false) == [.play(base64: RelayedAudio.voice(9))])
+        #expect(model.voice.mode == .speaking)
+    }
+
+    @Test("audio after the stopped reply has gone quiet is a new reply, and plays")
+    func nextReplyPlays() {
+        let clock = Clock()
+        let model = speakingModel(clock)
+
+        model.voiceInterrupted()
+        clock.now += 0.1
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(2)), audioIsPlaying: false)
+
+        clock.now += AppModel.stoppedReplyGap + 0.1
+        let effects = model.apply(.audioDelta(base64: RelayedAudio.voice(9)), audioIsPlaying: false)
+
+        #expect(effects == [.play(base64: RelayedAudio.voice(9))])
+        #expect(model.voice.mode == .speaking)
+    }
+
+    @Test("a new call forgets a reply the last one stopped")
+    func newCallForgetsTheStoppedReply() {
+        let clock = Clock()
+        let model = speakingModel(clock)
+
+        model.voiceInterrupted()
+        model.voiceCallEnded()
+        model.voiceCallBegan()
+        clock.now += 0.1
+
+        #expect(model.apply(.audioDelta(base64: RelayedAudio.voice(9)), audioIsPlaying: false) == [.play(base64: RelayedAudio.voice(9))])
+    }
+}
+
+/// A reply ending the way the Live engine ends one: its audio runs out and the
+/// daemon says nothing more, because Live publishes no end of a reply.
+///
+/// The pet stayed on its speaking face until the user next spoke (RCA of
+/// 2026-09-25, "Pet listening and thinking modes"). These replay the whole
+/// sequence from the wire, not a state set by hand.
+@Suite("A Live reply ending")
+@MainActor
+struct LiveReplyEndTests {
+    private func liveCall() -> AppModel {
+        let model = AppModel()
+        model.voiceNegotiated()
+        model.voiceCallBegan()
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+        return model
+    }
+
+    private func speak(_ model: AppModel) {
+        _ = model.apply(.state(.speaking), audioIsPlaying: false)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
+    }
+
+    /// Live never stops its output: between replies it is digital silence,
+    /// one chunk every 100 ms (measured on the dev engine, 2026-09-28).
+    @Test("padding plays, but is not speech")
+    func paddingIsNotSpeech() {
+        let model = liveCall()
+
+        let effects = model.apply(.audioDelta(base64: RelayedAudio.padding), audioIsPlaying: false)
+
+        #expect(effects == [.play(base64: RelayedAudio.padding)])
+        #expect(model.voice.mode == .listening)
+        #expect(model.voice.audioActive == false)
+    }
+
+    @Test("padding after a reply does not keep the pet speaking")
+    func paddingAfterAReply() {
+        let model = liveCall()
+        speak(model)
+        _ = model.apply(.audioDelta(base64: RelayedAudio.padding), audioIsPlaying: false)
+
+        model.voicePlaybackDrained()
+
+        #expect(model.voice.mode == .listening)
+    }
+
+    @Test("a reply that finishes playing with the user silent returns the pet to listening")
+    func silentUserReturnsToListening() {
+        let model = liveCall()
+        speak(model)
+        #expect(model.voice.presentation.visualMode == .speaking)
+
+        model.voicePlaybackDrained()
+
+        #expect(model.voice.mode == .listening)
+        #expect(model.voice.status == .listening)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .listening)
+    }
+
+    @Test("a reply spoken over running backend work returns the pet to that work")
+    func runningTaskResumesThinking() {
+        let model = liveCall()
+        _ = model.apply(.task(RealtimeTask(delegationId: "d1", revision: 1, status: .running, summary: nil)), audioIsPlaying: false)
+        speak(model)
+
+        model.voicePlaybackDrained()
+
+        #expect(model.voice.mode == .toolUse)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .thinking)
+
+        _ = model.apply(.task(RealtimeTask(delegationId: "d1", revision: 1, status: .completed, summary: nil)), audioIsPlaying: false)
+        #expect(model.voice.mode == .listening)
+    }
+
+    @Test("a muted call returns to muted, not listening")
+    func mutedCallReturnsToMuted() {
+        let model = liveCall()
+        model.voiceMuted(true)
+        speak(model)
+        #expect(model.voice.mode == .speaking)
+
+        model.voicePlaybackDrained()
+
+        #expect(model.voice.mode == .muted)
+    }
+
+    /// The engine says listening once a reply has had time to play out. Backend
+    /// work still running is still the pet's thinking pose.
+    @Test("listening while backend work runs keeps the pet on the work")
+    func listeningDuringWorkKeepsTheWork() {
+        let model = liveCall()
+        _ = model.apply(.task(RealtimeTask(delegationId: "d1", revision: 1, status: .running)), audioIsPlaying: false)
+        speak(model)
+
+        _ = model.apply(.state(.listening), audioIsPlaying: true)
+        model.voicePlaybackDrained()
+
+        #expect(model.voice.mode == .toolUse)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .thinking)
+    }
+
+    @Test("stopping a reply spoken over backend work returns to the work")
+    func stopDuringWorkReturnsToTheWork() {
+        let model = liveCall()
+        _ = model.apply(.task(RealtimeTask(delegationId: "d1", revision: 1, status: .running)), audioIsPlaying: false)
+        speak(model)
+
+        model.voiceInterrupted()
+
+        #expect(model.voice.mode == .toolUse)
+    }
+
+    @Test("the daemon's own next state still wins after the drain")
+    func daemonStateStillWins() {
+        let model = liveCall()
+        speak(model)
+        model.voicePlaybackDrained()
+
+        _ = model.apply(.state(.thinking), audioIsPlaying: false)
+        #expect(model.voice.mode == .thinking)
+
+        speak(model)
+        #expect(model.voice.presentation.visualMode == .speaking)
+    }
+}
+
+/// What counts as voice in the audio the daemon relays, against the levels
+/// measured on the dev engine: voice 244 to 3,667, padding 0 to 49.
+@Suite("Relayed audio")
+struct RelayedAudioTests {
+    private func chunk(rms: Int16) -> Data {
+        var data = Data()
+        for index in 0..<2_400 {
+            var value = (index % 2 == 0 ? rms : -rms).littleEndian
+            withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
+        }
+        return data
+    }
+
+    @Test("Live's quietest voice is voice, and its loudest padding is not")
+    func measuredLevels() {
+        #expect(PCM16.isVoiced(chunk(rms: 244)))
+        #expect(PCM16.isVoiced(chunk(rms: 3_667)))
+        #expect(!PCM16.isVoiced(chunk(rms: 49)))
+        #expect(!PCM16.isVoiced(chunk(rms: 0)))
+    }
+
+    @Test("audio that does not decode is not voice")
+    func undecodable() {
+        #expect(!PCM16.isVoiced(base64: "not base64!"))
+        #expect(PCM16.isVoiced(base64: RelayedAudio.voice()))
+        #expect(!PCM16.isVoiced(base64: RelayedAudio.padding))
     }
 }

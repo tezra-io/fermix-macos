@@ -311,6 +311,18 @@ struct DescriptorTextRow: View {
                 draft.text = value
                 focused = false
             }
+            // A sheet's Done, or a pane left behind, must not lose what was
+            // typed (owner report of 2026-09-27: a Telegram user id typed and
+            // then confirmed by click never reached the daemon, because the
+            // click dismissed the sheet before the field lost focus). A field
+            // still focused when its view goes commits exactly as a focus loss
+            // does.
+            .onDisappear {
+                guard focused else { return }
+
+                model.endEditing(key)
+                submit(draft.text)
+            }
     }
 
     /// The shared settings writer normalizes empty text; it rejects JSON null.

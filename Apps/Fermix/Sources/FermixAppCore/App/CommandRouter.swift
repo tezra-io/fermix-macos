@@ -20,6 +20,9 @@ public final class CommandRouter: CommandPerforming {
     /// The updater, so `Check for Updates` follows what it would actually
     /// accept rather than a value written here (M34 §6, R2).
     private let updates: any UpdateChecking
+    /// "Show browser": opens the pane on its own, with nothing to show yet
+    /// (plan §4.10).
+    private let browser: BrowserCoordinator
     private let log = AppLog.logger(.app)
 
     public init(
@@ -29,6 +32,7 @@ public final class CommandRouter: CommandPerforming {
         sidebar: SidebarModel,
         menuBar: any MenuBarItemPresenting,
         updates: any UpdateChecking,
+        browser: BrowserCoordinator,
         commandLine: @escaping () -> CoexistenceInstructions? = { nil }
     ) {
         self.model = model
@@ -37,6 +41,7 @@ public final class CommandRouter: CommandPerforming {
         self.sidebar = sidebar
         self.menuBar = menuBar
         self.updates = updates
+        self.browser = browser
         self.commandLine = commandLine
     }
 
@@ -74,8 +79,8 @@ public final class CommandRouter: CommandPerforming {
         // the link, or this bundle ships none.
         case .linkCommandLineTool:
             return commandLine() != nil
-        case .openFermix, .openSettings, .quit, .revealLogFolder, .toggleSidebar, .showHome,
-             .showDoctor, .showLogs, .showPet, .pauseLogs, .toggleFloatingPet:
+        case .openFermix, .openSettings, .quit, .revealLogFolder, .toggleSidebar, .showChat, .showHome,
+             .showDoctor, .showLogs, .showPet, .showBrowser, .pauseLogs, .toggleFloatingPet:
             return true
         }
     }
@@ -100,6 +105,8 @@ public final class CommandRouter: CommandPerforming {
         }
 
         switch command {
+        case .showChat:
+            coordinator.open(.chat)
         case .openFermix, .showHome:
             coordinator.open(.home)
         case .showDoctor:
@@ -108,6 +115,10 @@ public final class CommandRouter: CommandPerforming {
             coordinator.open(.logs)
         case .showPet:
             coordinator.open(.pet)
+        // The pane opens on its own, with nothing to show yet, so the person
+        // can watch or browse without waiting for a link (plan §4.10).
+        case .showBrowser:
+            browser.showPane()
         case .openSettings:
             coordinator.openSettings()
         // The same resolution `fermix://setup` takes: the assistant while a

@@ -79,6 +79,12 @@ enum ManagementV2Calls {
                 values: ["sandbox_env_allow": .list(["HOME", "PATH"])]
             )
         },
+        "settings_apply_browser": {
+            _ = try await $0.applySettings(
+                section: "browser",
+                values: ["browser_default_profile": .text("fermix_headless")]
+            )
+        },
         "settings_reload": { _ = try await $0.reloadSettings() },
         "secret_set": {
             _ = try await $0.setSecret(id: "openai_api_key", value: "sk-fixture-not-a-real-key")
@@ -152,7 +158,23 @@ enum ManagementV2Calls {
         },
         "meetings_signin_start": { _ = try await $0.startMeetingsSignIn() },
         "computer_use_grant_start": { _ = try await $0.startComputerUseGrant() },
-        "computer_use_permissions_get": { _ = try await $0.computerUsePermissions() }
+        "browser_install_start": { _ = try await $0.startBrowserInstall() },
+        "computer_use_permissions_get": { _ = try await $0.computerUsePermissions() },
+
+        "mobile_status": { _ = try await $0.mobileStatus() },
+        "mobile_pair_start": { _ = try await $0.startPairing() },
+        "mobile_pair_get": { _ = try await $0.pairingSession(id: "5b0c7d2e-8f41-4a6b-9c3d-2e7f1a8b4c60") },
+        "mobile_pair_decide": {
+            _ = try await $0.decidePairing(id: "5b0c7d2e-8f41-4a6b-9c3d-2e7f1a8b4c60", approved: true)
+        },
+        "mobile_pair_decide_deny": {
+            _ = try await $0.decidePairing(id: "5b0c7d2e-8f41-4a6b-9c3d-2e7f1a8b4c60", approved: false)
+        },
+        "mobile_pair_cancel": { _ = try await $0.cancelPairing(id: "5b0c7d2e-8f41-4a6b-9c3d-2e7f1a8b4c60") },
+        "mobile_devices_list": { _ = try await $0.mobileDevices() },
+        "mobile_devices_revoke": {
+            _ = try await $0.revokeMobileDevice(id: "3f4a1a55-69a0-4f8a-9132-17d6ac728f84")
+        }
     ]
 
 }

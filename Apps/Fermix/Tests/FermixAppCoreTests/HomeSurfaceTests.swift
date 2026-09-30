@@ -111,6 +111,40 @@ struct HomeSurfaceTests {
         }
     }
 
+    /// Owner directive of 2026-09-27: a fresh install that signed in from
+    /// Settings rather than the assistant left Home saying "Setup required"
+    /// beside `Continue setup`, and nothing said what was missing. The toolbar
+    /// names the step the button opens: the first gating failure, which is the
+    /// screen `SetupRouting` lands on, so the two cannot disagree.
+    @Test("beside Continue setup, the toolbar names the step it opens")
+    func nextSetupStepNamesTheFirstGatingFailure() throws {
+        // The golden home is ready; a primary with no credential is the gate.
+        let state = try ManagementValueFixture.setupState(primaryConfigured: false)
+        let home = try snapshot(readiness: "setup_required", setup: state)
+
+        #expect(home.nextSetupStep != nil)
+        #expect(
+            home.nextSetupStep == AttentionProjection.rows(for: state).first?.title,
+            "the same words as the row it leads"
+        )
+        #expect(home.nextSetupStep != ProductStrings[.attentionPersonalizationTitle], "the advisory row is not the step")
+    }
+
+    @Test("a daemon that calls itself ready names no next step, whatever its failure list says")
+    func nextSetupStepFollowsReadiness() throws {
+        let state = try FakeDaemonGateway.fixtureResult(named: "setup_state_get", as: ManagementSetupState.self)
+
+        #expect(try snapshot(readiness: "ready", setup: state).nextSetupStep == nil)
+    }
+
+    @Test("advisory failures and an unread setup state name no next step")
+    func nextSetupStepIgnoresAdvisoryFailures() throws {
+        let advisory = try ManagementValueFixture.setupState()
+
+        #expect(try snapshot(readiness: "setup_required", setup: advisory).nextSetupStep == nil)
+        #expect(try snapshot(readiness: "setup_required").nextSetupStep == nil)
+    }
+
     @Test("a daemon that cannot be reached says so rather than drawing a healthy header")
     func unreachableHeader() {
         let home = HomeSnapshot.unreachable(attention: .unavailable("the socket is not there"))
@@ -719,6 +753,53 @@ struct HomeSurfaceTests {
         #expect(rows.first?.title != ProductStrings[.homeAttentionEmpty])
     }
 
+    /// While macOS holds the background item nothing can answer, so the row
+    /// that says why replaces the refusal and offers the one way on. It is read
+    /// from the registration Home holds, so it is there however the item came
+    /// to be held: setup, the switch, or System Settings since.
+    @Test("a held background item leads Attention with the way to allow it")
+    func heldItemLeadsAttention() async throws {
+        let harness = try HomeHarness()
+        harness.gateway.negotiateFailure = ManagementError.transport(.socketMissing(path: "/tmp/daemon.sock"))
+        harness.loginItems.preregister(.agent, as: .requiresApproval)
+        await harness.model.refreshRegistrations()
+
+        await harness.model.refresh()
+
+        #expect(harness.model.attention.displayRows == [.backgroundApproval])
+        #expect(AttentionRow.backgroundApproval.action == .openLoginItems)
+
+        harness.model.perform(.openLoginItems)
+        #expect(harness.loginItems.settingsOpened == 1)
+    }
+
+    @Test("the held item's row goes once macOS allows it")
+    func allowedItemLeavesAttention() async throws {
+        let harness = try HomeHarness()
+        harness.loginItems.preregister(.agent, as: .requiresApproval)
+        await harness.model.refreshRegistrations()
+        #expect(harness.model.attention.displayRows.first == .backgroundApproval)
+
+        harness.loginItems.preregister(.agent, as: .enabled)
+        await harness.model.refreshRegistrations()
+
+        #expect(!harness.model.attention.displayRows.contains(.backgroundApproval))
+        #expect(harness.model.backgroundServiceEnabled)
+    }
+
+    /// Daemon rows stay under the held item's row rather than being replaced.
+    @Test("a held item leads the daemon's own rows rather than hiding them")
+    func heldItemLeadsDaemonRows() async throws {
+        let harness = try HomeHarness()
+        await harness.model.refresh()
+        let daemonRows = harness.model.snapshot.attention.displayRows
+        harness.loginItems.preregister(.agent, as: .requiresApproval)
+
+        await harness.model.refreshRegistrations()
+
+        #expect(harness.model.attention.displayRows == [.backgroundApproval] + daemonRows)
+    }
+
     /// The same rule before the first read: Home has asked nothing, so it says
     /// that rather than drawing the all-clear.
     @Test("before the first read Attention says nothing has been read")
@@ -740,10 +821,89 @@ struct HomeSurfaceTests {
         harness.model.setOpenAtLogin(true)
         #expect(harness.loginItems.status(.mainApp) == .enabled)
         #expect(harness.loginItems.status(.agent) == .enabled)
+        #expect(harness.model.openAtLogin, "the switch shows the change without waiting for a refresh")
 
         harness.model.setOpenAtLogin(false)
         #expect(harness.loginItems.status(.mainApp) == .notRegistered)
         #expect(harness.loginItems.status(.agent) == .enabled, "the daemon's registration is untouched")
+        #expect(!harness.model.openAtLogin)
+    }
+
+    /// Home appearing, every other route opening and every finished
+    /// transaction each ask for a refresh, and quick clicks used to stack a
+    /// full set of daemon reads per click. Requests that arrive while one runs
+    /// share one more read, which starts after they asked, so none of them is
+    /// answered with data read before its request.
+    @Test("refreshes asked for while one runs share one more read")
+    func overlappingRefreshesCoalesce() async throws {
+        let harness = try HomeHarness()
+        let reply = PausedSetupReply()
+        harness.gateway.setupStateGate = { await reply.wait() }
+        defer { reply.released = true }
+
+        let first = Task { await harness.model.refresh() }
+        try await reply.waitUntilEntered()
+        let second = Task { await harness.model.refresh() }
+        let third = Task { await harness.model.refresh() }
+        for _ in 0..<50 { await Task.yield() }
+
+        harness.gateway.setupStateGate = nil
+        reply.released = true
+        await first.value
+        await second.value
+        await third.value
+
+        #expect(harness.gateway.calls.filter { $0 == .negotiate }.count == 2)
+    }
+
+    /// Every route opening refreshes Home, so a refresh that re-read the
+    /// registrations made macOS verify this app's signature twice per click.
+    /// Only a finished transaction, which may have registered or unregistered
+    /// the agent, sends the next refresh back to macOS.
+    @Test("a refresh asks macOS only after a transaction has ended")
+    func refreshReadsRegistrationsOnlyAfterATransaction() async throws {
+        let harness = try HomeHarness()
+        let reads = harness.loginItems.statusReads
+
+        await harness.model.refresh()
+        await harness.model.refresh()
+        #expect(harness.loginItems.statusReads == reads)
+
+        harness.loginItems.preregister(.agent, as: .notRegistered)
+        harness.coordinator.setBackgroundService(enabled: false)
+        try await harness.coordinator.drainPendingWork()
+        let afterTransaction = harness.loginItems.statusReads
+        await harness.model.refresh()
+
+        #expect(harness.loginItems.statusReads == afterTransaction + 2)
+        await harness.model.refresh()
+        #expect(harness.loginItems.statusReads == afterTransaction + 2)
+    }
+
+    /// Drawing the switches asks macOS nothing (2026-09-24). Each status read is
+    /// an XPC round trip of about 70 ms in which macOS re-verifies the app's
+    /// signature, and a switch binding reads its value several times per
+    /// redraw: read through, Back to Fermix blocked the main thread for three
+    /// and a half seconds. Home holds the answer and reads it again only where
+    /// it can change.
+    @Test("drawing Home's switches asks macOS nothing, and a re-read asks once per registration")
+    func switchesReadTheHeldRegistrations() async throws {
+        let harness = try HomeHarness()
+        harness.loginItems.preregister(.agent)
+        await harness.model.refreshRegistrations()
+        let reads = harness.loginItems.statusReads
+
+        for _ in 0..<10 {
+            _ = harness.model.backgroundServiceEnabled
+            _ = harness.model.openAtLogin
+        }
+        #expect(harness.loginItems.statusReads == reads)
+
+        harness.loginItems.preregister(.mainApp)
+        await harness.model.refreshRegistrations()
+        #expect(harness.loginItems.statusReads == reads + 2)
+        #expect(harness.model.backgroundServiceEnabled)
+        #expect(harness.model.openAtLogin)
     }
 
     /// The third switch in the Background section. It is a way in rather than a
@@ -986,6 +1146,7 @@ final class HomeHarness {
             bootstrap: { .present },
             registrationBuild: { .thisBuild },
             termination: FakeTerminationRequester(),
+            hostQuitting: ImmediateHostQuitting(),
             settings: settings,
             presentation: SettingsPresentation(),
             announcer: RecordingAnnouncer()

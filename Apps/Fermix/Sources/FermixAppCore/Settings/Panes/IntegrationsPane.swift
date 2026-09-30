@@ -364,14 +364,13 @@ struct IntegrationsPane: View {
         .padding(.top, Spacing.l)
         .frame(maxWidth: WindowMetrics.settingsContentMaxWidth, alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // The pane's name is the toolbar's, as every other pane's is. This page
+        // drew a title of its own and removed the toolbar's, and inside the
+        // frame that made it the one pane with its heading in the body and the
+        // toolbar's Restart and search slid over to where the title had been
+        // (owner, 2026-09-25: "The heading is on the body and the search bar
+        // is on the left unlike rest").
         .navigationTitle(SettingsPane.integrations.title)
-        // The one pane that draws a page header of its own (the Codex-shaped
-        // page the owner asked for), so the toolbar's inline title is removed
-        // rather than left to say `Integrations` two lines above the header
-        // that says it. The window keeps its title: it is what the Window menu
-        // and Mission Control name this window by, and only its drawing in the
-        // toolbar is dropped.
-        .toolbar(removing: .title)
         .sheet(item: $consenting) { row in
             IntegrationConsentSheet(row: row, model: model, runner: work) { consentClosed(row) }
         }
@@ -404,14 +403,10 @@ struct IntegrationsPane: View {
         IntegrationRowProjection.counts(rows: rows, features: features.count)
     }
 
-    /// The page header: the title, a one-line subtitle, then the pill row with
-    /// the search field at its trailing edge.
+    /// The page's lead: a one-line subtitle, then the pill row with the search
+    /// field at its trailing edge. The title is the toolbar's.
     private var header: some View {
         VStack(alignment: .leading, spacing: Spacing.s) {
-            Text(SettingsPane.integrations.title)
-                .fermixType(Typography.style(.title))
-                .foregroundStyle(Palette.ink.color)
-
             Text(ProductStrings[.integrationsSubtitle])
                 .fermixType(Typography.style(.calloutSmall))
                 .foregroundStyle(Palette.secondary.color)
@@ -436,31 +431,13 @@ struct IntegrationsPane: View {
         }
     }
 
-    /// The search field at the trailing edge of the pill row: a rounded search
-    /// field with the magnifier at its leading edge, which is the control the
-    /// reference page draws.
+    /// The search field at the trailing edge of the pill row. The system's own
+    /// search field, the same one the settings pane list carries, so the two
+    /// searches on one screen are one control (2026-09-25); it was a text field
+    /// drawn to look like one.
     private var search: some View {
-        HStack(spacing: Spacing.xxs) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(Palette.faint.color)
-                .accessibilityHidden(true)
-
-            TextField(
-                ProductStrings[.integrationsSearchPrompt],
-                text: $query,
-                prompt: Text(ProductStrings[.integrationsSearchPrompt])
-            )
-            .labelsHidden()
-            .textFieldStyle(.plain)
-        }
-        .padding(.horizontal, Spacing.xs)
-        .padding(.vertical, Spacing.xxs)
-        // An alpha fill rather than `base200`: this page sits on the window's
-        // ambient ground, and an opaque capsule on a wash reads as a hole cut
-        // in it. The selected pill and the row's hover fill take the same one.
-        .background(Palette.chipFill.color, in: Capsule())
-        .frame(maxWidth: IntegrationMetrics.searchWidth)
-        .accessibilityLabel(ProductStrings[.integrationsSearchPrompt])
+        SearchField(text: $query, prompt: ProductStrings[.integrationsSearchPrompt])
+            .frame(maxWidth: IntegrationMetrics.searchWidth)
     }
 
     /// The flat list, and the sign-in clients once at its foot. Features is the
@@ -481,47 +458,72 @@ struct IntegrationsPane: View {
     /// the list's own children rather than once on the list: on the container
     /// it is not the row it names, and a rule left behind at the foot of the
     /// page is exactly what the directive is about.
+    ///
+    /// A changed result starts at its top. A list keeps its offset when its
+    /// rows change, so a filter chosen or a search typed while scrolled down
+    /// opened on the middle of the new result. The list is scrolled there
+    /// rather than rebuilt: an identity keyed on the filter and the search
+    /// threw away and rebuilt every row on each pill click and each keystroke.
     private var list: some View {
-        List {
-            if filter == .features {
-                ForEach(visibleFeatures) { feature in
-                    IntegrationFeatureRow(feature: feature) { openPane(feature.pane) }
-                }
-                .listRowSeparator(.hidden)
-            } else if visible.isEmpty {
-                Text(ProductStrings[.integrationsNoResults])
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.secondary.color)
+        ScrollViewReader { scroller in
+            List {
+                if filter == .features {
+                    ForEach(visibleFeatures) { feature in
+                        IntegrationFeatureRow(feature: feature) { openPane(feature.pane) }
+                    }
                     .listRowSeparator(.hidden)
-            } else {
-                ForEach(visible) { row in
-                    IntegrationRow(row: row, open: { detail = row }, setEnabled: setEnabled)
-                }
-                .listRowSeparator(.hidden)
-            }
-
-            if let refusal {
-                Text(refusal)
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.warning.color)
-                    .accessibilityAddTraits(.updatesFrequently)
+                } else if visible.isEmpty {
+                    Text(ProductStrings[.integrationsNoResults])
+                        .fermixType(Typography.style(.calloutSmall))
+                        .foregroundStyle(Palette.secondary.color)
+                        .listRowSeparator(.hidden)
+                        .id(Self.noResultsRow)
+                } else {
+                    ForEach(visible) { row in
+                        IntegrationRow(row: row, open: { detail = row }, setEnabled: setEnabled)
+                    }
                     .listRowSeparator(.hidden)
-            }
+                }
 
-            clients
+                if let refusal {
+                    Text(refusal)
+                        .fermixType(Typography.style(.calloutSmall))
+                        .foregroundStyle(Palette.warning.color)
+                        .accessibilityAddTraits(.updatesFrequently)
+                        .listRowSeparator(.hidden)
+                }
+
+                clients
+            }
+            .listStyle(.plain)
+            // The list gives up its own ground for the window's, as every form
+            // does, and its sign-in client rows draw their actions in the one
+            // row style (redlines §1.3, §4.4).
+            .showsAmbientGround()
+            .rowActions()
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(.never)
+            .paneScrollEdges()
+            .onChange(of: filter) { scrollToTop(scroller) }
+            .onChange(of: query) { scrollToTop(scroller) }
         }
-        .listStyle(.plain)
-        // The list gives up its own ground for the window's, as every form
-        // does, and its sign-in client rows draw their actions in the one row
-        // style (redlines §1.3, §4.4).
-        .showsAmbientGround()
-        .rowActions()
-        .id(filter)
-        .id(query)
-        .id(model.plugins.value != nil)
-        .scrollBounceBehavior(.basedOnSize)
-        .scrollIndicators(.never)
-        .paneScrollEdges()
+    }
+
+    /// The id of the row the list opens with, whichever of its three shapes it
+    /// has. A feature search that matches nothing draws no row of its own, and
+    /// the list then stays where it was.
+    private var firstRow: String? {
+        guard filter != .features else { return visibleFeatures.first?.id }
+
+        return visible.first?.id ?? Self.noResultsRow
+    }
+
+    private static let noResultsRow = "integrations:no-results"
+
+    private func scrollToTop(_ scroller: ScrollViewProxy) {
+        guard let firstRow else { return }
+
+        scroller.scrollTo(firstRow, anchor: .top)
     }
 
     /// The sign-in clients the operator registered, as one section at the foot

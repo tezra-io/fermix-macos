@@ -30,6 +30,17 @@ public protocol InstalledAppsEnumerating: Sendable {
     func installedApps() -> [InstalledApp]
 }
 
+extension InstalledAppsEnumerating {
+    /// The list, read off the main thread. A scan opens every bundle in three
+    /// folders and reads its `Info.plist`, which on a Mac with a few hundred
+    /// applications held the picker's sheet frozen before it could draw.
+    public func scanned() async -> [InstalledApp] {
+        await Task.detached(priority: .userInitiated) { [self] in
+            installedApps()
+        }.value
+    }
+}
+
 /// The shipped enumerator (M34 §5.5).
 ///
 /// It reads the three application directories and takes each bundle's own

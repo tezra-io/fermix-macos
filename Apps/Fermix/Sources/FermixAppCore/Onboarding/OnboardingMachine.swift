@@ -12,6 +12,19 @@ public enum ActivationStage: Int, CaseIterable, Sendable {
     case reading = 3
 }
 
+/// What activation reports as it runs.
+///
+/// Waiting for the person's approval is a state of the service row rather than
+/// a fifth stage: a row that appears only on some Macs is the row shown for work
+/// nobody does, which the ladder already refuses to draw.
+public enum ActivationProgress: Equatable, Sendable {
+    /// The ladder reached this row.
+    case reached(ActivationStage)
+    /// macOS is holding the background item, so the service row waits on the
+    /// person until they switch Fermix on.
+    case awaitingApproval(BackgroundApproval)
+}
+
 /// The two rows of the Applying ladder (M34 §4).
 public enum ApplyingStage: Int, CaseIterable, Sendable {
     case saving = 0
@@ -162,7 +175,7 @@ public enum OnboardingBlock: Equatable, Sendable {
 public enum OnboardingEvent: Equatable, Sendable {
     /// The Welcome CTA.
     case begin
-    case activationProgressed(ActivationStage)
+    case activationProgressed(ActivationProgress)
     case activationSucceeded
     /// The refusal, and the facts on this Mac its own sentence names.
     case activationFailed(BootFailureCause, evidence: [String])
@@ -193,6 +206,9 @@ public struct OnboardingMachine: Equatable, Sendable {
     /// rows that transaction actually takes and no others.
     public let activationPlan: ActivationPlan
     public private(set) var activation: ActivationStage
+    /// Why macOS is holding the background item, while the service row waits
+    /// on the person. Nil whenever it is not waiting.
+    public private(set) var approval: BackgroundApproval?
     public private(set) var applying: ApplyingStage
     public private(set) var failure: BootFailureCause?
     /// What the refusal found: the copies, the journal path and its reason.
@@ -216,13 +232,19 @@ public struct OnboardingMachine: Equatable, Sendable {
         switch event {
         case .begin, .retryActivation:
             startActivation()
-        case .activationProgressed(let reached):
+        case .activationProgressed(.reached(let reached)):
             activation = reached
+            approval = nil
+        case .activationProgressed(.awaitingApproval(let held)):
+            activation = .registering
+            approval = held
         case .activationSucceeded:
+            approval = nil
             failure = nil
             failureEvidence = []
             stage = landingAfterActivation()
         case .activationFailed(let cause, let evidence):
+            approval = nil
             failure = cause
             failureEvidence = evidence
             stage = .bootFailed
@@ -263,7 +285,8 @@ public struct OnboardingMachine: Equatable, Sendable {
         case .starting:
             return .starting(
                 activeIndex: activationPlan.rowIndex(of: activation),
-                includesRegistration: activationPlan.registersLoginItems
+                includesRegistration: activationPlan.registersLoginItems,
+                awaitingApproval: approval != nil
             )
         case .applying:
             return .applying(
@@ -298,6 +321,7 @@ public struct OnboardingMachine: Equatable, Sendable {
     private mutating func startActivation() {
         stage = .starting
         activation = activationPlan.firstStage
+        approval = nil
         failure = nil
         failureEvidence = []
     }

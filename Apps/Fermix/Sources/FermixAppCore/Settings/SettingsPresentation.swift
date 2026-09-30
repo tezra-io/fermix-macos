@@ -14,8 +14,8 @@ import SwiftUI
 public final class SettingsPresentation: ObservableObject {
     @Published public private(set) var isShowing = false
 
-    /// The surface to come back to. Recorded on the way in, so the back control
-    /// returns to what the user left rather than to Home.
+    /// The surface to come back to. Recorded on the way in, so Escape returns
+    /// to what the user left rather than to Home.
     @Published public private(set) var returnRoute: AppRoute = .home
 
     /// Grows the window on the way in (decision D3). A closure rather than a
@@ -50,41 +50,68 @@ public final class SettingsPresentation: ObservableObject {
     }
 }
 
-/// The settings layout, inside the primary window (redlines §5.8).
+/// The settings pane list, the second pane inside the window's frame
+/// (redlines §5.8).
 ///
 /// It is the retired Settings window's own tree re-rooted here: the same fixed
-/// pane column, the same sidebar-placed search, the same one grouped form per
+/// pane column, the same search at its head, the same one grouped form per
 /// pane, the same banners. What went away is a window, not a surface.
+///
+/// The search is the list's, so it sits at the top of the list it narrows
+/// rather than in the toolbar, where it read as a search of the page
+/// (owner, 2026-09-25). It matches pane names, their keywords and the name of
+/// every setting in every pane: the first search reads the panes nobody has
+/// opened yet. A search that matches nothing says so.
 struct SettingsPaneColumn: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
-        List(selection: selection) {
-            ForEach(SettingsPaneGroup.allCases, id: \.self) { group in
-                let panes = model.panes(matching: model.searchText, in: group)
+        VStack(spacing: 0) {
+            SearchField(text: $model.searchText, prompt: ProductStrings[.settingsSearchPrompt])
+                .padding(.horizontal, Spacing.s)
+                .padding(.vertical, Spacing.xs)
 
-                if !panes.isEmpty {
-                    Section(group.title) {
-                        ForEach(panes) { pane in
+            List(selection: selection) {
+                ForEach(matching, id: \.group) { match in
+                    Section(match.group.title) {
+                        ForEach(match.panes) { pane in
                             Label(pane.title, systemImage: pane.systemImage)
                                 .tag(pane)
                         }
                     }
                 }
             }
+            // Decision D4 is the window's rule and not one pane's: the thirteen
+            // panes are taller than the 640 point default the window opens at,
+            // so the column scrolls, and a column that scrolls draws the same
+            // inline scroller the form was told not to. Same two modifiers,
+            // same reason.
+            .scrollIndicators(.never)
+            .paneScrollEdges()
+            .overlay {
+                if matching.isEmpty {
+                    SurfaceEmptyState(
+                        model: EmptyStateModel(
+                            message: String(format: ProductStrings[.settingsSearchNoResultsFormat], model.searchText)
+                        ),
+                        symbol: "magnifyingglass"
+                    )
+                }
+            }
         }
-        // Decision D4 is the window's rule and not one pane's: the thirteen
-        // panes are taller than the 640 point default the window opens at, so
-        // the column scrolls, and a column that scrolls draws the same inline
-        // scroller the form was told not to. Same two modifiers, same reason.
-        .scrollIndicators(.never)
-        .paneScrollEdges()
-        .navigationSplitViewColumnWidth(
-            min: WindowMetrics.settingsSidebarWidth,
-            ideal: WindowMetrics.settingsSidebarWidth,
-            max: WindowMetrics.settingsSidebarWidth
-        )
         .frame(width: WindowMetrics.settingsSidebarWidth)
+        .task(id: model.searchText.isEmpty) {
+            guard !model.searchText.isEmpty else { return }
+
+            await model.readEverySection()
+        }
+    }
+
+    /// The groups with a pane that answers the search, in the published order.
+    private var matching: [(group: SettingsPaneGroup, panes: [SettingsPane])] {
+        SettingsPaneGroup.allCases
+            .map { ($0, model.panes(matching: model.searchText, in: $0)) }
+            .filter { !$0.1.isEmpty }
     }
 
     /// The column selects a pane and never nothing: clearing the selection
@@ -116,6 +143,9 @@ struct SettingsDetailView: View {
     var body: some View {
         SettingsPaneView(pane: model.selectedPane, model: model, router: router)
             .settingsBanners(model: model, openRecovery: openRecovery)
+            // The first read on entering settings. It is here because this is
+            // the view that appears when settings does.
+            .task { await model.windowAppeared() }
             .task(id: model.selectedPane) { await model.paneAppeared(model.selectedPane) }
     }
 }

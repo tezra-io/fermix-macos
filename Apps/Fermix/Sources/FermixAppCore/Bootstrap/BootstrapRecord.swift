@@ -135,6 +135,34 @@ public struct BootstrapRecord: Equatable, Sendable {
     public var realtimeSocketURL: URL {
         fermixHome.appendingPathComponent("realtime.sock", isDirectory: false)
     }
+
+    /// The companion chat socket for this home, a third wire with its own
+    /// contract. An engine that predates chat serves no such socket.
+    public var companionSocketURL: URL {
+        fermixHome.appendingPathComponent("companion.sock", isDirectory: false)
+    }
+
+    /// The browser host socket for this home, the fourth wire, with its own
+    /// contract and its own direction: the app is the client that attaches as
+    /// the host, and the daemon is the one asking.
+    public var browserHostSocketURL: URL {
+        fermixHome.appendingPathComponent("browser_host.sock", isDirectory: false)
+    }
+
+    /// The engine's own workspace, the root a `page.upload` path the daemon
+    /// names must fall under: the file a page receives is one the engine keeps
+    /// there. The host client refuses one that does not.
+    public var workspaceDirectoryURL: URL {
+        fermixHome.appendingPathComponent("workspace", isDirectory: true)
+    }
+
+    /// The engine's browser directory, the root every `page.screenshot` and
+    /// `page.pdf` path and every `download_dir` the daemon names must fall
+    /// under: the engine keeps its captures and downloads there, never in the
+    /// workspace. The host client refuses a capture path that does not.
+    public var browserDirectoryURL: URL {
+        fermixHome.appendingPathComponent("browser", isDirectory: true)
+    }
 }
 
 /// What this account's bootstrap record is.

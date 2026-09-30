@@ -30,21 +30,33 @@ struct CommandTableTests {
         }
     }
 
-    /// The View menu carries the four surfaces on Command-1 to Command-4 and
-    /// Show/Hide Sidebar on Control-Command-S.
-    @Test("the View menu carries the sidebar toggle and the four surface shortcuts")
+    /// The View menu carries the five surfaces on Command-1 to Command-5, in the
+    /// rail's own order, and Show/Hide Sidebar on Control-Command-S.
+    @Test("the View menu carries the sidebar toggle and the five surface shortcuts in rail order")
     func viewMenuShortcuts() throws {
         let view = try #require(CommandTable.mainMenu.first { $0.titleKey == .menuTitleView })
 
-        #expect(view.commands.prefix(5) == [.toggleSidebar, .showHome, .showDoctor, .showLogs, .showPet])
-        #expect(CommandTable.shortcut(of: .showHome) == CommandShortcut("1"))
-        #expect(CommandTable.shortcut(of: .showDoctor) == CommandShortcut("2"))
-        #expect(CommandTable.shortcut(of: .showLogs) == CommandShortcut("3"))
-        #expect(CommandTable.shortcut(of: .showPet) == CommandShortcut("4"))
+        #expect(view.commands.prefix(6) == [.toggleSidebar, .showChat, .showHome, .showDoctor, .showLogs, .showPet])
+        #expect(CommandTable.shortcut(of: .showChat) == CommandShortcut("1"))
+        #expect(CommandTable.shortcut(of: .showHome) == CommandShortcut("2"))
+        #expect(CommandTable.shortcut(of: .showDoctor) == CommandShortcut("3"))
+        #expect(CommandTable.shortcut(of: .showLogs) == CommandShortcut("4"))
+        #expect(CommandTable.shortcut(of: .showPet) == CommandShortcut("5"))
 
         let sidebar = try #require(CommandTable.shortcut(of: .toggleSidebar))
         #expect(sidebar.key == "s")
         #expect(sidebar.holdsControl)
+    }
+
+    /// "Show browser" sits after the five surfaces, with its own shortcut, so
+    /// it is reachable from the menu bar and not only from Chat's toolbar
+    /// (plan §4.10).
+    @Test("the View menu carries Show browser after the five surfaces")
+    func viewMenuCarriesShowBrowser() throws {
+        let view = try #require(CommandTable.mainMenu.first { $0.titleKey == .menuTitleView })
+
+        #expect(view.commands.contains(.showBrowser))
+        #expect(CommandTable.shortcut(of: .showBrowser) == CommandShortcut("b"))
     }
 
     /// A command in the table is one this build performs. The router is the
@@ -155,6 +167,11 @@ struct CommandTableTests {
         #expect(home.secondary.isEmpty)
         #expect(home.more.isEmpty)
         #expect(CommandTable.toolbar(for: .pet).isEmpty)
+        // Chat's search is the toolbar's own field, not a command; "Show
+        // browser" is the one command it does carry (plan §4.10).
+        #expect(CommandTable.toolbar(for: .chat).secondary == [.showBrowser])
+        #expect(CommandTable.toolbar(for: .chat).primary == nil)
+        #expect(CommandTable.toolbar(for: .chat).more.isEmpty)
     }
 
     /// Every command a toolbar draws needs a sentence-case label; the menu's

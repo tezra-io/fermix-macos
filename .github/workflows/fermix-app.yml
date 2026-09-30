@@ -78,7 +78,9 @@ jobs:
           scripts/verify_staged_app_test.sh
           scripts/sign_app_test.sh
           scripts/verify_engine_test.sh
+          scripts/package_release_test.sh
           bash scripts/dev_e2e_test.sh
+          bash scripts/cloud_acceptance_test.sh
 
       - name: Static runtime-policy + build-harness tests
         working-directory: Apps/Fermix

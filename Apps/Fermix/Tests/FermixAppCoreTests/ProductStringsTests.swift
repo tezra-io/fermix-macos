@@ -437,6 +437,26 @@ struct ProductStringsTests {
         #expect(!sections.contains { sentence.localizedCaseInsensitiveContains($0) })
     }
 
+    /// The approval step and Home's row send the person to the same pane for
+    /// the same switch, so they follow the same rule: the pane and Fermix,
+    /// never the section, whose name moves with the macOS version.
+    @Test(
+        "the approval copy names Login Items and Fermix, never the section",
+        arguments: [
+            ProductStringKey.startingApprovalBody, .startingApprovalBodySwitchedOff,
+            .homeAttentionBackgroundApprovalBody, .lifecycleRegistrationRefused
+        ]
+    )
+    func approvalSentences(key: ProductStringKey) {
+        let sentence = ProductStrings[key]
+        let sections = ["Allow in the Background", "App Background Activity", "Background App Activity"]
+
+        #expect(sentence.contains("Login Items"))
+        #expect(sentence.contains("Fermix"))
+        #expect(!sections.contains { sentence.localizedCaseInsensitiveContains($0) })
+        #expect(ProductCopyRules.violations(in: sentence).isEmpty)
+    }
+
     /// The states Starting can end in, as one closed set: the M34 §4 causes, the
     /// 90-second timeout, the location refusal, and the five coexistence
     /// refusals of §15.2. Each is its own case because each has its own remedy;
@@ -445,7 +465,9 @@ struct ProductStringsTests {
     func bootFailureCauseSet() {
         #expect(
             Set(BootFailureCause.allCases) == [
-                .timedOut, .approvalPending, .backgroundItemDisabled, .incompatibleVersion,
+                // No approval cause: an item macOS holds for the person is a
+                // step of Starting, and the card is only for an item it lost.
+                .timedOut, .backgroundItemDisabled, .incompatibleVersion,
                 .crashLoop, .bindFailure, .webUnavailable, .invalidPackage, .notInApplications,
                 .legacyInstallPresent, .legacySystemInstallPresent, .foreignDaemonRunning,
                 .preManagementDaemonRunning, .duplicateCopyPresent, .migrationHandoffInvalid,
@@ -583,21 +605,21 @@ struct ProductStringsTests {
         #expect(ProductStrings[.settingsSecretStored] == "Stored")
         #expect(ProductStrings[.settingsSecretReplace] == "Replace…")
         #expect(ProductStrings[.settingsSecretRemove] == "Remove")
-        // An absent secret is the field itself, so there is no `Add…` to press.
-        #expect(ProductStrings[.settingsSecretStore] == "Store")
+        // An absent secret is the field itself, and it stores as a text row
+        // commits, so there is neither an `Add…` nor a `Store` to press.
+        #expect(!ProductStringKey.allCases.contains { $0.rawValue == "settings.secret.store" })
         #expect(ProductStrings[.providerVerifyAndSave] == "Verify and save")
     }
 
-    /// The key of a provider that signs in waits behind one disclosure. Its
-    /// title opens nothing new, so it carries no ellipsis: on the Mac an
-    /// ellipsis promises a window or a sheet, and this is neither.
-    @Test("the key door's title is a sentence-case line with no ellipsis")
-    func keyDoorTitle() {
-        let title = ProductStrings[.providerUseKeyInstead]
+    /// The setup token is a row label, so it is a noun phrase with no ellipsis:
+    /// on the Mac an ellipsis promises a window or a sheet, and a field is
+    /// neither.
+    @Test("the setup token's label is a sentence-case noun with no ellipsis")
+    func setupTokenLabel() {
+        let label = ProductStrings[.providerSetupTokenLabel]
 
-        #expect(title == "Use an API key instead")
-        #expect(!title.hasSuffix("…"))
-        #expect(ProductStrings[.providerSetupTokenLabel] == "Setup token")
+        #expect(label == "Setup token")
+        #expect(!label.hasSuffix("…"))
     }
 
     /// The line under Claude's sign-in while this Mac has none to adopt. It

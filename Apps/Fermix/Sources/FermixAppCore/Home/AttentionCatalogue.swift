@@ -162,6 +162,9 @@ public enum AttentionAction: Equatable, Sendable {
     /// that is already showing back into focus, so the row needs no second way
     /// to raise it.
     case showUpdate
+    /// Opens System Settings on Login Items, where the background item's
+    /// switch is, through the one opener every such button uses.
+    case openLoginItems
 
     public var title: String {
         switch self {
@@ -172,6 +175,7 @@ public enum AttentionAction: Equatable, Sendable {
         case .showInstructions: return ProductStrings[.attentionActionShowInstructions]
         case .revealSettingsFile: return ProductStrings[.uninstallReveal]
         case .showUpdate: return ProductStrings[.attentionActionShowUpdate]
+        case .openLoginItems: return ProductStrings[.permissionActionOpenLoginItems]
         }
     }
 }

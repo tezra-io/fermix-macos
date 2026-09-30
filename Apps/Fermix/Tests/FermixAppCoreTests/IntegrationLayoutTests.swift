@@ -40,7 +40,11 @@ struct IntegrationLayoutTests {
         #expect(text.contains(".scrollBounceBehavior(.basedOnSize)"))
     }
 
-    @Test("a changed integration result list starts at the top")
+    /// A list keeps its offset when its rows change, so a new filter or search
+    /// would open on the middle of its result. The list is scrolled back to
+    /// its first row rather than given an identity keyed on the filter and the
+    /// search, which rebuilt every row on each pill click and each keystroke.
+    @Test("a changed integration result list starts at the top without being rebuilt")
     func changedResultsResetTheirScrollPosition() throws {
         let files = try SourceTree.swiftFiles(matching: "Settings/Panes/IntegrationsPane.swift")
         let text = try #require(files.first?.text)
@@ -48,8 +52,12 @@ struct IntegrationLayoutTests {
         let end = try #require(text.range(of: "private var clients: some View {"))
         let list = String(text[start.upperBound..<end.lowerBound])
 
+        #expect(list.contains("ScrollViewReader"))
+        for change in [".onChange(of: filter) { scrollToTop(scroller) }", ".onChange(of: query) { scrollToTop(scroller) }"] {
+            #expect(list.contains(change), "the list keeps an old scroll anchor without \(change)")
+        }
         for identity in [".id(filter)", ".id(query)", ".id(model.plugins.value != nil)"] {
-            #expect(list.contains(identity), "the list retains an old scroll anchor without \(identity)")
+            #expect(!list.contains(identity), "\(identity) rebuilds the whole list")
         }
     }
 

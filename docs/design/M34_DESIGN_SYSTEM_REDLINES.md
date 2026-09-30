@@ -142,6 +142,16 @@ in it. The theme does not change: the ground is the neutral ramp washed with the
   The calm ground moves it 7.57 to 8.34 instead. Lowering alpha rather than changing hue,
   because a person crosses between the two inside one window and a hue step there is the
   two-window-colours defect §5.8 already closed once.
+- **The darker end of the wash meets the rail** (owner, 2026-09-24: on dark the blue "is
+  light on the left and dark on the right", beside a rail that is pitch black, and "the
+  transition doesnt feel smooth"). The table names the light appearance's corners, where the
+  blue-washed start is the darker end and already sits against the rail. On dark the
+  near-black end is the darker one, so the dark ground is drawn mirrored across the window's
+  vertical axis, wash, both glows and both centres together: the strong glow sits at the
+  trailing top and the blue rises away from the rail. Mirroring rather than recolouring keeps
+  each glow over the end of the wash it was measured on, so the floors below hold unchanged.
+  `AmbientRecipe.isMirrored(in:)` carries the rule and `DesignMaterialsTests` checks it by
+  luminance in both appearances.
 - Each glow is a radial gradient that falls off to clear, reaching 0.62 and 0.60 of the
   window's longer side. **Never a blurred shape, and nothing moves**: a blur is a filter the
   compositor re-runs and a drift is a timer, and the ground has to cost one draw per resize
@@ -373,8 +383,16 @@ gate and restart confirmation are unchanged.
   - pending: system `circle`, secondary.
 - Row order and headlines come from the existing activation/apply state, with copy in §7.
   Applying includes a restart row only when required or already running.
+- **Waiting for approval** (`BACKGROUND_SERVICE_APPROVAL.md`): while macOS holds the
+  background item, the service row stays active with its own words and Starting draws a
+  block under the ladder the way Applying draws its restart block: one sentence in
+  `CalloutSmall` `secondary`, centred at `OnboardingMetrics.contentWidth`, and one in-window
+  secondary button, "Open Login Items settings", `Spacing.s` apart and `Spacing.m` above the
+  bottom bar. It is a state of the first row, never a fifth row, and never Boot failed.
+  Setup carries on by itself once macOS reports the item enabled; Cancel stays the way off.
 - Starting retains its negotiated daemon and `/health/live` checks, never `/health/ready`,
-  and the existing 90-second timeout to Boot failed.
+  and the existing 90-second timeout to Boot failed, counted from the daemon row: time the
+  person spends approving the background item is not the daemon's.
 - VoiceOver: each row is one element, label = row text, value = `done|in progress|waiting`;
   announce state transitions through the existing accessibility announcer. Markers are
   hidden from accessibility because the row already carries their meaning.
@@ -441,9 +459,10 @@ Content 424, padding 0/110, centered.
   the shipped artwork the body's own blue rim and shadow hold the silhouette in both
   appearances, and the plate read as a chip behind a character. The rule that put it in the
   component rather than on one screen still stands: Ready and Pet share the same still
-  treatment. `MascotArtwork` composes ring behind body behind face from `PetAssetCache`,
-  using the open-eye `listening` pose and its resting scale. Its 132/108 canvas leaves room
-  for the ring's 1.20x orbit; it is not a ground behind the character.
+  treatment. Since 2026-09-25 (decision 34) `MascotArtwork` draws the one Rive animation
+  the floating companion plays, in the open-eye `listening` pose; the painted layers and
+  `PetAssetCache` are gone. Its 132/108 canvas keeps the room the painted mascot and its
+  orbit had, so Ready does not move; it is not a ground behind the character.
 - **The screen reads readiness from the daemon when it appears.** Its whole claim is the
   daemon's, and readiness used to arrive only from the activation that walked here, so every
   other way in — a route resuming at Ready (§3.4), and every fixture launch of this surface —
@@ -490,14 +509,14 @@ Replaces Activate on the 90s timeout. Content 440, padding `26 / 120 / 0`.
 ### 5.7 Home and the primary window (`Home.dc.html`, superseded where noted)
 
 Primary window **1040×640 default, resizable**; minimum **760×520**, one minimum rather than the pair the previous revision carried, because the settings presentation (§5.8) runs inside this window and its 240pt pane column plus a readable content column has to fit at every reachable size; frame autosaved. The window is a `NavigationSplitView` with a unified toolbar and an inline title: **no window glass, no drawn titlebar zone, and one ambient ground behind everything (§1.3)** (the artboard's 52pt titlebar was a mock of chrome the window now gets from the system). Sizing is expressed in AppKit terms, because the app hosts SwiftUI inside `NSHostingView` and has no SwiftUI `Scene`: `window.minSize`, the style-mask flags, and `window.isRestorable`.
-- **Sidebar: the rail** (owner directive of 2026-09-20, from a reference capture: "I like the left pane with its pitch black color and the premium icons instead of the icon + name. Plus the logo at the top left. One thing I dont like is the left icons on the center which isnt necessary"). One fixed **96pt** column, painted `WindowFrameRecipe.fill` `#000000` with `ink` `#ffffff` **in both appearances**, because it is the application icon's own ground; the column resolves in the dark appearance whatever the window's is, since a light selection and light symbols on black are the one pairing that cannot be read. **96 rather than the first cut's 76** (owner, 2026-09-20: the traffic lights "feel cutoff because of the reduced left pane width"). Measured on the running window the cluster spans x 19 to x 78, so at 76 the green light straddled the rail's trailing edge and was drawn half on black and half on the ground, which is exactly what a cut-off light looks like. Clearing the lights is therefore not the rule; **carrying them is**: at 96 the whole cluster sits on the black with 19pt of it leading and 18pt trailing, so the lights read as centred in the column they are on, and the gate asserts that margin rather than a bare minimum width. The rows are **the published four, as symbols alone, top aligned and never centred: Home · Doctor · Logs · Pet**, and nothing stands above them. For one afternoon the mascot mark headed the column and stood in for the Pet row; the owner withdrew both the same day ("the previous icon was fine. The fermix mascot on the left pane isnt needed. And it should be below the logs"), so Pet is its own `pawprint` again, last of the four. **What the owner had asked for was on the Pet surface, not in the rail** ("I was telling about replacing the blue actual mascot in the pet page with monochrome"): the Pet preview draws the one-ink mascot, `PetMark`, at 108pt in `ink`, near-white on the dark ground and near-black on the light one, in place of the painted artwork. It is the fourth image of the menu bar's own generator (`FermixMarkPet`, far above the size where the eye floor binds, so its eyes are the master's own), so the mascot in the window and the mark in the menu bar are one drawing. The painted mascot stays where it moves, in the floating companion, and on Ready, which is now the only surface that draws `MascotArtwork`; §5.5's rule that Ready and Pet share one still treatment is withdrawn for Pet by this directive. **It is still the split view's own `List` with a selection**, restyled rather than replaced, which is the whole difference from the drawn rail the artboards proposed and this document refused twice: arrow keys, full keyboard access and VoiceOver reach it exactly as before, each symbol row is still a `Label` whose name VoiceOver reads and the pointer gets as its help tag. **The rail stops at the rail**: a black border run on around the content as an inset rounded panel was built and withdrawn the same day (owner: "Lets remove the border, it doesnt fit well with the color of ours"), and a gate keeps the window view from insetting, clipping or stroking its content into a panel again. In the settings presentation the pane column wears the same black, with its labels, because thirteen panes in four sections cannot be symbols. **The Setup row is gone** (M34 §5: setup is a task, not a destination); engine identity moves into Home's Runtime section and update state into the attention row and the update surface. **Pinned under the rows, in the footer position, is one more system row: Settings (gear)**, always present whatever the daemon reports, keyboard reachable in the same order as the rows above it, and carrying ⌘, as its shortcut. **It is the last row of the sidebar's own `List`**, held on the bottom edge by one empty, unselectable spacer row whose height is measured off the column rather than written down (2026-09-04). Drawn as a second one-row `List` in a bottom safe-area inset it was pinned and unreachable: two lists are two selection contexts, so arrow keys from Pet stopped at Pet, against the sentence above. **The column it is measured against is the full one** (2026-09-20): the list's own size excludes the titlebar's safe area while its rows are laid out in the column's full-height coordinates, so measuring the size alone left the gear 59pt short of the bottom edge, which is exactly the inset the proxy had already taken off. Adding the top inset back puts the two measurements in one coordinate space, and `WindowMetrics.railBottomInset` **12pt** is then what the gear keeps clear, leaving it 19pt off the bottom: the same margin the traffic lights have at the top, so the rail is inset equally at both ends. That measurement makes the list exactly as tall as the window, which is what drew a scroll bar down the rail for the last point of it (owner, 2026-09-20: "I saw a scroll bar on the left pane"), so **the rail hides its scroll indicators**, by the same modifier the settings pane column beside it already takes under §5.8's scroll rule. Five fixed rows never scroll in a way a person can use. It is the app's one visible way into setup, added on the owner's directive of 2026-09-03 after he opened the app and found none, and it is a row rather than a toolbar button because it is the slot he named for the dropdown the tab list may become once the window gains a chat surface. It is **not** the artboard's sidebar footer returning: that footer drew a wordmark, a version and engine identity inside a box the app painted, it stays deleted, and the footer position now holds this one system row and nothing else. The sidebar stays the chat-ready shell: a future Chat row is one more entry.
-  - **The body's two leading corners are rounded to the window's own radius** (owner, 2026-09-20: "should we make the left pane or the body rounded edge like the macOS window?"), `WindowMetrics.bodyCornerRadius` **20pt**, measured off this window rather than taken from `Radius.window`, whose 14 is the artboards' number for a drawn panel. The rail already ends in rounded corners because the window clips it; where the body met the rail it did not, so the two columns read as one sheet with a black stripe painted down it rather than as a body sitting inside a frame. **This is not the withdrawn border**, and the difference is the mechanism: it is more of the rail's own black, laid over the detail column's top and bottom leading corners as a square with a quarter disc taken out of it. No inset, no clip, no stroke, no colour of its own, and it takes no clicks. A clip would cost the surface a point of content on every edge and need a ground behind what it cut away, which is the panel that was removed.
+- **Sidebar: the rail** (owner directive of 2026-09-20, from a reference capture: "I like the left pane with its pitch black color and the premium icons instead of the icon + name. Plus the logo at the top left. One thing I dont like is the left icons on the center which isnt necessary"). **Since 2026-09-25 (decision 33) the rail is a column of symbol buttons rather than the split view's `List`**: 32pt squares at the medium sidebar size (24 and 40 at small and large, from the reader's sidebar icon size setting), 8pt apart, the selected one filled with the system's unemphasized selection colour and drawn in its filled symbol form. A sidebar list draws its selection across the whole row and cannot leave space between rows, so the squares touched. Each button keeps its name for VoiceOver and as its help tag, reports whether it is selected, takes full keyboard access focus, and the arrow keys walk the five in order, which is what the list gave and why a drawn rail was refused before. **Since 2026-09-25 (decision 32) the rail is 52pt and half of a thin frame**: a band of the same fill runs across the top at the toolbar's height and carries the traffic lights, and the body sits inside the L with its top leading corner rounded where band and rail meet. Its rows and symbols are the system sidebar's own size, so a medium row's selection is a 32pt square in the 52pt column. The paragraph below is the rail as it stood before, one fixed **96pt** column, painted `WindowFrameRecipe.fill`: **`#000000` with `ink` `#ffffff` on dark**, because it is the application icon's own ground, and **`#ececec` with `ink` `#1d1d1f` on light**, the standard window grey Mac sidebars wear (owner, 2026-09-25: "for the light mode let the side bar color be the standard grey most app uses than the pitch black like the dark mode"). The column takes the window's appearance, so its selection and symbols are the system's own for the fill under them; until 2026-09-25 it was black in both and forced into the dark appearance so light symbols stayed readable on it. **96 rather than the first cut's 76** (owner, 2026-09-20: the traffic lights "feel cutoff because of the reduced left pane width"). Measured on the running window the cluster spans x 19 to x 78, so at 76 the green light straddled the rail's trailing edge and was drawn half on black and half on the ground, which is exactly what a cut-off light looks like. Clearing the lights is therefore not the rule; **carrying them is**: at 96 the whole cluster sits on the black with 19pt of it leading and 18pt trailing, so the lights read as centred in the column they are on, and the gate asserts that margin rather than a bare minimum width. The rows are **the published four, as symbols alone, top aligned and never centred: Home · Doctor · Logs · Pet**, and nothing stands above them. For one afternoon the mascot mark headed the column and stood in for the Pet row; the owner withdrew both the same day ("the previous icon was fine. The fermix mascot on the left pane isnt needed. And it should be below the logs"), so Pet is its own `pawprint` again, last of the four. **What the owner had asked for was on the Pet surface, not in the rail** ("I was telling about replacing the blue actual mascot in the pet page with monochrome"): the Pet preview draws the one-ink mascot, `PetMark`, at 108pt in `ink`, near-white on the dark ground and near-black on the light one, in place of the painted artwork. It is the fourth image of the menu bar's own generator (`FermixMarkPet`, far above the size where the eye floor binds, so its eyes are the master's own), so the mascot in the window and the mark in the menu bar are one drawing. The painted mascot stays where it moves, in the floating companion, and on Ready, which is now the only surface that draws `MascotArtwork`; §5.5's rule that Ready and Pet share one still treatment is withdrawn for Pet by this directive. **It is still the split view's own `List` with a selection**, restyled rather than replaced, which is the whole difference from the drawn rail the artboards proposed and this document refused twice: arrow keys, full keyboard access and VoiceOver reach it exactly as before, each symbol row is still a `Label` whose name VoiceOver reads and the pointer gets as its help tag. **The rail stops at the rail**: a black border run on around the content as an inset rounded panel was built and withdrawn the same day (owner: "Lets remove the border, it doesnt fit well with the color of ours"), and a gate keeps the window view from insetting, clipping or stroking its content into a panel again. In the settings presentation the pane column wears the same black, with its labels, because thirteen panes in four sections cannot be symbols. **The Setup row is gone** (M34 §5: setup is a task, not a destination); engine identity moves into Home's Runtime section and update state into the attention row and the update surface. **Pinned under the rows, in the footer position, is one more system row: Settings (gear)**, always present whatever the daemon reports, keyboard reachable in the same order as the rows above it, and carrying ⌘, as its shortcut. **It is the last row of the sidebar's own `List`**, held on the bottom edge by one empty, unselectable spacer row whose height is measured off the column rather than written down (2026-09-04). Drawn as a second one-row `List` in a bottom safe-area inset it was pinned and unreachable: two lists are two selection contexts, so arrow keys from Pet stopped at Pet, against the sentence above. **The column it is measured against is the full one** (2026-09-20): the list's own size excludes the titlebar's safe area while its rows are laid out in the column's full-height coordinates, so measuring the size alone left the gear 59pt short of the bottom edge, which is exactly the inset the proxy had already taken off. Adding the top inset back puts the two measurements in one coordinate space, and `WindowMetrics.railBottomInset` **12pt** is then what the gear keeps clear, leaving it 19pt off the bottom: the same margin the traffic lights have at the top, so the rail is inset equally at both ends. That measurement makes the list exactly as tall as the window, which is what drew a scroll bar down the rail for the last point of it (owner, 2026-09-20: "I saw a scroll bar on the left pane"), so **the rail hides its scroll indicators**, by the same modifier the settings pane column beside it already takes under §5.8's scroll rule. Five fixed rows never scroll in a way a person can use. It is the app's one visible way into setup, added on the owner's directive of 2026-09-03 after he opened the app and found none, and it is a row rather than a toolbar button because it is the slot he named for the dropdown the tab list may become once the window gains a chat surface. It is **not** the artboard's sidebar footer returning: that footer drew a wordmark, a version and engine identity inside a box the app painted, it stays deleted, and the footer position now holds this one system row and nothing else. The sidebar stays the chat-ready shell: a future Chat row is one more entry.
+  - **The body's two leading corners are rounded to the window's own radius** (owner, 2026-09-20: "should we make the left pane or the body rounded edge like the macOS window?"), `WindowMetrics.bodyCornerRadius` **20pt**, measured off this window rather than taken from `Radius.window`, whose 14 is the artboards' number for a drawn panel. The rail already ends in rounded corners because the window clips it; where the body met the rail it did not, so the two columns read as one sheet with a black stripe painted down it rather than as a body sitting inside a frame. **This is not the withdrawn border**, and the difference is the mechanism: it is more of the rail's own fill, laid over the detail column's top and bottom leading corners as a square with a quarter disc taken out of it. No inset, no clip, no stroke, no colour of its own, and it takes no clicks. A clip would cost the surface a point of content on every edge and need a ground behind what it cut away, which is the panel that was removed. **Since 2026-09-25 (decision 35) the top trailing corner is rounded too**, where the band meets the window's trailing edge, so the body has three rounded corners and the window's own fourth; and **the frame is glass rather than paint**: the system's sidebar material behind the window under `WindowFrameRecipe.glassTint`, the same black and grey at 60% and 50%.
 - **Collapse**: View > Show/Hide Sidebar (⌃⌘S). The leading toolbar toggle is removed, because on a rail this narrow it lands on the traffic lights, and there is no drag, because the rail is one width. With the toggle gone a surface that has no toolbar of its own, which is Pet, dropped the window to the short titlebar, so every app surface carries one empty zero sized toolbar item to size the titlebar by. The system's was three ways: the leading toolbar toggle, View > Show/Hide Sidebar (⌃⌘S), and drag. Width-driven collapse below **840pt** and restore above **900pt**: the same offsets from the window minimum the previous revision chose, +80 and +140, carried onto the new 760pt minimum, where the old 720/780 pair could never fire at all. The band between them is 60pt, unchanged. An explicit hide is persisted and never overridden by width. Never hidden on first launch. No hover reveal, no overlay. Entering the settings presentation hides the sidebar as a presentation rather than as a preference, and leaving it restores the visibility the user chose.
 - **Content** is one `Form(.grouped)`; the artboard's hero card and section cards are not drawn. The owner's calmer-status refinement places **Status** in the first native `LabeledContent` row of Background, with the current state in normal secondary text and the accessibility `updatesFrequently` trait. There is no separate display headline, status dot or halo. **While a lifecycle transaction the app itself started is running** (a restart, or enabling or disabling the background service) the row says so, with the small activity mark beside the sentence, instead of flipping to "Fermix isn't running" for the seconds the daemon is away, which read as a failure (owner report of 2026-09-20: "when user clicks on restart and theres no currently indicator saying whats happening"). That a transaction this app started is in flight is the app's own fact, which is the only reason the app may say it; everything else in the row is still the daemon's. Uptime appears once, in Runtime. Sections, in order:
   - **Background**: the Status row followed by three independent switches: run in the background, open at login, and show in menu bar. The first two control registration; the third controls visibility. Lifecycle actions retain Enable / Disable wording.
   - **Attention**: one row per daemon-reported gap, each with exactly one trailing action, and one centered line when there are none. Sources are readiness failures, which carry a gating flag, a copy key and a pane deep link, the restart reasons, and the five standing coexistence descriptors M34 §5 publishes as one list: legacy service unit, restricted keychain items, engine PATH baseline, restart pending, and settings changed outside Fermix. Row wording comes from the app catalogue keyed by the **copy key** alone, never from the pane and never from a command line sentence: five channel failures and the voice companion collapse onto two panes, so a pane key cannot tell Telegram from Slack. The pane is the deep link and nothing else. The copy key is a closed set the daemon publishes, so the catalogue's coverage gate is written over that set, with the provider family enumerated at test time, rather than over a count of components.
   - **Runtime**: labelled rows for engine, management protocol, uptime, provider, channels, skills and tools, the last two as counts only.
-- **Toolbar**: leading system sidebar toggle plus the inline title; trailing at most one tinted primary action while its condition holds (continue setup, or finish updating), then at most one secondary group, never more than three groups. Status text never sits on glass. **The window states a running lifecycle transaction there, on every surface**: "Restarting Fermix" with the small activity mark, in the `.status` placement, the same drawing Doctor's "Running checks" uses. It is one window-level modifier because the window is the only view that spans every surface, and it is silent in the assistant, whose ladder already draws the restart row. **Progress sits at the point of action and everything else stays readable**: a full-window blur with a spinner was considered and refused, because it blocks a window whose contents are still true, hides the context the person was in, and costs a compositing filter for the whole duration.
+- **Toolbar**: leading system sidebar toggle plus the inline title; trailing at most one tinted primary action while its condition holds (continue setup, or finish updating), then at most one secondary group, never more than three groups. Status text never sits on glass. **While `Continue setup` is the primary, a caption immediately before it names the step it opens** (owner directive of 2026-09-27, after a fresh install that signed in from Settings rather than the assistant left Home saying only "Setup required": "show what is missing next to continue setup", and no popups): the title of the first gating readiness row from the attention catalogue, `Tell Fermix about you` or `Connect ChatGPT`, which is also the screen the button lands on, so the two cannot disagree. It sits in the trailing group with the button rather than in the status placement, which the system centres and so puts the sentence far from the button on a wide window, and it is drawn by the same `ToolbarSentence` as the status text, in the secondary ink at the small callout size and never on glass. **The window states a running lifecycle transaction there, on every surface**: "Restarting Fermix" with the small activity mark, in the `.status` placement, the same drawing Doctor's "Running checks" uses. It is one window-level modifier because the window is the only view that spans every surface, and it is silent in the assistant, whose ladder already draws the restart row. **Progress sits at the point of action and everything else stays readable**: a full-window blur with a spinner was considered and refused, because it blocks a window whose contents are still true, hides the context the person was in, and costs a compositing filter for the whole duration.
   - **That prominent action is the product's own primary action** at the row size (§4.4), and no longer a style the system draws. It was the system's prominent style carrying the root tint, `.tint(Palette.accent)`: prominent glass on macOS 26 and `borderedProminent` on the 15 floor. Untinted it took the macOS accent instead, measured off the shipped captures at `rgb(5,124,254)` on dark and `rgb(0,112,237)` on light against the product's `#2b5cff`, so Home's `Continue setup` was the one primary action in the app that was not the product's blue, and the tint fixed that. What the tint could not fix is that the product's blue was wrong there too once the ground arrived under it (owner, 2026-09-20: the blue on `Continue setup` and on the failure page's buttons "doesnt match with the theme"), so §4.4 took the blue off the primary action altogether and this button is that action, monochrome, drawn by the app. `glassProminent` and `borderedProminent` are gone from the tree and banned by name, because either would put the macOS accent back. It waives Return, since a toolbar action stands beside what the surface is asking rather than confirming it, and on macOS 26 the toolbar's shared glass is hidden behind it, since it draws its own capsule (§4.3). §1.1's two-blue rule is unchanged and is now easier to keep: the only blue left on the surface is selection and switches.
   - The accent stays scheme independent. **No dark-appearance variant is added**, because lightening it is what would break the label: white on `#2b5cff` is 5.13:1, and white on `accentHover` (`#4a73ff`), the only lighter accent the ramp has, is 4.04:1, under §9's 4.5:1 floor.
 - **Runtime rows carry a vendor mark where the fact is about a vendor.** Only the provider row is, and the daemon publishes the provider's key there, so nothing is parsed out of the sentence beside it. The mark is 20pt (`SettingsRowMetrics.markSize`), which is the size every grouped-form row draws one at.
@@ -526,9 +545,9 @@ ground.
 - Restart-only entry starts the restart without rewriting personalization. A refused About you save stays on About you and states the refusal, even when the earlier settings already satisfy readiness.
 
 **Settings, a presentation of the primary window** (owner directive of 2026-09-03: "the setup/settings should launch in the same app/window"). There is no Settings window, no `WindowKind.settings`, and no second place to look.
-- **Entering** hides the app sidebar (Home · Doctor · Logs · Pet) and puts the settings layout in the same window: a **240pt pane column** on the left, the pane's form on the right. Leaving restores the surface the user came from and the sidebar visibility they had.
-- **The back control** is at the toolbar's leading edge: **the chevron alone** (`chevron.backward`, the direction-relative symbol the system's own back button draws and the only one that mirrors under a right-to-left layout), a system toolbar button, labelled for VoiceOver as "Back to Fermix". The word beside the chevron is gone and so is its string (owner directive of 2026-09-03: "The back button < Fermix isnt aligned properly, i think just the < arrow should be fine"). The word was the misalignment: a chevron glyph and a 13pt word have different optical centres, so the pair sat low against the inline title however the label was styled, and the system's own back control carries no word either. It keeps the system button's chrome rather than being flattened, because that is what supplies the standard leading-edge position, the standard hit target and the vertical centring. **Escape does the same** while no sheet is open. There is no second way back and no close button, because nothing is closing.
-- **Pane column, fixed 240pt**: a system `List` in four titled sections (Assistant, Connections, Capabilities, System) holding thirteen panes, with **the search field at its top** (`.searchable(placement: .sidebar)`, indexing pane titles and row labels) and the sidebar toggle removed from the toolbar. Not collapsible, no drawn border, last pane restored from user defaults.
+- **Superseded 2026-09-25, settings sits inside the frame (decision 32):** the rail stays on screen with its gear selected, and the body holds the 240pt pane list, drawn as the second pane (`WindowFrameRecipe.pane`, `#f8f8f8` light, `#0b0b0e` dark, a sidebar-style list; since decision 35 it is part of the frame's glass and the body is the form), beside the pane's form; choosing a surface on the rail, or Escape, leaves. What follows is the previous arrangement. - **Entering** hides the app sidebar (Home · Doctor · Logs · Pet) and puts the settings layout in the same window: a **240pt pane column** on the left, the pane's form on the right. Leaving restores the surface the user came from and the sidebar visibility they had.
+- **Withdrawn 2026-09-25 for settings (decision 32):** the rail is the way back, so settings draws no back control; the assistant keeps its chevron. What follows is the previous arrangement. - **The back control** is at the toolbar's leading edge: **the chevron alone** (`chevron.backward`, the direction-relative symbol the system's own back button draws and the only one that mirrors under a right-to-left layout), a system toolbar button, labelled for VoiceOver as "Back to Fermix". The word beside the chevron is gone and so is its string (owner directive of 2026-09-03: "The back button < Fermix isnt aligned properly, i think just the < arrow should be fine"). The word was the misalignment: a chevron glyph and a 13pt word have different optical centres, so the pair sat low against the inline title however the label was styled, and the system's own back control carries no word either. It keeps the system button's chrome rather than being flattened, because that is what supplies the standard leading-edge position, the standard hit target and the vertical centring. **Escape does the same** while no sheet is open. There is no second way back and no close button, because nothing is closing.
+- **The search field heads the pane list again, as the system's own `NSSearchField` (2026-09-25, decision 32)**: for an afternoon it sat in the toolbar, where it read as a search of the page rather than of the list it narrows. It matches pane names, their keywords, and the name of every setting in every pane (the first search reads the sections of panes not yet opened, in one write), and a search that matches nothing shows "No settings match “…”" rather than an empty column. The Integrations pane's own search is the same control. - **Pane column, fixed 240pt**: a system `List` in four titled sections (Assistant, Connections, Capabilities, System) holding thirteen panes, with **the search field at its top** (`.searchable(placement: .sidebar)`, indexing pane titles and row labels) and the sidebar toggle removed from the toolbar. Not collapsible, no drawn border, last pane restored from user defaults.
 - **Content column: one `Form(.grouped)` per pane, maximum 640pt wide, centred in the width left over.** Window title equal to the pane title, which is the shows-title flag on the window descriptor, now set by the primary window alone. Section headers and footers are the system's; the app draws no card, no rail, and no divider overlay. Section headers are written in sentence case unless the owner takes the HIG side of the title-case decision (§7).
 - **Window size: 1040×640 default, `window.minSize` 760×520** (§5.7 carries the same two numbers, because it is the same window). Entering settings grows a window smaller than the default up to it: animated, anchored at the window's top-left, and clamped to `NSScreen.visibleFrame` so it can never grow off-screen or under the menu bar. Leaving settings does not shrink it back. **One growth path on both systems**, an AppKit `setFrame(display:animate:)` that holds the frame's top-left (an AppKit origin is its bottom-left), because the app hosts SwiftUI inside an `NSHostingView` and has no `Scene` for `.windowResizeAnchor` to reach; there is no macOS 26 alternative, and the geometry is a pure function of three rectangles so it is provable without a window server. The two numbers are **content** sizes, the unit the window descriptor builds with, while the growth rule works in frame units, so the seam asks the window how much chrome sits on top rather than assuming the two are equal. They are equal today: every window descriptor here carries `.fullSizeContentView`, which puts a window's content rect and its frame rect on one rectangle. **The same clamp is a ceiling on every window, not only on growth**: presenting fits a window to the visible frame of the screen it opens on, before it is shown, so a frame restored from an autosave written on a larger display, or a default larger than the display it lands on, is corrected before anybody sees it and the corrected frame is what gets saved. **A window's size is its descriptor's and never its content's**: the hosting view's own sizing options are cleared, and no view restates the size its descriptor owns.
 - **No inline scrollbars** (owner: "try to avoid the inline scrollbar"). The form scrolls only when its content is taller than the window, scroll indicators are never shown, the top and bottom edges carry the automatic scroll edge effect of §4.3, and a short pane does not scroll at all. **No nested scroll view inside a pane**: a long list either groups and collapses in place, or opens a sheet that owns its list. The plugin list is the Integrations pane's own single scroll, kept short by its pills and its search; the model picker and the installed-apps picker are sheets, and inside a provider's own sheet the model list is a page of that sheet rather than a second one. The rule is the window's and not one pane's, so **the pane column carries it too**: thirteen panes in four sections are taller than the 640pt default, so that column scrolls, and it hides its indicators and fades its edges by the same two modifiers the form uses. Every scroll container the settings presentation owns is on this rule, which is how it is gated.
@@ -650,7 +669,13 @@ new background item. That is Fermix." Rows, in order: "Registering the backgroun
 The subcopy and registration row follow the activation plan. Both the production plan and
 the isolated development background-service plan register an agent, so both include them.
 The compact headline and native indicators follow §5.2; this changes presentation, not
-the checks the checklist reports.
+the checks the checklist reports. While macOS holds the background item the first row
+reads "Waiting for you to allow Fermix in the background", and the block under the ladder
+says "Open Login Items settings and turn Fermix on. Setup carries on by itself.", or, for
+an item that was already held before this attempt, "Fermix is turned off in Login Items.
+Turn it back on there and setup carries on by itself.", beside the one button "Open Login
+Items settings". No string names the section Fermix's switch sits in: it is "Allow in the
+Background" on macOS 15, "App Background Activity" on 26 and "Background App Activity" on 27.
 Bottom bar leading control: **"Cancel"**, the one control this screen carries (owner report
 of 2026-09-04: a ladder that was not running left "only way to get back is close the window
 and relaunch"). It cancels the activation and returns to Home. Starting is the only screen
@@ -711,10 +736,11 @@ once the cask's binary stanza is in place.
 
 **Boot failed** — title: "Fermix could not start". Body: what happened, what is untouched,
 the one next action. Card label: "LAST LOG LINES". Buttons: "Run Doctor", "View full log",
-"Try again". The three Login Items causes, approval pending, background item disabled and
-registration failed, lead instead with "Open Login Items settings", then "Try again" and
-"View full log": their sentence names a switch in System Settings, and Doctor would ask a
-daemon that never started. One sentence each, same shape, for all thirteen causes: approval pending ·
+"Try again". The two Login Items causes, background item disabled and registration
+failed, lead instead with "Open Login Items settings", then "Try again" and "View full
+log": their sentence names Fermix's switch in Login Items, and Doctor would ask a daemon
+that never started. An item macOS holds for approval is not a cause: it is a step of
+Starting (§5.2). One sentence each, same shape, for every cause, among them:
 background item disabled · incompatible version · crash loop · bind failure ·
 web unavailable · invalid package · not in Applications · legacy install present ·
 foreign daemon running · older daemon running · duplicate copy present · activation
@@ -736,7 +762,12 @@ labels). Background switches: "Run in the background", "Open at login", "Show Fe
 state: "Nothing needs your attention". Example attention rows with their one action:
 "Another Fermix service is installed on this account" / "Show me how to remove it";
 "Restart to finish updating Fermix" / "Restart…"; "Settings changed outside Fermix" /
-"Reload settings from disk". A row about one provider or one channel **names it with the
+"Reload settings from disk"; and the one row the app owns about its own registration,
+shown while macOS holds the background item and leading the section, "Allow Fermix to run
+in the background" / "Open Login Items settings", body "Fermix can’t start until you turn it
+on in Login Items settings.". A refused "Run in the background" reads "macOS refused to
+register the Fermix background item. Open Login Items settings, turn Fermix on, then try
+again." A row about one provider or one channel **names it with the
 daemon's own label**, read off the same snapshot the row came from: "Connect Anthropic",
 not "Connect Claude" and not "Connect Openai_codex". The catalogue owns the sentence and
 the daemon owns the name inside it. Toolbar action, when it applies: "Continue setup" or
@@ -750,7 +781,7 @@ that title in its own page header and removes the toolbar's.
 Groups: "Assistant", "Connections", "Capabilities", "System". Thirteen panes: "Providers",
 "Personality", "Memory", "Channels", "Integrations", "Voice", "Meetings", "Computer",
 "Coding agents", "Search", "Images", "Sandbox", "Permissions". Search field prompt:
-"Search settings". Secret row: "Stored" with "Replace…" and "Remove"; where nothing is stored the row is the field itself, prompt "Paste the value", with "Store" beside it and Return doing the same. "Replace…" swaps the value column for that field and a "Cancel". There is no "Add…": a button whose only job was to raise a sheet went with the sheet.
+"Search settings". Secret row: "Stored" with "Replace…" and "Remove"; where nothing is stored the row is the field itself, prompt "Paste the value", and it stores on Return, when the field loses focus and when the sheet or pane it sits in goes away, exactly as a text row commits (owner, 2026-09-27: "I dont see the point of having store button next to the token. Its not intuitive"; the "Store" button and the "Cancel" beside a replacement are withdrawn, and a stored secret's restart state is the daemon's own, recorded from `secret.set` exactly as from a settings write). "Replace…" swaps the value column for that field; Escape, or leaving it with nothing typed, puts "Stored" back. A text row commits the same way, so a sheet's "Done" never loses a value typed and then confirmed by click (owner report of 2026-09-27, a Telegram user id that never reached the daemon). There is no "Add…": a button whose only job was to raise a sheet went with the sheet.
 One Settings toolbar action: "Restart…"; its tooltip and accessibility hint carry the
 daemon's reason sentences, falling back to "Restart to apply" when none are supplied.
 There is no repeated pending-restart banner above each pane. Restart sheet:
@@ -823,9 +854,17 @@ and raises nothing (§5.8).
 api keys and sigin at the same level causes user to scroll"). The sign-in doors lead, as
 "Sign in with browser", "Import Claude Code sign-in", "Import Codex sign-in" and the
 "Setup token" row with its caption "Use a setup token to connect your Claude account."; the
-API key sits behind one collapsed disclosure, "Use an API key instead", which carries the
-daemon's auth mode row and the key's own secret row. A provider whose only way in is a key
-draws that secret row directly, focused. Then the provider's own descriptor rows, then
+API key sat behind one collapsed disclosure, "Use an API key instead", which carried the
+daemon's auth mode row and the key's own secret row; since 2026-09-28 (owner: "the hidden
+use api instead and inside that one more drop down is confusing") the daemon's "Sign in
+with" row leads the block instead, a subscription puts the sign-in doors under it and an API
+key puts the key's secret row there, and nothing waits behind a disclosure. A provider whose
+only way in is a key draws that secret row directly, focused. A model row whose options are
+only suggestions is one combo box (owner: "no second popup for the model, pattern matching
+in the same dropdown"): typing takes any model, its dropdown lists the daemon's suggestions
+until something is typed and then the models the daemon's listing matches to what was typed,
+and the row commits and reverts as a text row does. Only a row with no options at all keeps
+"Choose…" to the paginated listing. Then the provider's own descriptor rows, then
 "Sign out" and "Use as primary" beside "Done". Every provider's sheet fits the default
 window without scrolling, which a test measures.
 **Anthropic keeps all three doors whatever is selected or connected** (owner: "for claude,
@@ -926,7 +965,7 @@ row and every state line under 34.
 **Main menu** (macOS title case, a recorded exception, kept in its own catalogue
 section): Fermix ("About Fermix", "Check for Updates…", "Settings…", Services, Hide,
 "Quit Fermix") · File ("Close Window", "Export Support Bundle…", "Reveal Log Folder") ·
-Edit · View ("Show Sidebar" / "Hide Sidebar", "Home", "Doctor", "Logs", "Pet",
+Edit · View ("Show Sidebar" / "Hide Sidebar", "Chat", "Home", "Doctor", "Logs", "Pet",
 "Run Local Checks", "Run Network Checks…", "Pause Logs") · Daemon ("Restart Fermix…",
 "Enable Background Service" / "Disable Background Service", "Open Setup Assistant") ·
 Window · Help ("Add the fermix Command to Terminal…").
@@ -1210,6 +1249,244 @@ every button carries a title or an accessibility label; every sheet has a cancel
       earns its margin, and the light side needs either a darker light value than `#2b5cff`
       or a rule that a link never lands inside a glow. This was true before the token
       existed, because `LinkButton` drew `accent` on light and still does.
+
+30. **The dark ground runs mirrored** (2026-09-24), from the owner running the app in dark:
+    the leading glow put the ground's brightest blue against the rail's black, and the
+    step from black to blue read as a seam. The dark ground is the published one mirrored
+    across the window, so its near-black end meets the rail (§1.3). Light is unchanged,
+    because its darker end is already the one at the rail.
+
+31. **The light rail is the standard grey** (2026-09-25), from the owner: "for the light mode
+    let the side bar color be the standard grey most app uses than the pitch black like the
+    dark mode". On light the rail and the body's two leading corners take `#ececec`, the
+    light value of the system's window background, with `#1d1d1f` symbols, and the column
+    takes the window's appearance instead of being forced dark (§5.7). Dark is unchanged:
+    the pitch-black rail is still the icon's own ground there.
+
+32. **A thin frame, settings inside it, and the system's own sizes** (2026-09-25), from the
+    owner looking at the Codex app: "I liked the thinner frame. we can keep it for homepage and
+    settings can be inside that", and of our rail's selection, "the outer shape is mostly
+    rectangle not squarish like the codex has. Feels like its stretched. Check all the buttons
+    sizes and see if we are using the standard."
+    - **The frame** (§5.7): the rail narrows from 96pt to 52pt, and a band of the same fill runs
+      across the top at the toolbar's height (52pt, so the frame is one thickness on both
+      sides), carrying the traffic lights and the toolbar. The body sits inside it with its top
+      leading corner rounded at the window's radius, and content scrolled up ends at the band.
+      The system's toolbar background is not honoured over this window's clear titlebar, so
+      the band is drawn by the window (`framedByBand`).
+    - **Settings inside the frame** (§5.8): the rail stays with its gear selected; the pane list
+      is the second pane and the form the third; the back control goes, because the rail is the
+      way back; Escape still leaves. The search field went to the toolbar and came back the same
+      day to the head of the pane list, as the system's search field, now matching every setting
+      in every pane and saying when nothing matches (owner: "When I entered something in the
+      search, the whole settings tab names disappeared").
+    - **The system's own sizes.** Measured on macOS 26: push buttons are 16, 20, 24, 28 and 36
+      points at mini through extra large, and a regular push button, pop-up, text field and switch
+      are all 24; a medium sidebar row is 32. The rail's symbols and rows stop being sized by
+      hand (17pt symbols in 30pt rows made the selection a tall bar) and take the sidebar's, which
+      also follows the reader's sidebar icon size setting. The row action goes from 26 to 24
+      (regular) and the assistant's call to action from 44, a phone's touch target, to 36
+      (extra large). The toolbar and in-window actions were already 36.
+    - **Not taken:** Codex's back and forward buttons and its sidebar toggle in the titlebar,
+      and its avatar and help at the rail's foot.
+
+33. **The rail's squares stand apart** (2026-09-25), from the owner comparing the rail with
+    Codex's: "I feel codex has a more space ... either way follow the best design". Measured,
+    Codex draws a 28pt square every 35pt, seven points apart; ours drew a 32pt square every
+    32pt, the squares touching. A sidebar `List` cannot leave space between rows on macOS
+    (`listRowSpacing` is iOS only, a minimum row height is ignored by the sidebar style, a
+    thin spacer row is drawn a full row tall, and a section per row adds 13pt but cuts the
+    first selection's top corners), so the rail became a column of buttons: the system's
+    sidebar row as a square, a quarter of it apart (a 32pt square every 40pt at medium). What
+    the list gave is kept by hand and gated: names, help tags, the selected trait, keyboard
+    focus, and the arrow keys walking Home, Doctor, Logs, Pet, Settings. The gear no longer
+    needs a measured spacer row; a spacer in the column holds it to the foot.
+34. **The mascot is one Rive animation** (2026-09-25), from the owner asking for reactions
+    that feel "more natural like a 3D character and aligned with the status of the voice".
+    The painted PNG poses cross-faded between four stills; the mascot is now a Rive file,
+    `Resources/Mascot/FermixMascot.riv`, played by the Rive runtime in the GUI-only
+    `FermixRive` target behind the core's `MascotRendering` seam (the agent never loads it,
+    as it never loads Sparkle). Its state machine `Pet` takes `mode` (the four
+    `PetExpression` raw values) and `level` (the voice level, 0 to 1); the poses blend
+    into each other over 0.45s, the painted body bends on a mesh, the eyes morph between
+    poses, a waveform mouth follows the voice, and idle shrinks to 86% towards its shadow.
+    Settled with the owner watching it: the orbit ring and its balls were built and
+    removed ("it doesnt look great with the circles around it"), speaking was calmed
+    ("wobbles too much"), and the body carries its own soft navy edge and cool rim so it
+    holds its silhouette on light wallpapers and is unchanged on dark ones. The editable
+    source is the owner's Rive file `fermix`; the `.riv` here is its runtime export. A click
+    anywhere on the companion's mascot starts or ends the call; the animation takes no
+    clicks of its own. The two painted plates the one-ink pet mark is generated from stay
+    in the tree as generator inputs and do not ship.
+35. **The frame is glass, and the body's top trailing corner is rounded** (2026-09-25), from
+    the owner: "can we add the rounded edge to top right of the body as well to keep it
+    consistent" and "can be bit liquid glassy. even in the light mode. Without having to change
+    teh color too much". The body now has three corners cut to the window's 20pt, the frame's
+    glass laid over each; the fourth is the window's own. The rail, the band and the corners
+    are the system's sidebar material blended with what is behind the window
+    (`NSVisualEffectView`, `.sidebar`, behind window, dimmed with the window as a sidebar is),
+    under the frame's own colours part transparent: `#000000` at 60% on dark, `#ececec` at 50%
+    on light. The desktop shows through as a hint; the frame still reads as the black and the
+    grey. Reduce Transparency and Increase Contrast get the opaque fill, as the ground does.
+    Liquid Glass (`NSGlassEffectView`) was tried first and refused: it is for a control that
+    floats over content, and it drew its own bright rim round each piece of the frame, a line
+    along the band's lower edge that made the band read wider than the rail, and a separate
+    shard at each corner (owner: "Theres seems a ine on the top bar"). The system material has
+    no rim, so band, rail and corners read as one piece.
+    The settings pane list is part of the frame too (owner, asked whether it was glass: "yea.
+    do it."): it wears the frame's own glass, so in settings the frame is the rail and the
+    pane list together, and the corners round the form. `WindowFrameRecipe.pane` is retired.
+    A glass of the pane's own colour was tried first: on dark it landed on the rail's tone, so
+    the list read as frame anyway and the form beside it began in a square corner.
+36. **Chat, one conversation** (2026-09-26), from the chat plan (`CHAT_AND_BROWSER_PLAN.md`
+    §3.3 to §3.5) and the owner's brief. The rail's new first row opens the companion
+    timeline the phone shares; there is no session list and no new chat.
+    - **The fifth row, first.** Chat heads the rail as `bubble.left`, filled while it shows,
+      above Home, Doctor, Logs and Pet, and the arrow keys walk the six with Settings.
+      `fermix://chat` opens it; Home stays where a launch lands. The View menu carries Chat
+      first and the surfaces take ⌘1 to ⌘5 in the rail's order, so Home moves to ⌘2. Chat
+      sits on the calm ground, and its title is the toolbar's, "Chat", never a page title.
+    - **Two states.** With nothing in the timeline and nothing waiting, the composer stands in
+      the middle of the column under the mark and a greeting. The mark is `FermixMarkChat`,
+      the menu bar generator's fifth image, 48pt, in `ink` at 16%. The greeting is chosen by
+      the Mac's clock (Good morning from 5, Good afternoon from 12, Good evening from 18) and
+      takes the first name of About you's `personalization.user_name`, read through the one
+      settings model, where one is saved; under it, quieter, "What is on your mind?". Nothing
+      there moves. With anything in the timeline the transcript fills the column and the
+      composer sits on the bottom edge. The owner's first message moves it there as one step
+      crossfade (§6, 240ms ease, 150ms under Reduce Motion) while the greeting fades; a
+      transcript read from the daemon simply appears. It never returns to the middle while
+      the timeline has rows.
+    - **The transcript** is a 720pt column centred in the body, in the body rung and `ink`. The
+      owner's messages sit on the trailing side in a `chipFill` shape with 16pt corners, at
+      least 96pt from the leading edge. Fermix's replies, and deliveries, sit on the leading
+      side straight on the ground, in inline markdown with links left as text, a heading
+      line drawn as its text in bold and a fenced block as code, their marks gone
+      (2026-09-28). The reply being
+      written shows its text so far and one quiet `calloutSmall` `faint` line for its latest
+      tool, "Using web_search" beside the activity mark and "Used web_search" once it stops.
+      A message the daemon has not accepted is drawn at 60% with "Sending" under it. An
+      approval is a card in `chipFill` with a standard hairline and 16pt corners: the
+      daemon's text and detail, and Approve and Deny as row-size secondary capsules, both
+      unavailable once an answer is on its way. The latest failure is one `calloutSmall`
+      `secondary` line behind `exclamationmark.circle`. (2026-09-28) The owner found the
+      transcript cluttered next to ChatGPT's own app: a turn (a user row and the reply that
+      follows it) now opens 32pt of air from the turn before and after it
+      (`ChatMetrics.turnGap`, added on top of the unchanged 16pt row rhythm,
+      `ChatMetrics.rowGap`, so the pair inside one turn still reads at the old gap), and the
+      chip's own padding grows from 12pt horizontal by 8pt vertical to 16pt by 12pt
+      (`ChatMetrics.userChipPadding`). The 720pt column already capped a row's width in a wide
+      window, composer included.
+    - **The composer** is a field in `chipFill` with a standard hairline: 36pt at one line, the
+      extra large control height, with its regular 24pt action 6pt in from the edge, and
+      keeping the 18pt corners as it grows to six lines. Return sends and Shift-Return is a
+      line break at the caret. The action is Send, the monochrome primary at the row size and
+      the default button, until a reply is being written; then it is Cancel, a secondary
+      capsule that is never the default, so Return cannot cancel a reply. Cancel is the wire's
+      own verb: `Stop` leads no string in the product, which keeps the word for the service.
+      Not connected, the composer is unavailable and the connection's sentence stands over it.
+      (2026-09-28) The gap it keeps from the last row grows from 8pt to 12pt
+      (`ChatMetrics.composerTopGap`), a little more breathing room off the docked edge.
+    - **Scrolling.** The transcript opens on its bottom edge and keeps a reader there as rows
+      arrive and a reply grows; a reader who scrolled away keeps their place. Reaching the
+      top reads the page before the oldest held row, and the reader keeps their place when it
+      lands. The newest row on screen, in a window in front, moves the read frontier the
+      phone shares. Its indicators are never drawn and its edges take the system's fade.
+      (2026-09-28) Sending follows regardless of where the reader was, so their own message and
+      the reply streaming under it stay in view without their hand; a row that arrives while
+      they are elsewhere still does not move them.
+    - **Search is in the toolbar**, `searchable` where Logs has its own, and the engine's. The
+      daemon is asked once typing pauses for 300ms, or on Return. Its hits replace the
+      transcript, which stays underneath so the reader's place survives: each hit's excerpt
+      with its matches in `accentText` bold, who wrote it and when under it, newest first,
+      and "Show older matches" where the daemon said older ones exist; none is the system's
+      empty state, "No messages match". Choosing a hit returns to the transcript, reads back
+      page by page until its row is held, scrolls it to the middle and marks its matches.
+      Clearing the field returns to the transcript.
+    - **Never drawn**: a session list, a new chat, a page title, avatars, times on rows, code
+      blocks and tables (v2), opened links (no opener yet), a second search over the held
+      rows, an approval's token, and anything moving in the empty state.
+    - **Looked at** with `--fixture --fixture-start chat`, a dozen rows of both sides with older
+      ones behind them, a reply being written with a tool running and an approval waiting,
+      and `--fixture-start chat-empty`, over a scripted companion socket.
+37. **The browser pane, the person's own browser** (2026-09-26), from the browser plan
+    (`CHAT_AND_BROWSER_PLAN.md` §4.2 to §4.7) and the owner's choice of its shape A: the pane
+    is where a person reads a link, and every task the engine runs keeps its managed Chrome.
+    §5.8's "no web view" keeps its meaning for the retired hosted setup; this pane is the one
+    web view in the app, built in the GUI-only `FermixBrowser` target. The floor stays macOS
+    15: raising it to 15.2 for the https navigation policy was reverted, because the Homebrew
+    cask's `depends_on macos:` cannot express a minor release, and a 15.2 floor would hand a
+    Mac still on 15.0 or 15.1 a `brew upgrade` bundle it refuses to open. The policy is set
+    behind `if #available(macOS 15.2, *)`, and below that WebKit's default stands in its place.
+    - **Where it sits.** A third pane inside the frame, beside the body, at the width the
+      split gives it (`PaneSplit`, 2026-09-28): the band runs over it, the body keeps its
+      corners, so its top trailing corner now rounds where the body meets the pane, and it is
+      still one split view with no divider, the seam being the pane's own fill. The column is
+      shared in a fixed order: the pane's floor of 480pt, the body's floor of 480pt, the pane
+      up to the 600pt it prefers (`WindowMetrics.browserPaneWidth`), the body up to 768pt,
+      the chat column with its gutters, and everything past that to the page, so a wider
+      window grows the page and a small screen narrows the page before it starves the chat;
+      Settings beside it keeps its list and, on a 1024pt screen, 252pt of form. Opening the
+      pane widens the window to the right by 600pt, shifted left where the right edge would
+      pass the screen's and held to the screen's width, with the floor raised from 760 to 1360
+      (never past the screen); the body beside it keeps the width the split gives it. Closing it gives the
+      width back only while the window is still the frame the app set; a window the person
+      moved or resized keeps their frame, and the floor comes back down. A window in full
+      screen or zoomed is not moved, and the pane takes its width from the body.
+    - **The header** is the frame's own glass under the band, since decision 35 retired
+      `WindowFrameRecipe.pane`, so in the pane the frame reaches down over two rows. The first
+      is the tab strip: each tab its title (its page's host until the title arrives, then New
+      tab for a blank one) and its close control, at the regular 24pt; the tab in front on the
+      secondary capsule in `ink`, the others plain in `secondary`; a private tab marked with
+      `eye.slash`; then a plain new-tab capsule, whose context menu offers a private one. The
+      second row is back, forward, and reload or Cancel loading as symbol capsules at the row
+      size, dimmed where they cannot act; the address capsule, a field on the secondary fill
+      with its hairline, the lock (`lock.fill`, "Secure connection") while every resource on
+      the page came over a secure connection, the page's address, and Return loading what is
+      typed; then Open in your browser and Hide browser. A 1pt accent hairline along the
+      header's foot shows loading progress. Under the header, only when there is one, a single
+      `calloutSmall` `secondary` line behind `exclamationmark.circle` says why something did
+      not happen: a download refused ("Fermix does not download files. Open this page in your
+      browser to download it."), text that is not a web address, a scheme no app on this Mac
+      opens, the website data unreadable, or a page that failed to load, in the system's own
+      sentence. It goes at the next thing the person does.
+    - **The address** is a web address, with or without its scheme; a bare host goes over
+      https. Anything else, a phrase, `mailto:` or `file:`, is refused with the sentence. There
+      is no search from the field: a search engine is a choice about who sees what is typed,
+      and nobody has made it.
+    - **The page** is the tab's own web view, hosted as it is; a page keeps its own ground,
+      white where it has no dark style. Tabs keep their pages while another is in front.
+      Hiding the pane keeps its tabs, so a link opened later lands beside them; closing the
+      last tab hides the pane. Nothing is restored across launches.
+    - **Keys**, while the pane is open: ⌘T a new tab, ⌘W the tab in front, ⇧⌘N a private tab,
+      ⌘L the address field.
+    - **A page's dialogs** (`alert`, `confirm`, `prompt`) are the system's alert over the
+      window, titled "example.com says", with OK, and Cancel where the page asked a question.
+      One at a time, and only for the tab in front: any other is dismissed at once, so a popup
+      never stacks.
+    - **Links.** A link in a reply is live, drawn in `accentText` (the root's accent does not
+      hold §9's floor on the dark ground), and opens through the one content link opener: a
+      web page in a new tab of the pane, in front, by the app's own preference (Fermix, the
+      default, or the person's browser, whose Settings row lands with the engine's browser
+      section); any other scheme goes to the app that owns it. Provider sign-in and the prior
+      installer never enter the pane. A page's own window (`target=_blank`, `window.open`) is
+      a tab beside its opener, in front, keeping the opener's website data and its link back
+      to it, which a website's sign-in window needs; a page closing its window closes the tab.
+      A click on another app's scheme opens that app, and a script or a frame reaching for one
+      on its own is refused.
+    - **Privacy as built.** One persistent website profile, whose identifier the app keeps in
+      its support folder (`website-profile.json`, beside the bootstrap record), separate from
+      every other browser and from the development identity; a private tab keeps nothing.
+      Known hosts go to https before the request leaves and every other http navigation is
+      tried over https first, behind WebKit's own warning page; fraudulent website warnings
+      stay on; link previews are off; camera and microphone are refused; the inspector is in
+      debug builds only.
+    - **Never drawn**: a page title, a title or a control of the pane's in the window toolbar
+      (the toolbar and its search are the surface's beside it), a divider, find and zoom
+      controls, a download, a tab overview.
+    - **Looked at** with `--fixture --fixture-start browser`: Chat with the pane open on two
+      fake tabs over no network, the second private and the first in front, beside a reply
+      carrying a link. The pane closed is `--fixture-start chat`.
 
 ## 9. Accessibility (DESIGN_SPEC §9, as build gates)
 

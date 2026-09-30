@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -9,10 +10,21 @@ import Foundation
 @MainActor
 public final class HomeModel: ObservableObject {
     @Published public private(set) var snapshot: HomeSnapshot
-    @Published public private(set) var loading = false
     /// What an Attention row's action had to say, where it had anything. A
     /// refusal is the daemon's own sentence, shown under the section.
     @Published public private(set) var actionMessage: String?
+    /// The two login registrations as macOS last answered. Held rather than
+    /// read through, because each read is a slow XPC round trip and the
+    /// switches drawing them ask on every redraw (`LoginRegistrations`). It is
+    /// read again only where the answer can change: the first refresh after a
+    /// lifecycle transaction ends, this app's own Open at login change, and the
+    /// app coming to the front, since System Settings is the other writer.
+    /// Every route opening refreshes Home, and re-reading on each of those
+    /// kept macOS verifying this app's signature twice per click for nothing.
+    @Published public private(set) var registrations: LoginRegistrations
+    /// Set when a lifecycle transaction ends, which is when this app itself
+    /// may have registered or unregistered the agent.
+    private var registrationsMayHaveMoved = false
 
     private let gateway: any DaemonQuerying
     private let services: ServiceController
@@ -45,6 +57,16 @@ public final class HomeModel: ObservableObject {
     /// through rather than holding a copy, so this is only what tells the view
     /// to read it again.
     private var transactionChanges: AnyCancellable?
+    /// The refresh in flight, and whether someone asked for another while it
+    /// ran. Home appearing, every other route opening and every finished
+    /// transaction all ask, so quick clicks used to stack a full set of daemon
+    /// reads per click. Now one runs at a time, and a request that arrives
+    /// during it gets one more read that starts after it asked.
+    private var refreshing: Task<Void, Never>?
+    private var refreshAgain = false
+    /// The app coming to the front, which is when a change made in System
+    /// Settings, the registrations' other writer, can first be seen.
+    private var activations: AnyCancellable?
     private let log = AppLog.logger(.app)
 
     /// What the reconcile last found, read back from the one model that owns it
@@ -78,19 +100,37 @@ public final class HomeModel: ObservableObject {
         self.snapshot = HomeSnapshot.unreachable(
             attention: .unavailable(ProductStrings[.homeAttentionUnread])
         )
-        self.transactionChanges = coordinator.transactionChanges.sink { [weak self] _ in
+        // Once, before the first draw, so the switches never open on a guess.
+        self.registrations = LoginRegistrations(agent: services.status(.agent), mainApp: services.status(.mainApp))
+        self.transactionChanges = coordinator.transactionChanges.dropFirst().sink { [weak self] transaction in
+            if transaction == nil { self?.registrationsMayHaveMoved = true }
             self?.objectWillChange.send()
         }
+        self.activations = NotificationCenter.default
+            .publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                Task { await self?.refreshRegistrations() }
+            }
     }
 
     /// Whether the GUI opens at login. Independent of the background service in
     /// both directions: two registrations, two consents.
     public var openAtLogin: Bool {
-        services.status(.mainApp) == .enabled
+        registrations.mainApp == .enabled
     }
 
     public var backgroundServiceEnabled: Bool {
-        services.backgroundServiceEnabled
+        registrations.agent == .enabled
+    }
+
+    /// The section Home draws: the daemon's own, led by the held item's row
+    /// while macOS is holding the background item for the person. Whether it
+    /// was held by setup, by the switch below, or switched off in System
+    /// Settings since, it is the same fact and the same row.
+    public var attention: AttentionSection {
+        guard registrations.agent == .requiresApproval else { return snapshot.attention }
+
+        return snapshot.attention.led(by: .backgroundApproval)
     }
 
     /// Whether Fermix shows a menu bar item. Independent of both registrations:
@@ -121,16 +161,62 @@ public final class HomeModel: ObservableObject {
     }
 
     public func refresh() async {
-        loading = true
-        defer { loading = false }
+        guard let refreshing else {
+            let task = Task { await refreshUntilSettled() }
+            self.refreshing = task
+            await task.value
+            return
+        }
 
+        refreshAgain = true
+        await refreshing.value
+    }
+
+    private func refreshUntilSettled() async {
+        repeat {
+            refreshAgain = false
+            await refreshOnce()
+        } while refreshAgain
+        refreshing = nil
+    }
+
+    private func refreshOnce() async {
         let update = updates.availability()
-        snapshot = await read(update: update)
+        let read = await read(update: update)
+        // Published only where it moved: an unchanged answer redrew Home and
+        // everything observing it on every refresh.
+        if read != snapshot { snapshot = read }
+        if registrationsMayHaveMoved {
+            registrationsMayHaveMoved = false
+            await refreshRegistrations()
+        }
         // This is the only read of the daemon an ordinary launch makes, so it
         // is also what moves the menu bar glyph and the status line off
         // "starting". The coordinator owns the write; Home only reports what it
         // just saw.
         coordinator.daemonObserved(DaemonObservation(snapshot: snapshot))
+    }
+
+    /// Reads both registrations off the main thread, and publishes only a
+    /// change: an unchanged answer redrawing Home is the cost this avoids.
+    ///
+    /// An agent macOS has just allowed is a daemon launchd is starting, and
+    /// Home has no poll of its own to find it, so that change reads the daemon
+    /// too. A refresh already running reads it once more rather than being
+    /// awaited from inside itself, which is where this is called from.
+    public func refreshRegistrations() async {
+        let current = await services.registrations()
+        guard current != registrations else { return }
+
+        let allowed = registrations.agent == .requiresApproval && current.agent == .enabled
+        registrations = current
+        guard allowed else { return }
+
+        if refreshing == nil {
+            Task { await refresh() }
+        } else {
+            refreshAgain = true
+        }
     }
 
     private func read(update: UpdateAvailability) async -> HomeSnapshot {
@@ -144,12 +230,15 @@ public final class HomeModel: ObservableObject {
             // row shows is the one this poll just saw.
             let attention = await attention(update: update)
 
+            let setup = settings.setupState.value
+
             return HomeSnapshot(
                 hello: hello,
                 overview: overview,
                 attention: attention,
                 update: update,
-                setup: settings.setupState.value
+                setup: setup,
+                names: setup.map(names(for:)) ?? .unread
             )
         } catch {
             settings.noteEngineBuilds(.daemonUnreachable)
@@ -265,6 +354,8 @@ public final class HomeModel: ObservableObject {
         // that is already showing back into focus.
         case .showUpdate:
             updates.checkForUpdates()
+        case .openLoginItems:
+            services.openLoginItemsSettings()
         }
     }
 
@@ -327,6 +418,8 @@ public final class HomeModel: ObservableObject {
         } catch {
             log.error("the GUI login item could not be changed: \(String(describing: error), privacy: .public)")
         }
-        objectWillChange.send()
+        // Read here rather than on the next refresh, and published even when
+        // unchanged, so a refused change puts the switch straight back.
+        registrations.mainApp = services.status(.mainApp)
     }
 }

@@ -92,6 +92,77 @@ struct LogsSurfaceTests {
         #expect(harness.model.entries == before)
     }
 
+    /// A poll every two seconds that found nothing new redrew the whole
+    /// surface four times: a loading flag nothing drew, twice, then the same
+    /// page and the same status. An unchanged answer publishes nothing, and a
+    /// new line publishes once.
+    @Test("a poll publishes only what changed")
+    func pollPublishesOnlyChanges() async throws {
+        let harness = try LogsHarness()
+        harness.gateway.logPages = [
+            try ManagementValueFixture.logPage(messages: ["newest", "second"]),
+            try ManagementValueFixture.logPage(messages: ["newest", "second"]),
+            try ManagementValueFixture.logPage(messages: ["fresh", "newest", "second"])
+        ]
+        await harness.model.refresh()
+        var redraws = 0
+        let published = harness.model.objectWillChange.sink { _ in redraws += 1 }
+        defer { published.cancel() }
+
+        await harness.model.poll()
+        #expect(harness.gateway.calls.count == 2, "the poll did not ask the daemon")
+        #expect(redraws == 0)
+
+        await harness.model.poll()
+        #expect(harness.model.entries.first?.message == "fresh")
+        #expect(redraws == 1)
+    }
+
+    /// While the daemon cannot answer, every poll fails the same way. The
+    /// sentence is shown once rather than redrawn every two seconds.
+    @Test("a failure the surface already shows is not published again")
+    func repeatedFailurePublishesOnce() async throws {
+        let harness = try LogsHarness()
+        harness.gateway.logsFailure = ManagementError.daemon(
+            ManagementFailure(
+                code: .busy,
+                message: "the daemon is busy",
+                details: ManagementScalarMap(values: [:])
+            )
+        )
+        var redraws = 0
+        let published = harness.model.objectWillChange.sink { _ in redraws += 1 }
+        defer { published.cancel() }
+
+        await harness.model.poll()
+        await harness.model.poll()
+
+        #expect(harness.model.status == .failed("the daemon is busy"))
+        #expect(redraws == 1)
+    }
+
+    /// The list keys each row by its line. Keyed by position, a poll that
+    /// added a line at the head gave every row below it a new identity and
+    /// redrew them all.
+    @Test("a poll leaves every line already on screen with the identity it had")
+    func rowsKeepTheirIdentity() async throws {
+        let harness = try LogsHarness()
+        harness.gateway.logPages = [
+            try ManagementValueFixture.logPage(messages: ["newest", "second"]),
+            try ManagementValueFixture.logPage(messages: ["fresh", "newest", "second"])
+        ]
+        await harness.model.refresh()
+        let before = harness.model.entries.map(\.logsListID)
+
+        await harness.model.poll()
+
+        #expect(Array(harness.model.entries.map(\.logsListID).suffix(before.count)) == before)
+
+        let view = try #require(try SourceTree.swiftFiles(matching: "Logs/LogsView.swift").first?.text)
+        #expect(view.contains("id: \\.logsListID"), "the list no longer keys its rows by line")
+        #expect(!view.contains("id: \\.offset"), "the list keys its rows by position")
+    }
+
     @Test("a filter and a search are sent as query parameters, not applied locally")
     func filtersReachTheDaemon() async throws {
         let harness = try LogsHarness()

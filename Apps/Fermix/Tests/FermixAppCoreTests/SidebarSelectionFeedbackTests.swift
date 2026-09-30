@@ -69,7 +69,7 @@ struct SidebarSelectionFeedbackTests {
         #expect(publications == 2)
     }
 
-    @Test("repeating the current main route dispatches no navigation", arguments: [AppRoute.home, .doctor, .logs, .pet])
+    @Test("repeating the current main route dispatches no navigation", arguments: [AppRoute.chat, .home, .doctor, .logs, .pet])
     func repeatedMainSelectionIsIdle(_ route: AppRoute) async throws {
         let harness = try RouterHarness()
         harness.model.route = route
@@ -117,41 +117,45 @@ struct SidebarSelectionFeedbackTests {
         #expect(commands.performed == [.openSettings])
     }
 
-    @Test("the retired main List cannot navigate while Settings is showing")
-    func settingsAndChangedRouteSelection() async throws {
+    /// Settings sits inside the frame, so the rail stays on screen with its
+    /// gear selected, and choosing a surface there is how the person leaves
+    /// settings (owner, 2026-09-25). Choosing the gear again asks for nothing.
+    @Test("the rail leaves Settings for the surface it chooses")
+    func railLeavesSettings() async throws {
         let harness = try RouterHarness()
         let commands = FakeCommandRouter()
         let view = mainView(harness, commands: commands)
         harness.presentation.enter(from: .home)
 
         view.selection.wrappedValue = SidebarItem.settingsIdentifier
-        view.selection.wrappedValue = SidebarItem.selection(route: .home)
-        view.selection.wrappedValue = SidebarItem.selection(route: .doctor)
-        #expect(commands.performed.isEmpty)
         await drainMainQueue()
         #expect(commands.performed.isEmpty)
 
-        harness.presentation.leave()
         view.selection.wrappedValue = SidebarItem.selection(route: .doctor)
         #expect(commands.performed.isEmpty)
         await drainMainQueue()
         #expect(commands.performed == [.showDoctor])
     }
 
-    @Test("a queued Settings entry ignores a stale Home write from the replaced List")
-    func settingsEntryIgnoresStaleHome() async throws {
+    /// Two choices queued in one turn are two things the person did, and the
+    /// later is where they meant to end up: the rail is one list in and out of
+    /// settings, so no write comes from a list that was torn down.
+    @Test("the later of two queued rail choices wins")
+    func laterRailChoiceWins() async throws {
         let harness = try RouterHarness()
         harness.model.route = .home
         let view = mainView(harness, commands: harness.router)
 
         view.selection.wrappedValue = SidebarItem.settingsIdentifier
-        view.selection.wrappedValue = SidebarItem.selection(route: .home)
+        view.selection.wrappedValue = SidebarItem.selection(route: .doctor)
 
         #expect(!harness.presentation.isShowing)
         await drainMainQueue()
         try await harness.coordinator.drainPendingWork()
-        #expect(harness.presentation.isShowing)
-        #expect(harness.model.route == .home)
+        await drainMainQueue()
+        try await harness.coordinator.drainPendingWork()
+        #expect(!harness.presentation.isShowing)
+        #expect(harness.model.route == .doctor)
     }
 
     private func drainMainQueue() async {
@@ -161,7 +165,9 @@ struct SidebarSelectionFeedbackTests {
     }
 
     private func mainView(_ harness: RouterHarness, commands: any CommandPerforming) -> MainWindowView {
-        MainWindowView(
+        let browser = BrowserHarness()
+
+        return MainWindowView(
             model: harness.model,
             sidebar: harness.sidebar,
             surfaces: harness.surfaces,
@@ -170,7 +176,13 @@ struct SidebarSelectionFeedbackTests {
             settings: harness.settings,
             leaveSettings: {},
             openRecovery: {},
-            restart: {}
+            restart: {},
+            browser: browser.coordinator,
+            links: ContentLinkOpener(
+                preference: InMemoryLinkPreferenceStore(),
+                browser: browser.coordinator,
+                workspace: RecordingWorkspaceOpener()
+            )
         )
     }
 }

@@ -152,13 +152,17 @@ struct ProvidersPane: View {
     /// the primary provider. A row belonging to any other provider is drawn on
     /// that provider's sub-page, which reads its own.
     private func modelRow(_ row: ManagementSettingRow, in section: String) -> AnyView? {
-        guard row.needsModelPicker, let provider = primaryProvider else { return nil }
-
-        return AnyView(
-            ModelChoiceRow(row: row, section: section, model: model) {
-                sheet = .models(provider: provider, section: section, key: row.key)
-            }
-        )
+        guard let form = row.modelRowForm, let provider = primaryProvider else { return nil }
+        switch form {
+        case .listing:
+            return AnyView(
+                ModelChoiceRow(row: row, section: section, model: model) {
+                    sheet = .models(provider: provider, section: section, key: row.key)
+                }
+            )
+        case .typeahead:
+            return AnyView(ModelTypeaheadRow(row: row, section: section, provider: provider, model: model))
+        }
     }
 
     /// The provider a model row belongs to. Read from the daemon's own state:
@@ -370,17 +374,27 @@ struct ProviderRow: View {
 }
 
 
-/// Whether a descriptor row is a model listing too large for the daemon to
-/// inline, which is the one row the paginated picker answers.
-///
-/// The rule keys on the row's own shape, never on its key, and it is written
-/// once so the pane and the provider sub-page cannot decide it differently.
-extension ManagementSettingRow {
-    var needsModelPicker: Bool {
-        guard case .choice = kind, !readOnly else { return false }
+/// How a model row is answered, read off the row's own shape and never its
+/// key, once so the pane and the provider sub-page cannot decide it
+/// differently: a choice with no options is a listing too large for the
+/// daemon to inline, which the paginated picker answers; a choice whose
+/// options are only suggestions is typed, and the daemon's listing matches
+/// what is typed in the field's own dropdown (owner, 2026-09-28: the curated
+/// few are not all the provider serves, and no second popup for it).
+enum ModelRowForm: Equatable {
+    case listing
+    case typeahead
+}
 
-        return options.isEmpty
+extension ManagementSettingRow {
+    var modelRowForm: ModelRowForm? {
+        guard case .choice = kind, !readOnly else { return nil }
+        if options.isEmpty { return .listing }
+
+        return suggestions ? .typeahead : nil
     }
+
+    var needsModelPicker: Bool { modelRowForm == .listing }
 }
 
 /// Model discovery is optional for a row that also accepts a custom ID.

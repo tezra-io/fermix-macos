@@ -12,6 +12,15 @@
 # gated release). This script adds the credentialed notarization (submit-then-poll,
 # never `--wait`), two-pass stapling, and the signed drag-to-Applications DMG.
 #
+# A release runs it as two steps, so each sees only the credentials it needs:
+#   build     fetches and verifies the engine, stages the app (SwiftPM and its
+#             dependencies run here) and signs and verifies it with the Developer
+#             ID. It never sees a notary credential.
+#   notarize  notarizes and staples the app, then builds, signs, notarizes and
+#             staples the DMG. Only Apple's tools and this script run here, so
+#             no dependency's code runs beside the notary password.
+# The signed app travels from one to the other in <stage-dir>.
+#
 # The engine inside the bundle comes from engine/PIN.json, and only from there:
 # the pinned release's two app-engine assets are downloaded by
 # scripts/fetch_engine.sh and proven to be the pinned ones by
@@ -25,19 +34,31 @@
 # release.yml and the cask template match that name literally,
 # scripts/check_product_config.sh gates both files against this configuration.
 #
-# Usage: package_release.sh <version> <build_number>
+# Usage: package_release.sh build <version> <build_number> <stage-dir>
+#        package_release.sh notarize <version> <stage-dir>
 #   <version>       marketing version, e.g. 0.2.0 (from the release tag)
 #   <build_number>  monotonic CFBundleVersion, e.g. the CI run number
+#   <stage-dir>     where build leaves the signed app and notarize takes it from;
+#                   build requires it absent or empty
 #
 # Required env:
-#   MACOS_DEVELOPER_ID  "Developer ID Application: <Name> (<TEAMID>)"
-#   APPLE_ID  APPLE_TEAM_ID  APPLE_APP_PASSWORD   notarytool credentials
+#   both      MACOS_DEVELOPER_ID  "Developer ID Application: <Name> (<TEAMID>)"
+#   notarize  APPLE_ID  APPLE_TEAM_ID  APPLE_APP_PASSWORD   notarytool credentials
 #
 # Produces: dist/<artifact>-<version>.dmg (+ .sha256), stapled app + DMG.
 set -euo pipefail
 
-VERSION="${1:?usage: package_release.sh <version> <build_number>}"
-BUILD_NUMBER="${2:?usage: package_release.sh <version> <build_number>}"
+usage() {
+  echo "usage: package_release.sh build <version> <build_number> <stage-dir> | notarize <version> <stage-dir>" >&2
+  exit 2
+}
+
+PHASE="${1:-}"
+case "$PHASE:$#" in
+  build:4) VERSION="$2" BUILD_NUMBER="$3" STAGE="$4" ;;
+  notarize:3) VERSION="$2" STAGE="$3" ;;
+  *) usage ;;
+esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/product_config.sh
@@ -50,7 +71,6 @@ ARTIFACT_NAME="${APP_BUNDLE_NAME%.app}"
 DISPLAY_NAME="$(product_config product_name)"
 
 DIST="$ROOT_DIR/dist"
-STAGE="$(mktemp -d)"
 APP="$STAGE/$APP_BUNDLE_NAME"
 DMG="$DIST/$ARTIFACT_NAME-$VERSION.dmg"
 ENGINE_DOWNLOAD="$STAGE/engine-download"
@@ -58,9 +78,6 @@ ENGINE_TREES="$STAGE/engine"
 ENGINE_FLAGS=()
 
 : "${MACOS_DEVELOPER_ID:?release signing is mandatory: MACOS_DEVELOPER_ID is required}"
-: "${APPLE_ID:?APPLE_ID is required}"
-: "${APPLE_TEAM_ID:?APPLE_TEAM_ID is required}"
-: "${APPLE_APP_PASSWORD:?APPLE_APP_PASSWORD is required}"
 
 fail() {
   echo "package_release: $*" >&2
@@ -141,8 +158,13 @@ prepare_engine() {
   done
 }
 
-main() {
-  mkdir -p "$DIST"
+# A stale file in the stage is one nobody built in this run, so build starts
+# from an absent or empty directory.
+build_app() {
+  mkdir -p "$STAGE"
+  [ -z "$(find "$STAGE" -mindepth 1 -print -quit)" ] ||
+    fail "the stage directory already holds files: $STAGE"
+
   prepare_engine
   "$ROOT_DIR/scripts/stage_app.sh" "$VERSION" "$BUILD_NUMBER" "$APP" universal \
     "${ENGINE_FLAGS[@]}"
@@ -151,7 +173,16 @@ main() {
   # property lists, the vendored contracts, the assets, the declared slots, and
   # the signing/architecture/entitlement inventory this release records.
   "$ROOT_DIR/scripts/verify_staged_app.sh" "$APP" universal signed release
+  echo "package_release: staged and signed $APP"
+}
 
+notarize_release() {
+  : "${APPLE_ID:?APPLE_ID is required}"
+  : "${APPLE_TEAM_ID:?APPLE_TEAM_ID is required}"
+  : "${APPLE_APP_PASSWORD:?APPLE_APP_PASSWORD is required}"
+  [ -d "$APP" ] || fail "no signed app is staged at $APP; run package_release.sh build first"
+
+  mkdir -p "$DIST"
   # Two-pass staple: notarize + staple the app first (offline-robust first launch),
   # then package it into a DMG and notarize + staple the DMG.
   ditto -c -k --keepParent "$APP" "$STAGE/$ARTIFACT_NAME.zip"
@@ -170,4 +201,7 @@ main() {
   echo "package_release: built $(basename "$DMG") sha256=$(cat "$DMG.sha256")"
 }
 
-main
+case "$PHASE" in
+  build) build_app ;;
+  notarize) notarize_release ;;
+esac

@@ -316,11 +316,70 @@ extension ManagementClient {
         )
     }
 
+    public func startBrowserInstall() async throws -> ManagementJob {
+        try await send(
+            .browserInstallStart,
+            params: ManagementEmptyParams(),
+            as: ManagementJob.self
+        )
+    }
+
     public func computerUsePermissions() async throws -> ManagementComputerUsePermissions {
         try await send(
             .computerUsePermissionsGet,
             params: ManagementEmptyParams(),
             as: ManagementComputerUsePermissions.self
+        )
+    }
+
+    // MARK: - The phone channel
+
+    public func mobileStatus() async throws -> ManagementMobileStatus {
+        try await send(.mobileStatus, params: ManagementEmptyParams(), as: ManagementMobileStatus.self)
+    }
+
+    /// Opens the one pairing window. The answer carries the pairing link once;
+    /// it is never logged, never retained and never put on the pasteboard.
+    public func startPairing() async throws -> ManagementPairingStart {
+        try await send(.mobilePairStart, params: ManagementEmptyParams(), as: ManagementPairingStart.self)
+    }
+
+    public func pairingSession(id: String) async throws -> ManagementPairingSession {
+        try await send(
+            .mobilePairGet,
+            params: ManagementPairingSessionParams(sessionId: try requireText(id, field: "session_id")),
+            as: ManagementPairingSession.self
+        )
+    }
+
+    public func decidePairing(id: String, approved: Bool) async throws -> ManagementPairingSession {
+        try await send(
+            .mobilePairDecide,
+            params: ManagementPairingDecisionParams(
+                sessionId: try requireText(id, field: "session_id"),
+                approved: approved
+            ),
+            as: ManagementPairingSession.self
+        )
+    }
+
+    public func cancelPairing(id: String) async throws -> ManagementPairingSession {
+        try await send(
+            .mobilePairCancel,
+            params: ManagementPairingSessionParams(sessionId: try requireText(id, field: "session_id")),
+            as: ManagementPairingSession.self
+        )
+    }
+
+    public func mobileDevices() async throws -> ManagementMobileDevices {
+        try await send(.mobileDevicesList, params: ManagementEmptyParams(), as: ManagementMobileDevices.self)
+    }
+
+    public func revokeMobileDevice(id: String) async throws -> ManagementMobileDeviceRevoked {
+        try await send(
+            .mobileDevicesRevoke,
+            params: ManagementDeviceParams(deviceId: try requireText(id, field: "device_id")),
+            as: ManagementMobileDeviceRevoked.self
         )
     }
 

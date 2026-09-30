@@ -45,10 +45,17 @@ public enum ServiceControlError: Error, Equatable, Sendable {
 /// Registering a background item mutates the account it runs in, so tests never
 /// reach the real implementation: they inject a double, and the production type
 /// below is the only code in the app that touches `SMAppService` at all.
-public protocol LoginItemService {
+///
+/// `Sendable` because a status read leaves the main thread: each one is a
+/// synchronous XPC round trip in which macOS re-verifies this app's signature,
+/// about 70 ms on a Developer ID build (see `LoginRegistrations`).
+public protocol LoginItemService: Sendable {
     func register(_ principal: LoginItemPrincipal) throws
     func unregister(_ principal: LoginItemPrincipal) throws
     func status(_ principal: LoginItemPrincipal) -> ServiceRegistrationStatus
+    /// Opens System Settings on Login Items, where the person switches a held
+    /// item on.
+    func openSettings()
 }
 
 /// The one owner of `SMAppService` mutation in this app.
@@ -89,6 +96,13 @@ public struct SMAppServiceLoginItems: LoginItemService {
         case .notFound: return .notFound
         @unknown default: return .notFound
         }
+    }
+
+    /// The documented opener. It takes no argument, so it lands on the pane
+    /// and never on Fermix's row, and it answers nothing about whether the pane
+    /// opened.
+    public func openSettings() {
+        SMAppService.openSystemSettingsLoginItems()
     }
 
     private func service(for principal: LoginItemPrincipal) -> SMAppService {

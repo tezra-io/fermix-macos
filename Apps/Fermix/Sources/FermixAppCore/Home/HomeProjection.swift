@@ -70,6 +70,19 @@ public protocol UpdateChecking: AnyObject {
     func checkForUpdates()
 }
 
+extension AttentionRow {
+    /// The one row this app owns about its own registration: macOS is holding
+    /// the background item for the person. It is read from the registration
+    /// Home already holds, never from the daemon, which cannot answer while
+    /// the item is held.
+    public static let backgroundApproval = AttentionRow(
+        id: "background_approval",
+        title: ProductStrings[.homeAttentionBackgroundApprovalTitle],
+        body: ProductStrings[.homeAttentionBackgroundApprovalBody],
+        action: .openLoginItems
+    )
+}
+
 /// Home's Attention section (M34 §3.2).
 ///
 /// Its three sources — readiness failures, restart reasons and the standing
@@ -91,6 +104,15 @@ public enum AttentionSection: Equatable, Sendable {
         guard case .rows(let rows) = self else { return [] }
 
         return rows
+    }
+
+    /// This section with the held item's row leading it. It replaces a
+    /// refusal or an unread section rather than sitting above one: the held
+    /// item is the reason nothing answers, which is the one thing to act on.
+    public func led(by row: AttentionRow) -> AttentionSection {
+        guard case .unavailable = self else { return .rows([row] + displayRows) }
+
+        return .rows([row])
     }
 
     /// What the section draws, whichever state it is in.
@@ -156,6 +178,12 @@ public struct HomeSnapshot: Equatable, Sendable {
     public let runtime: [StatusRowModel]
     public let attention: AttentionSection
     public let setupComplete: Bool
+    /// The step `Continue setup` opens, for the toolbar to say beside the
+    /// button (owner directive of 2026-09-27). It is the title of the first
+    /// gating readiness failure, which is the screen `SetupRouting` lands on,
+    /// so the sentence and the button can never disagree. Nil while the daemon
+    /// calls itself ready, and nil when nothing gates.
+    public let nextSetupStep: String?
     public let restartPending: Bool
     public let unreachable: Bool
     public let update: UpdateAvailability
@@ -166,19 +194,24 @@ public struct HomeSnapshot: Equatable, Sendable {
     ///   thing: the label the daemon publishes for the provider `overview.get`
     ///   names by its wire key. Without it the Runtime section printed
     ///   `openai_codex` beside six rows of plain English.
+    /// - Parameter names: the product's own names for the ids a gap carries,
+    ///   so the next step reads `Connect ChatGPT` rather than the wire key.
     public init(
         hello: ManagementHello?,
         overview: ManagementOverview?,
         attention: AttentionSection,
         update: UpdateAvailability,
         setup: ManagementSetupState? = nil,
+        names: AttentionNames = .unread,
         unreachable: Bool = false
     ) {
         // The daemon owns "ready": M34 §4 makes `readiness.status` answer ready
         // exactly when no gating failure remains, so Swift gains no second
         // definition of it.
+        let ready = overview?.readiness.status == "ready"
         self.engineVersion = hello?.engine.productVersion
-        self.setupComplete = overview?.readiness.status == "ready"
+        self.setupComplete = ready
+        self.nextSetupStep = ready ? nil : setup.flatMap { AttentionProjection.nextSetupStep(for: $0, names: names) }
         self.restartPending = overview?.health.restartRequired ?? false
         self.unreachable = unreachable
         self.update = update
@@ -404,6 +437,19 @@ public enum AttentionProjection {
         names: AttentionNames = .unread
     ) -> [AttentionRow] {
         readinessRows(state, names: names) + restartRows(state) + coexistenceRows(state)
+    }
+
+    /// The step `Continue setup` opens: the first gating readiness failure,
+    /// worded exactly as its Attention row is. `SetupRouting` lands on the
+    /// same failure, so the toolbar's sentence and the button agree by
+    /// construction. Nil when nothing gates.
+    public static func nextSetupStep(
+        for state: ManagementSetupState,
+        names: AttentionNames = .unread
+    ) -> String? {
+        state.readiness.failures.first(where: \.gating).map { failure in
+            AttentionCatalogue.title(for: AttentionDetail(detailKey: failure.detailKey), names: names)
+        }
     }
 
     private static func readinessRows(

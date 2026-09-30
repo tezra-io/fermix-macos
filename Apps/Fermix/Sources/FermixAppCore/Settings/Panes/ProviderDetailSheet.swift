@@ -37,7 +37,6 @@ struct ProviderDetailSheet: View {
     @State private var refusal: String?
     @State private var signingOut = false
     @State private var page = Page.detail
-    @State private var keyShown: Bool
 
     /// What this one sheet is showing.
     enum Page: Equatable {
@@ -59,10 +58,7 @@ struct ProviderDetailSheet: View {
         self.confirmPrimary = confirmPrimary
         self.requestAuth = requestAuth
         self.dismiss = dismiss
-        // A key that is already stored is one somebody is using, so the door
-        // to it opens with the sheet rather than hiding `Stored` behind a
-        // click. With no key it stays shut and the sign-in leads alone.
-        _keyShown = State(initialValue: row.presentKey)
+
     }
 
     var body: some View {
@@ -178,24 +174,31 @@ struct ProviderDetailSheet: View {
 
     // MARK: - How it connects
 
-    /// The primary connection block.
-    ///
-    /// A provider that signs in leads with its doors, and its key is never
-    /// drawn beside them: it waits behind one disclosure. A provider whose only
-    /// way in is a key has nothing to put in front of it, so the key is drawn
-    /// directly.
+    /// The primary connection block, led by the daemon's own "Sign in with"
+    /// row where the provider publishes one (owner, 2026-09-28): a
+    /// subscription puts the sign-in doors under it and an API key puts the
+    /// key field there, and neither waits behind a disclosure. A provider with
+    /// no such row draws what it has, its doors or its key. The primary's rows
+    /// live on the pane, mode and key included, so its detail draws the doors
+    /// alone and only while its mode is not the key.
     @ViewBuilder
     private var connection: some View {
-        if !doors.isEmpty {
+        if showsMode || showsDoors || showsSecrets {
             Section {
-                signIn
-                setupToken
-                keyDoor
+                if showsMode { mode }
+                if showsDoors {
+                    signIn
+                    setupToken
+                }
+                if showsSecrets { secrets }
             }
-        } else if drawsRows, blocks.hasCredential {
-            Section { credential }
         }
     }
+
+    private var authMode: String? { model.providerAuthMode(row.id) }
+    private var showsMode: Bool { drawsRows && blocks.hasMode }
+    private var showsDoors: Bool { !doors.isEmpty && authMode != ProviderRowProjection.apiKeyMode }
+    private var showsSecrets: Bool { drawsRows && blocks.hasSecret && authMode != ProviderRowProjection.oauthMode }
 
     /// The doors that are a click: the browser, and a sign-in this Mac has.
     ///
@@ -267,40 +270,16 @@ struct ProviderDetailSheet: View {
         }
     }
 
-    /// The secondary door of a provider that signs in: its API key, and the
-    /// auth mode beside it where the daemon publishes one, since choosing the
-    /// key is what that row means.
-    ///
-    /// The system's own disclosure group over a plain title, which is the one
-    /// form of it VoiceOver reads and opens correctly. Its children share its
-    /// one grouped-form row, so the form's row insets stop at its edge and they
-    /// take the peer gap from `SettingsRowMetrics`, as the list editor does.
-    @ViewBuilder
-    private var keyDoor: some View {
-        if drawsRows, blocks.hasCredential {
-            DisclosureGroup(isExpanded: $keyShown) {
-                VStack(alignment: .leading, spacing: SettingsRowMetrics.stackGap) {
-                    credential
-                }
-                .padding(.top, SettingsRowMetrics.entryGap)
-            } label: {
-                Text(ProductStrings[.providerUseKeyInstead])
-                    // The group answers a press through accessibility by
-                    // reporting success and staying shut, so VoiceOver could
-                    // read this door and never open it. The press is given the
-                    // one thing it means, on the title alone: on the group it
-                    // reaches the rows inside as well, and the key field then
-                    // reads as a button that shuts the door it is behind.
-                    .accessibilityAction { keyShown.toggle() }
-            }
-        }
+    /// The daemon's "Sign in with" row and nothing else, drawn by the
+    /// descriptor form so it keeps its footer, its refusals and the write gate
+    /// every descriptor row carries.
+    private var mode: some View {
+        DescriptorRows(model: model, section: section, excluding: blocks.modeExcluding)
     }
 
-    /// The credential rows and nothing else. The descriptor form is told what
-    /// to leave out, so the rows stay the daemon's own and keep their footers,
-    /// their refusals and the write gate every descriptor row carries.
-    private var credential: some View {
-        DescriptorRows(model: model, section: section, excluding: blocks.credentialExcluding)
+    /// The secret rows and nothing else, the same way.
+    private var secrets: some View {
+        DescriptorRows(model: model, section: section, excluding: blocks.secretExcluding)
     }
 
     // MARK: - Its own settings
@@ -325,13 +304,17 @@ struct ProviderDetailSheet: View {
     /// cannot supply for a row that belongs to a provider other than the
     /// primary.
     private func modelRow(_ descriptorRow: ManagementSettingRow) -> AnyView? {
-        guard descriptorRow.needsModelPicker else { return nil }
-
-        return AnyView(
-            ModelChoiceRow(row: descriptorRow, section: section, model: model) {
-                page = .models(section: section, key: descriptorRow.key)
-            }
-        )
+        guard let form = descriptorRow.modelRowForm else { return nil }
+        switch form {
+        case .listing:
+            return AnyView(
+                ModelChoiceRow(row: descriptorRow, section: section, model: model) {
+                    page = .models(section: section, key: descriptorRow.key)
+                }
+            )
+        case .typeahead:
+            return AnyView(ModelTypeaheadRow(row: descriptorRow, section: section, provider: row.id, model: model))
+        }
     }
 
     // MARK: - The model page

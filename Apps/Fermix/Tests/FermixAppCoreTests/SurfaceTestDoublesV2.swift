@@ -31,8 +31,11 @@ extension FakeDaemonGateway {
     /// it renders is a probe nobody ordered.
     func detect(_ targets: [ManagementDetectTarget]) async throws -> ManagementDetections {
         detectedTargets.append(targets)
+        let published: ManagementDetections = try answer(.setupDetect, "setup_detect")
 
-        return try answer(.setupDetect, "setup_detect")
+        // The golden record answers every target; a daemon answers the ones it
+        // was asked about, which is what lets a surface keep the others.
+        return ManagementDetections(results: published.results.filter { targets.contains($0.target) })
     }
 
     // MARK: - Settings
@@ -272,8 +275,42 @@ extension FakeDaemonGateway {
         try answer(.computerUseGrantStart, "computer_use_grant_start")
     }
 
+    func startBrowserInstall() async throws -> ManagementJob {
+        try answer(.browserInstallStart, "browser_install_start")
+    }
+
     func computerUsePermissions() async throws -> ManagementComputerUsePermissions {
         try answer(.computerUsePermissionsGet, "computer_use_permissions_get")
+    }
+
+    // MARK: - The phone channel
+
+    func mobileStatus() async throws -> ManagementMobileStatus {
+        try answer(.mobileStatus, "mobile_status")
+    }
+
+    func startPairing() async throws -> ManagementPairingStart {
+        try answer(.mobilePairStart, "mobile_pair_start")
+    }
+
+    func pairingSession(id: String) async throws -> ManagementPairingSession {
+        try answer(.mobilePairGet, "mobile_pair_get_awaiting_decision")
+    }
+
+    func decidePairing(id: String, approved: Bool) async throws -> ManagementPairingSession {
+        try answer(.mobilePairDecide, "mobile_pair_decide")
+    }
+
+    func cancelPairing(id: String) async throws -> ManagementPairingSession {
+        try answer(.mobilePairCancel, "mobile_pair_cancel")
+    }
+
+    func mobileDevices() async throws -> ManagementMobileDevices {
+        try answer(.mobileDevicesList, "mobile_devices_list")
+    }
+
+    func revokeMobileDevice(id: String) async throws -> ManagementMobileDeviceRevoked {
+        try answer(.mobileDevicesRevoke, "mobile_devices_revoke")
     }
 
     // MARK: - One answer

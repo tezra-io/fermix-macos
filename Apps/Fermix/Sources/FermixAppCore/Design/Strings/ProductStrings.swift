@@ -18,6 +18,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case startingTitle = "starting.title"
     case startingCaption = "starting.caption"
     case startingRowService = "starting.row.service"
+    /// The service row's words while macOS holds the background item for the
+    /// person, and the block under the ladder that says what to do about it.
+    case startingRowAwaitingApproval = "starting.row.awaitingApproval"
+    case startingApprovalBody = "starting.approval.body"
+    case startingApprovalBodySwitchedOff = "starting.approval.bodySwitchedOff"
     case startingRowDaemon = "starting.row.daemon"
     case startingRowAnswering = "starting.row.answering"
     case startingRowReading = "starting.row.reading"
@@ -100,7 +105,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case bootFailedViewLog = "bootFailed.viewLog"
     case bootFailedTryAgain = "bootFailed.tryAgain"
     case bootFailedCauseTimedOut = "bootFailed.cause.timedOut"
-    case bootFailedCauseApprovalPending = "bootFailed.cause.approvalPending"
     case bootFailedCauseBackgroundItemDisabled = "bootFailed.cause.backgroundItemDisabled"
     case bootFailedCauseIncompatibleVersion = "bootFailed.cause.incompatibleVersion"
     case bootFailedCauseCrashLoop = "bootFailed.cause.crashLoop"
@@ -150,6 +154,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case homeAttentionNewerEngineTitle = "home.attention.newerEngine.title"
     case homeAttentionUnavailableTitle = "home.attention.unavailable.title"
     case homeAttentionUnread = "home.attention.unread"
+    /// The one Attention row this app owns about its own registration: macOS
+    /// is holding the background item, so no daemon can answer.
+    case homeAttentionBackgroundApprovalTitle = "home.attention.backgroundApproval.title"
+    case homeAttentionBackgroundApprovalBody = "home.attention.backgroundApproval.body"
     case homeRuntimeEngine = "home.runtime.engine"
     case homeRuntimeProtocol = "home.runtime.protocol"
     case homeRuntimeUptime = "home.runtime.uptime"
@@ -224,6 +232,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// registration was made, the daemon never came up, and the window sat on
     /// its progress screen (owner report of 2026-09-17).
     case lifecycleServiceNeverAnswered = "lifecycle.serviceNeverAnswered"
+    /// Home's switch asked macOS to register the background item and macOS
+    /// would not, without holding it for approval either.
+    case lifecycleRegistrationRefused = "lifecycle.registrationRefused"
     /// What every surface says while a lifecycle transaction this app started
     /// is running: the toolbar's status sentence, Home's Status row and the
     /// status item's state line, which holds all three under its row cap. One
@@ -286,6 +297,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case attentionUpdateStagedBody = "attention.update.staged.body"
 
     // Sidebar
+    case sidebarChat = "sidebar.chat"
     case sidebarHome = "sidebar.home"
     case sidebarDoctor = "sidebar.doctor"
     case sidebarPet = "sidebar.pet"
@@ -365,6 +377,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case voiceErrorMicrophoneRestricted = "voice.error.microphoneRestricted"
     case voiceErrorNoInputDevice = "voice.error.noInputDevice"
     case voiceErrorOutputFormatUnavailable = "voice.error.outputFormatUnavailable"
+    case voiceErrorVoiceProcessingUnavailable = "voice.error.voiceProcessingUnavailable"
     case voiceErrorMicrophoneUnknown = "voice.error.microphoneUnknown"
     case voiceCaptionSpeakerUser = "voice.caption.speakerUser"
     case voiceCaptionSpeakerAssistant = "voice.caption.speakerAssistant"
@@ -376,6 +389,99 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case voiceTaskCancelled = "voice.task.cancelled"
     case voiceTaskStatusFormat = "voice.task.statusFormat"
     case voiceCostFormat = "voice.costFormat"
+
+    // Companion chat
+    case companionConnectionEngineHasNoChat = "companion.connection.engineHasNoChat"
+    case companionConnectionReconnecting = "companion.connection.reconnecting"
+    case companionConnectionHomeUnavailable = "companion.connection.homeUnavailable"
+    /// The daemon's window starts above this build: the app is out of date.
+    case companionConnectionUpdateApp = "companion.connection.updateApp"
+    /// The daemon's window ends below this build: the engine is out of date.
+    case companionConnectionUpdateEngine = "companion.connection.updateEngine"
+    case companionErrorRefusedFormat = "companion.error.refusedFormat"
+    case companionErrorMessageTooLong = "companion.error.messageTooLong"
+    case companionErrorReplyStopped = "companion.error.replyStopped"
+    case companionErrorReplyInterrupted = "companion.error.replyInterrupted"
+    case companionErrorReplyFailedFormat = "companion.error.replyFailedFormat"
+
+    // The chat surface. The greeting is chosen by the Mac's clock and takes
+    // the person's first name through the shared comma pair.
+    case chatGreetingMorning = "chat.greeting.morning"
+    case chatGreetingAfternoon = "chat.greeting.afternoon"
+    case chatGreetingEvening = "chat.greeting.evening"
+    /// The quieter line under the greeting, over the empty composer.
+    case chatInvitation = "chat.invitation"
+    case chatComposerPrompt = "chat.composer.prompt"
+    case chatSend = "chat.send"
+    /// The action while a reply is being written. The wire's own verb:
+    /// `Stop` leads no string in the product, which keeps it for the service.
+    case chatCancel = "chat.cancel"
+    /// Under a message the daemon has not yet accepted.
+    case chatSending = "chat.sending"
+    case chatApprove = "chat.approve"
+    case chatDeny = "chat.deny"
+    /// The turn answering now, before anything names what it is doing: after
+    /// `turn_started`, before the first `text_delta` or a named tool call.
+    case chatThinking = "chat.thinking"
+    /// The turn's latest tool call, while it runs and once it has stopped.
+    case chatToolRunningFormat = "chat.tool.runningFormat"
+    case chatToolFinishedFormat = "chat.tool.finishedFormat"
+    case chatSearchPrompt = "chat.search.prompt"
+    case chatSearchSearching = "chat.search.searching"
+    case chatSearchNoMatches = "chat.search.noMatches"
+    case chatSearchOlder = "chat.search.older"
+
+    // The browser pane. Its one sentence says why something the person asked
+    // for did not happen.
+    case browserNoticeNotAnAddress = "browser.notice.notAnAddress"
+    case browserNoticeProfileUnavailable = "browser.notice.profileUnavailable"
+    case browserNoticeNoApp = "browser.notice.noApp"
+    case browserNoticeDownloadRefused = "browser.notice.downloadRefused"
+    /// The pane's controls, by what each does. The stop control is Cancel
+    /// loading: `Stop` leads no string in the product, which keeps the word for
+    /// the service.
+    case browserNewTab = "browser.newTab"
+    case browserNewPrivateTab = "browser.newPrivateTab"
+    case browserCloseTab = "browser.closeTab"
+    case browserPrivateTab = "browser.privateTab"
+    /// The title of a tab whose page has none yet.
+    case browserUntitledTab = "browser.untitledTab"
+    case browserBack = "browser.back"
+    case browserForward = "browser.forward"
+    case browserReload = "browser.reload"
+    case browserCancelLoading = "browser.cancelLoading"
+    case browserAddress = "browser.address"
+    case browserAddressPrompt = "browser.addressPrompt"
+    case browserSecure = "browser.secure"
+    case browserOpenInBrowser = "browser.openInBrowser"
+    case browserHide = "browser.hide"
+    /// A page's own dialog, titled by the website that raised it.
+    case browserDialogTitleFormat = "browser.dialog.titleFormat"
+    case browserDialogThisPage = "browser.dialog.thisPage"
+    case browserDialogOK = "browser.dialog.ok"
+    case browserDialogCancel = "browser.dialog.cancel"
+    /// A task's tab: the mark that says so, its close control, which cancels
+    /// the task instead, and that control while the cancel is on its way.
+    case browserTaskTab = "browser.taskTab"
+    case browserCancelTask = "browser.cancelTask"
+    case browserCancellingTask = "browser.cancellingTask"
+    /// The pane opened with no tab.
+    case browserEmpty = "browser.empty"
+    /// "Show browser": Chat's toolbar spelling of `menuTitleShowBrowser`,
+    /// sentence case rather than the menu's title case.
+    case browserShow = "browser.show"
+
+    // The browser host wire's own reason fragments (plan §4.10): each
+    // finishes "the Fermix app's browser is no longer available: ..." or
+    // stands as a host error's message, sent to the daemon over
+    // browser_host.sock and never drawn in this app's own UI.
+    case browserHostReasonScreenLocked = "browserHost.reason.screenLocked"
+    case browserHostReasonDisplayAsleep = "browserHost.reason.displayAsleep"
+    case browserHostReasonAppTerminating = "browserHost.reason.appTerminating"
+    case browserHostReasonNotAttached = "browserHost.reason.notAttached"
+    /// `task.cancel`'s own `reason`, sent to the daemon when the person
+    /// cancels a task from its tab in the pane.
+    case browserHostReasonPersonCancelled = "browserHost.reason.personCancelled"
 
     // Pet
     case petCallBegin = "pet.callBegin"
@@ -411,6 +517,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsPaneCodingAgents = "settings.pane.codingAgents"
     case settingsPaneSearch = "settings.pane.search"
     case settingsPaneImages = "settings.pane.images"
+    case settingsPaneBrowser = "settings.pane.browser"
+    case settingsPaneSecrets = "settings.pane.secrets"
     case settingsPaneSandbox = "settings.pane.sandbox"
     case settingsPanePermissions = "settings.pane.permissions"
 
@@ -426,6 +534,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsKeywordsCodingAgents = "settings.keywords.codingAgents"
     case settingsKeywordsSearch = "settings.keywords.search"
     case settingsKeywordsImages = "settings.keywords.images"
+    case settingsKeywordsBrowser = "settings.keywords.browser"
+    case settingsKeywordsSecrets = "settings.keywords.secrets"
     case settingsKeywordsSandbox = "settings.keywords.sandbox"
     case settingsKeywordsPermissions = "settings.keywords.permissions"
 
@@ -437,6 +547,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// "Open Providers" differently.
     case settingsOpenPaneFormat = "settings.openPaneFormat"
     case settingsSearchPrompt = "settings.searchPrompt"
+    /// What the pane list says when nothing matches the search, with the
+    /// searched text: a list that emptied with no word read as broken.
+    case settingsSearchNoResultsFormat = "settings.searchNoResultsFormat"
     case settingsRequiresNewerEngine = "settings.requiresNewerEngine"
     /// The other half of the newer-engine state: the daemon in memory already
     /// is the engine this copy ships, so no restart can serve these panes.
@@ -466,7 +579,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsSecretStored = "settings.secret.stored"
     case settingsSecretReplace = "settings.secret.replace"
     case settingsSecretRemove = "settings.secret.remove"
-    case settingsSecretStore = "settings.secret.store"
     case settingsSecretPrompt = "settings.secret.prompt"
     case settingsNumberPercentFormat = "settings.number.percentFormat"
     case settingsListAdd = "settings.list.add"
@@ -558,7 +670,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case providerDetails = "provider.details"
     case providerSignOut = "provider.signOut"
     /// The key of a provider that signs in, kept behind its sign-in.
-    case providerUseKeyInstead = "provider.useKeyInstead"
 
     // Channels
     case channelStatusOff = "channel.status.off"
@@ -731,6 +842,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case menuTitleFind = "menuTitle.find"
     case menuTitleShowSidebar = "menuTitle.showSidebar"
     case menuTitleHideSidebar = "menuTitle.hideSidebar"
+    case menuTitleChat = "menuTitle.chat"
     case menuTitleHome = "menuTitle.home"
     case menuTitleDoctor = "menuTitle.doctor"
     case menuTitleLogs = "menuTitle.logs"
@@ -752,6 +864,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case menuTitleRunDoctor = "menuTitle.runDoctor"
     case menuTitleShowPet = "menuTitle.showPet"
     case menuTitleHidePet = "menuTitle.hidePet"
+    case menuTitleShowBrowser = "menuTitle.showBrowser"
     case menuTitleHideMenuBarItem = "menuTitle.hideMenuBarItem"
     case menuTitleLinkCommandLineTool = "menuTitle.linkCommandLineTool"
 
@@ -795,7 +908,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
 /// daemon is not an older one.
 public enum BootFailureCause: String, CaseIterable, Sendable {
     case timedOut
-    case approvalPending
+    /// macOS unregistered or lost the background item, including while setup
+    /// waited for the person to approve it. An item macOS is holding for
+    /// approval is not a cause at all: it is a step of the Starting ladder.
     case backgroundItemDisabled
     case incompatibleVersion
     case crashLoop
@@ -841,7 +956,6 @@ public enum BootFailureCause: String, CaseIterable, Sendable {
     var stringKey: ProductStringKey {
         switch self {
         case .timedOut: return .bootFailedCauseTimedOut
-        case .approvalPending: return .bootFailedCauseApprovalPending
         case .backgroundItemDisabled: return .bootFailedCauseBackgroundItemDisabled
         case .incompatibleVersion: return .bootFailedCauseIncompatibleVersion
         case .crashLoop: return .bootFailedCauseCrashLoop

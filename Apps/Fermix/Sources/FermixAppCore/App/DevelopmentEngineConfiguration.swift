@@ -4,7 +4,11 @@ import Foundation
 /// The staged development bundle uses the production background lifecycle on
 /// its isolated home and port. Only installed-copy preflights are skipped.
 extension AppEnvironment {
-    static func developmentEngine(updater: any UpdaterDriving) -> AppEnvironment {
+    static func developmentEngine(
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
+    ) -> AppEnvironment {
         do {
             try DevelopmentEngineRegistration.validate(
                 location: BootstrapLocation.currentAccount(),
@@ -14,7 +18,12 @@ extension AppEnvironment {
         } catch {
             preconditionFailure("invalid development bundle: \(error)")
         }
-        return onThisMac(activation: .developmentBackgroundService, updater: updater)
+        return onThisMac(
+            activation: .developmentBackgroundService,
+            updater: updater,
+            mascot: mascot,
+            browser: browser
+        )
     }
 }
 

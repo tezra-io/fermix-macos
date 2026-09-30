@@ -1,47 +1,11 @@
 import Foundation
 
-/// A scheduled piece of work that can still be called off.
-public protocol DeadlineToken: AnyObject {
-    func cancel()
-}
-
-/// The timer seam. Deadlines are policy, so they are injected: the handshake's
-/// three seconds are provable without waiting three seconds.
-@MainActor
-public protocol DeadlineScheduling {
-    func schedule(after seconds: TimeInterval, _ work: @escaping () -> Void) -> DeadlineToken
-}
-
-/// The production scheduler: one main-queue work item per deadline.
-@MainActor
-public struct MainQueueDeadlineScheduler: DeadlineScheduling {
-    public init() {}
-
-    public func schedule(after seconds: TimeInterval, _ work: @escaping () -> Void) -> DeadlineToken {
-        let item = DispatchWorkItem(block: work)
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: item)
-        return WorkItemToken(item)
-    }
-
-    private final class WorkItemToken: DeadlineToken {
-        private let item: DispatchWorkItem
-
-        init(_ item: DispatchWorkItem) {
-            self.item = item
-        }
-
-        func cancel() {
-            item.cancel()
-        }
-    }
-}
-
 /// Why a voice session ended.
 public enum VoiceSessionFailure: Error, Equatable, Sendable {
     /// This account's Fermix home could not be resolved, so there is no socket
     /// to connect to. Distinct from a refused connection: nothing was tried.
     case socketPathUnavailable
-    case connectFailed(RealtimeConnectFailure)
+    case connectFailed(LineSocketConnectFailure)
     /// The socket was up but the daemon never said hello inside the window.
     case handshakeTimedOut
     /// The daemon's advertised window excludes the version this build speaks.
@@ -158,7 +122,7 @@ public final class VoiceSession {
 
     // MARK: - Handshake
 
-    private func connected(_ result: Result<Void, RealtimeConnectFailure>) {
+    private func connected(_ result: Result<Void, LineSocketConnectFailure>) {
         guard phase == .connecting else { return }
 
         switch result {

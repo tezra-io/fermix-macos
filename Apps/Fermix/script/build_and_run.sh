@@ -9,6 +9,8 @@ REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
 source "$REPO_ROOT/scripts/product_config.sh"
 # shellcheck source=../../scripts/sparkle.sh
 source "$REPO_ROOT/scripts/sparkle.sh"
+# shellcheck source=../../scripts/rive.sh
+source "$REPO_ROOT/scripts/rive.sh"
 
 APP_BUNDLE_NAME="$(product_config app_bundle_name)"
 GUI_EXECUTABLE="$(product_config gui_executable_name)"
@@ -142,6 +144,22 @@ embed_sparkle_framework() {
   ditto "$source" "$APP_FRAMEWORKS/$SPARKLE_FRAMEWORK_NAME"
 }
 
+# The animation runtime, embedded beside the updater for the same reason: the
+# GUI is linked against @rpath/RiveRuntime.framework/…, so a dev install
+# without it launches to a dyld failure too.
+embed_rive_framework() {
+  local source version pinned
+  source="$(rive_framework_source "$SWIFTPM_BUILD_PATH")" ||
+    fail "the pinned animation runtime is not in the resolved artifacts"
+  pinned="$(product_config rive_runtime_version)"
+  version="$(rive_embedded_version "$source")" ||
+    fail "the resolved animation runtime declares no version"
+  [[ "$version" == "$pinned" ]] ||
+    fail "the resolved animation runtime is $version, but Product.json pins $pinned"
+  mkdir -p "$APP_FRAMEWORKS"
+  ditto "$source" "$APP_FRAMEWORKS/$RIVE_FRAMEWORK_NAME"
+}
+
 sign_app_bundle() {
   # macOS TCC keys the microphone grant to the app's designated requirement,
   # which derives from the code signature. An ad-hoc signature has no stable
@@ -152,8 +170,8 @@ sign_app_bundle() {
   ensure_signing_identity
 
   # Inside-out, exactly as scripts/sign_app.sh does: the updater's helpers
-  # before the framework, the framework and the nested agent binary before the
-  # bundle that seals them. codesign refuses to seal an application over
+  # before the framework, the two frameworks and the nested agent binary before
+  # the bundle that seals them. codesign refuses to seal an application over
   # unsigned nested code, so this order is the only one that works.
   #
   # Deliberately without `--options runtime`, which is the one way this differs
@@ -166,6 +184,10 @@ sign_app_bundle() {
   for member in "${SPARKLE_SIGNING_ORDER[@]}"; do
     codesign --force --sign "$SIGN_IDENTITY" \
       "$APP_FRAMEWORKS/$SPARKLE_FRAMEWORK_NAME/$member"
+  done
+  for member in "${RIVE_SIGNING_ORDER[@]}"; do
+    codesign --force --sign "$SIGN_IDENTITY" \
+      "$APP_FRAMEWORKS/$RIVE_FRAMEWORK_NAME/$member"
   done
   codesign --force --sign "$SIGN_IDENTITY" "$AGENT_BINARY"
 
@@ -188,6 +210,7 @@ stage_app_bundle() {
   cp -R "$build_resource_bundle" "$APP_RESOURCES/$RESOURCE_BUNDLE_NAME"
   chmod +x "$APP_BINARY" "$AGENT_BINARY"
   embed_sparkle_framework
+  embed_rive_framework
   write_info_plist
   write_launch_agent_plist
   sign_app_bundle

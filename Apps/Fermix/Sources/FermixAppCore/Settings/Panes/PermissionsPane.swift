@@ -112,7 +112,7 @@ struct PermissionRow: View {
         case .openSystemSettings(let pane):
             open(pane)
         case .openLoginItems:
-            open(PermissionLedger.loginItemsPane)
+            permissions.openLoginItems()
         }
     }
 

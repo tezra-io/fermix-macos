@@ -6,10 +6,9 @@ import Foundation
 public enum PetMetrics {
     public static let windowSize = CGSize(width: 180, height: 168)
     public static let stageSize = CGSize(width: 132, height: 116)
-    public static let mascotSize = CGSize(width: 116, height: 108)
-    /// The mascot art is authored on a square canvas at this size, which is
-    /// what the face-registration offset is measured against.
-    public static let artworkCanvas: Double = 1_024
+    /// Square, because the animation's artboard is: the whole stage height,
+    /// which draws the body at the size the painted mascot had.
+    public static let mascotSize = CGSize(width: 116, height: 116)
 }
 
 /// Showing and hiding the optional floating pet window, behind a seam.

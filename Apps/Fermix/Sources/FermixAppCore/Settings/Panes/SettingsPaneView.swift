@@ -29,7 +29,7 @@ struct SettingsPaneView: View {
             MeetingsPane(model: model)
         case .codingAgents:
             CodingAgentsPane(model: model)
-        case .personality, .memory, .search, .images, .sandbox:
+        case .personality, .memory, .search, .images, .browser, .sandbox, .secrets:
             DescriptorPane(pane: pane, model: model)
         }
     }

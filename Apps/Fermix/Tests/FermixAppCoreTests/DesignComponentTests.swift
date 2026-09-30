@@ -309,6 +309,25 @@ struct DesignComponentTests {
         #expect(sentences == ["Registering the background service, in progress"])
     }
 
+    /// The service row keeps its state while it turns into the wait for
+    /// approval, so only its words change. Those are spoken too, and so is the
+    /// row finishing once the person has switched Fermix on (design §6).
+    @Test("the approval wait and its end are announced")
+    func ladderAnnouncesTheApprovalWait() {
+        let registering = ProgressLadderModel.starting(activeIndex: 0, includesRegistration: true)
+        let waiting = ProgressLadderModel.starting(activeIndex: 0, includesRegistration: true, awaitingApproval: true)
+        let starting = ProgressLadderModel.starting(activeIndex: 1, includesRegistration: true)
+
+        #expect(waiting.rows.count == registering.rows.count, "the wait is a state of the row, not a row")
+        #expect(LadderAnnouncement.sentences(from: registering, to: waiting) == [
+            "Waiting for you to allow Fermix in the background, in progress"
+        ])
+        #expect(LadderAnnouncement.sentences(from: waiting, to: starting) == [
+            "Registering the background service, done",
+            "Starting the daemon, in progress"
+        ])
+    }
+
     @Test("an unchanged ladder announces nothing")
     func ladderIsQuietWhenNothingChanged() {
         let ladder = ProgressLadderModel.starting(activeIndex: 1, includesRegistration: true)
@@ -406,6 +425,25 @@ struct WindowChromeTests {
 
         #expect(host.count == 1)
         #expect(host.first?.text.contains("sceneBridgingOptions = [.toolbars, .title]") == true)
+    }
+}
+
+/// The titlebar keeps one height whatever the body shows.
+@Suite("Titlebar height")
+struct TitlebarHeightTests {
+    /// A body whose toolbar can be empty drops the window to the short
+    /// titlebar, and the band, the traffic lights and the title jump with it:
+    /// Pet did when the rail removed the sidebar toggle, and Settings did
+    /// whenever there was nothing to restart. Each body the window shows
+    /// carries the empty keeper, so the declaration and one use per body is
+    /// three.
+    @Test("every body the window shows keeps a toolbar to size the titlebar by")
+    func everyBodyKeepsTheToolbar() throws {
+        let text = try #require(try SourceTree.swiftFiles(matching: "App/MainWindowView.swift").first?.text)
+        let keepers = text.components(separatedBy: "toolbarKeeper").count - 1
+
+        #expect(keepers == 3, "found \(keepers)")
+        #expect(text.contains("toolbarKeeper\n                SettingsRestartControl("), "settings' toolbar can be empty")
     }
 }
 

@@ -18,6 +18,7 @@ struct CommandRouterTests {
         let harness = try RouterHarness()
 
         let routes: [(AppCommand, AppRoute)] = [
+            (.showChat, .chat),
             (.showDoctor, .doctor),
             (.showLogs, .logs),
             (.showPet, .pet),
@@ -38,22 +39,36 @@ struct CommandRouterTests {
         #expect(harness.windows.presented == [.main])
     }
 
+    /// "Show browser" opens the pane on its own, with no tab in it, so the
+    /// person can watch or browse without waiting for a link (plan §4.10).
+    @Test("Show browser opens the pane with nothing to show yet")
+    func showBrowserOpensThePane() throws {
+        let harness = try RouterHarness()
+
+        #expect(!harness.browserHarness.model.isOpen)
+        harness.router.perform(.showBrowser)
+
+        #expect(harness.browserHarness.model.isOpen)
+        #expect(harness.browserHarness.model.tabs.isEmpty)
+    }
+
     /// Home's tinted primary takes the same route `fermix://setup` does: the
     /// assistant while a gating readiness failure stands, the settings
     /// presentation once none does (M34 §3.4, decision D1).
     @Test("Continue setup lands where fermix://setup lands")
     func continueSetupOpensTheSameSurface() async throws {
         let harness = try RouterHarness()
+        // The golden home is ready; the gate is a primary with no credential.
+        harness.gateway.setupStateResult = try ManagementValueFixture.setupState(primaryConfigured: false)
 
         // The route asks the daemon where to land before it lands (M34 §3.4):
-        // the golden home's gating failure is the personalization one, so it
-        // opens the screen that clears it. Starting is where it lands when
-        // nothing answers, not where it lands because nothing has been asked
-        // yet.
+        // the gating failure is the primary's missing credential, so it opens
+        // the screen that clears it. Starting is where it lands when nothing
+        // answers, not where it lands because nothing has been asked yet.
         harness.router.perform(.continueSetup)
         try await harness.coordinator.drainPendingWork()
         #expect(harness.windows.presented == [.main])
-        #expect(harness.model.onboardingStage == .aboutYou)
+        #expect(harness.model.onboardingStage == .connectAI)
         #expect(!harness.presentation.isShowing)
     }
 
@@ -168,6 +183,7 @@ struct CommandRouterTests {
     func backgroundServiceSetsTheOppositeState() async throws {
         let harness = try RouterHarness()
         harness.loginItems.preregister(.agent)
+        await harness.surfaces.home.refreshRegistrations()
 
         #expect(harness.surfaces.home.backgroundServiceEnabled)
         #expect(harness.router.isOn(.toggleBackgroundService))
@@ -176,6 +192,7 @@ struct CommandRouterTests {
         #expect(harness.lifecycle.calls == [.disable])
 
         harness.loginItems.preregister(.agent, as: .notRegistered)
+        await harness.surfaces.home.refreshRegistrations()
         #expect(!harness.router.isOn(.toggleBackgroundService))
         harness.router.perform(.toggleBackgroundService)
         try await harness.coordinator.drainPendingWork()
@@ -371,6 +388,9 @@ final class RouterHarness {
     /// The updater behind the `Check for Updates` row, scripted: the row
     /// follows what the updater would actually accept (M34 §6, R2).
     let updates = FakeUpdateChecker()
+    /// "Show browser"'s own owner, over the same fakes `BrowserHostCoordinatorTests`
+    /// proves the reducer's rules against.
+    let browserHarness = BrowserHarness()
 
     static let launcherPath = "/Applications/Fermix.app/Contents/MacOS/fermix"
     /// A throwaway account root: the router never writes a record, and a store
@@ -398,6 +418,7 @@ final class RouterHarness {
             bootstrap: { .present },
             registrationBuild: { .thisBuild },
             termination: termination,
+            hostQuitting: ImmediateHostQuitting(),
             settings: settings,
             presentation: presentation,
             announcer: RecordingAnnouncer()
@@ -443,7 +464,12 @@ final class RouterHarness {
                 settings: settings,
                 sleeper: NoWaitSleeper()
             ),
-            settings: settings
+            settings: settings,
+            companion: CompanionSession(
+                transport: CompanionSocketClient(lines: FakeCompanionSocket()),
+                socketPath: { "/tmp/fermix-test/companion.sock" },
+                deadlines: ManualDeadlineScheduler()
+            )
         )
 
         router = CommandRouter(
@@ -452,7 +478,8 @@ final class RouterHarness {
             surfaces: surfaces,
             sidebar: sidebar,
             menuBar: menuBar,
-            updates: updates
+            updates: updates,
+            browser: browserHarness.coordinator
         )
     }
 

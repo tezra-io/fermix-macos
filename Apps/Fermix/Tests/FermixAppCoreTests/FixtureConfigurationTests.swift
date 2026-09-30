@@ -110,6 +110,8 @@ struct FixtureConfigurationTests {
             #expect(FixtureStart(name: route.rawValue) == .surface(route))
         }
         #expect(FixtureStart(name: "restart-sheet") == .restartSheet)
+        #expect(FixtureStart(name: "chat-empty") == .emptyChat)
+        #expect(FixtureStart(name: "browser") == .browser)
     }
 
     /// A name this build does not publish resolves to nothing, so the caller
@@ -128,7 +130,7 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 1)
+            + OnboardingStage.allCases.count + 4)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -150,6 +152,7 @@ struct FixtureConfigurationTests {
         #expect(FixtureHome.forStart(.surface(.home)) == .settled)
         #expect(FixtureHome.forStart(.settings(.providers)) == .settled)
         #expect(FixtureHome.forStart(.restartSheet) == .settled)
+        #expect(FixtureHome.forStart(.approvalStep) == .awaitingApproval)
     }
 
     /// Boot failed is reached by failing, never by being set.
@@ -157,6 +160,7 @@ struct FixtureConfigurationTests {
     func bootFailureIsProduced() {
         #expect(FixtureLaunch(start: .assistant(.bootFailed)).presentation == .assistant(.starting))
         #expect(FixtureLaunch(start: .assistant(.ready)).presentation == .assistant(.ready))
+        #expect(FixtureLaunch(start: .approvalStep).presentation == .assistant(.starting))
     }
 
     @Test("each start names what it opens")
@@ -175,14 +179,27 @@ struct FixtureConfigurationTests {
             guard let start = FixtureStart(name: name) else { continue }
 
             let harness = try CoordinatorHarness(bootstrap: .present)
+            // `fermix://setup` lands where the daemon's readiness says, and the
+            // machine it is looked at on gates on its primary's credential; the
+            // harness's daemon answers the golden, which is ready, so it is
+            // given that machine's answer for this one start.
+            if start == .surface(.setup) {
+                harness.settingsGateway.setupStateResult = try ManagementValueFixture.setupState(primaryConfigured: false)
+            }
             var restartSheetShown = false
-            FixtureLaunch(start: start).present(with: harness.coordinator) { restartSheetShown = true }
+            var browserOpened = false
+            FixtureLaunch(start: start).present(
+                with: harness.coordinator,
+                showRestartSheet: { restartSheetShown = true },
+                openBrowser: { browserOpened = true }
+            )
             // `fermix://setup` asks the daemon where to land before it lands
             // (M34 §3.4), so the window opens on the answer rather than on the
             // click.
             try await harness.coordinator.drainPendingWork()
 
             expectOpened(start, harness: harness, restartSheetShown: restartSheetShown)
+            #expect(browserOpened == (start == .browser), "\(name) opened the browser pane")
         }
     }
 
@@ -221,7 +238,122 @@ struct FixtureConfigurationTests {
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.route == .home)
             #expect(restartSheetShown)
+        case .approvalStep:
+            #expect(harness.windows.presented == [.main])
+            #expect(harness.model.onboardingStage == .starting)
+        case .emptyChat, .browser:
+            #expect(harness.windows.presented == [.main])
+            #expect(harness.model.route == .chat)
         }
+    }
+
+    // MARK: - The chat
+
+    /// Chat is looked at in both of its states, and only one start draws the
+    /// empty one: Chat reached from any other start shows a conversation.
+    @Test("chat-empty opens Chat on an empty timeline and every other start holds the full one")
+    func chatStartsNameTheirTimeline() {
+        #expect(FixtureLaunch(start: .emptyChat).presentation == .route(.chat))
+        #expect(FixtureLaunch(start: .emptyChat).companionTimeline == .empty)
+        #expect(FixtureLaunch(start: .surface(.chat)).companionTimeline == .full)
+        #expect(FixtureLaunch(start: .surface(.home)).companionTimeline == .full)
+        #expect(FixtureHome.forStart(.emptyChat) == .settled)
+    }
+
+    /// The pane is looked at beside a conversation, on the fixture's own two
+    /// pages, and never over the network.
+    @MainActor
+    @Test("browser opens Chat with the pane open on two fake tabs, the second private")
+    func browserStartOpensThePane() {
+        #expect(FixtureLaunch(start: .browser).presentation == .chatWithBrowser)
+        #expect(FixtureLaunch(start: .browser).companionTimeline == .full)
+        #expect(FixtureHome.forStart(.browser) == .settled)
+
+        let browser = BrowserCoordinator(
+            makeEngine: { _ in FixtureBrowserEngine() },
+            profile: WebsiteProfileRecord(location: BrowserProfileLocation().location),
+            workspace: FixtureWorkspaceOpener(),
+            session: FakeSessionAvailability(),
+            deadlines: ManualDeadlineScheduler(),
+            paneShown: { _ in },
+            presentPrimaryWindow: {}
+        )
+        FixtureWebPage.openTabs(in: browser)
+
+        #expect(browser.model.isOpen)
+        #expect(browser.model.tabs.map(\.title) == ["Example Domain", "IANA-managed Reserved Domains"])
+        #expect(browser.model.tabs.map(\.profile) == [.shared, .private])
+        #expect(browser.model.tabs.map(\.hasOnlySecureContent) == [true, true])
+        #expect(browser.model.selectedTabID == browser.model.tabs.first?.id)
+    }
+
+    /// The scripted daemon, driven through the real adapter and the session:
+    /// the full timeline arrives as the contract's events, and the chat holds a
+    /// dozen rows with older ones behind them, a reply being written with a
+    /// tool running, and an approval.
+    @MainActor
+    @Test("the full timeline is a dozen rows, older rows, a running turn and an approval")
+    func fullTimelineArrives() {
+        let session = fixtureChat(.full)
+        session.connect()
+
+        #expect(session.model.connection == .connected)
+        #expect(session.model.rows.map(\.serverSeq) == Array(9...20))
+        #expect(Set(session.model.rows.compactMap(\.role)) == ["user", "assistant"])
+        #expect(session.model.hasOlder)
+        #expect(session.model.turn?.inReplyTo == FixtureCompanionScript.askedLast)
+        #expect(session.model.turn?.tool?.phase == .start)
+        #expect(session.model.approvals.map(\.approvalId) == [FixtureCompanionScript.approvalId])
+
+        session.pullOlder()
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...20))
+        #expect(!session.model.hasOlder)
+    }
+
+    @MainActor
+    @Test("the empty timeline holds nothing, and a message becomes a row and a turn")
+    func emptyTimelineTakesAMessage() {
+        let session = fixtureChat(.empty)
+        session.connect()
+
+        #expect(session.model.connection == .connected)
+        #expect(session.model.rows.isEmpty)
+        #expect(!session.model.hasOlder)
+        #expect(session.model.turn == nil)
+
+        session.send("Hello")
+        #expect(session.model.pending.isEmpty)
+        #expect(session.model.rows.map(\.text) == ["Hello"])
+        #expect(session.model.turn?.inReplyTo == "fixture-1")
+    }
+
+    @MainActor
+    @Test("the fixture daemon searches its own rows, newest first, a page at a time")
+    func fixtureSearch() {
+        let session = fixtureChat(.full)
+        session.connect()
+
+        session.search("calendar")
+        let hits = session.model.search?.hits ?? []
+        #expect(hits.map(\.serverSeq) == [19, 9, 8])
+        #expect(hits.allSatisfy { !$0.ranges.isEmpty })
+        #expect(session.model.search?.nextBeforeSeq == nil)
+    }
+
+    /// A session over the scripted daemon with no main-actor hop between them,
+    /// so every answer lands before the call that asked for it returns.
+    @MainActor
+    private func fixtureChat(_ timeline: FixtureCompanionTimeline) -> CompanionSession {
+        var issued = 0
+        return CompanionSession(
+            transport: CompanionSocketClient(lines: FixtureCompanionTransport(timeline: timeline)),
+            socketPath: { "/fixture/companion.sock" },
+            deadlines: ManualDeadlineScheduler(),
+            messageIds: {
+                issued += 1
+                return "fixture-\(issued)"
+            }
+        )
     }
 
     /// The throwaway home is under the per-user temporary directory and one per
@@ -280,14 +412,17 @@ struct FixtureConfigurationTests {
 
     /// The params one method is asked with.
     ///
-    /// Three methods are keyed on their params, because the contract publishes
-    /// more than one golden for each: `settings.get` answers per section, and
-    /// `secret.set` and `secret.clear` answer per secret, so asking any of them
-    /// with none would be asking for something the contract does not publish.
-    /// Every other method answers one shape.
+    /// Five methods are keyed on their params, because the contract publishes
+    /// more than one golden for each: `settings.get` answers per section,
+    /// `settings.apply` per key it changes, `job.get` per job, and `secret.set` and `secret.clear`
+    /// answer per secret, so asking any of them with none would be asking for
+    /// something the contract does not publish. Every other method answers one
+    /// shape.
     static func params(for method: ManagementMethod) -> [String: Any] {
         switch method {
         case .settingsGet: return ["section": "realtime"]
+        case .settingsApply: return ["section": "realtime", "values": ["realtime_enabled": true]]
+        case .jobGet: return ["job_id": "job:2Kd9mQ"]
         case .secretSet, .secretClear: return ["id": "openai_api_key"]
         default: return [:]
         }
@@ -434,9 +569,11 @@ struct FixtureConfigurationTests {
         let client = try await negotiatedClient()
         let state = try await client.setupState()
 
-        // One provider configured and primary, one offered and not.
-        #expect(state.providers.contains { $0.configured && $0.primary })
-        #expect(state.providers.contains { !$0.configured })
+        // The primary is the one with no credential, which is the gate the
+        // Attention section and Connect your AI are looked at through; the
+        // rest are offered and not configured.
+        #expect(state.providers.contains { $0.primary && !$0.configured })
+        #expect(state.providers.contains { !$0.primary })
 
         // Every channel the Channels pane draws, one answering and the rest
         // offered: the list is the daemon's, and a home carrying one channel
@@ -450,9 +587,9 @@ struct FixtureConfigurationTests {
         #expect(state.restart.required)
         #expect(!state.restart.reasons.isEmpty)
 
-        // One gating failure and one advisory one, so Home draws both shapes.
+        // One gating failure and two advisory ones, so Home draws both shapes.
         #expect(state.readiness.failures.filter(\.gating).count == 1)
-        #expect(state.readiness.failures.filter { !$0.gating }.count == 1)
+        #expect(state.readiness.failures.filter { !$0.gating }.count == 2)
 
         // One coexistence descriptor, which is what the Attention section and
         // Doctor both answer for.
@@ -461,10 +598,11 @@ struct FixtureConfigurationTests {
 
     /// The three machines a fixture launch runs on, over one golden.
     ///
-    /// The engine publishes one `setup.state.get` and one `overview.get` — the
-    /// machine with one gating failure standing — so Ready and a first run are
-    /// derived from it rather than from a second golden nobody upstream
-    /// maintains. The derivation is what these assert, and each home is asserted
+    /// The engine publishes one `setup.state.get` and one `overview.get`, a
+    /// ready home with two advisory rows, so the gated machine, Ready and a
+    /// first run are all derived from it rather than from a second golden
+    /// nobody upstream maintains. The derivation is what these assert, and each
+    /// home is asserted
     /// in BOTH places: Home drew `Running` with four Attention rows and
     /// `Continue setup` at once the last time the two disagreed.
     @Test("each fixture home answers one readiness in both places")
@@ -501,8 +639,9 @@ struct FixtureConfigurationTests {
         #expect(state.restart.required)
     }
 
-    /// A first run: no configured provider, no personalization, no channel. It
-    /// is the machine the assistant's decision screens are actually used on,
+    /// A first run: no configured provider and no channel, with the
+    /// personalization the daemon's first boot seeds from the machine. It is
+    /// the machine the assistant's decision screens are actually used on,
     /// and no fixture home was ever in it — which is how the two first-run
     /// defects on Connect your AI shipped without anyone seeing them.
     @Test("the fresh home has nothing set up")
@@ -517,9 +656,10 @@ struct FixtureConfigurationTests {
         #expect(!state.providers.contains { $0.primary })
         #expect(state.channels.count == 5)
         #expect(!state.channels.contains { $0.enabled || $0.configured })
-        #expect(!state.personalization.present.userName)
-        #expect(!state.personalization.present.timezone)
-        #expect(!state.personalization.present.communicationStyle)
+        // Seeded before any screen: the name, the time zone and a default style.
+        #expect(state.personalization.present.userName)
+        #expect(state.personalization.present.timezone)
+        #expect(state.personalization.present.communicationStyle)
         #expect(!state.features.voice)
         #expect(!state.restart.required)
         #expect(!state.coexistence.legacyServiceUnit.present)
@@ -647,7 +787,7 @@ struct FixtureConfigurationTests {
     @MainActor
     @Test("the fixture environment stands every seam on one machine")
     func oneMachineBehindEverySeam() throws {
-        let environment = try AppEnvironment.fixture(FixtureLaunch(start: .surface(.home)))
+        let environment = try AppEnvironment.fixture(FixtureLaunch(start: .surface(.home)), mascot: StillMascot())
         let socket = environment.location.defaultFermixHome
             .appendingPathComponent("daemon.sock").path
 

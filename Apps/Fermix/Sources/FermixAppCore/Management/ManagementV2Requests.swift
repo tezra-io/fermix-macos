@@ -53,6 +53,32 @@ struct ManagementJobParams: Encodable {
     }
 }
 
+struct ManagementPairingSessionParams: Encodable {
+    let sessionId: String
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+    }
+}
+
+struct ManagementPairingDecisionParams: Encodable {
+    let sessionId: String
+    let approved: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case approved
+        case sessionId = "session_id"
+    }
+}
+
+struct ManagementDeviceParams: Encodable {
+    let deviceId: String
+
+    private enum CodingKeys: String, CodingKey {
+        case deviceId = "device_id"
+    }
+}
+
 struct ManagementAuthImportParams: Encodable {
     let source: ManagementAuthImportSource
 }

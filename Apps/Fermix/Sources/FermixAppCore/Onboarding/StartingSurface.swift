@@ -4,11 +4,35 @@ import SwiftUI
 ///
 /// The last row is the one that reads what is already set up, which is what
 /// makes an upgrade land on Ready rather than re-asking a configured home.
+///
+/// While macOS holds the background item, the block under the ladder says what
+/// to switch on and opens the pane it is in, the way Applying draws its
+/// restart block. Setup carries on by itself once the switch is on, so the
+/// block has nothing to press after it.
 struct StartingSurface: View {
     @ObservedObject var model: OnboardingModel
 
     var body: some View {
         LadderSurface(ladder: model.ladder, subcopy: model.startingCaption)
+            .overlay(alignment: .bottom) { approval }
+    }
+
+    @ViewBuilder
+    private var approval: some View {
+        if let sentence = model.approvalSentence {
+            VStack(spacing: Spacing.s) {
+                Text(sentence)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: OnboardingMetrics.contentWidth)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button(ProductStrings[.permissionActionOpenLoginItems]) { model.openLoginItems() }
+                    .buttonStyle(SecondaryButtonStyle(.inWindow))
+            }
+            .padding(.bottom, Spacing.m)
+        }
     }
 }
 

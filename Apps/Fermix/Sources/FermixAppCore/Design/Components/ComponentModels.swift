@@ -57,9 +57,21 @@ public struct ProgressLadderModel: Equatable, Sendable {
     /// the developer started registers nothing with launchd, and a row
     /// promising a background item that never arrives is a step the app does
     /// not take being shown as one it has not finished.
-    public static func starting(activeIndex: Int, includesRegistration: Bool) -> ProgressLadderModel {
+    ///
+    /// While macOS holds the background item the service row stays the active
+    /// one and says what it is waiting for, rather than the ladder growing a
+    /// row that only some Macs would ever draw.
+    public static func starting(
+        activeIndex: Int,
+        includesRegistration: Bool,
+        awaitingApproval: Bool = false
+    ) -> ProgressLadderModel {
+        precondition(!awaitingApproval || (includesRegistration && activeIndex == 0), "only the service row waits on approval")
+
         var titles: [(String, ProductStringKey)] = []
-        if includesRegistration { titles.append(("service", .startingRowService)) }
+        if includesRegistration {
+            titles.append(("service", awaitingApproval ? .startingRowAwaitingApproval : .startingRowService))
+        }
         titles += [
             ("daemon", .startingRowDaemon),
             ("answering", .startingRowAnswering),
@@ -254,6 +266,7 @@ public struct SidebarItem: Identifiable, Equatable, Sendable {
     }
 
     public static let mainWindow: [SidebarItem] = [
+        SidebarItem(route: .chat, title: ProductStrings[.sidebarChat], systemImage: "bubble.left"),
         SidebarItem(route: .home, title: ProductStrings[.sidebarHome], systemImage: "house"),
         SidebarItem(route: .doctor, title: ProductStrings[.sidebarDoctor], systemImage: "stethoscope"),
         SidebarItem(route: .logs, title: ProductStrings[.sidebarLogs], systemImage: "list.bullet.rectangle"),
@@ -430,7 +443,7 @@ public struct ErrorPanelModel: Equatable, Sendable {
 extension BootFailureCause {
     public var opensLoginItems: Bool {
         switch self {
-        case .approvalPending, .backgroundItemDisabled, .registrationFailed:
+        case .backgroundItemDisabled, .registrationFailed:
             return true
         case .timedOut, .incompatibleVersion, .crashLoop, .bindFailure, .webUnavailable,
              .invalidPackage, .bootstrapRecordUnusable, .notInApplications,
@@ -453,7 +466,7 @@ extension BootFailureCause {
             return ["brew upgrade fermix", "fermix restart", "fermix migrate-to-app"]
         case .legacySystemInstallPresent:
             return ["sudo fermix service uninstall --system"]
-        case .timedOut, .approvalPending, .backgroundItemDisabled, .incompatibleVersion, .crashLoop,
+        case .timedOut, .backgroundItemDisabled, .incompatibleVersion, .crashLoop,
              .bindFailure, .webUnavailable, .invalidPackage, .bootstrapRecordUnusable,
              .registrationFailed, .notInApplications, .foreignDaemonRunning, .daemonUnresponsive,
              .duplicateCopyPresent, .migrationHandoffInvalid, .daemonRefusedIdentity:
@@ -496,12 +509,22 @@ public enum HumaneTime {
     /// goes stale where it stands, and the last successful update check is
     /// exactly the fact nobody may be misled about.
     public static func moment(_ date: Date) -> String {
+        momentFormatter.string(from: date)
+    }
+
+    /// Built once rather than per call, because a formatter is expensive to
+    /// make. Locale, calendar and time zone follow the Mac's own settings as
+    /// they change, as a fresh formatter's did.
+    private static let momentFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.calendar = .autoupdatingCurrent
+        formatter.timeZone = .autoupdatingCurrent
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
 
-        return formatter.string(from: date)
-    }
+        return formatter
+    }()
 
     /// The largest unit only, for the menu-bar status line.
     public static func coarseUptime(seconds: Int) -> String {

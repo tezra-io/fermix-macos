@@ -22,15 +22,4 @@ public enum PetExpression: String, CaseIterable, Sendable {
             return .idle
         }
     }
-
-    func layerAssetName(_ layer: PetLayer) -> String {
-        "pet_\(rawValue)_\(layer.rawValue)"
-    }
-}
-
-enum PetLayer: String {
-    case body
-    case ring
-    case face
-    case decor
 }

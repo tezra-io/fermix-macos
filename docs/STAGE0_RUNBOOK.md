@@ -385,7 +385,46 @@ sha256 they were run against.
 
 ---
 
-## 9. Reset protocol
+## 9. Gate: background approval is a setup step
+
+Proves that an agent macOS holds for approval is a step of the Starting ladder
+rather than the Boot failed card, and that approving it starts the daemon with no
+second registration (`docs/design/BACKGROUND_SERVICE_APPROVAL.md` §3.5). Run it
+on the staged release bundle, with Fermix installed and set up.
+
+```sh
+# The agent's disposition, before and after each switch.
+sudo sfltool dumpbtm | grep -A 8 -i fermix
+```
+
+1. Switch Fermix off in System Settings > General > Login Items & Extensions.
+   The agent reads "enabled, disallowed".
+2. Run setup again: `open fermix://setup`, or, where that lands elsewhere,
+   remove `launcher.json` (section 10 step 4), open Fermix and press Welcome's
+   button. The Starting ladder stops on "Waiting for you to allow Fermix in the
+   background", with "Fermix is turned off in Login Items" and "Open Login Items
+   settings" under it, and no failure card.
+3. Press "Open Login Items settings". System Settings opens on Login Items.
+4. Switch Fermix on, and do not click back into Fermix. Within about three
+   seconds the ladder moves on and setup finishes. This is the check for §3.5:
+   if the daemon never starts, record it, and the design's one change applies.
+5. From Home: switch Fermix off in System Settings, then turn on "Run in the
+   background". Home leads Attention with "Allow Fermix to run in the
+   background". Switching Fermix on in System Settings and clicking back into
+   Fermix brings the daemon up and the row goes.
+6. Quit Fermix and wait two minutes. Record whether macOS 26 or later shows its
+   prompt about background activity continuing after the app quits, and its
+   exact words (design open question 4).
+
+Record: the dumpbtm extracts after steps 1 and 4, the seconds between the switch
+and the daemon row going done in step 4, and the step 6 observation.
+
+Do not run `sfltool resetbtm` during this gate: it resets every app's background
+items and the person's choices, and the gate is about Fermix's own switch.
+
+---
+
+## 10. Reset protocol
 
 Run this between gates that need a clean starting state, and at the end. M34
 section 7 requires it to be checked in beside the release scripts; it is written
@@ -426,7 +465,7 @@ tccutil reset Microphone io.tezra.FermixPet
 
 ---
 
-## 10. Filling in the M34 table
+## 11. Filling in the M34 table
 
 Open
 `/Users/sujshe/projects/fermix/docs/design/MILESTONE_34_UNIFIED_MACOS_APP_IMPLEMENTATION.md`

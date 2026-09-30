@@ -29,13 +29,12 @@ struct ProviderEditingRegressionTests {
         #expect(try store.read().rows.first { $0.key == row.key }?.value == .text(choice.value))
     }
 
-    /// The auth mode decides which credential editor is drawn, and nothing
-    /// else. It used to take the sign-in doors away as well: under `api_key`
-    /// the detail answered no doors at all, so a provider that signs in led
-    /// with nothing. Sign-in is the primary method wherever a provider has one
-    /// (owner directive of 2026-09-20), so the doors stand in both modes and
-    /// the key is the secondary one beside them.
-    @Test("auth-mode selection controls the credential editor and never the sign-in doors")
+    /// The auth mode decides which credential editor is drawn, and the
+    /// projection keeps answering a provider's doors in both modes: the detail
+    /// decides what follows the mode row (the doors under a subscription, the
+    /// key under an API key, owner 2026-09-28), and it must find the doors
+    /// there the moment the mode turns to a subscription.
+    @Test("auth-mode selection controls the credential editor and never the projected sign-in doors")
     func selectedAuthModeControlsCredentials() async throws {
         let gateway = try SettingsFixture.gateway()
         gateway.providerSettings = try StatefulProviderSettings(section: "providers.anthropic")

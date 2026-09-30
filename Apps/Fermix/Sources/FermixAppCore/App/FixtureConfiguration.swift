@@ -37,10 +37,23 @@ enum FixtureStart: Equatable {
     /// Home, with the restart sheet already asking. The sheet is presented from
     /// Home's own published flag, which is the same flag the Attention row sets.
     case restartSheet
+    /// Starting, on a Mac whose background item macOS is holding for the
+    /// person. It is a state of Starting rather than a screen, so like Boot
+    /// failed it opens on Starting and the machine produces the wait.
+    case approvalStep
+    /// Chat over a timeline with nothing in it, which is the only way its
+    /// empty state is drawn: `chat` itself opens on the full timeline.
+    case emptyChat
+    /// Chat with the browser pane open beside it on two fake tabs. The pane
+    /// closed is `chat` itself.
+    case browser
 
     static let settingsPrefix = "settings/"
     static let assistantPrefix = "assistant/"
     static let restartSheetName = "restart-sheet"
+    static let approvalStepName = "assistant/approval"
+    static let emptyChatName = "chat-empty"
+    static let browserName = "browser"
 
     /// The start a launch argument named, or nil where this build publishes no
     /// such surface. A mistyped name is refused by the caller rather than
@@ -48,6 +61,12 @@ enum FixtureStart: Equatable {
     init?(name: String) {
         if name == Self.restartSheetName {
             self = .restartSheet
+        } else if name == Self.approvalStepName {
+            self = .approvalStep
+        } else if name == Self.emptyChatName {
+            self = .emptyChat
+        } else if name == Self.browserName {
+            self = .browser
         } else if let slug = name.dropping(prefix: Self.settingsPrefix) {
             guard let pane = SettingsPane(rawValue: slug) else { return nil }
             self = .settings(pane)
@@ -65,7 +84,7 @@ enum FixtureStart: Equatable {
         AppRoute.allCases.map(\.rawValue)
             + SettingsPane.allCases.map { settingsPrefix + $0.slug }
             + OnboardingStage.allCases.map { assistantPrefix + $0.rawValue }
-            + [restartSheetName]
+            + [restartSheetName, approvalStepName, emptyChatName, browserName]
     }
 }
 
@@ -85,6 +104,9 @@ enum FixtureHome: Equatable {
     /// The bundle is not in `/Applications`, which is activation's first
     /// refusal and the cause the Boot failed card names.
     case notInApplications
+    /// macOS is holding the background item for the person, so the Starting
+    /// ladder waits on its service row and launchd starts nothing.
+    case awaitingApproval
     /// The daemon is up and every readiness gate has passed, which is the only
     /// machine Ready renders on: the screen claims the install is live, so it
     /// refuses to draw while a gating failure stands (M34 §4). The default home
@@ -92,8 +114,9 @@ enum FixtureHome: Equatable {
     /// the Connect your AI screen are looked at through, so on that machine
     /// Ready draws its refusal notice and the screen itself was unreachable.
     case configured
-    /// Nothing has been set up: no configured provider, no personalization, no
-    /// channel. It is the machine the assistant's decision screens are actually
+    /// Nothing has been set up: no configured provider and no channel, with the
+    /// personalization the daemon's first boot seeds from the machine. It is
+    /// the machine the assistant's decision screens are actually
     /// used on, and no fixture home was ever in it — which is how the two
     /// first-run defects on Connect your AI shipped without anyone seeing them
     /// (M34 §4).
@@ -104,6 +127,7 @@ enum FixtureHome: Equatable {
         switch start {
         case .assistant(.starting): return .daemonStarting
         case .assistant(.bootFailed): return .notInApplications
+        case .approvalStep: return .awaitingApproval
         case .assistant(.ready): return .configured
         // The three screens a first run walks through, on a first run's machine.
         case .assistant(.welcome), .assistant(.connectAI), .assistant(.aboutYou), .assistant(.applying):
@@ -122,7 +146,7 @@ enum FixtureHome: Equatable {
         switch self {
         case .configured: return .ready
         case .fresh: return .fresh
-        case .settled, .daemonStarting, .notInApplications: return .gatingFailure
+        case .settled, .daemonStarting, .notInApplications, .awaitingApproval: return .gatingFailure
         }
     }
 }
@@ -138,6 +162,8 @@ enum FixturePresentation: Equatable {
     case settings(SettingsPane)
     /// Home, with the restart sheet already asking.
     case homeWithRestartSheet
+    /// Chat, with the browser pane open on the fixture's two pages.
+    case chatWithBrowser
 }
 
 /// One fixture launch: where it lands, and the machine it lands on.
@@ -158,12 +184,20 @@ struct FixtureLaunch {
     /// decides which of the two is drawn.
     var presentation: FixturePresentation {
         switch start {
-        case .assistant(.bootFailed): return .assistant(.starting)
+        case .assistant(.bootFailed), .approvalStep: return .assistant(.starting)
         case .assistant(let stage): return .assistant(stage)
         case .surface(let route): return .route(route)
         case .settings(let pane): return .settings(pane)
         case .restartSheet: return .homeWithRestartSheet
+        case .emptyChat: return .route(.chat)
+        case .browser: return .chatWithBrowser
         }
+    }
+
+    /// The timeline the chat holds. Every start but the empty one gets the
+    /// full timeline, so Chat reached from any of them shows a conversation.
+    var companionTimeline: FixtureCompanionTimeline {
+        start == .emptyChat ? .empty : .full
     }
 
     /// A filesystem-safe name for this start, which is what keeps two starts
@@ -174,6 +208,9 @@ struct FixtureLaunch {
         case .settings(let pane): return "settings-\(pane.slug)"
         case .assistant(let stage): return "assistant-\(stage.rawValue)"
         case .restartSheet: return FixtureStart.restartSheetName
+        case .approvalStep: return "assistant-approval"
+        case .emptyChat: return FixtureStart.emptyChatName
+        case .browser: return FixtureStart.browserName
         }
     }
 }
@@ -236,13 +273,20 @@ final class FixtureMachine: @unchecked Sendable {
     /// False on the machine whose socket never appears: launchd never brings the
     /// daemon up there, so registering the agent does not end the Starting wait.
     private let launchdStartsTheDaemon: Bool
+    /// macOS holding the agent for the person once it is registered, as on a
+    /// first install: the switch in System Settings is the only thing that
+    /// moves it.
+    private let agentHeldForApproval: Bool
     private var registered: Set<LoginItemPrincipal> = [.agent]
     private var running: Bool
     private var pid = FixtureMachine.firstPid
 
-    init(daemonUp: Bool) {
+    init(daemonUp: Bool, agentHeldForApproval: Bool = false) {
         launchdStartsTheDaemon = daemonUp
         running = daemonUp
+        self.agentHeldForApproval = agentHeldForApproval
+        // A first install: nothing is registered until setup asks.
+        if agentHeldForApproval { registered = [] }
     }
 
     var currentPid: Int32 { withLock { pid } }
@@ -250,6 +294,13 @@ final class FixtureMachine: @unchecked Sendable {
 
     func isRegistered(_ principal: LoginItemPrincipal) -> Bool {
         withLock { registered.contains(principal) }
+    }
+
+    /// What macOS says about a principal on this machine.
+    func status(_ principal: LoginItemPrincipal) -> ServiceRegistrationStatus {
+        guard isRegistered(principal) else { return .notRegistered }
+
+        return principal == .agent && agentHeldForApproval ? .requiresApproval : .enabled
     }
 
     /// True only of the process that is up right now: a pid from before a
@@ -323,8 +374,11 @@ struct FixtureLoginItems: LoginItemService {
     }
 
     func status(_ principal: LoginItemPrincipal) -> ServiceRegistrationStatus {
-        machine.isRegistered(principal) ? .enabled : .notRegistered
+        machine.status(principal)
     }
+
+    /// A fixture run never opens System Settings.
+    func openSettings() {}
 }
 
 /// The microphone, granted. Reading never prompts here and neither does asking:
@@ -368,7 +422,7 @@ struct FixtureDaemonIdentity: DaemonIdentityProbing {
     func identify(home: URL) async throws -> DaemonIdentityAnswer { .app }
 }
 
-/// The two remembered choices, in memory. User defaults are shared with the
+/// The remembered choices, in memory. User defaults are shared with the
 /// installed app under one bundle id, and a fixture run must not move the
 /// operator's last pane or sidebar.
 @MainActor
@@ -379,6 +433,13 @@ final class FixturePaneStore: SettingsPaneStoring {
 @MainActor
 final class FixtureSidebarStore: SidebarVisibilityStoring {
     var sidebarVisible: Bool?
+}
+
+/// The link preference at its default, the pane, and never written to the
+/// operator's defaults.
+@MainActor
+final class FixtureLinkPreferenceStore: LinkPreferenceStoring {
+    var linkDestination = UserDefaultsLinkPreferenceStore.defaultDestination
 }
 
 /// The browser, not opened. A fixture sign-in must not send the operator to a
@@ -398,13 +459,18 @@ struct FixtureDirectoryChooser: DirectoryChoosing {
 
 extension AppEnvironment {
     /// The fixture configuration's boundary: a throwaway home, the contract's
-    /// golden answers, and probes that report the declared machine.
-    static func fixture(_ launch: FixtureLaunch) throws -> AppEnvironment {
+    /// golden answers, and probes that report the declared machine. The mascot
+    /// is the real renderer the executable handed in, so a fixture capture
+    /// shows the animation the product draws.
+    static func fixture(_ launch: FixtureLaunch, mascot: any MascotRendering) throws -> AppEnvironment {
         let location = try FixtureRoot.prepared(for: launch.startSlug)
         let contract = try ManagementContract.vendored()
         // One machine behind every seam that can see it, so a transaction the
         // transport commits is the same one the probes report on.
-        let machine = FixtureMachine(daemonUp: launch.home != .daemonStarting)
+        let machine = FixtureMachine(
+            daemonUp: launch.home != .daemonStarting && launch.home != .awaitingApproval,
+            agentHeldForApproval: launch.home == .awaitingApproval
+        )
         let transport = try FixtureManagementTransport(
             machine: machine,
             readiness: launch.home.readiness
@@ -428,8 +494,17 @@ extension AppEnvironment {
             microphone: FixtureMicrophone(),
             settingsPanes: FixturePaneStore(),
             sidebarVisibility: FixtureSidebarStore(),
+            linkPreference: FixtureLinkPreferenceStore(),
             opener: FixtureExternalOpener(),
             updater: UnwiredUpdater(),
+            mascot: mascot,
+            // Fake pages, so the pane is looked at with no web engine and no
+            // network behind it.
+            makeBrowser: { _ in FixtureBrowserEngine() },
+            // A session with nothing to hear: the fixture's Mac is unlocked
+            // and awake for the whole run.
+            session: SessionAvailability(standing: [], distributed: NotificationCenter(), workspace: NotificationCenter()),
+            workspace: FixtureWorkspaceOpener(),
             chooser: FixtureDirectoryChooser(),
             processes: probes,
             paths: probes,
@@ -439,6 +514,8 @@ extension AppEnvironment {
                 canonicallyInstalled: launch.home != .notInApplications
             ),
             identities: FixtureDaemonIdentity(),
+            companionLines: FixtureCompanionTransport(timeline: launch.companionTimeline),
+            browserHostLines: FixtureBrowserHostTransport(),
             // An installed machine: `notInApplications` exists to render the
             // location refusal, and the Starting ladder is looked at with the
             // registration row the shipped activation draws.
@@ -462,8 +539,8 @@ extension AppComposition {
     /// The same graph as `AppComposition()`, standing on the fixture
     /// environment. There is no branch inside the product configuration: the
     /// two roots differ only in what they are handed.
-    convenience init(fixture launch: FixtureLaunch) throws {
-        self.init(environment: try .fixture(launch))
+    convenience init(fixture launch: FixtureLaunch, mascot: any MascotRendering) throws {
+        self.init(environment: try .fixture(launch, mascot: mascot))
     }
 
     /// Opens what the launch asked for.
@@ -472,7 +549,11 @@ extension AppComposition {
     /// launch reason; a fixture launch names its surface outright, so it goes
     /// through the same coordinator by the same public verbs.
     func present(fixture launch: FixtureLaunch) {
-        launch.present(with: coordinator, showRestartSheet: { [coordinator] in coordinator.askForRestart() })
+        launch.present(
+            with: coordinator,
+            showRestartSheet: { [coordinator] in coordinator.askForRestart() },
+            openBrowser: { [browser] in FixtureWebPage.openTabs(in: browser) }
+        )
     }
 }
 
@@ -481,9 +562,10 @@ extension FixtureLaunch {
     ///
     /// The restart sheet is the coordinator's, the same door the Attention row,
     /// the Daemon menu and the status item ask through, so it arrives as a
-    /// closure rather than a second owner of it.
+    /// closure rather than a second owner of it. The browser pane is the
+    /// browser coordinator's, and arrives the same way.
     @MainActor
-    func present(with coordinator: AppCoordinator, showRestartSheet: () -> Void) {
+    func present(with coordinator: AppCoordinator, showRestartSheet: () -> Void, openBrowser: () -> Void) {
         switch presentation {
         case .assistant(let stage):
             coordinator.openAssistant(at: stage)
@@ -494,6 +576,9 @@ extension FixtureLaunch {
         case .homeWithRestartSheet:
             coordinator.open(.home)
             showRestartSheet()
+        case .chatWithBrowser:
+            coordinator.open(.chat)
+            openBrowser()
         }
     }
 }

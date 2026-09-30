@@ -54,7 +54,10 @@ final class ManagementSocketTestPeer {
                 Darwin.bind(fd, address, size)
             }
         }
-        guard bound == 0, listen(fd, 1) == 0 else {
+        // Room for connections the peer never accepts: two exchanges in flight
+        // at once both connect before it accepts the first, and a backlog of
+        // one refused the second.
+        guard bound == 0, listen(fd, 8) == 0 else {
             let code = errno
             Darwin.close(fd)
             throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)

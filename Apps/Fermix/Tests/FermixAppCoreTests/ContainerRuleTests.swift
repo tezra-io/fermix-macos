@@ -303,16 +303,24 @@ struct ContainerRuleTests {
         }
     }
 
-    /// M34 §9: no WKWebView, no HTML strings, no web content anywhere in the
-    /// app. The hosted Setup pane was the only importer, and the browser setup
-    /// the daemon serves for every formula install is not this app's surface.
-    @Test("nothing in the tree imports WebKit")
+    /// The web engine is the browser pane's and nobody else's (plan §4.2).
+    ///
+    /// Both executables link `FermixAppCore`, so a WebKit import there would
+    /// put a web engine into `FermixAgent`, which the daemon launches and which
+    /// never draws a page. The core declares the browser's seam and imports
+    /// nothing; `FermixBrowser`, linked by the GUI executable alone, is the one
+    /// place a `WKWebView` is built. The hosted Setup pane that was the first
+    /// importer stays retired: the daemon's browser setup is not this app's.
+    @Test("only the browser target imports WebKit")
     func noWebKit() throws {
-        let offenders = try SourceTree
-            .swiftFiles(under: "", excluding: false)
+        let importers = try SparkleAdapterSource.everySwiftFileUnderSources()
             .filter { $0.text.contains("import WebKit") || $0.text.contains("WKWebView") }
+        let offenders = importers.filter { !$0.path.contains("/FermixBrowser/") }
 
-        #expect(offenders.isEmpty, "web content in: \(offenders.map(\.path))")
+        // A scan that finds nothing passes every assertion it was written to
+        // make, so the browser target itself has to show up in it.
+        #expect(importers.contains { $0.path.contains("/FermixBrowser/") }, "the scan found no browser target")
+        #expect(offenders.isEmpty, "web content outside the browser target in: \(offenders.map(\.path))")
     }
 
     /// The primitives M34 §6 deletes. Written as one invariant over the whole
@@ -392,7 +400,7 @@ struct ContainerRuleTests {
 
         for file in files {
             for (name, body) in Self.types(in: file.text) where Self.isPaneBody(name) {
-                let containers = Self.scrollContainers.reduce(0) { $0 + occurrences(of: $1, in: body) }
+                let containers = try Self.scrollContainers.reduce(0) { try $0 + matches(of: $1, in: body) }
                 guard containers > 0 else { continue }
 
                 checked.append(name)
@@ -418,8 +426,9 @@ struct ContainerRuleTests {
 
     /// What makes a view a scroll container on macOS: a list, a form, or a
     /// scroll view. All three scroll their own content, which is the property
-    /// the rule is about.
-    static let scrollContainers = ["List {", "List(", "Form {", "ScrollView"]
+    /// the rule is about. A `ScrollViewReader` is not one: it scrolls the
+    /// container inside it and draws nothing of its own.
+    static let scrollContainers = [#"List \{"#, #"List\("#, #"Form \{"#, #"ScrollView(?![A-Za-z])"#]
 
     /// The pane bodies: every `…Pane`, plus the settings presentation's own
     /// `SettingsPane…` types, which are the form the panes are drawn inside and
@@ -464,14 +473,15 @@ struct ContainerRuleTests {
         return nil
     }
 
-    /// M34 §5: setup is a task rather than a destination, so the sidebar is
-    /// four rows and the Setup row is gone. The pinned Settings row below them
-    /// is not one of these: it selects a presentation of this window rather
-    /// than a route, so it carries no `AppRoute` and is not a `SidebarItem`.
-    @Test("the sidebar is Home, Doctor, Logs and Pet, with Settings pinned under them")
+    /// M34 §5: setup is a task rather than a destination, so the Setup row is
+    /// gone, and Chat heads the rail (redlines §8 decision 36): five rows. The
+    /// pinned Settings row below them is not one of these: it selects a
+    /// presentation of this window rather than a route, so it carries no
+    /// `AppRoute` and is not a `SidebarItem`.
+    @Test("the sidebar is Chat, Home, Doctor, Logs and Pet, with Settings pinned under them")
     func sidebarRows() {
-        #expect(SidebarItem.mainWindow.map(\.title) == ["Home", "Doctor", "Logs", "Pet"])
-        #expect(SidebarItem.mainWindow.map(\.id) == ["home", "doctor", "logs", "pet"])
+        #expect(SidebarItem.mainWindow.map(\.title) == ["Chat", "Home", "Doctor", "Logs", "Pet"])
+        #expect(SidebarItem.mainWindow.map(\.id) == ["chat", "home", "doctor", "logs", "pet"])
 
         for item in SidebarItem.mainWindow {
             #expect(!item.systemImage.isEmpty, "\(item.title)")
@@ -539,22 +549,27 @@ struct ContainerRuleTests {
     /// Each macOS 26 modifier has a declared macOS 15 form, so the same tree
     /// renders on the floor rather than losing a control.
     ///
-    /// Two items hide the toolbar's shared background on macOS 26: the prominent
-    /// action, which draws its own capsule (§4.4), and the status sentence,
-    /// which sits on no glass at all. The floor has no shared background to
-    /// hide, so for both the macOS 15 form is the same item with the modifier
-    /// left off, and each branch is counted rather than merely present: a branch
-    /// that dropped its item would lose the control on the floor and nowhere
-    /// else, which is the failure this gate exists for.
+    /// Three items hide the toolbar's shared background on macOS 26: the
+    /// prominent action, which draws its own capsule (§4.4), the caption drawn
+    /// immediately before it, and the status sentence, which sits on no glass
+    /// at all. The floor has no shared background to hide, so for each the
+    /// macOS 15 form is the same item with the modifier left off, and each
+    /// branch is counted rather than merely present: a branch that dropped its
+    /// item would lose the control on the floor and nowhere else, which is the
+    /// failure this gate exists for.
     @Test("the macOS 26 toolbar sites declare their macOS 15 forms")
     func macOS15Forms() throws {
         let toolbar = try SourceTree.swiftFiles(matching: "Design/Components/SurfaceToolbar.swift")
         let text = try #require(toolbar.first?.text)
 
-        #expect(occurrences(of: ".sharedBackgroundVisibility(.hidden)", in: text) == 2)
+        #expect(occurrences(of: ".sharedBackgroundVisibility(.hidden)", in: text) == 3)
         #expect(
             occurrences(of: "ToolbarItem(placement: .primaryAction) { primaryButton(primary) }", in: text) == 2,
             "the prominent action has no macOS 15 form"
+        )
+        #expect(
+            occurrences(of: "ToolbarItem(placement: .primaryAction) { ToolbarSentence(text: caption) }", in: text) == 2,
+            "the primary action's caption has no macOS 15 form"
         )
         #expect(occurrences(of: "ToolbarItem(placement: .status) { label }", in: text) == 2, "the status item has one form")
     }
@@ -628,23 +643,39 @@ struct ContainerRuleTests {
         }
     }
 
-    /// Integrations is the one pane that draws a page header of its own, so it
-    /// is the one pane that removes the toolbar's inline title: the window
-    /// title said `Integrations` two lines above the header that says it. Every
-    /// other pane still takes its title from the window.
-    ///
-    /// Both halves, because dropping the `navigationTitle` instead would leave
-    /// the window named by whichever pane was open before it.
-    @Test("only the pane with its own header removes the toolbar title")
-    func onlyTheCodexPageRemovesItsTitle() throws {
+    /// Every pane's name is the toolbar's. Integrations drew a page title of
+    /// its own and removed the toolbar's, and inside the frame that made it the
+    /// one pane with its heading in the body and the toolbar's Restart and
+    /// search slid over to where the title had been (owner, 2026-09-25).
+    @Test("no pane removes the toolbar title or draws its own page title")
+    func everyPaneTitlesInTheToolbar() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
         let removers = files.filter { $0.text.contains(".toolbar(removing: .title)") }.map(\.path)
 
-        #expect(removers.count == 1, "\(removers)")
-        #expect(try #require(removers.first).hasSuffix("Settings/Panes/IntegrationsPane.swift"))
+        #expect(removers.isEmpty, "\(removers)")
 
         let pane = try #require(files.first { $0.path.hasSuffix("Settings/Panes/IntegrationsPane.swift") }?.text)
         #expect(pane.contains(".navigationTitle(SettingsPane.integrations.title)"), "the window loses its name")
+        #expect(!pane.contains("Text(SettingsPane.integrations.title)"), "the pane draws its title in the body")
+    }
+
+    /// The browser pane sits beside the body inside the one split view, and it
+    /// draws no title: the window's title is the surface's beside it, so the
+    /// pane neither names itself in the toolbar nor draws a page title of its
+    /// own (plan §4.9).
+    @Test("the browser pane is a third pane beside the body, and draws no title")
+    func browserPaneSitsBesideTheBody() throws {
+        let files = try SourceTree.swiftFiles(under: "", excluding: false)
+        let pane = try #require(files.first { $0.path.hasSuffix("Browser/BrowserPaneView.swift") }?.text)
+        let window = try #require(files.first { $0.path.hasSuffix("App/MainWindowView.swift") }?.text)
+
+        #expect(!pane.contains(".navigationTitle("), "the pane names itself in the toolbar")
+        #expect(!pane.contains(".toolbar"), "the pane puts controls in the surface's toolbar")
+        #expect(!pane.contains(".frame(width: WindowMetrics.browserPaneWidth)"), "the pane fixes its own width instead of taking the split's")
+        #expect(pane.contains("FrameGlass()"), "the header is not on the frame")
+        #expect(window.contains("BrowserPaneView(browser: browser)"))
+        #expect(window.contains("PaneSplitLayout(body: WindowMetrics.bodyWidthsBesidePane, pane: WindowMetrics.browserPaneWidths)"), "the body and the pane do not share the column by the split")
+        #expect(window.contains("detailColumn.frame(minWidth: 0, minHeight: 0)"), "the body lost its floor")
     }
 
     /// A row that opens something says so before it is clicked. The plugin rows

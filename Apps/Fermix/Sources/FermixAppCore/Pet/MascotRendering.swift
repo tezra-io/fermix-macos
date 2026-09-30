@@ -1,0 +1,67 @@
+import Foundation
+import SwiftUI
+
+/// Draws the mascot, behind a seam.
+///
+/// The animation runtime lives on the other side of it. `FermixAppCore`
+/// declares this and imports nothing, because both executables link this
+/// library and `FermixAgent` must never load an animation framework, for the
+/// same reason it never loads Sparkle (M34 §6). The GUI executable hands in the
+/// one implementation, `FermixRive`, exactly as it hands in the updater.
+@MainActor
+public protocol MascotRendering: AnyObject {
+    /// The mascot in `pose`, reading `level` for how loud the voice is.
+    ///
+    /// The pose changes a few times a turn and arrives through SwiftUI. The
+    /// level changes tens of times a second and is sampled, never published,
+    /// so it cannot invalidate the tree that holds the mascot. `animates` false
+    /// parks the loops (the window is off screen, or Reduce Motion is on); a
+    /// new pose is still drawn.
+    ///
+    /// `playsIntro` is read once, when the mascot first appears: true swells
+    /// it out of the jelly sphere, false shows it formed. It is its own value
+    /// rather than `animates`, because a window being shown again is built a
+    /// moment before it reports itself on screen, and the intro was skipped on
+    /// every show after the first (owner, 2026-09-27: "every time I disable and
+    /// enable it back I want the initial state as the sphere").
+    ///
+    /// The view takes no clicks: the surface around it owns what a click does.
+    func mascot(pose: PetExpression, level: @escaping @MainActor () -> Float, animates: Bool, playsIntro: Bool) -> AnyView
+}
+
+/// The animation the renderer plays, and the names it publishes, written once.
+///
+/// The file is authored in Rive: a state machine whose `mode` enum takes the
+/// four `PetExpression` raw values, and whose `level` number (0 to 1) drives
+/// the talking mouth and the body's swell with the voice. Each time it starts,
+/// a jelly sphere swells into the pet over two seconds (owner, 2026-09-27: "the
+/// pet start as a sphere then transform into its shape"), unless `skipIntro`
+/// is set before the first frame.
+///
+/// Each mode's reactions live in the file and need nothing from the app:
+/// headphones while listening, glasses and a pearl that becomes a bulb while
+/// thinking, a smiling face while speaking, and idle actions picked at random.
+public enum MascotAnimation {
+    public static let fileName = "FermixMascot"
+    public static let fileExtension = ".riv"
+    public static let stateMachine = "Pet"
+    public static let modeProperty = "mode"
+    public static let levelProperty = "level"
+    public static let skipIntroProperty = "skipIntro"
+
+    /// The app's own resources, where the file ships.
+    public static var bundle: Bundle { AppResources.bundle }
+}
+
+extension EnvironmentValues {
+    /// The renderer every window's root carries (`AppSurfaces`). Absent only
+    /// where no window hosts the view, which is to say in tests.
+    public var mascot: (any MascotRendering)? {
+        get { self[MascotRenderingKey.self] }
+        set { self[MascotRenderingKey.self] = newValue }
+    }
+}
+
+private struct MascotRenderingKey: EnvironmentKey {
+    static let defaultValue: (any MascotRendering)? = nil
+}

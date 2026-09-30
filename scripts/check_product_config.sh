@@ -13,14 +13,15 @@
 #      contents, so a manifest that read Product.json would be served a stale
 #      platform floor (measured: editing only Product.json left
 #      `swift package dump-package` reporting the previous version). It also
-#      carries the updater pin, which is the version of the framework the
-#      bundle embeds and signs, and the runtime search path that resolves it.
+#      carries the two binary framework pins, the updater and the animation
+#      runtime, which are the versions of the frameworks the bundle embeds and
+#      signs, and the runtime search path that resolves them.
 #   3. Apps/Fermix/project.yml — XcodeGen substitutes an undefined ${VAR} with
 #      an empty string instead of failing, so the values are written literally
-#      and checked here. It carries the same updater pin and the same runtime
+#      and checked here. It carries the same two pins and the same runtime
 #      search path: two build configurations that disagreed would embed one
 #      framework and compile against another, or link a GUI that cannot find
-#      the framework beside it.
+#      the frameworks beside it.
 #   4. The release path — release.yml and Casks/fermix.rb.tmpl. Both name the
 #      released artifact literally, in a shell glob and in a cask stanza, and
 #      they run only on a release tag. Ungated, renaming the app bundle would
@@ -102,20 +103,40 @@ check_support_directory() {
   esac
 }
 
-# The updater pin, in the two build configurations that cannot read JSON at
-# the moment they need it. A disagreement here compiles the app against one
-# Sparkle and embeds another, which is a mismatch nothing downstream can see:
-# both halves are the same framework name at the same path.
+# A binary framework pin, in the two build configurations that cannot read
+# JSON at the moment they need it. A disagreement here compiles the app against
+# one build of the framework and embeds another, which is a mismatch nothing
+# downstream can see: both halves are the same framework name at the same path.
+#
+# The XcodeGen spec states a package's url and its version on consecutive
+# lines, so the version is asked of the line under the url rather than of the
+# whole file: with two exact pins in the one spec, a bare `exactVersion:`
+# literal would be satisfied by whichever package happened to carry the number.
+require_package_pin() {
+  local what="$1" url="$2" version="$3" declared
+  require_literal "$MANIFEST" "\"$url\", exact: \"$version\"" "$what"
+  declared="$(grep -A1 -F -- "url: $url" "$PROJECT_SPEC")" ||
+    fail "$(basename "$PROJECT_SPEC") declares no package at $url, so it does not carry $what from Product.json"
+  case "$declared" in
+    *"exactVersion: $version"*) ;;
+    *) fail "$(basename "$PROJECT_SPEC") does not carry $what from Product.json: expected 'exactVersion: $version' under $url" ;;
+  esac
+}
+
 check_sparkle_pin() {
   local version
   version="$(product_config sparkle_version)"
-  require_literal "$MANIFEST" "\"https://github.com/sparkle-project/Sparkle\", exact: \"$version\"" \
-    "the updater pin"
-  require_literal "$PROJECT_SPEC" "exactVersion: $version" "the updater pin"
+  require_package_pin "the updater pin" "https://github.com/sparkle-project/Sparkle" "$version"
 }
 
-# The runtime search path that resolves the updater framework's @rpath install
-# name, in the two build configurations that set it at link time. It is derived
+check_rive_pin() {
+  local version
+  version="$(product_config rive_runtime_version)"
+  require_package_pin "the animation runtime pin" "https://github.com/rive-app/rive-ios" "$version"
+}
+
+# The runtime search path that resolves the embedded frameworks' @rpath install
+# names, in the two build configurations that set it at link time. It is derived
 # from the frameworks slot Product.json owns — the GUI is linked from
 # Contents/MacOS, so the path is that slot's own directory name one level up —
 # so moving the slot moves this expectation with it instead of leaving a third
@@ -181,6 +202,7 @@ check_support_directory
 check_linked_info_plist
 check_manifest_platform
 check_sparkle_pin
+check_rive_pin
 check_frameworks_rpath
 check_project_spec
 check_release_path

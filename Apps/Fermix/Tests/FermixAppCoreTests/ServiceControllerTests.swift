@@ -91,12 +91,202 @@ struct ServiceControllerTests {
         #expect(controller.status(.agent) == .notRegistered)
     }
 
+    // MARK: - Asking for the background service
+
+    @Test("a registration macOS allows is enabled, asked for once")
+    func requestEnabled() {
+        let service = FakeLoginItemService()
+
+        #expect(controller(service).requestBackgroundService() == .enabled)
+        #expect(service.registerCalls == [.agent])
+    }
+
+    /// A first registration macOS holds is the person not having answered
+    /// yet, which is what a first install on a fresh account meets.
+    @Test("a first registration macOS holds is awaiting the person's answer")
+    func requestAwaitsApproval() {
+        let service = FakeLoginItemService()
+        service.nextStatus[.agent] = .requiresApproval
+
+        #expect(controller(service).requestBackgroundService() == .awaitingApproval(.awaited))
+        #expect(service.registerCalls == [.agent])
+    }
+
+    /// macOS reports one status for "not answered" and "switched off", and
+    /// the only sign is that the item was already held before this attempt.
+    @Test("an item already held before the attempt is one the person switched off")
+    func requestFindsItSwitchedOff() {
+        let service = FakeLoginItemService()
+        service.preregister(.agent, as: .requiresApproval)
+        service.nextStatus[.agent] = .requiresApproval
+
+        #expect(controller(service).requestBackgroundService() == .awaitingApproval(.switchedOff))
+    }
+
+    /// The 0.2.1 case: macOS refuses to register a switched-off item
+    /// ("Operation not permitted") and goes on holding it. The status read
+    /// after the throw decides, so it is the same wait and not a failure.
+    @Test("a refused registration of a switched-off item is still awaiting approval")
+    func requestThrowsWhileHeld() {
+        let service = FakeLoginItemService()
+        service.preregister(.agent, as: .requiresApproval)
+        service.registerError = ServiceControlError.registrationFailed(
+            principal: .agent,
+            underlying: "Operation not permitted"
+        )
+
+        #expect(controller(service).requestBackgroundService() == .awaitingApproval(.switchedOff))
+        #expect(service.registerCalls == [.agent], "one register per request, never a retry")
+    }
+
+    @Test("a throw that leaves nothing held is refused, with what macOS said")
+    func requestRefused() {
+        let service = FakeLoginItemService()
+        service.registerError = ServiceControlError.registrationFailed(
+            principal: .agent,
+            underlying: "Invalid signature"
+        )
+
+        #expect(controller(service).requestBackgroundService() == .refused(.notRegistered, underlying: "Invalid signature"))
+    }
+
+    @Test("a registration that leaves no item, or one macOS cannot find, is refused without an error")
+    func requestFindsNoItem() {
+        for missing in [ServiceRegistrationStatus.notRegistered, .notFound] {
+            let service = FakeLoginItemService()
+            service.nextStatus[.agent] = missing
+
+            #expect(controller(service).requestBackgroundService() == .refused(missing, underlying: nil))
+        }
+    }
+
+    /// The error code decides nothing: code 1 has causes other than the
+    /// person's switch, and an item macOS reports enabled runs.
+    @Test("a throw that leaves the item enabled is enabled")
+    func requestThrowsWhileEnabled() {
+        let service = FakeLoginItemService()
+        service.preregister(.agent)
+        service.registerError = ServiceControlError.registrationFailed(
+            principal: .agent,
+            underlying: "Operation not permitted"
+        )
+
+        #expect(controller(service).requestBackgroundService() == .enabled)
+    }
+
+    // MARK: - Waiting for the person
+
+    @Test("the wait reads until the switch goes on, and never registers")
+    func waitEndsOnApproval() async {
+        let service = FakeLoginItemService()
+        service.preregister(.agent, as: .requiresApproval)
+        service.change(.agent, to: .enabled, onRead: 3)
+        let reads = ScriptedApprovalReads()
+
+        let status = await controller(service).awaitBackgroundApproval(readingOn: reads)
+
+        #expect(status == .enabled)
+        #expect(service.statusReads == 3, "a read as it starts, then one per scheduled moment")
+        #expect(reads.count == 2)
+        #expect(service.registerCalls.isEmpty)
+    }
+
+    @Test("an item removed while it was held ends the wait with its new status")
+    func waitEndsOnRemoval() async {
+        let service = FakeLoginItemService()
+        service.preregister(.agent, as: .requiresApproval)
+        service.change(.agent, to: .notRegistered, onRead: 2)
+
+        let status = await controller(service).awaitBackgroundApproval(readingOn: ScriptedApprovalReads())
+
+        #expect(status == .notRegistered)
+    }
+
+    @Test("a cancelled wait answers nothing and stops reading")
+    func cancelledWaitAnswersNothing() async {
+        let service = FakeLoginItemService()
+        service.preregister(.agent, as: .requiresApproval)
+        let reads = ScriptedApprovalReads()
+        reads.cancelledOnCall = 2
+
+        let status = await controller(service).awaitBackgroundApproval(readingOn: reads)
+
+        #expect(status == nil)
+        #expect(service.statusReads == 2)
+        #expect(service.registerCalls.isEmpty)
+    }
+
+    /// The shipped schedule waits for the app to come to the front or the
+    /// backstop, and a cancelled task ends it at once rather than after either.
+    @Test("the shipped schedule ends as soon as its task is cancelled")
+    func shippedScheduleHonoursCancellation() async {
+        // Measured from inside the task, so a loaded runner that starts the
+        // task late does not count: what must be short is the wait itself,
+        // which a cancellation ends before the backstop would have.
+        let outcome = Task { () async -> (Duration, Bool) in
+            let started = ContinuousClock.now
+            do {
+                try await ReturnOrBackstop().nextRead()
+                return (ContinuousClock.now - started, false)
+            } catch is CancellationError {
+                return (ContinuousClock.now - started, true)
+            } catch {
+                return (ContinuousClock.now - started, false)
+            }
+        }
+        outcome.cancel()
+        let (elapsed, cancelled) = await outcome.value
+
+        #expect(cancelled, "the wait ended some other way than by its cancellation")
+        #expect(elapsed < .seconds(ReturnOrBackstop.backstop))
+    }
+
+    @Test("Login Items opens through the one documented opener")
+    func opensLoginItems() {
+        let service = FakeLoginItemService()
+
+        controller(service).openLoginItemsSettings()
+
+        #expect(service.settingsOpened == 1)
+    }
+
     @Test("the agent principal names the plist the bundle actually ships")
     func agentPlistNameComesFromTheConfiguration() throws {
         let configuration = try ProductConfiguration.decode(from: ProductFixture.json())
 
         #expect(LoginItemPrincipal.agent.plistName(configuration) == "io.tezra.FermixPet.agent.plist")
         #expect(LoginItemPrincipal.mainApp.plistName(configuration) == nil)
+    }
+}
+
+/// The moments a held background item is read again, as a test decides them:
+/// each returns at once, or throws the way a cancelled task does.
+final class ScriptedApprovalReads: ApprovalReadSchedule, @unchecked Sendable {
+    /// A wait no test ends is a failure, never a hang.
+    static let limit = 1_000
+
+    private let lock = NSLock()
+    private var calls = 0
+
+    /// The call that throws, as a cancelled wait does. Nil never throws.
+    var cancelledOnCall: Int?
+    /// Runs on every scheduled moment, for a test that moves a clock.
+    var onRead: (() -> Void)?
+
+    var count: Int { lock.withLock { calls } }
+
+    func nextRead() async throws {
+        let call = lock.withLock {
+            calls += 1
+            return calls
+        }
+        if let cancelledOnCall, call >= cancelledOnCall { throw CancellationError() }
+        guard call < Self.limit else {
+            Issue.record("the approval wait never ended")
+            throw CancellationError()
+        }
+
+        onRead?()
     }
 }
 
@@ -125,6 +315,16 @@ final class FakeLoginItemService: LoginItemService, @unchecked Sendable {
     private(set) var registerCalls: [LoginItemPrincipal] = []
     private(set) var unregisterCalls: [LoginItemPrincipal] = []
     private(set) var mutations: [Mutation] = []
+    /// How many times System Settings was asked to open on Login Items.
+    var settingsOpened: Int { lock.withLock { opened } }
+    private var opened = 0
+    /// The person flipping the switch in System Settings: after this many
+    /// more reads of the principal, macOS reports the status given.
+    private var pendingChange: (principal: LoginItemPrincipal, afterReads: Int, status: ServiceRegistrationStatus)?
+    /// How many times macOS was asked for a status. Each real read is a slow
+    /// XPC round trip, so a surface that redraws must not add to this.
+    var statusReads: Int { lock.withLock { reads } }
+    private var reads = 0
 
     /// Establishes a starting state without recording it: the call lists are
     /// about what the code under test did, not how the scenario was set up.
@@ -162,7 +362,26 @@ final class FakeLoginItemService: LoginItemService, @unchecked Sendable {
     func status(_ principal: LoginItemPrincipal) -> ServiceRegistrationStatus {
         lock.lock()
         defer { lock.unlock() }
+        reads += 1
+        if let change = pendingChange, change.principal == principal {
+            if change.afterReads <= 1 {
+                statuses[principal] = change.status
+                pendingChange = nil
+            } else {
+                pendingChange = (principal, change.afterReads - 1, change.status)
+            }
+        }
         return statuses[principal] ?? .notRegistered
+    }
+
+    func openSettings() {
+        lock.withLock { opened += 1 }
+    }
+
+    /// Scripts the person's answer in System Settings: the `reads`-th read of
+    /// the principal from now reports `status`, and every one after it too.
+    func change(_ principal: LoginItemPrincipal, to status: ServiceRegistrationStatus, onRead reads: Int) {
+        lock.withLock { pendingChange = (principal, reads, status) }
     }
 }
 

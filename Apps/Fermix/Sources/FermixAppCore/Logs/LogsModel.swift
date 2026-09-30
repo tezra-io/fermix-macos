@@ -34,7 +34,6 @@ public final class LogsModel: ObservableObject {
     @Published public private(set) var paused = false
     @Published public private(set) var visible = false
     @Published public private(set) var status: LogsStatus = .idle
-    @Published public private(set) var loading = false
     @Published public var minimumLevel: ManagementLogLevel?
     @Published public var search = ""
     /// Whether an export has been asked for. The model owns the request because
@@ -45,6 +44,11 @@ public final class LogsModel: ObservableObject {
     /// The cursor for the next older page, as the daemon issued it. Nil means
     /// the history ends here.
     public private(set) var cursor: String?
+
+    /// Whether a query is in flight, so a poll never overlaps one. Not
+    /// published: nothing draws it, and publishing it redrew the surface twice
+    /// on every poll.
+    private var loading = false
 
     private let gateway: any DaemonQuerying
     private let log = AppLog.logger(.app)
@@ -164,10 +168,24 @@ public final class LogsModel: ObservableObject {
             entries += page.entries
             cursor = page.cursor
         case .mergeNewest:
-            entries = LogsPageMerge.merge(existing: entries, refreshed: page.entries)
+            // Most polls find nothing new, and writing the same page back
+            // redrew the whole list every two seconds.
+            let merged = LogsPageMerge.merge(existing: entries, refreshed: page.entries)
+            if merged != entries {
+                entries = merged
+            }
         }
 
-        status = page.truncated ? .truncated(ProductStrings[.logsTruncated]) : .idle
+        report(page.truncated ? .truncated(ProductStrings[.logsTruncated]) : .idle)
+    }
+
+    /// Publishes a status only when it differs from the one shown. A poll
+    /// repeats the last answer every two seconds, and an unchanged write still
+    /// redraws the surface.
+    private func report(_ next: LogsStatus) {
+        guard next != status else { return }
+
+        status = next
     }
 
     /// A rotated log invalidates the cursor. The daemon says so by name, and the
@@ -176,13 +194,13 @@ public final class LogsModel: ObservableObject {
     private func handle(_ error: any Error) {
         guard ManagementMessage.code(of: error) == .cursorExpired else {
             log.error("logs query failed: \(ManagementMessage.sentence(for: error), privacy: .public)")
-            status = .failed(ManagementMessage.sentence(for: error))
+            report(.failed(ManagementMessage.sentence(for: error)))
             return
         }
 
         entries = []
         cursor = nil
-        status = .reset(ProductStrings[.logsRotated])
+        report(.reset(ProductStrings[.logsRotated]))
     }
 
     /// Builds the query, refusing anything past a published bound before it is
@@ -190,7 +208,7 @@ public final class LogsModel: ObservableObject {
     private func validatedQuery(cursor: String?) -> ManagementLogsQuery? {
         let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count <= ManagementLogsQuery.maximumSearchLength else {
-            status = .refused(ProductStrings[.logsSearchTooLong])
+            report(.refused(ProductStrings[.logsSearchTooLong]))
             return nil
         }
 
@@ -223,12 +241,16 @@ public enum LogsPageMerge {
     ) -> [ManagementLogEntry] {
         guard !existing.isEmpty else { return refreshed }
 
-        let held = Set(existing.prefix(LogsPolicy.pageSize).map(key))
+        let held = Set(existing.prefix(LogsPolicy.pageSize).map(\.logsListID))
 
-        return refreshed.filter { !held.contains(key($0)) } + existing
+        return refreshed.filter { !held.contains($0.logsListID) } + existing
     }
+}
 
-    private static func key(_ entry: ManagementLogEntry) -> String {
-        "\(entry.time)|\(entry.level.wireValue)|\(entry.subsystem ?? "")|\(entry.message)"
-    }
+extension ManagementLogEntry {
+    /// A line's identity on the Logs surface: the whole entry, which is what
+    /// the merge compares. The list keys its rows by the same value, so a poll
+    /// that adds lines at the head leaves every row already drawn with the
+    /// identity it had, where keying by position gave every row a new one.
+    var logsListID: String { "\(time)|\(level.wireValue)|\(subsystem ?? "")|\(message)" }
 }

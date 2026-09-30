@@ -23,6 +23,14 @@ struct AppSurfaces {
     let openRecovery: () -> Void
     /// The journaled restart the one Restart sheet takes once it has asked.
     let restart: () -> Void
+    /// The mascot renderer the executable handed in, carried by every window's
+    /// root so the companion and Ready draw the one animation.
+    let mascot: any MascotRendering
+    /// The browser pane's owner, whose pane sits beside the primary window's
+    /// body.
+    let browser: BrowserCoordinator
+    /// Where a link in the owner's content opens.
+    let links: ContentLinkOpener
 
     func view(for kind: WindowKind) -> NSView {
         switch kind {
@@ -37,7 +45,9 @@ struct AppSurfaces {
                     settings: surfaces.settings,
                     leaveSettings: leaveSettings,
                     openRecovery: openRecovery,
-                    restart: restart
+                    restart: restart,
+                    browser: browser,
+                    links: links
                 )
             )
             // The primary window's toolbar and title are SwiftUI's, hosted in
@@ -61,7 +71,8 @@ struct AppSurfaces {
     /// window keeps the size the descriptor, `WindowGrowth` and the operator's
     /// drag give it. What lets the content take that size is the split view's
     /// own floor, in `MainWindowView`.
-    private func hosting<Content: View>(_ root: Content) -> NSHostingView<ProductTinted<Content>> {
+    private func hosting<Content: View>(_ root: Content) -> NSHostingView<ProductTinted<some View>> {
+        let root = root.environment(\.mascot, mascot)
         let view = NSHostingView(rootView: ProductTinted(content: root))
         view.sizingOptions = []
 
@@ -144,6 +155,10 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
         position(window, descriptor)
         fit(window)
         window.contentView = surfaces.view(for: descriptor.kind)
+        // A launch that started hidden (`open -j`, plan §4.0) leaves `NSApp`
+        // in the hidden state macOS gives Command-H: a window can exist and
+        // still draw nothing until the app itself is unhidden.
+        NSApp.unhide(nil)
         // An accessory app that orders a window front without activating
         // leaves it behind whatever the user was in — the window "opens" and
         // nobody sees it (observed live). Presenting IS the activation intent.
@@ -154,6 +169,10 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
 
     func focus(_ kind: WindowKind) {
         guard let window = windows[kind] else { return }
+        // Every click in the rail routes through here, into the window that is
+        // already in front, and activating an active app is a round trip to the
+        // window server for nothing.
+        guard !(NSApp.isActive && window.isKeyWindow) else { return }
 
         // The app is an accessory, so it has to ask for activation explicitly:
         // ordering a window front without it leaves the window behind whatever
@@ -208,7 +227,43 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
         guard let frame = WindowGrowth.frame(growing: window.frame, toAtLeast: wanted, within: visible)
         else { return }
 
-        window.setFrame(frame, display: true, animate: true)
+        animate(window, to: frame)
+    }
+
+    /// Where a window stands, for a pane layout (plan §4.3). A window in full
+    /// screen or zoomed fills its screen, and the pane then takes its width
+    /// from the content rather than moving the window.
+    func placement(of kind: WindowKind) -> WindowGrowth.Placement? {
+        guard let window = windows[kind],
+              let visible = (window.screen ?? NSScreen.main)?.visibleFrame
+        else { return nil }
+
+        return WindowGrowth.Placement(
+            frame: window.frame,
+            visible: visible,
+            fillsScreen: window.styleMask.contains(.fullScreen) || window.isZoomed
+        )
+    }
+
+    /// The floor first, so a window the pane is shrinking back is never held
+    /// wider than it is going; then the frame, through the one animated path
+    /// growth takes, which is how the window now shrinks as well as grows.
+    func place(_ kind: WindowKind, frame: CGRect?, minimumSize: CGSize) {
+        guard let window = windows[kind] else { return }
+
+        window.minSize = minimumSize
+        guard let frame else { return }
+
+        animate(window, to: frame)
+    }
+
+    /// Through the animator, which returns at once. `setFrame(_:display:
+    /// animate:)` does not return until the animation ends, so entering
+    /// settings from a small window held the main thread for the whole resize,
+    /// relaying out the new columns at every step. The window's `main`
+    /// autosave records wherever this lands.
+    private func animate(_ window: NSWindow, to frame: CGRect) {
+        window.animator().setFrame(frame, display: true)
     }
 
     /// Fed by the app delegate's occlusion observer, which sees every window in
@@ -345,9 +400,14 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
         return best ?? NSScreen.main
     }
 
-    /// A window that remembers its frame opens where the operator left it; one
-    /// that does not opens centred. Two configurations, one placement step.
+    /// A window that remembers its frame opens where the operator left it, the
+    /// pet hatches beside the primary window, and any other opens centred.
     private func position(_ window: NSWindow, _ descriptor: WindowDescriptor) {
+        if descriptor.kind == .pet {
+            window.setFrame(petFrame(size: window.frame.size), display: false)
+            return
+        }
+
         guard let name = descriptor.frameAutosaveName else {
             window.center()
             return
@@ -358,6 +418,15 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
         if !window.setFrameUsingName(autosave) {
             window.center()
         }
+    }
+
+    /// Beside the primary window while it is on screen, on the corner of the
+    /// screen otherwise (`PetPlacement`).
+    private func petFrame(size: CGSize) -> CGRect {
+        let primary = windows[.main].flatMap { $0.isVisible && !$0.isMiniaturized ? $0 : nil }
+        let visible = (primary?.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+
+        return PetPlacement.frame(size: size, beside: primary?.frame, within: visible)
     }
 
     private func styleMask(_ descriptor: WindowDescriptor) -> NSWindow.StyleMask {

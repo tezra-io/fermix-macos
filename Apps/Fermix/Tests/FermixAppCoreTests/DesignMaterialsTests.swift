@@ -26,7 +26,7 @@ struct DesignMaterialsTests {
     /// below is for.
     @Test("the button recipes match the redline")
     func buttonRecipes() {
-        #expect(ButtonRecipe.primary(.onboarding).height == 44)
+        #expect(ButtonRecipe.primary(.onboarding).height == 36)
         #expect(ButtonRecipe.primary(.onboarding).labelStyle.size == 15)
         #expect(ButtonRecipe.primary(.onboarding).labelStyle.weight == .semibold)
         #expect(ButtonRecipe.primary(.inWindow).height == 36)
@@ -92,12 +92,14 @@ struct DesignMaterialsTests {
         }
     }
 
-    /// A row's action is the height of the system's own row controls. At the
-    /// free-standing 36 the button sets the row's height, and a form of rows
-    /// with actions stops lining up with a form of rows with switches.
+    /// A row's action is the height of the system's own row controls, which is
+    /// the regular control size: push button, pop-up, text field and switch are
+    /// all 24 points on macOS 26 (measured 2026-09-25). At the free-standing 36
+    /// the button sets the row's height, and a form of rows with actions stops
+    /// lining up with a form of rows with switches.
     @Test("a row action is a row control's height at every size that names one")
     func rowActionGeometry() {
-        #expect(HitTarget.rowAction == 26)
+        #expect(HitTarget.rowAction == 24)
         #expect(ButtonRecipe.secondary(.row).height == HitTarget.rowAction)
         #expect(ButtonRecipe.primary(.row).height == HitTarget.rowAction)
         #expect(ButtonRecipe.secondary(.row).labelStyle.size == 13)
@@ -140,6 +142,24 @@ struct DesignMaterialsTests {
         }
         #expect(AmbientIntensity.calm.leadingGlow.dark.alpha < AmbientIntensity.expressive.leadingGlow.dark.alpha)
         #expect(AmbientIntensity.calm.trailingGlow.dark.alpha < AmbientIntensity.expressive.trailingGlow.dark.alpha)
+    }
+
+    /// The darker end of the wash meets the rail in both appearances
+    /// (owner, 2026-09-24: on dark the blue beside the pitch-black rail "doesnt
+    /// feel smooth"). Light runs as published because its blue-washed start is
+    /// the darker end; dark runs mirrored because its near-black end is.
+    @Test("the darker end of the wash meets the rail in both appearances")
+    func ambientGroundDarkensTowardTheRail() {
+        for scheme in FermixColorScheme.allCases {
+            let (railEnd, farEnd) = AmbientRecipe.isMirrored(in: scheme)
+                ? (AmbientRecipe.groundEnd, AmbientRecipe.groundStart)
+                : (AmbientRecipe.groundStart, AmbientRecipe.groundEnd)
+
+            #expect(
+                Contrast.luminance(railEnd.resolved(for: scheme)) < Contrast.luminance(farEnd.resolved(for: scheme)),
+                "the \(scheme) wash is lighter at the rail than away from it"
+            )
+        }
     }
 
     /// §9's floors, computed at the ground's two worst points rather than
@@ -235,7 +255,7 @@ enum Contrast {
         )
     }
 
-    private static func luminance(_ color: SRGBColor) -> Double {
+    static func luminance(_ color: SRGBColor) -> Double {
         0.2126 * linear(color.red) + 0.7152 * linear(color.green) + 0.0722 * linear(color.blue)
     }
 

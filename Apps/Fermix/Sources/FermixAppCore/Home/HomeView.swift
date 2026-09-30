@@ -8,9 +8,6 @@ import SwiftUI
 /// did not report.
 struct HomeView: View {
     @ObservedObject var model: HomeModel
-    /// The one settings model, which is what the Restart sheet reads: the
-    /// daemon's own reasons and the count of work a restart would interrupt.
-    @ObservedObject var settings: SettingsModel
     let router: any CommandPerforming
 
     var body: some View {
@@ -26,9 +23,13 @@ struct HomeView: View {
         .paneScrollEdges()
         .navigationTitle(ProductStrings[.sidebarHome])
         .toolbar {
+            // Beside `Continue setup`, the step it opens (owner directive of
+            // 2026-09-27). Nil once the daemon calls itself ready, which is
+            // also when the button goes.
             SurfaceToolbar(
                 spec: CommandTable.toolbar(for: .home, condition: model.toolbarCondition),
-                router: router
+                router: router,
+                primaryCaption: model.snapshot.nextSetupStep
             )
         }
         .task { await model.refresh() }
@@ -93,7 +94,7 @@ struct HomeView: View {
     @ViewBuilder
     private var attention: some View {
         Section(ProductStrings[.sectionHeaderAttention]) {
-            let rows = model.snapshot.attention.displayRows
+            let rows = model.attention.displayRows
 
             if rows.isEmpty {
                 EmptyState(model: model.snapshot.attentionEmpty)

@@ -67,6 +67,61 @@ struct LifecycleCoordinatorTests {
         #expect(harness.loginItems.mutations == [.register(.agent)])
     }
 
+    /// Home's switch on an item macOS holds for the person. launchd creates no
+    /// socket until they allow it, so the transaction ends there: nothing is
+    /// half-done, no failed record is left, and no budget is waited out.
+    @Test("enabling into approval ends there, with no record and no socket wait")
+    func enableIntoApproval() async throws {
+        let harness = try makeHarness()
+        harness.loginItems.nextStatus[.agent] = .requiresApproval
+
+        let outcome = try await harness.coordinator.enableBackgroundService()
+
+        #expect(outcome == .awaitingApproval)
+        #expect(harness.loginItems.registerCalls == [.agent])
+        #expect(harness.journal.isEmpty)
+        #expect(harness.sleeper.sleeps.isEmpty, "no socket was waited for")
+        #expect(harness.plane.calls.isEmpty)
+        #expect(try harness.registrationReceipt() == LifecycleHarness.bundledPlistDigest, "the receipt is left as it was")
+    }
+
+    /// The switch in System Settings survives the rebuild: withdrawing a
+    /// switched-off item and registering it again leaves it held, and macOS
+    /// refuses the registration ("Operation not permitted") while it is.
+    @Test("rebuilding a switched-off item ends in approval, not a registration failure")
+    func enableOverSwitchedOffItem() async throws {
+        let harness = try makeHarness()
+        harness.loginItems.preregister(.agent, as: .requiresApproval)
+        harness.loginItems.unregisterLeavesItRegistered = true
+        harness.loginItems.registerError = ServiceControlError.registrationFailed(
+            principal: .agent,
+            underlying: "Operation not permitted"
+        )
+
+        let outcome = try await harness.coordinator.enableBackgroundService()
+
+        #expect(outcome == .awaitingApproval)
+        #expect(harness.loginItems.mutations == [.unregister(.agent), .register(.agent)])
+        #expect(harness.journal.isEmpty)
+    }
+
+    /// The switch used to reach no sentence at all when macOS refused it.
+    @Test("a registration macOS refuses outright fails with a sentence")
+    func refusedRegistrationHasASentence() async throws {
+        let harness = try makeHarness()
+        harness.loginItems.registerError = ServiceControlError.registrationFailed(
+            principal: .agent,
+            underlying: "Invalid signature"
+        )
+
+        let failure = LifecycleFailure.registration(.registrationFailed(principal: .agent, underlying: "Invalid signature"))
+        await #expect(throws: failure) {
+            try await harness.coordinator.enableBackgroundService()
+        }
+        #expect(failure.sentence == ProductStrings[.lifecycleRegistrationRefused])
+        #expect(LifecycleFailure.registration(.unregistrationFailed(principal: .agent, underlying: "x")).sentence == nil)
+    }
+
     @Test("a successful enable records the bundled agent registration receipt")
     func enableRecordsRegistrationReceipt() async throws {
         let harness = try makeHarness(registrationReceipt: nil)

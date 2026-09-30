@@ -71,6 +71,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/product_config.sh"
 # shellcheck source=scripts/sparkle.sh
 source "$ROOT_DIR/scripts/sparkle.sh"
+# shellcheck source=scripts/rive.sh
+source "$ROOT_DIR/scripts/rive.sh"
 # shellcheck source=scripts/engine_pin.sh
 source "$ROOT_DIR/scripts/engine_pin.sh"
 
@@ -99,7 +101,7 @@ RESOURCE_BUNDLE_NAME="$(product_config swift_resource_bundle_name)"
 ENGINE_DIR="$APP/$(product_config engine_relative_path)"
 TOOLS_DIR="$APP/$(product_config tools_relative_path)"
 FRAMEWORKS_DIR="$APP/$(product_config frameworks_relative_path)"
-# The runtime search path that resolves the framework's @rpath install name,
+# The runtime search path that resolves the frameworks' @rpath install names,
 # derived from the slot rather than typed out: the GUI is linked from
 # Contents/MacOS, so the path is the frameworks slot's own directory name one
 # level up. Package.swift and project.yml restate the literal because neither
@@ -109,6 +111,8 @@ FRAMEWORKS_RPATH="@executable_path/../$(basename "$(product_config frameworks_re
 SPARKLE_DIR="$FRAMEWORKS_DIR/$SPARKLE_FRAMEWORK_NAME"
 SPARKLE_VERSION="$(product_config sparkle_version)"
 SPARKLE_FEED_URL="$(product_config sparkle_feed_url)"
+RIVE_DIR="$FRAMEWORKS_DIR/$RIVE_FRAMEWORK_NAME"
+RIVE_VERSION="$(product_config rive_runtime_version)"
 
 fail() {
   echo "verify_staged_app: $*" >&2
@@ -215,6 +219,23 @@ check_info_plist() {
     fail "staged Info.plist carries no update public key"
 }
 
+# Exactly the two pinned frameworks ship, and nothing else lives in
+# Contents/Frameworks. The count is asserted rather than the two names alone,
+# so a third framework added by a future build step cannot ride along
+# unnoticed.
+check_frameworks_slot() {
+  local staged
+  [ -d "$FRAMEWORKS_DIR" ] ||
+    fail "the framework slot is missing at $FRAMEWORKS_DIR"
+  [ -d "$SPARKLE_DIR" ] ||
+    fail "$SPARKLE_FRAMEWORK_NAME is not staged at $SPARKLE_DIR"
+  [ -d "$RIVE_DIR" ] ||
+    fail "$RIVE_FRAMEWORK_NAME is not staged at $RIVE_DIR"
+  staged="$(find "$FRAMEWORKS_DIR" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+  [ "$staged" = "2" ] ||
+    fail "Contents/Frameworks holds $staged entries; only $SPARKLE_FRAMEWORK_NAME and $RIVE_FRAMEWORK_NAME may ship"
+}
+
 # The updater framework, its retained helpers, and the two facts that decide
 # whether it can be loaded at all.
 #
@@ -225,15 +246,7 @@ check_info_plist() {
 # pin, so a bundle carrying a build nobody pinned is refused here rather than
 # discovered from a crash report.
 check_sparkle_framework() {
-  local staged member link version
-  [ -d "$FRAMEWORKS_DIR" ] ||
-    fail "the updater framework slot is missing at $FRAMEWORKS_DIR"
-  [ -d "$SPARKLE_DIR" ] ||
-    fail "$SPARKLE_FRAMEWORK_NAME is not staged at $SPARKLE_DIR"
-  staged="$(find "$FRAMEWORKS_DIR" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
-  [ "$staged" = "1" ] ||
-    fail "Contents/Frameworks holds $staged entries; only $SPARKLE_FRAMEWORK_NAME may ship"
-
+  local member link version
   for link in "${SPARKLE_REQUIRED_SYMLINKS[@]}"; do
     [ -L "$SPARKLE_DIR/$link" ] ||
       fail "$SPARKLE_FRAMEWORK_NAME/$link is not a symbolic link; the framework was flattened and cannot load"
@@ -251,26 +264,55 @@ check_sparkle_framework() {
     fail "the staged updater framework is $version, but Product.json pins $SPARKLE_VERSION"
 }
 
-# Which executable may load the updater, asked of the built binaries rather
+# The animation runtime, asked the same three questions for the same reasons:
+# its links are intact, its one library carries every slice this bundle
+# promises, and it is the version Product.json pins.
+check_rive_framework() {
+  local member link version
+  for link in "${RIVE_REQUIRED_SYMLINKS[@]}"; do
+    [ -L "$RIVE_DIR/$link" ] ||
+      fail "$RIVE_FRAMEWORK_NAME/$link is not a symbolic link; the framework was flattened and cannot load"
+  done
+
+  for member in "${RIVE_MACHO_PATHS[@]}"; do
+    [ -x "$RIVE_DIR/$member" ] ||
+      fail "the animation runtime carries no executable $member"
+    require_slices "$RIVE_DIR/$member"
+  done
+
+  version="$(rive_embedded_version "$RIVE_DIR")" ||
+    fail "the staged animation runtime declares no version"
+  [ "$version" = "$RIVE_VERSION" ] ||
+    fail "the staged animation runtime is $version, but Product.json pins $RIVE_VERSION"
+}
+
+# Which executable may load each framework, asked of the built binaries rather
 # than of the build files that were supposed to arrange it.
 #
 # M34 section 6: the daemon and the agent never load Sparkle. Both executables
 # link the same core library, so the whole separation rests on the updater
 # living in a target only the GUI links — a one-line dependency edit undoes it
-# silently, and the agent would then carry an updater it must never run.
-check_sparkle_linkage() {
-  local gui agent
+# silently, and the agent would then carry an updater it must never run. The
+# animation runtime is held to the same rule through its own GUI-only target:
+# the agent draws nothing, and a framework it links is one it loads at every
+# spawn.
+check_framework_linkage() {
+  local gui agent name
   gui="$APP/Contents/MacOS/$GUI_EXECUTABLE"
   agent="$APP/Contents/MacOS/$AGENT_EXECUTABLE"
 
-  otool -L "$gui" | grep -q "$SPARKLE_FRAMEWORK_NAME" ||
-    fail "the GUI does not link $SPARKLE_FRAMEWORK_NAME; the staged framework would never load"
+  for name in "$SPARKLE_FRAMEWORK_NAME" "$RIVE_FRAMEWORK_NAME"; do
+    otool -L "$gui" | grep -q "$name" ||
+      fail "the GUI does not link $name; the staged framework would never load"
+  done
   otool -l "$gui" | grep -q "$FRAMEWORKS_RPATH" ||
     fail "the GUI carries no $FRAMEWORKS_RPATH runtime search path"
 
-  if otool -L "$agent" | grep -q "$SPARKLE_FRAMEWORK_NAME"; then
-    fail "the agent links $SPARKLE_FRAMEWORK_NAME; only the GUI may"
-  fi
+  for name in "$SPARKLE_FRAMEWORK_NAME" "$RIVE_FRAMEWORK_NAME"; do
+    if otool -L "$agent" | grep -q "$name"; then
+      fail "the agent links $name; only the GUI may"
+    fi
+  done
 }
 
 # SMAppService.agent(plistName:) reads exactly this path out of the bundle, and
@@ -727,6 +769,7 @@ print_inventory() {
   echo "  login agent    $AGENT_LABEL.plist -> Contents/MacOS/$AGENT_EXECUTABLE"
   echo "  support folder Library/Application Support/$(product_config support_directory_name)"
   echo "  updater        $SPARKLE_FRAMEWORK_NAME $(sparkle_embedded_version "$SPARKLE_DIR"), GUI only"
+  echo "  animation      $RIVE_FRAMEWORK_NAME $(rive_embedded_version "$RIVE_DIR"), GUI only"
   if [ "$ENGINE_STATE" = "empty" ]; then
     echo "  engine slot    empty (pre-Stage-0 declared state)"
   else
@@ -745,8 +788,10 @@ print_inventory() {
 check_bundle_identity
 check_executables
 check_info_plist
+check_frameworks_slot
 check_sparkle_framework
-check_sparkle_linkage
+check_rive_framework
+check_framework_linkage
 check_launch_agent
 check_staged_product_configuration
 check_vendored_contracts

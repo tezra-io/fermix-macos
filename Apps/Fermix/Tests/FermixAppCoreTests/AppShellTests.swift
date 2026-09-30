@@ -55,7 +55,7 @@ struct AppRouteTests {
     /// assigns to a pane and a url that opens it cannot drift.
     @Test("every pane slug is the wire value the daemon publishes")
     func paneSlugsAreTheWireVocabulary() {
-        #expect(SettingsPane.allCases.count == 13)
+        #expect(SettingsPane.allCases.count == 15)
         #expect(Set(SettingsPane.allCases.map(\.slug)) == Set(ManagementSettingsPane.publishedValues.keys))
 
         for pane in SettingsPane.allCases {
@@ -63,17 +63,17 @@ struct AppRouteTests {
         }
     }
 
-    /// The four groups hold the thirteen panes exactly once each, in the
+    /// The four groups hold the fifteen panes exactly once each, in the
     /// design's own order.
-    @Test("the four sidebar groups partition the thirteen panes")
+    @Test("the four sidebar groups partition the fifteen panes")
     func groupsPartitionThePanes() {
         let grouped = SettingsPaneGroup.allCases.flatMap(\.panes)
 
         #expect(grouped == SettingsPane.allCases)
         #expect(SettingsPaneGroup.assistant.panes == [.providers, .personality, .memory])
         #expect(SettingsPaneGroup.connections.panes == [.channels, .integrations])
-        #expect(SettingsPaneGroup.system.panes == [.sandbox, .permissions])
-        #expect(SettingsPaneGroup.capabilities.panes.count == 6)
+        #expect(SettingsPaneGroup.system.panes == [.sandbox, .secrets, .permissions])
+        #expect(SettingsPaneGroup.capabilities.panes.count == 7)
     }
 
     /// The scheme is registered in the bundle's Info.plist from Product.json,
@@ -95,6 +95,16 @@ struct AppRouteTests {
         #expect(try AppRoute.parse(URL(string: "fermix://recovery")!) == .surface(.recovery))
     }
 
+    /// Chat is the rail's first row and has its own url, and a launch that
+    /// names no surface still lands on Home (redlines §8 decision 36).
+    @Test("fermix://chat opens Chat, and a plain launch still lands on Home")
+    func chatRoute() throws {
+        #expect(try AppRoute.parse(URL(string: "fermix://chat")!) == .surface(.chat))
+        #expect(AppRoute.chat.sidebarItemIdentifier == "chat")
+        #expect(AppCoordinator.presentation(for: .route(.surface(.chat)), bootstrap: .present) == .main(.chat))
+        #expect(AppCoordinator.presentation(for: .user, bootstrap: .present) == .main(.home))
+    }
+
     /// Setup is a task rather than a sidebar destination, and the verb opens
     /// the assistant window (M34 §3.4). Where inside it is a question about the
     /// daemon's readiness, which `SetupRouting` answers.
@@ -113,11 +123,11 @@ struct AppRouteTests {
     /// than being folded onto a neighbour.
     @Test("fermix://setup lands on the screen the gating failure names")
     func setupRoutingFollowsTheGatingFailure() throws {
-        let state = try ManagementValueFixture.setupState()
+        let state = try ManagementValueFixture.setupState(primaryConfigured: false)
 
-        // The golden home gates on the personalization one, which the About
-        // you screen is what clears.
-        #expect(SetupRouting.presentation(for: state) == .assistant(.aboutYou))
+        // A primary with no credential is the one gating failure the daemon
+        // publishes, and Connect your AI is the screen that clears it.
+        #expect(SetupRouting.presentation(for: state) == .assistant(.connectAI))
         // No daemon has answered, so Starting is the screen that finds out.
         #expect(SetupRouting.presentation(for: nil) == .assistant(.starting))
     }
@@ -126,8 +136,9 @@ struct AppRouteTests {
     /// or at Providers when there is none.
     @Test("fermix://setup with no gating failure opens Settings")
     func setupRoutingFallsToSettings() throws {
-        let advisoryOnly = try ManagementValueFixture.setupState(gating: false)
-        let clean = try ManagementValueFixture.setupState(gating: false, failures: false)
+        // The golden home is the advisory-only one: personalization first.
+        let advisoryOnly = try ManagementValueFixture.setupState()
+        let clean = try ManagementValueFixture.setupState(failures: false)
 
         #expect(SetupRouting.presentation(for: advisoryOnly) == .settings(.personality))
         #expect(SetupRouting.presentation(for: clean) == .settings(.providers))
@@ -264,6 +275,32 @@ struct LaunchReasonTests {
         let reason = LaunchClassifier.classify(isLoginLaunch: false, destination: .surface(.recovery))
 
         #expect(AppCoordinator.presentation(for: reason, bootstrap: .absent) == .assistant(.recovery))
+    }
+
+    /// `--background` opens no window, exactly as a login launch does
+    /// (plan §4.0): a task can start the app with nobody at the keyboard.
+    @Test("a background launch opens nothing and leaves the menu bar in charge")
+    func backgroundLaunchIsQuiet() {
+        let reason = LaunchClassifier.classify(isLoginLaunch: false, isBackgroundLaunch: true, destination: nil)
+
+        #expect(reason == .background)
+        #expect(AppCoordinator.presentation(for: reason, bootstrap: .present) == .menuBarOnly)
+        // A background launch never opens recovery either: a hidden launch
+        // puts nothing on screen, whatever the account's own condition is.
+        #expect(AppCoordinator.presentation(for: reason, bootstrap: .absent) == .menuBarOnly)
+    }
+
+    /// A url is an explicit request, so it wins over a launch that started
+    /// hidden, exactly as it wins over a login launch.
+    @Test("a url launch opens its route even when the launch started hidden")
+    func urlLaunchWinsOverBackground() {
+        let reason = LaunchClassifier.classify(
+            isLoginLaunch: false,
+            isBackgroundLaunch: true,
+            destination: .surface(.doctor)
+        )
+
+        #expect(reason == .route(.surface(.doctor)))
     }
 }
 
@@ -544,5 +581,27 @@ final class FakeWindowHost: WindowHost {
 
     func grow(_ kind: WindowKind, toAtLeast size: CGSize) {
         growth.append((kind, size))
+    }
+
+    /// Where each window stands, as a test sets it.
+    var placements: [WindowKind: WindowGrowth.Placement] = [:]
+    /// What each window was told to become, in order (plan §4.3).
+    private(set) var placed: [(kind: WindowKind, frame: CGRect?, minimumSize: CGSize)] = []
+
+    func placement(of kind: WindowKind) -> WindowGrowth.Placement? {
+        presented.contains(kind) ? placements[kind] : nil
+    }
+
+    /// Moves the recorded frame the way the window would, so the next placement
+    /// reads where the last one put it.
+    func place(_ kind: WindowKind, frame: CGRect?, minimumSize: CGSize) {
+        placed.append((kind, frame, minimumSize))
+        guard let frame, let placement = placements[kind] else { return }
+
+        placements[kind] = WindowGrowth.Placement(
+            frame: frame,
+            visible: placement.visible,
+            fillsScreen: placement.fillsScreen
+        )
     }
 }

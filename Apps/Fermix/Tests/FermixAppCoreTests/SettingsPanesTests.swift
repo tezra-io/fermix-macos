@@ -323,62 +323,63 @@ struct SettingsPanesTests {
         #expect(checked >= 4, "only \(checked) sign-in rows were checked")
     }
 
-    /// The detail draws a provider's one section as two blocks, and every row
-    /// lands in exactly one of them (M34 §5.1): a key with two controls is two
-    /// ways to answer one question, and a key in neither is a setting nobody
-    /// can reach.
-    @Test("the detail's two blocks split a provider's rows with none shared and none dropped")
+    /// The detail draws a provider's one section as three blocks, and every
+    /// row lands in exactly one of them (M34 §5.1): a key with two controls is
+    /// two ways to answer one question, and a key in neither is a setting
+    /// nobody can reach.
+    @Test("the detail's three blocks split a provider's rows with none shared and none dropped")
     func detailBlocksPartitionTheSection() async throws {
         let harness = try SettingsHarness()
-        var withCredential = 0
-
+        var withSecret = 0
+        var withMode = 0
         for id in ["anthropic", "xai", "openai", "openrouter", "mistral", "openai_codex", "ollama"] {
             let section = ProviderRowProjection.sectionId(for: id)
             await harness.model.loadSection(section)
             let rows = try #require(harness.model.section(section).value?.rows, "\(id)")
             let keys = Set(rows.map(\.key))
             let blocks = ProviderRowProjection.detailBlocks(rows: rows, hidden: [])
-
-            let credential = keys.subtracting(blocks.credentialExcluding)
+            let mode = keys.subtracting(blocks.modeExcluding)
+            let secrets = keys.subtracting(blocks.secretExcluding)
             let settings = keys.subtracting(blocks.settingsExcluding)
-
-            #expect(credential.isDisjoint(with: settings), "\(id) draws \(credential.intersection(settings)) twice")
-            #expect(credential.union(settings) == keys, "\(id) drops \(keys.subtracting(credential.union(settings)))")
-            #expect(blocks.hasCredential == !credential.isEmpty, "\(id)")
+            #expect(mode.isDisjoint(with: secrets) && mode.isDisjoint(with: settings) && secrets.isDisjoint(with: settings), "\(id) draws a row twice")
+            #expect(mode.union(secrets).union(settings) == keys, "\(id) drops \(keys.subtracting(mode.union(secrets).union(settings)))")
+            #expect(blocks.hasMode == !mode.isEmpty, "\(id)")
+            #expect(blocks.hasSecret == !secrets.isEmpty, "\(id)")
             #expect(blocks.hasSettings == !settings.isEmpty, "\(id)")
-            // The credential is the mode and the secrets, read off their shape.
+            // The mode is the one key the contract names; the secrets are read
+            // off their shape.
             for row in rows {
-                let isCredential = row.key == ProviderRowProjection.authModeKey || row.kind == .secret
-
-                #expect(credential.contains(row.key) == isCredential, "\(id)/\(row.key)")
+                #expect(mode.contains(row.key) == (row.key == ProviderRowProjection.authModeKey), "\(id)/\(row.key)")
+                #expect(secrets.contains(row.key) == (row.kind == .secret), "\(id)/\(row.key)")
             }
-            if blocks.hasCredential { withCredential += 1 }
+            if blocks.hasSecret { withSecret += 1 }
+            if blocks.hasMode { withMode += 1 }
         }
-
-        #expect(withCredential >= 5, "the goldens publish a key for five providers")
+        #expect(withSecret >= 5, "the goldens publish a key for five providers")
+        #expect(withMode == 2, "the goldens publish a sign-in mode for Anthropic and SpaceXAI")
     }
 
-    /// A provider that only signs in publishes no key, so its detail draws no
-    /// disclosure over nothing; and the key the chosen auth mode hides stays
-    /// hidden inside the disclosure while the mode row that reveals it stays.
-    @Test("the key door is drawn only where there is a credential behind it")
-    func keyDoorNeedsACredential() async throws {
+    /// A provider that only signs in publishes no key, so its detail has no
+    /// secret block; and the key a subscription hides leaves the secret block
+    /// while the mode row that would bring it back stays.
+    @Test("the secrets a subscription hides leave the secret block and reach no other")
+    func hiddenSecretsLeaveTheSecretBlock() async throws {
         let harness = try SettingsHarness()
         await harness.model.loadSection("providers.openai_codex")
         await harness.model.loadSection("providers.anthropic")
         let codex = try #require(harness.model.section("providers.openai_codex").value?.rows)
         let anthropic = try #require(harness.model.section("providers.anthropic").value?.rows)
-
-        #expect(!ProviderRowProjection.detailBlocks(rows: codex, hidden: []).hasCredential)
-
+        let codexBlocks = ProviderRowProjection.detailBlocks(rows: codex, hidden: [])
+        #expect(!codexBlocks.hasSecret && !codexBlocks.hasMode)
         let hidden: Set<String> = ["anthropic_api_key"]
         let blocks = ProviderRowProjection.detailBlocks(rows: anthropic, hidden: hidden)
-
-        #expect(blocks.hasCredential, "the auth mode row is still there to choose the key with")
-        #expect(blocks.credentialExcluding.isSuperset(of: hidden))
-        #expect(!blocks.credentialExcluding.contains(ProviderRowProjection.authModeKey))
-        // Hidden from the credential block is not moved to the settings block.
+        #expect(blocks.hasMode, "the mode row is still there to choose the key with")
+        #expect(!blocks.hasSecret, "the one key is hidden, so the secret block draws nothing")
+        #expect(blocks.secretExcluding.isSuperset(of: hidden))
+        #expect(!blocks.modeExcluding.contains(ProviderRowProjection.authModeKey))
+        // Hidden from the secret block is not moved to another block.
         #expect(blocks.settingsExcluding.isSuperset(of: hidden))
+        #expect(blocks.modeExcluding.isSuperset(of: hidden))
     }
 
     // MARK: - Channels

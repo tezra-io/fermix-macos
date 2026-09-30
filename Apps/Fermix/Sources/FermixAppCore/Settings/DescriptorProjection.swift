@@ -211,12 +211,20 @@ public struct NumberMeasure: Equatable, Sendable {
 /// Whole cents as money, in the operator's own locale.
 public enum CurrencyFormat {
     public static func wholeCents(_ cents: Double) -> String {
+        formatter.string(from: NSNumber(value: cents / 100)) ?? String(Int(cents.rounded()))
+    }
+
+    /// Built once: a cents row formats its value three times per draw, and a
+    /// formatter is expensive to make. The locale follows the operator's own
+    /// setting as it changes, as a fresh formatter's did.
+    private static let formatter: NumberFormatter = {
         let formatter = NumberFormatter()
+        formatter.locale = .autoupdatingCurrent
         formatter.numberStyle = .currency
         formatter.maximumFractionDigits = 2
 
-        return formatter.string(from: NSNumber(value: cents / 100)) ?? String(Int(cents.rounded()))
-    }
+        return formatter
+    }()
 }
 
 /// Reading a wire value at the type the control needs.

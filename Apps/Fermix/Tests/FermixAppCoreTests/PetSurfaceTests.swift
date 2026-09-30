@@ -15,27 +15,6 @@ struct PetSurfaceTests {
         try PetHarness()
     }
 
-    /// Every pose ships the two plates the mascot cannot be drawn without.
-    ///
-    /// This is the gate that replaced the bolt fallback: `MascotArtwork` used to
-    /// draw the retired accent mark when a plate was missing, so a packaging
-    /// defect would have shipped a different mark under the mascot's name
-    /// instead of failing. The set is `PetExpression.allCases`, so a pose added
-    /// later either ships its plates or fails here.
-    @Test("every mascot pose ships its body and face plates")
-    func everyPoseShipsItsPlates() throws {
-        for pose in PetExpression.allCases {
-            for layer in [PetLayer.body, .face] {
-                let name = pose.layerAssetName(layer)
-
-                #expect(
-                    Bundle.module.url(forResource: name, withExtension: "png") != nil,
-                    "\(name).png is not in the resource bundle"
-                )
-            }
-        }
-    }
-
     /// The floating window stays hidden until it is opened or enabled: a launch
     /// must not put a companion on screen nobody asked for.
     @Test("the floating window is hidden until it is opened")
@@ -155,7 +134,7 @@ struct PetSurfaceTests {
         let harness = try harness()
 
         harness.appModel.voiceCallBegan()
-        harness.appModel.apply(.audioDelta(base64: "AAAA"), audioIsPlaying: false)
+        harness.appModel.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
         harness.appModel.apply(.state(.listening), audioIsPlaying: true)
 
         #expect(harness.model.visualMode == .speaking)
@@ -207,8 +186,8 @@ struct PetSurfaceTests {
     /// of that circle". The faint disc it used to sit on is gone from the
     /// component, and no surface adds one back in another shape: the point was
     /// one treatment everywhere, and one treatment is still what this is. The
-    /// component keeps a canvas a little larger than the artwork because the
-    /// ring orbits behind it at 1.20x, which is room rather than a ground.
+    /// component keeps the canvas the painted mascot and its orbit had, which is
+    /// room rather than a ground.
     @Test("the mascot draws no ground, and no surface adds one")
     func mascotDrawsNoGround() throws {
         let artwork = try #require(
@@ -217,10 +196,10 @@ struct PetSurfaceTests {
 
         #expect(!artwork.contains("Circle()"), "the mascot draws a disc again")
         #expect(!artwork.contains("Palette.chipFill"))
-        #expect(artwork.contains("canvasScale"), "the ring's orbit keeps its room")
+        #expect(artwork.contains("canvasScale"), "Ready's layout keeps the room the mascot had")
 
         // Each screen draws its own mascot and neither puts a ground under it.
-        // Ready keeps the painted artwork; the Pet surface draws the one-ink
+        // Ready draws the animated mascot; the Pet surface draws the one-ink
         // mark in its place (owner, 2026-09-20: "replacing the blue actual
         // mascot in the pet page with monochrome").
         for (path, mascot) in [("Pet/PetSurfaceView.swift", "PetMark()"), ("Onboarding/ReadySurface.swift", "MascotArtwork(")] {
@@ -296,7 +275,7 @@ struct PetSurfaceTests {
         )
         harness.model.cancelTask()
 
-        #expect(harness.transport.sent.contains(.taskCancel(delegationId: "dg_01H9")))
+        #expect(try harness.socket.sentObjects().contains(wireObject(.taskCancel(delegationId: "dg_01H9"))))
     }
 
     /// With no delegation there is nothing to cancel, and an invented one would
@@ -308,11 +287,11 @@ struct PetSurfaceTests {
         harness.model.toggleCall()
         harness.negotiate()
         await harness.settle()
-        let before = harness.transport.sent.count
+        let before = harness.socket.sent.count
 
         harness.model.cancelTask()
 
-        #expect(harness.transport.sent.count == before)
+        #expect(harness.socket.sent.count == before)
     }
 
     /// The Live rows belong to a live call: a surface that kept drawing the
@@ -343,29 +322,15 @@ struct PetSurfaceTests {
         }
     }
 
-    @Test("the still mascot draws the original PNG body, face, and ring")
-    func mascotDrawsBothLayers() throws {
-        let source = try SourceTree.swiftFiles(matching: "Pet/MascotArtwork.swift")
-        let text = try #require(source.first?.text)
-        let preview = MascotArtwork(size: 108)
-        #expect(text.contains("image(.body)"))
-        #expect(text.contains("image(.face)"))
-        #expect(text.contains("image(.ring)"))
-        #expect(preview.pose == .listening)
+    /// Ready's still mascot is the one animation, in the awake pose, not a
+    /// painting composed beside it: the app shows one character everywhere.
+    @Test("the still mascot draws the one animation, awake")
+    func stillMascotIsTheAnimation() throws {
+        let text = try #require(try SourceTree.swiftFiles(matching: "Pet/MascotArtwork.swift").first?.text)
 
-        let bundle = Bundle.module
-        var sizes: [CGSize] = []
-        for layer in [PetLayer.body, .face, .ring] {
-            let name = PetExpression.listening.layerAssetName(layer)
-            let url = try #require(bundle.url(forResource: name, withExtension: "png"), "\(name) is missing")
-            let image = try #require(NSImage(contentsOf: url))
-
-            #expect(image.size.width == image.size.height, "\(name) is not square")
-            sizes.append(image.size)
-        }
-
-        #expect(sizes.count == 3)
-        #expect(Set(sizes.map(\.width)).count == 1, "the layers are drawn on different canvases")
+        #expect(text.contains("mascot?.mascot(pose: pose"))
+        #expect(!text.contains("NSImage"), "the still mascot draws a painting again")
+        #expect(MascotArtwork(size: 108).pose == .listening)
     }
 }
 
@@ -378,13 +343,13 @@ final class PetHarness {
     let voice: VoiceCoordinator
     let model: PetFeatureModel
 
-    let transport = FakeRealtimeTransport()
+    let socket = FakeRealtimeSocket()
 
     init() throws {
         windows = FakeWindowHost()
-        let audio = AudioOwner(engine: engine)
+        let audio = AudioOwner(engine: engine, deadlines: ManualDeadlineScheduler())
         let session = VoiceSession(
-            transport: transport,
+            transport: RealtimeSocketClient(lines: socket),
             socketPath: { "/tmp/fermix-pet-tests.sock" },
             deadlines: MainQueueDeadlineScheduler()
         )
@@ -399,6 +364,7 @@ final class PetHarness {
             bootstrap: { .present },
             registrationBuild: { .thisBuild },
             termination: FakeTerminationRequester(),
+            hostQuitting: ImmediateHostQuitting(),
             settings: SettingsFixture.model(gateway: try SettingsFixture.gateway()),
             presentation: SettingsPresentation(),
             announcer: RecordingAnnouncer()
@@ -409,7 +375,7 @@ final class PetHarness {
     /// The daemon answering its half of the handshake, which is what turns a
     /// requested call into a live one.
     func negotiate() {
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
+        socket.deliver(.serverHello(minVersion: 1, maxVersion: 2))
     }
 
     /// Lets the call's permission task run without a wall-clock wait.

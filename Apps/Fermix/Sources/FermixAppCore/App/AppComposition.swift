@@ -34,6 +34,9 @@ final class AppComposition {
     /// The updater behind the seam, held for the life of the process because a
     /// scheduled check belongs to a live updater (M34 §6, R1).
     let updater: any UpdaterDriving
+    /// The mascot renderer the executable handed in, carried to every window's
+    /// root (`AppSurfaces`).
+    let mascot: any MascotRendering
     /// The update transaction and the seam every update surface reads
     /// (M34 §6, R2 and R3).
     let updates: UpdateCoordinator
@@ -61,11 +64,25 @@ final class AppComposition {
     /// Asked on every restart whether the registered agent plist is still the
     /// bundled one (M34 §7.2 step 5).
     let engineReconciler: EngineReconciler
+    /// The browser pane's one owner. It opens and closes the pane's room in
+    /// the window through the window coordinator.
+    let browser: BrowserCoordinator
+    /// The daemon's fourth wire: attaches as the browser's host and
+    /// dispatches every request onto `browser`. Connects once, at launch, and
+    /// stays connected for the life of the process (plan §4.10).
+    let browserHost: BrowserHostClient
+    /// The one place a content link is opened: the pane or the person's own
+    /// browser, by their preference. Sign-in and the installer never use it.
+    let links: ContentLinkOpener
 
     /// The shipped configuration: this Mac, this account, this bundle, and the
-    /// updater the executable owns.
-    convenience init(updater: any UpdaterDriving) {
-        self.init(environment: .product(updater: updater))
+    /// updater, mascot renderer and browser engine the executable owns.
+    convenience init(
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
+    ) {
+        self.init(environment: .product(updater: updater, mascot: mascot, browser: browser))
     }
 
     init(environment: AppEnvironment) {
@@ -79,12 +96,27 @@ final class AppComposition {
         model = AppModel()
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
+        browser = Self.buildBrowser(environment: environment, location: location, windows: windows)
+        browserHost = Self.buildBrowserHost(
+            environment: environment,
+            store: store,
+            location: location,
+            configuration: configuration,
+            browser: browser
+        )
+        links = ContentLinkOpener(
+            preference: environment.linkPreference,
+            browser: browser,
+            workspace: environment.workspace
+        )
         voice = Self.buildVoice(model: model, bootstrap: store)
+        let companion = Self.buildCompanion(bootstrap: store, lines: environment.companionLines)
         services = ServiceController(loginItems: environment.loginItems, plists: environment.plists)
         engineReconciler = environment.reconciler
         menuBar = MenuBarController(model: model)
         gate = ServiceMutationGate()
         updater = environment.updater
+        mascot = environment.mascot
 
         let management = Self.buildManagement(environment: environment, services: services)
         gateway = management.gateway
@@ -105,6 +137,7 @@ final class AppComposition {
             model: model,
             windows: windows,
             voice: voice,
+            browser: browser,
             settings: settings,
             presentation: settingsPresentation
         )
@@ -132,9 +165,11 @@ final class AppComposition {
             coordinator: coordinator,
             gateway: gateway,
             petModel: petModel,
+            companion: companion,
             settings: settings,
             menuBar: menuBar,
-            updates: updates
+            updates: updates,
+            browser: browser
         )
         surfaces = interface.surfaces
         sidebar = interface.sidebar
@@ -154,6 +189,10 @@ final class AppComposition {
         // update surface states that rather than the framework's own alert
         // (M34 §6, R2).
         updates.start(updater)
+        // The browser host wire is always-on: a task can drive the pane
+        // before the person ever opens it, so this asks for the connection
+        // once, here, rather than waiting for a surface to ask as chat does.
+        browserHost.connect()
         // A staged update replaces the bundle on any exit of this process, so
         // the quit path finishes the stop first (M34 §6, R3). The closure is a
         // backwards edge for the same reason the two below are: the update
@@ -175,15 +214,21 @@ final class AppComposition {
             settingsPresentation: settingsPresentation,
             leaveSettings: { [coordinator] in coordinator.leaveSettings() },
             openRecovery: { [coordinator] in coordinator.enterRecovery() },
-            restart: { [coordinator] in coordinator.restartDaemon() }
+            restart: { [coordinator] in coordinator.restartDaemon() },
+            mascot: mascot,
+            browser: browser,
+            links: links
         )
         // Every report goes through the coordinator, which owns whether a window
-        // is on screen; the pet reads that answer rather than the raw signal.
-        windowHost.onVisibilityChanged = { [petModel, windows] kind, visible in
+        // is on screen; the pet and the browser read that answer rather than
+        // the raw signal. A task's page leaves a covered pane for the host
+        // window, which SwiftUI cannot see happen.
+        windowHost.onVisibilityChanged = { [petModel, windows, browser] kind, visible in
             let onScreen = windows.visibilityChanged(visible, for: kind)
-            guard kind == .pet else { return }
-
-            petModel.setWindowVisible(onScreen)
+            switch kind {
+            case .pet: petModel.setWindowVisible(onScreen)
+            case .main: browser.windowVisibilityChanged(onScreen)
+            }
         }
 
         // Home's Background switch reads through to the status item, so a
@@ -191,7 +236,6 @@ final class AppComposition {
         // the item can report.
         menuBar.onMenuBarItemShownChanged = { [surfaces] in surfaces.home.menuBarItemVisibilityChanged() }
 
-        PetAssetCache.shared.preload()
     }
 
     /// The interim mark: the pet mascot in one ink, which is the icon
@@ -217,7 +261,9 @@ final class AppComposition {
     /// The voice stack: one audio owner, one realtime session, one coordinator.
     private static func buildVoice(model: AppModel, bootstrap: BootstrapStore) -> VoiceCoordinator {
         let session = VoiceSession(
-            transport: MainActorRealtimeDelivery(wrapping: RealtimeSocketClient()),
+            transport: RealtimeSocketClient(
+                lines: MainActorLineDelivery(wrapping: RealtimeSocketClient.lineSocket())
+            ),
             // Resolved per connect from the bootstrap record, never from the
             // environment: §4 makes that record the sole macOS source.
             socketPath: { try bootstrap.realtimeSocketPath() },
@@ -227,7 +273,71 @@ final class AppComposition {
         return VoiceCoordinator(
             model: model,
             session: session,
-            audio: AudioOwner(engine: AudioController())
+            audio: AudioOwner(engine: AudioController(), deadlines: MainQueueDeadlineScheduler())
+        )
+    }
+
+    /// The browser pane: the engine the executable handed in, the website
+    /// profile's record in this account's support folder, the session's
+    /// availability, and the window's room for the pane. The quit's bound is a
+    /// run-loop timer, which fires while AppKit holds the termination.
+    private static func buildBrowser(
+        environment: AppEnvironment,
+        location: BootstrapLocation,
+        windows: WindowCoordinator
+    ) -> BrowserCoordinator {
+        BrowserCoordinator(
+            makeEngine: environment.makeBrowser,
+            profile: WebsiteProfileRecord(location: location),
+            workspace: environment.workspace,
+            session: environment.session,
+            deadlines: RunLoopDeadlineScheduler(),
+            paneShown: { [windows] open in windows.setBrowserPane(open: open) },
+            presentPrimaryWindow: { [windows] in windows.show(.main) }
+        )
+    }
+
+    /// The browser host wire: the daemon's fourth socket, attached over the
+    /// same coordinator the pane draws. Unlike chat, nothing waits for a
+    /// surface to ask: a task can drive the pane before the person ever opens
+    /// it, so this connects from `finishAssembly()` instead.
+    private static func buildBrowserHost(
+        environment: AppEnvironment,
+        store: BootstrapStore,
+        location: BootstrapLocation,
+        configuration: ProductConfiguration,
+        browser: BrowserCoordinator
+    ) -> BrowserHostClient {
+        BrowserHostClient(
+            lines: MainActorLineDelivery(wrapping: environment.browserHostLines),
+            socketPath: { try store.browserHostSocketPath() },
+            // The website profile's own identifier, read (and, on a first
+            // attach, created) the same way `BrowserCoordinator` reads it for
+            // the first tab: attaching is itself a reason to have one, task
+            // automation being able to reach the pane before anyone opens it.
+            profileID: { try WebsiteProfileRecord(location: location).identifier().uuidString },
+            workspaceRoot: { try store.workspaceDirectoryURL() },
+            browserRoot: { try store.browserDirectoryURL() },
+            hostVersion: configuration.marketingVersion,
+            coordinator: browser,
+            deadlines: MainQueueDeadlineScheduler()
+        )
+    }
+
+    /// The chat session, built once beside voice over its own socket. Nothing
+    /// connects it until a surface first asks.
+    private static func buildCompanion(
+        bootstrap: BootstrapStore,
+        lines: CompanionSocketClient.LineSocket
+    ) -> CompanionSession {
+        CompanionSession(
+            transport: CompanionSocketClient(
+                lines: MainActorLineDelivery(wrapping: lines)
+            ),
+            // Resolved per attempt from the bootstrap record, as the voice
+            // socket is.
+            socketPath: { try bootstrap.companionSocketPath() },
+            deadlines: MainQueueDeadlineScheduler()
         )
     }
 
@@ -274,6 +384,7 @@ final class AppComposition {
         model: AppModel,
         windows: WindowCoordinator,
         voice: VoiceCoordinator,
+        browser: BrowserCoordinator,
         settings: SettingsModel,
         presentation: SettingsPresentation
     ) -> (lifecycle: LifecycleCoordinator, coordinator: AppCoordinator) {
@@ -303,6 +414,7 @@ final class AppComposition {
                 ),
                 gate: gate,
                 store: store,
+                hostQuitting: browser,
                 settings: settings,
                 presentation: presentation
             )
@@ -414,6 +526,7 @@ final class AppComposition {
         updates: any UpdateReconciling,
         gate: ServiceMutationGate,
         store: BootstrapStore,
+        hostQuitting: any BrowserHostQuitting,
         settings: SettingsModel,
         presentation: SettingsPresentation
     ) -> AppCoordinator {
@@ -427,6 +540,7 @@ final class AppComposition {
             bootstrap: { store.condition() },
             registrationBuild: { store.registrationBuild(matching: environment.configuration.buildNumber) },
             termination: environment.termination,
+            hostQuitting: hostQuitting,
             settings: settings,
             presentation: presentation,
             announcer: AppKitAccessibilityAnnouncer()
@@ -448,6 +562,7 @@ final class AppComposition {
         sidebar: SidebarModel,
         menuBar: MenuBarController,
         updates: any UpdateChecking,
+        browser: BrowserCoordinator,
         commandLine: @escaping () -> CoexistenceInstructions?
     ) -> (router: CommandRouter, mainMenu: MainMenuController, statusMenu: StatusMenuController) {
         let router = CommandRouter(
@@ -457,6 +572,7 @@ final class AppComposition {
             sidebar: sidebar,
             menuBar: menuBar,
             updates: updates,
+            browser: browser,
             commandLine: commandLine
         )
         // The status line reads the facts Home already resolved, so the two
@@ -500,9 +616,11 @@ final class AppComposition {
         coordinator: AppCoordinator,
         gateway: ManagementGateway,
         petModel: PetFeatureModel,
+        companion: CompanionSession,
         settings: SettingsModel,
         menuBar: MenuBarController,
-        updates: any UpdateChecking
+        updates: any UpdateChecking,
+        browser: BrowserCoordinator
     ) -> UserInterface {
         // The Terminal link's plan, read once: the surfaces draw its row and the
         // Help menu names the same command.
@@ -517,6 +635,7 @@ final class AppComposition {
             coordinator: coordinator,
             gateway: gateway,
             petModel: petModel,
+            companion: companion,
             settings: settings,
             menuBar: menuBar,
             updates: updates
@@ -529,6 +648,7 @@ final class AppComposition {
             sidebar: sidebar,
             menuBar: menuBar,
             updates: updates,
+            browser: browser,
             commandLine: { CoexistenceInstructions.commandLine(planner.plan()) }
         )
 
@@ -554,6 +674,7 @@ final class AppComposition {
         coordinator: AppCoordinator,
         gateway: ManagementGateway,
         petModel: PetFeatureModel,
+        companion: CompanionSession,
         settings: SettingsModel,
         menuBar: any MenuBarItemPresenting,
         updates: any UpdateChecking
@@ -595,7 +716,8 @@ final class AppComposition {
                 settings: settings,
                 doctor: doctor
             ),
-            settings: settings
+            settings: settings,
+            companion: companion
         )
     }
 

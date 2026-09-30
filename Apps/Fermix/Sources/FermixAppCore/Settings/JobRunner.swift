@@ -269,7 +269,9 @@ public enum JobPhaseCopy {
         Step(.capabilityInstall, "sidecar_downloading"): .jobPhaseSidecarDownloading,
         Step(.capabilityInstall, "downloading"): .jobPhaseDownloading,
         Step(.capabilityInstall, "verifying"): .jobPhaseVerifying,
-        Step(.meetingsSignin, "awaiting_signin"): .jobPhaseAwaitingSignIn
+        Step(.meetingsSignin, "awaiting_signin"): .jobPhaseAwaitingSignIn,
+        Step(.browserInstall, "sidecar_downloading"): .jobPhaseSidecarDownloading,
+        Step(.browserInstall, "downloading"): .jobPhaseDownloading
     ]
 
     public static func sentence(kind: ManagementJobKind, phase: String) -> String? {

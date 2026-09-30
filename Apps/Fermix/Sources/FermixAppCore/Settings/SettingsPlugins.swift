@@ -8,12 +8,12 @@ import Foundation
 extension SettingsModel {
 
     public func refreshPlugins() async {
-        plugins = .loading
+        beginRead(\.plugins)
         do {
-            plugins = .loaded(try await gateway.plugins())
+            publish(.loaded(try await gateway.plugins()), to: \.plugins)
             noteServed()
         } catch {
-            plugins = .failure(error)
+            publish(.failure(error), to: \.plugins)
             noteReconcile(error)
         }
     }

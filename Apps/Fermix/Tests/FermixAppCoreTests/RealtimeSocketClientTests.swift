@@ -9,7 +9,7 @@ struct RealtimeSocketClientTests {
     /// before driving it.
     private func connect(_ client: RealtimeSocketClient, to path: String) throws {
         let connected = TestSignal()
-        let outcome = ValueBox<Result<Void, RealtimeConnectFailure>>()
+        let outcome = ValueBox<Result<Void, LineSocketConnectFailure>>()
         client.connect(path: path) { result in
             outcome.set(result)
             connected.fire()
@@ -17,8 +17,29 @@ struct RealtimeSocketClientTests {
 
         #expect(connected.wait(timeout: 3.0), "connect never completed")
         if case .failure(let failure)? = outcome.value {
-            Issue.record("connect failed: errno \(failure.errorNumber)")
+            Issue.record("connect failed: \(failure)")
         }
+    }
+
+    private func isOversizedLine(_ failure: RealtimeTransportFailure?) -> Bool {
+        guard case .framingViolation(.lineTooLong)? = failure else { return false }
+
+        return true
+    }
+
+    /// The adapter chooses the lane: audio may be shed when the socket backs
+    /// up, and a control frame never is.
+    @Test("audio is sent droppable and a control frame is sent to arrive")
+    func audioIsDroppableAndControlMustArrive() throws {
+        let socket = FakeRealtimeSocket()
+        let client = RealtimeSocketClient(lines: socket)
+        let chunk = Data([0x01, 0x02, 0x03])
+
+        client.sendAudioChunk(chunk)
+        client.send(.callStop)
+
+        #expect(try socket.sentDroppableObjects() == [wireObject(.audioChunk(base64: chunk.base64EncodedString()))])
+        #expect(try socket.sentObjects() == [wireObject(.callStop)])
     }
 
     @Test("a control frame reaches the peer with newline framing")
@@ -124,7 +145,7 @@ struct RealtimeSocketClientTests {
         }
 
         #expect(closed.wait(timeout: 5.0), "an oversized frame never tore the connection down")
-        #expect(box.value?.isFramingViolation == true)
+        #expect(isOversizedLine(box.value))
         #expect(events == 0)
 
         client.close()
@@ -139,7 +160,8 @@ struct RealtimeSocketClientTests {
         let server = try UnixSocketTestServer(drainReads: false)
         defer { server.shutdown() }
 
-        let client = RealtimeSocketClient(maxPendingAudioChunks: 4, controlFlushDeadline: 0.4)
+        let lines = RealtimeSocketClient.lineSocket(maxPendingAudioChunks: 4, controlFlushDeadline: 0.4)
+        let client = RealtimeSocketClient(lines: lines)
         let box = ValueBox<RealtimeTransportFailure>()
         let closed = TestSignal()
         client.onFailure = { failure in
@@ -160,7 +182,7 @@ struct RealtimeSocketClientTests {
 
         // Bounded buffer shed the oldest chunks rather than grow without bound.
         #expect(
-            client.testOnlyAudioDropCount() > 0,
+            lines.testOnlyDroppedLineCount() > 0,
             "stalled writer should have dropped oldest audio chunks"
         )
 
@@ -168,7 +190,7 @@ struct RealtimeSocketClientTests {
         // must tear the connection down.
         client.send(.callStop)
         #expect(closed.wait(timeout: 5.0), "onFailure never fired when a control frame could not flush")
-        #expect(box.value == .controlFlushTimedOut(seconds: 0.4))
+        #expect(box.value == .flushTimedOut(seconds: 0.4))
 
         client.close()
     }
@@ -185,11 +207,12 @@ struct RealtimeSocketClientTests {
 
         // A large control deadline proves the teardown can only come from the
         // *audio*-stall path: no control frame is ever sent below.
-        let client = RealtimeSocketClient(
+        let lines = RealtimeSocketClient.lineSocket(
             maxPendingAudioChunks: 4,
             controlFlushDeadline: 60.0,
             audioStallDeadline: 0.4
         )
+        let client = RealtimeSocketClient(lines: lines)
         let box = ValueBox<RealtimeTransportFailure>()
         let closed = TestSignal()
         client.onFailure = { failure in
@@ -207,14 +230,14 @@ struct RealtimeSocketClientTests {
             client.sendAudioChunk(chunk)
         }
         #expect(
-            client.testOnlyAudioDropCount() > 0,
+            lines.testOnlyDroppedLineCount() > 0,
             "stalled writer should have dropped oldest audio chunks"
         )
 
         // No control frame is sent — the audio-stall deadline alone must tear
         // the connection down.
         #expect(closed.wait(timeout: 5.0), "onFailure never fired from the audio-stall deadline")
-        #expect(box.value == .audioStalled(seconds: 0.4))
+        #expect(box.value == .writeStalled(seconds: 0.4))
 
         client.close()
     }
@@ -226,7 +249,7 @@ struct RealtimeSocketClientTests {
     func refusedConnectionIsReported() throws {
         let client = RealtimeSocketClient()
         let finished = TestSignal()
-        let outcome = ValueBox<Result<Void, RealtimeConnectFailure>>()
+        let outcome = ValueBox<Result<Void, LineSocketConnectFailure>>()
 
         client.connect(path: NSTemporaryDirectory() + "fermix-missing-\(UUID().uuidString.prefix(8)).sock") { result in
             outcome.set(result)
@@ -238,6 +261,6 @@ struct RealtimeSocketClientTests {
             Issue.record("a missing socket must not report success")
             return
         }
-        #expect(failure.errorNumber == ENOENT || failure.errorNumber == ECONNREFUSED)
+        #expect(failure == .system(errno: ENOENT) || failure == .system(errno: ECONNREFUSED))
     }
 }

@@ -31,6 +31,11 @@ struct CodingAgentAvailability {
 
 struct CodingAgentsPane: View {
     @ObservedObject var model: SettingsModel
+    /// A probe whose progress the pane shows: the operator's own `Check again`,
+    /// or the probe on opening while nothing is known about the coding tools
+    /// yet. With an answer already held, the probe on opening runs silently,
+    /// so a return to the pane does not trade its guidance for a spinner.
+    @State private var checking = false
 
     var body: some View {
         SettingsPaneForm(title: SettingsPane.codingAgents.title) {
@@ -41,7 +46,13 @@ struct CodingAgentsPane: View {
                 detectionStatus
             }
         }
-        .task { await model.refreshDetections([.harnessVendors]) }
+        .task { await detect(showing: availability.detection == nil) }
+    }
+
+    private func detect(showing: Bool) async {
+        checking = showing
+        await model.refreshDetections([.harnessVendors])
+        checking = false
     }
 
     private var availability: CodingAgentAvailability {
@@ -75,7 +86,7 @@ struct CodingAgentsPane: View {
 
     private var detectionStatus: some View {
         Section {
-            if model.detections.isLoading {
+            if checking {
                 ProgressView().controlSize(.small)
             }
             if let sentence = detectionSentence {
@@ -85,15 +96,15 @@ struct CodingAgentsPane: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Button(ProductStrings[.codingCheckAgain]) {
-                Task { await model.refreshDetections([.harnessVendors]) }
+                Task { await detect(showing: true) }
             }
-            .disabled(model.detections.isLoading)
+            .disabled(checking)
         }
     }
 
     private var detectionSentence: String? {
         if case .unavailable(let sentence) = model.detections { return sentence }
-        if model.detections.isLoading { return nil }
+        if checking { return nil }
         if !availability.hasFacts { return ProductStrings[.codingDetectionUnavailable] }
 
         return availability.guidance

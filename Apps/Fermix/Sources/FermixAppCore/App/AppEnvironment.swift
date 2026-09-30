@@ -4,8 +4,8 @@ import Foundation
 ///
 /// The graph in `AppComposition` is one shape with one wiring; this is the
 /// boundary that shape stands on — the account's directories, the management
-/// socket, `SMAppService`, the microphone, user defaults, the browser, the
-/// liveness probes, and the clock the waits sleep on. Naming the boundary once
+/// and companion sockets, `SMAppService`, the microphone, user defaults, the
+/// browser, the liveness probes, and the clock the waits sleep on. Naming the boundary once
 /// is what lets a second configuration exist without a second graph, and what
 /// keeps a surface from reaching past the graph to read the machine directly.
 ///
@@ -30,11 +30,27 @@ struct AppEnvironment {
     let microphone: any MicrophoneAuthorizationReading
     let settingsPanes: any SettingsPaneStoring
     let sidebarVisibility: any SidebarVisibilityStoring
+    /// Where a clicked link opens: the pane or the person's own browser.
+    let linkPreference: any LinkPreferenceStoring
     let opener: any ExternalOpening
     /// The updater behind the seam. It arrives from outside because the
     /// implementation links Sparkle, which only the GUI executable may do
     /// (M34 §6).
     let updater: any UpdaterDriving
+    /// The mascot renderer, behind the same kind of seam and for the same
+    /// reason: its implementation links the Rive runtime, which only the GUI
+    /// executable may load.
+    let mascot: any MascotRendering
+    /// The browser pane's engine, behind the same kind of seam: its
+    /// implementation links WebKit, which the agent must never load. A factory,
+    /// because the engine is built over the website profile on the first tab.
+    let makeBrowser: BrowserEngineMaking
+    /// Whether the pane's tabs can be driven now: this Mac's screen lock,
+    /// display sleep and the app's own quit.
+    let session: any SessionAvailabilityReporting
+    /// The Mac's own opener for content: a page in the person's own browser,
+    /// or a scheme another app owns.
+    let workspace: any WorkspaceLinkOpening
     let chooser: any DirectoryChoosing
     let processes: any ProcessLiveness
     let paths: any PathPresence
@@ -42,6 +58,11 @@ struct AppEnvironment {
     let ports: any PortProbing
     let installation: any InstallationProbing
     let identities: any DaemonIdentityProbing
+    /// The chat wire's line socket, which the composition wraps in the
+    /// main-actor delivery. One socket for the one session.
+    let companionLines: CompanionSocketClient.LineSocket
+    /// The browser host wire's own line socket, the same way.
+    let browserHostLines: BrowserHostClient.LineSocket
     /// Which steps activation runs on this configuration's machine.
     let activationPlan: ActivationPlan
     let sleeper: any Sleeping
@@ -57,8 +78,12 @@ struct AppEnvironment {
 extension AppEnvironment {
     /// The shipped configuration: this Mac, this account, this bundle, and the
     /// activation that registers the background service launchd runs.
-    static func product(updater: any UpdaterDriving) -> AppEnvironment {
-        onThisMac(activation: .installed, updater: updater)
+    static func product(
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
+    ) -> AppEnvironment {
+        onThisMac(activation: .installed, updater: updater, mascot: mascot, browser: browser)
     }
 
     /// The boundary this Mac provides, under one declared activation plan.
@@ -67,12 +92,15 @@ extension AppEnvironment {
     /// `DevelopmentEngineConfiguration.swift` is the second caller: the two
     /// differ in exactly this one value and in nothing else.
     ///
-    /// The updater is the one value this library cannot build: its
-    /// implementation links Sparkle, which only the GUI executable may do
-    /// (M34 §6), so the executable hands it in.
+    /// The updater, the mascot renderer and the browser engine are the three
+    /// values this library cannot build: their implementations link Sparkle,
+    /// the Rive runtime and WebKit, which only the GUI executable may do
+    /// (M34 §6), so the executable hands them in.
     static func onThisMac(
         activation plan: ActivationPlan,
-        updater: any UpdaterDriving
+        updater: any UpdaterDriving,
+        mascot: any MascotRendering,
+        browser: @escaping BrowserEngineMaking
     ) -> AppEnvironment {
         // A bundle that cannot answer these two questions is broken, not
         // degraded: there is no second place to read them from.
@@ -100,8 +128,13 @@ extension AppEnvironment {
             microphone: SystemMicrophoneAuthorization(),
             settingsPanes: UserDefaultsSettingsPaneStore(),
             sidebarVisibility: UserDefaultsSidebarStore(),
+            linkPreference: UserDefaultsLinkPreferenceStore(),
             opener: WorkspaceExternalOpener(),
             updater: updater,
+            mascot: mascot,
+            makeBrowser: browser,
+            session: SessionAvailability.onThisMac(),
+            workspace: WorkspaceLinkOpener(),
             chooser: OpenPanelDirectoryChooser(),
             processes: SystemProcessLiveness(),
             paths: FileSystemPathPresence(),
@@ -109,6 +142,8 @@ extension AppEnvironment {
             ports: TCPPortProbe(),
             installation: BundleInstallationProbe(home: location.homeDirectory.path),
             identities: ManagementDaemonIdentityProbe(),
+            companionLines: CompanionSocketClient.lineSocket(),
+            browserHostLines: BrowserHostClient.lineSocket(),
             activationPlan: plan,
             sleeper: TaskSleeper(),
             reconciler: EngineReconciler(

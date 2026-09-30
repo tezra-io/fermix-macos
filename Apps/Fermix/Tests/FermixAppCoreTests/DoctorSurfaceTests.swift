@@ -13,10 +13,97 @@ struct DoctorSurfaceTests {
     func localRunsOnOpen() async throws {
         let harness = try DoctorHarness()
 
-        await harness.model.runLocal()
+        harness.model.visit()
+        await harness.finishRun()
 
         #expect(harness.gateway.calls.first == .doctorStart(.local))
         #expect(!harness.gateway.calls.contains(.doctorStart(.network)))
+    }
+
+    /// A visit shows what the last run found, at once. Every visit used to
+    /// start a new run, which blanked the list for at least the half second
+    /// before the first poll, and a quick return to Doctor was refused as busy
+    /// once the daemon held two sessions (owner report of 2026-09-24).
+    @Test("a second visit shows the last run as it finished and starts nothing")
+    func revisitShowsTheLastRun() async throws {
+        let harness = try DoctorHarness()
+        harness.model.visit()
+        await harness.finishRun()
+        let found = harness.model.rows
+        let asked = harness.gateway.calls
+
+        harness.model.visit()
+        try await harness.settle()
+
+        #expect(!found.isEmpty)
+        #expect(harness.gateway.calls == asked, "returning to Doctor started another run")
+        #expect(!harness.model.isRunning)
+        #expect(harness.model.rows == found)
+    }
+
+    /// SwiftUI cancels a view's task when the user leaves the view, and the run
+    /// used to be that task: the cancelled poll was recorded as the daemon
+    /// going away while the session kept running on the daemon. The run is the
+    /// model's own now, and a return mid-run follows it rather than starting
+    /// another.
+    @Test("leaving Doctor mid-run neither stops the run nor records a failure")
+    func leavingMidRunKeepsTheRun() async throws {
+        let harness = try DoctorHarness()
+        harness.gateway.doctorScript = [
+            try ManagementValueFixture.doctorSession(status: "running", checks: []),
+            try ManagementValueFixture.doctorSession(status: "running", checks: [("provider_auth", "passed")]),
+            try ManagementValueFixture.doctorSession(status: "completed")
+        ]
+        let gate = AsyncGate()
+        harness.gateway.startGate = { await gate.wait() }
+
+        // The surface's own task, which lives exactly as long as the surface.
+        let surface = Task {
+            harness.model.visit()
+            try await Task.sleep(for: .seconds(3600))
+        }
+        while !harness.model.isRunning { await Task.yield() }
+
+        surface.cancel()
+        harness.model.visit()
+        gate.release()
+        await harness.finishRun()
+
+        #expect(harness.model.phase == .finished)
+        #expect(harness.gateway.calls.filter { $0 == .doctorStart(.local) }.count == 1)
+        #expect(harness.gateway.calls.filter { $0 == .doctorGet("doctor:abc123") }.count == 2)
+
+        let view = try #require(try SourceTree.swiftFiles(matching: "Doctor/DoctorView.swift").first?.text)
+        #expect(view.contains(".onAppear { model.visit() }"), "the surface no longer asks the model for a visit")
+        #expect(!view.contains(".task"), "the surface holds a task SwiftUI cancels when the user leaves")
+    }
+
+    /// Asking again never blanks the list: the last run's rows stay until the
+    /// new session has landed a row of its own, while Cancel already addresses
+    /// the new session.
+    @Test("a re-run keeps the last rows on screen until its own session lands one")
+    func rerunKeepsTheLastRows() async throws {
+        let harness = try DoctorHarness()
+        harness.gateway.doctorScript = [
+            try ManagementValueFixture.doctorSession(id: "doctor:first", checks: [("provider_auth", "failed")]),
+            try ManagementValueFixture.doctorSession(id: "doctor:second", status: "running", checks: []),
+            try ManagementValueFixture.doctorSession(id: "doctor:second", checks: [("provider_auth", "passed")])
+        ]
+        await harness.model.runLocal()
+        let first = harness.model.rows
+        let firstBanner = harness.model.banner
+
+        await harness.model.start(scope: .local)
+
+        #expect(harness.model.isRunning)
+        #expect(harness.model.rows == first, "the re-run blanked the list")
+        #expect(harness.model.banner == firstBanner)
+        #expect(harness.model.session?.sessionId == "doctor:second", "Cancel would address the finished run")
+
+        await harness.model.awaitCompletion()
+
+        #expect(harness.model.rows.map(\.status) == [.passed])
+        #expect(harness.model.phase == .finished)
     }
 
     /// The network scope costs real requests against real endpoints, so it never
@@ -50,6 +137,25 @@ struct DoctorSurfaceTests {
             .doctorGet("doctor:abc123"),
             .doctorGet("doctor:abc123")
         ])
+        #expect(harness.sleeper.sleeps == 1, "one interval, between the two polls")
+        #expect(harness.model.phase == .finished)
+    }
+
+    /// The first poll goes out as soon as the daemon has issued the session.
+    /// Waiting the interval first held every run's rows back by half a second,
+    /// however quickly the checks had landed.
+    @Test("the first poll goes out at once, with no interval before it")
+    func firstPollWaitsForNothing() async throws {
+        let harness = try DoctorHarness()
+        harness.gateway.doctorScript = [
+            try ManagementValueFixture.doctorSession(status: "running", checks: []),
+            try ManagementValueFixture.doctorSession(status: "completed")
+        ]
+
+        await harness.model.runLocal()
+
+        #expect(harness.gateway.calls == [.doctorStart(.local), .doctorGet("doctor:abc123")])
+        #expect(harness.sleeper.sleeps == 0, "the run waited before its first poll")
         #expect(harness.model.phase == .finished)
     }
 
@@ -596,6 +702,7 @@ final class DoctorHarness {
     let gateway = FakeDaemonGateway()
     let revealer = RecordingFolderRevealer()
     let settingsOpener: RecordingSystemSettingsOpener
+    let sleeper = CountingSleeper()
     let model: DoctorModel
     /// The Fermix panes a remediation asked this window to show (decision D1).
     let panes = RecordingPaneOpener()
@@ -623,13 +730,20 @@ final class DoctorHarness {
             revealer: revealer,
             settingsOpener: settingsOpener,
             openSettingsPane: { [panes] pane in panes.record(pane) },
-            sleeper: NoWaitSleeper()
+            sleeper: sleeper
         )
     }
 
     /// Lets a detached request task finish without a wall-clock wait.
     func settle() async throws {
         for _ in 0..<16 {
+            await Task.yield()
+        }
+    }
+
+    /// Waits, without a wall-clock wait, for the run a visit started to end.
+    func finishRun() async {
+        while model.phase == .idle || model.isRunning {
             await Task.yield()
         }
     }
@@ -685,4 +799,20 @@ final class RecordingFolderRevealer: FolderRevealing, @unchecked Sendable {
 /// spending its wall-clock time.
 struct NoWaitSleeper: Sleeping {
     func sleep(seconds: TimeInterval) async throws {}
+}
+
+/// Consumes the poll interval instantly and counts each wait, so where a run
+/// waits is provable. It throws in a cancelled task exactly as `Task.sleep`
+/// does, so a run that belonged to a task somebody cancelled fails here the
+/// way it failed in the app.
+final class CountingSleeper: Sleeping, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var sleeps: Int { lock.withLock { count } }
+
+    func sleep(seconds: TimeInterval) async throws {
+        try Task.checkCancellation()
+        lock.withLock { count += 1 }
+    }
 }

@@ -92,10 +92,18 @@ struct ManagementV2FixtureTests {
             ("plugin action", Array(ManagementPluginAction.publishedValues.keys)),
             ("plugin runtime kind", Array(ManagementPluginRuntimeKind.publishedValues.keys)),
             ("plugin auth kind", Array(ManagementPluginAuthKind.publishedValues.keys)),
-            ("plugin setting kind", Array(ManagementPluginSettingKind.publishedValues.keys))
+            ("plugin setting kind", Array(ManagementPluginSettingKind.publishedValues.keys)),
+            ("pairing state", Array(ManagementPairingState.publishedValues.keys)),
+            ("pairing outcome reason", Array(ManagementPairingOutcomeReason.publishedValues.keys)),
+            ("pairing failure code", Array(ManagementPairingFailureCode.publishedValues.keys)),
+            ("pairing attestation status", Array(ManagementPairingAttestationStatus.publishedValues.keys)),
+            ("mobile listener status", Array(ManagementMobileListenerStatus.publishedValues.keys)),
+            ("mobile announcement", Array(ManagementMobileAnnouncement.publishedValues.keys)),
+            ("mobile credentials", Array(ManagementMobileCredentials.publishedValues.keys)),
+            ("mobile signer role", Array(ManagementMobileSignerRole.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 16)
+        #expect(modelled.count == 24)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),
@@ -201,7 +209,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 70, "every success record was decoded")
+        #expect(seen.count == 91, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -234,7 +242,7 @@ struct ManagementV2FixtureTests {
         }
 
         #expect(seen == Set(ManagementErrorCode.publishedValues.keys))
-        #expect(seen.count == 16)
+        #expect(seen.count == 17)
     }
 
     /// The per-method refusal of M34 §7.1 carries the version the method needs,
@@ -274,7 +282,7 @@ struct ManagementV2FixtureTests {
     /// The sentence an operator is shown for a daemon refusal is the daemon's
     /// own, for every error record the contract publishes.
     ///
-    /// `message` is fixed per code, and two codes carry the sentence that says
+    /// `message` is fixed per code, and three codes carry the sentence that says
     /// what actually happened in `details.sentence`. Rendering `message` alone
     /// showed `Request parameters are invalid.` for the whole `invalid_params`
     /// family — every settings validation, `This provider has no browser
@@ -298,7 +306,7 @@ struct ManagementV2FixtureTests {
             carried += 1
         }
 
-        #expect(carried == 2, "the contract publishes a detail sentence for two codes")
+        #expect(carried == 3, "the contract publishes a detail sentence for three codes")
     }
 
     /// The two codes that carry one, by name, so the accessor cannot quietly
@@ -488,7 +496,7 @@ struct ManagementV2FixtureTests {
     @Test("no job kind is doctor, in the schema or in the app")
     func doctorIsNotAJobKind() throws {
         #expect(ManagementJobKind.publishedValues["doctor"] == nil)
-        #expect(ManagementJobKind.publishedValues.count == 10)
+        #expect(ManagementJobKind.publishedValues.count == 11)
 
         let jobs: ManagementJobList = try FakeDaemonGateway.fixtureResult(
             named: "job_list",
@@ -583,8 +591,11 @@ struct ManagementV2FixtureTests {
             as: ManagementOverview.self
         )
 
-        #expect(state.readiness.status == "setup_required")
+        // The golden home is ready with two advisory rows, so both answers carry
+        // the same word; the other word is what a gating failure turns it into.
+        #expect(state.readiness.status == "ready")
         #expect(overview.readiness.status == "ready")
+        #expect(try ManagementValueFixture.setupState(primaryConfigured: false).readiness.status == "setup_required")
 
         // The word `attention` appears nowhere in the schema: it is the app's
         // own name for the Home section that lists what is not ready.
@@ -612,18 +623,20 @@ struct ManagementV2FixtureTests {
         #expect(overview.realtime.model == "gpt-realtime")
     }
 
-    /// Personalization gates. The failure carries `gating` on the wire and the
-    /// app reads it there, so a home missing the owner's own description cannot
-    /// be reported ready by one surface and not by another.
-    @Test("a personalization failure is gating wherever it is published")
-    func personalizationAlwaysGates() throws {
+    /// Personalization is advisory. The daemon's first boot seeds it from the
+    /// machine (engine 534a5858, 2026-09-27), so a home missing the owner's own
+    /// description still answers; the failure carries `gating: false` on the
+    /// wire and the app reads it there, so no surface promotes it back to a
+    /// gate and no surface reports the home ready while another does not.
+    @Test("a personalization failure is advisory wherever it is published")
+    func personalizationIsAdvisory() throws {
         var published = 0
 
         for fixture in try ManagementFixtures.load(.success, from: .management)
         where (try? fixture.string("method")) == ManagementMethod.setupStateGet.rawValue {
             let state: ManagementSetupState = try Self.decode(try fixture.object("response")["result"])
             for failure in state.readiness.failures where failure.detailKey == "personalization" {
-                #expect(failure.gating, "a personalization failure is published as advisory")
+                #expect(!failure.gating, "a personalization failure is published as gating")
                 #expect(failure.pane == .personality)
                 published += 1
             }
@@ -789,7 +802,12 @@ struct ManagementV2FixtureTests {
         while visits < maxSchemaNodes, let node = pending.popLast() {
             visits += 1
             if let object = node as? [String: Any] {
-                if let values = object["enum"] as? [String] { found.insert(Set(values)) }
+                // A nullable vocabulary is published as its values plus null
+                // (`signer_role`, `outcome.reason`); the set the app models is
+                // the values, and null is the optional around it.
+                if let values = object["enum"] as? [Any] {
+                    found.insert(Set(values.compactMap { $0 as? String }))
+                }
                 pending.append(contentsOf: object.values)
             } else if let array = node as? [Any] {
                 pending.append(contentsOf: array)

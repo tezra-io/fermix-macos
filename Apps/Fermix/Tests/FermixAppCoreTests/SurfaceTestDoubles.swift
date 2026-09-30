@@ -71,8 +71,8 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var v2Failures: [ManagementMethod: any Error] = [:]
 
     /// The answer every `setup.state.get` gives, where a case needs one the
-    /// golden fixture cannot express: it always reports a gating provider
-    /// failure and a pending restart.
+    /// golden fixture cannot express: it always reports a ready home with two
+    /// advisory failures and a pending restart.
     var setupStateResult: ManagementSetupState?
     /// Holds a setup reply while the user chooses another destination.
     var setupStateGate: (@Sendable () async -> Void)?
@@ -497,24 +497,24 @@ enum ManagementValueFixture {
     /// The daemon's own `setup.state.get` answer.
     ///
     /// The default is the vendored contract's golden fixture, so the assistant's
-    /// readiness is read from the shape the engine actually sends. The knobs
-    /// exist for the four cases the fixture cannot carry at once: no failure at
-    /// all, an advisory-only home, a home that needs nothing but a restart, and
-    /// a provider whose only way in is a typed key.
+    /// readiness is read from the shape the engine actually sends. The golden
+    /// is the advisory-only home. The knobs exist for the four cases it cannot
+    /// carry at once: no failure at all, a primary with no credential (the one
+    /// gating failure the daemon publishes, since its first boot seeds
+    /// personalization), a home that needs nothing but a restart, and a
+    /// provider whose only way in is a typed key.
     static func setupState(
-        gating: Bool = true,
         failures: Bool = true,
         restartRequired: Bool = true,
         primaryConfigured: Bool = true,
         primaryModel: String? = "gpt-5.6-sol",
         keyOnlyProvider: Bool = false
     ) throws -> ManagementSetupState {
-        guard gating, failures, restartRequired, primaryConfigured,
+        guard failures, restartRequired, primaryConfigured,
               primaryModel == "gpt-5.6-sol", !keyOnlyProvider
         else {
             return try decode(
                 setupStateJSON(
-                    gating: gating,
                     failures: failures,
                     restartRequired: restartRequired,
                     primaryConfigured: primaryConfigured,
@@ -530,23 +530,37 @@ enum ManagementValueFixture {
 
     /// The same shape as the golden fixture, with the one field a case varies.
     private static func setupStateJSON(
-        gating: Bool,
         failures: Bool,
         restartRequired: Bool,
         primaryConfigured: Bool,
         primaryModel: String?,
         keyOnlyProvider: Bool
     ) -> String {
-        let failureList = failures
+        // The daemon's own shapes: a primary with no credential is the gating
+        // failure, and personalization, seeded at first boot, is advisory.
+        let providerGate = primaryConfigured
+            ? nil
+            : """
+              {
+                "component": "provider:openai_codex",
+                "gating": true,
+                "pane": "providers",
+                "detail_key": "provider:missing_credentials:openai_codex"
+              }
+              """
+        let personalization = failures
             ? """
               {
                 "component": "personalization",
-                "gating": \(gating),
+                "gating": false,
                 "pane": "personality",
                 "detail_key": "personalization"
               }
               """
-            : ""
+            : nil
+        let failureList = [providerGate, personalization].compactMap { $0 }.joined(separator: ",")
+        let status = primaryConfigured ? "ready" : "setup_required"
+        let tokenState = primaryConfigured ? "\"valid\"" : "null"
         let model = primaryModel.map { "\"\($0)\"" } ?? "null"
         // A provider whose only way in is a typed key, so its row leads with
         // `Add key…` and needs the slot its own section names.
@@ -572,7 +586,7 @@ enum ManagementValueFixture {
 
         return """
         {
-          "readiness": {"status": "setup_required", "failures": [\(failureList)]},
+          "readiness": {"status": "\(status)", "failures": [\(failureList)]},
           "restart": {"required": \(restartRequired), "reasons": []},
           "providers": [
             {
@@ -587,7 +601,7 @@ enum ManagementValueFixture {
               "reasoning_effort": null,
               "fast": null,
               "account_label": null,
-              "token_state": "valid"
+              "token_state": \(tokenState)
             }\(keyProvider)
           ],
           "channels": [],
@@ -731,8 +745,11 @@ final class FakeStatusItem: StatusItemPresenting {
     private(set) var label: String?
     private(set) var identifier: String?
     private(set) var menu: NSMenu?
+    /// How many times an image was handed to the bar.
+    private(set) var presentations = 0
 
     func present(_ image: NSImage, label: String, identifier: String) {
+        presentations += 1
         self.image = image
         self.label = label
         self.identifier = identifier

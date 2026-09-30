@@ -4,12 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
 SCRIPT="$ROOT_DIR/script/build_and_run.sh"
-# The pinned updater version, read from the one place that owns it: the stand-in
-# for `swift build` has to produce an artifact the staging step accepts, and a
-# version written here would be a third copy of the pin.
+# The pinned framework versions, read from the one place that owns them: the
+# stand-in for `swift build` has to produce artifacts the staging step accepts,
+# and a version written here would be a third copy of a pin.
 # shellcheck source=../../scripts/product_config.sh
 source "$REPO_ROOT/scripts/product_config.sh"
 SPARKLE_VERSION="$(product_config sparkle_version)"
+RIVE_VERSION="$(product_config rive_runtime_version)"
 TMP_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -92,6 +93,51 @@ cat >"$SLICE/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+# The pinned animation runtime, in the same place and shape. The real
+# xcframework also publishes a Catalyst slice under the same platform, so the
+# stand-in carries one too: the staging step has to pick the macOS slice out
+# rather than the first library it finds.
+SLICE="$BUILD_PATH/artifacts/rive-ios/RiveRuntime/RiveRuntime.xcframework"
+FRAMEWORK="$SLICE/macos-arm64_x86_64/RiveRuntime.framework"
+mkdir -p "$FRAMEWORK/Versions/A/Resources" \
+  "$SLICE/ios-arm64_x86_64-maccatalyst/RiveRuntime.framework"
+printf 'library\n' >"$FRAMEWORK/Versions/A/RiveRuntime"
+ln -sfn A "$FRAMEWORK/Versions/Current"
+ln -sfn Versions/Current/RiveRuntime "$FRAMEWORK/RiveRuntime"
+ln -sfn Versions/Current/Resources "$FRAMEWORK/Resources"
+cat >"$FRAMEWORK/Versions/A/Resources/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleShortVersionString</key><string>$FAKE_RIVE_VERSION</string>
+</dict>
+</plist>
+PLIST
+cat >"$SLICE/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>AvailableLibraries</key>
+  <array>
+    <dict>
+      <key>LibraryIdentifier</key><string>ios-arm64_x86_64-maccatalyst</string>
+      <key>LibraryPath</key><string>RiveRuntime.framework</string>
+      <key>SupportedPlatform</key><string>ios</string>
+      <key>SupportedPlatformVariant</key><string>maccatalyst</string>
+    </dict>
+    <dict>
+      <key>LibraryIdentifier</key><string>macos-arm64_x86_64</string>
+      <key>LibraryPath</key><string>RiveRuntime.framework</string>
+      <key>SupportedPlatform</key><string>macos</string>
+    </dict>
+  </array>
+  <key>CFBundlePackageType</key><string>XFWK</string>
+</dict>
+</plist>
+PLIST
 SH
 
 cat >"$TMP_DIR/bin/pgrep" <<'SH'
@@ -121,6 +167,7 @@ chmod +x "$TMP_DIR/bin/swift" "$TMP_DIR/bin/pgrep" \
 
 export FAKE_SWIFT_LOG="$TMP_DIR/swift.log"
 export FAKE_SPARKLE_VERSION="$SPARKLE_VERSION"
+export FAKE_RIVE_VERSION="$RIVE_VERSION"
 # The staged bundle's own icon file name, so the stand-in for `swift build`
 # produces the resource the staging step copies rather than a second spelling
 # of it.
@@ -144,6 +191,11 @@ test -f "$INSTALLED_APP/Contents/Info.plist"
 test -d "$INSTALLED_APP/Contents/Frameworks/Sparkle.framework"
 test -L "$INSTALLED_APP/Contents/Frameworks/Sparkle.framework/Versions/Current"
 test -f "$INSTALLED_APP/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+# The animation runtime beside it, from the macOS slice and with its links kept.
+test -d "$INSTALLED_APP/Contents/Frameworks/RiveRuntime.framework"
+test -L "$INSTALLED_APP/Contents/Frameworks/RiveRuntime.framework/Versions/Current"
+test -L "$INSTALLED_APP/Contents/Frameworks/RiveRuntime.framework/RiveRuntime"
+test -f "$INSTALLED_APP/Contents/Frameworks/RiveRuntime.framework/Versions/A/RiveRuntime"
 # The dev install carries exactly the identity Product.json declares.
 grep -F "<key>CFBundleIdentifier</key><string>io.tezra.FermixPet</string>" \
   "$INSTALLED_APP/Contents/Info.plist" >/dev/null

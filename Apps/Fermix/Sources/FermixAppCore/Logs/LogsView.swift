@@ -25,10 +25,19 @@ struct LogsView: View {
             .modifier(LogsPolling(model: model))
             .fileExporter(
                 isPresented: $model.exportRequested,
-                document: LogsDocument(text: model.copyVisible()),
+                document: exportDocument,
                 contentType: .plainText,
                 defaultFilename: ProductStrings[.logsExportFilename]
             ) { _ in }
+    }
+
+    /// The file an export writes, built only while one is asked for. It joins
+    /// every visible line, and building it on every pass paid for that on each
+    /// poll and each keystroke in the search field.
+    private var exportDocument: LogsDocument? {
+        guard model.exportRequested else { return nil }
+
+        return LogsDocument(text: model.copyVisible())
     }
 
     @ViewBuilder
@@ -47,7 +56,7 @@ struct LogsView: View {
                         .accessibilityAddTraits(.updatesFrequently)
                 }
 
-                ForEach(Array(model.entries.enumerated()), id: \.offset) { _, entry in
+                ForEach(model.entries, id: \.logsListID) { entry in
                     LogRow(entry: entry)
                 }
 

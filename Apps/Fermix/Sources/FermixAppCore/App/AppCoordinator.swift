@@ -65,6 +65,10 @@ public final class AppCoordinator {
     /// bootstrap condition is.
     private let registrationBuild: () -> AgentRegistrationBuild
     private let termination: any TerminationRequesting
+    /// The browser host's half of a quit (plan §4.0): a run loop callback, not
+    /// a coroutine, because AppKit spins a nested run loop while a termination
+    /// is held and a suspended task would starve behind it.
+    private let hostQuitting: any BrowserHostQuitting
     /// The one settings model, so opening a pane by url and opening it from the
     /// sidebar write the same selection.
     private let settings: SettingsModel
@@ -103,6 +107,16 @@ public final class AppCoordinator {
     /// bundle left behind. The receipt is what stops the *next* launch; this is
     /// what stops the second launch path entered inside this one.
     private var registrationRebuilt = false
+    /// Whether this launch is running in the background role (plan §4.0): no
+    /// window, a task's reason for starting it. Cleared the moment any launch
+    /// reason other than `.background` runs, which is what the status item's
+    /// own actions do, so a reopen event behaves ordinarily once the person has
+    /// asked for a window through it.
+    private var runningInBackground = false
+    /// Whether the browser host handshake has already been asked for, so a
+    /// second termination request joins the first rather than sending
+    /// `host_stopping` twice.
+    private var terminationStarted = false
 
     public init(
         model: AppModel,
@@ -114,6 +128,7 @@ public final class AppCoordinator {
         bootstrap: @escaping () -> BootstrapCondition,
         registrationBuild: @escaping () -> AgentRegistrationBuild,
         termination: any TerminationRequesting,
+        hostQuitting: any BrowserHostQuitting,
         settings: SettingsModel,
         presentation: SettingsPresentation,
         announcer: any AccessibilityAnnouncing
@@ -127,6 +142,7 @@ public final class AppCoordinator {
         self.bootstrap = bootstrap
         self.registrationBuild = registrationBuild
         self.termination = termination
+        self.hostQuitting = hostQuitting
         self.settings = settings
         self.presentation = presentation
         self.announcer = announcer
@@ -208,11 +224,12 @@ public final class AppCoordinator {
         setupState: ManagementSetupState? = nil
     ) -> AppPresentation {
         if case .login = reason { return .menuBarOnly }
+        if case .background = reason { return .menuBarOnly }
         if case .unreadable = bootstrap { return .assistant(.recovery) }
         if recovery.needsRecovery { return .assistant(.recovery) }
 
         switch reason {
-        case .login:
+        case .login, .background:
             return .menuBarOnly
         case .user:
             return bootstrap == .present ? .main(.home) : .assistant(.welcome)
@@ -234,6 +251,10 @@ public final class AppCoordinator {
     public func start(reason: LaunchReason) {
         setupRouting?.cancel()
         setupRouting = nil
+        // Every reason but the background one is the person asking for a
+        // window through some door, the status item included, so it is what
+        // clears the role a hidden launch started in.
+        runningInBackground = reason == .background
         let previous = updateReconcile
         let lifecycle = transaction
         let requested: AppDestination?
@@ -261,6 +282,14 @@ public final class AppCoordinator {
     /// reachable without it: with nothing on screen, a reopen opens the window a
     /// user launch would. macOS raises an existing window, whose appearance
     /// task will not run again, so its shared Home state is refreshed here.
+    ///
+    /// A hidden launch has no Dock tile and no window to raise, so the only way
+    /// this fires while it stands is the daemon's own `open -g` reattaching a
+    /// running host: that is not the person asking, and it must not put a
+    /// window up for a task nobody is watching (plan §4.0). Once the person has
+    /// asked for a window through some other door — the status item, a
+    /// `fermix://` route — `start(reason:)` has already cleared the role, and a
+    /// reopen behaves as it always did.
     public func reopen() {
         // AppKit counts the floating pet, which is not a way back into Fermix:
         // with the pet showing, the menu bar item hidden and the main window
@@ -270,6 +299,7 @@ public final class AppCoordinator {
             readDaemonCondition?()
             return
         }
+        guard !runningInBackground else { return }
 
         start(reason: .user)
     }
@@ -286,9 +316,13 @@ public final class AppCoordinator {
     /// transaction badges the glyph until the next read says otherwise, and a
     /// read that finds the daemon gone mid-restart says so, because it is true
     /// while it lasts.
+    ///
+    /// Written only where the answer moved. Every write publishes, and the
+    /// window, the status item and the pet all redraw for it, so an unchanged
+    /// answer arriving on every refresh cost three redraws for nothing.
     public func daemonObserved(_ observation: DaemonObservation) {
-        model.daemon = observation.condition
-        model.needsAttention = observation.needsAttention
+        if model.daemon != observation.condition { model.daemon = observation.condition }
+        if model.needsAttention != observation.needsAttention { model.needsAttention = observation.needsAttention }
     }
 
     /// Handles a `fermix://` url. An unknown one is refused: opening Home
@@ -479,17 +513,33 @@ public final class AppCoordinator {
     ///   first is finishing joins it rather than starting a second one: the
     ///   reply the in-flight work sends is the reply to both.
     public func terminationRequested() -> NSApplication.TerminateReply {
-        guard quitting == nil else {
+        guard !terminationStarted else {
             log.log("a quit is already finishing, so this request waits for the same work")
             return .terminateLater
         }
+        terminationStarted = true
 
+        // The browser host handshake is driven straight off this call, the run
+        // loop's own turn: AppKit spins a nested run loop while
+        // `.terminateLater` is pending, and a task suspended here to await its
+        // answer would starve behind it (plan §4.8). `hostQuitting`'s own bound
+        // is a run-loop timer for the same reason, so this never hangs even
+        // with a task's tabs open and the daemon gone quiet.
+        hostQuitting.stopHost { [weak self] in
+            self?.finishTermination()
+        }
+
+        return .terminateLater
+    }
+
+    /// The browser host's own part of the quit has ended — there was nothing
+    /// to hold for, the daemon answered `host_stopping`, or its bound elapsed.
+    /// What is left is a staged update's own stop, which is `prepareForQuit`'s.
+    private func finishTermination() {
         quitting = Task { @MainActor [weak self] in
             await self?.prepareForQuit?()
             self?.termination.completeTermination()
         }
-
-        return .terminateLater
     }
 
     /// Asks before restarting (M34 §5.10).
@@ -627,8 +677,8 @@ public final class AppCoordinator {
             defer {
                 self?.transaction = nil
                 self?.model.transactionInFlight = nil
-                // Home reads registration through ServiceController, so it
-                // needs its own refresh after every outcome, including failure.
+                // Home holds the registration it draws, so it needs its own
+                // refresh after every outcome, including failure.
                 self?.readDaemonCondition?()
             }
 
@@ -667,6 +717,10 @@ public final class AppCoordinator {
         case .enabled:
             model.daemon = .running
             model.needsAttention = false
+        // Registered, and nothing runs until the person allows it in Login
+        // Items, which Home's Attention row says.
+        case .awaitingApproval:
+            model.daemon = .stopped
         case .disabled:
             model.daemon = .stopped
         case .restarted:

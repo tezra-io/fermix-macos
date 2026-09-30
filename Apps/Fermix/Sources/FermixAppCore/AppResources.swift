@@ -3,13 +3,16 @@ import Foundation
 /// Packaged apps read only their own resources. SwiftPM's generated accessor
 /// otherwise reaches an absolute build-directory path after missing this layout.
 enum AppResources {
-    static var bundle: Bundle {
+    /// Resolved once. Every localized string is looked up through this, and
+    /// resolving it walks the bundle path and opens two bundles, so a computed
+    /// property repeated that work dozens of times on every redraw.
+    static let bundle: Bundle = {
         do {
             return try resolve(mainBundleURL: Bundle.main.bundleURL) { Bundle.module }
         } catch {
             fatalError("Fermix could not load its packaged resources: \(error)")
         }
-    }
+    }()
 
     static func resolve(mainBundleURL: URL, moduleBundle: () -> Bundle) throws -> Bundle {
         guard mainBundleURL.isFileURL else { throw AppResourceError.invalidApplicationBundle }

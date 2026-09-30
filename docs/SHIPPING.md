@@ -6,7 +6,7 @@ How a person gets the app from fermix.ai onto a Mac, what CI already does, what 
 
 **The app release rail, in this repository.** Pushing a tag `vX.Y.Z` runs `release.yml`, which calls `notarize.yml` inside the protected `release-macos` environment and then publishes:
 
-1. `scripts/package_release.sh`: universal2 build, `stage_app.sh`, Developer ID signing inside out (`sign_app.sh`), notarization by submit and poll, two-pass stapling, a drag-to-Applications DMG, and `verify_staged_app.sh universal signed release`.
+1. `scripts/package_release.sh`, as two steps: `build` (universal2 build, `stage_app.sh`, Developer ID signing inside out with `sign_app.sh`, and `verify_staged_app.sh universal signed release`), then `notarize` (notarization by submit and poll, two-pass stapling and a drag-to-Applications DMG). Only the `notarize` step is given the notary password.
 2. A Gatekeeper quarantine-acceptance gate on the stapled DMG.
 3. A GitHub Release carrying the DMG, its sha256, a keyless cosign signature and certificate, and the rendered Homebrew cask; a smoke install of that cask from a scratch tap; a pull request against `tezra-io/homebrew-tap` when `HOMEBREW_TAP_TOKEN` is set.
 

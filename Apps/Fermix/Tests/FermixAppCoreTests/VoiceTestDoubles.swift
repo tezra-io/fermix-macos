@@ -2,96 +2,15 @@ import Foundation
 
 @testable import FermixAppCore
 
-/// A realtime transport that records what was sent and lets a test deliver
-/// server events by hand. No socket, no queue, no daemon.
-///
-/// Not main-actor isolated, because the seam it stands in for is not: the real
-/// client calls back on its own queue and `MainActorRealtimeDelivery` is what
-/// hops. Every case drives it from the main actor, one call at a time.
-final class FakeRealtimeTransport: RealtimeTransport, @unchecked Sendable {
-    var onEvent: ((RealtimeServerEvent) -> Void)?
-    var onFailure: ((RealtimeTransportFailure) -> Void)?
+/// The realtime daemon's side of the socket, driven by hand: a session built
+/// over `RealtimeSocketClient(lines:)` on one of these crosses the real adapter
+/// in both directions, and a case reads back the lines it put on the wire.
+typealias FakeRealtimeSocket = FakeLineSocketTransport<RealtimeServerEvent, RealtimeDecodeFailure>
 
-    private(set) var connectedPaths: [String] = []
-    private(set) var sent: [RealtimeClientEvent] = []
-    private(set) var audioChunks: [Data] = []
-    private(set) var closeCount = 0
-
-    /// The result the next `connect` reports. Connecting is asynchronous in
-    /// production, so the completion is stored and fired by the test.
-    var connectResult: Result<Void, RealtimeConnectFailure> = .success(())
-    var deferConnectCompletion = false
-    private var pendingCompletion: ((Result<Void, RealtimeConnectFailure>) -> Void)?
-
-    func connect(path: String, completion: @escaping (Result<Void, RealtimeConnectFailure>) -> Void) {
-        connectedPaths.append(path)
-        guard !deferConnectCompletion else {
-            pendingCompletion = completion
-            return
-        }
-        completion(connectResult)
-    }
-
-    func completeConnect(_ result: Result<Void, RealtimeConnectFailure>) {
-        let completion = pendingCompletion
-        pendingCompletion = nil
-        completion?(result)
-    }
-
-    func send(_ event: RealtimeClientEvent) {
-        sent.append(event)
-    }
-
-    func sendAudioChunk(_ data: Data) {
-        audioChunks.append(data)
-    }
-
-    func close() {
-        closeCount += 1
-    }
-
-    func deliver(_ event: RealtimeServerEvent) {
-        onEvent?(event)
-    }
-
-    func fail(_ failure: RealtimeTransportFailure) {
-        onFailure?(failure)
-    }
-}
-
-/// A deadline scheduler a test drives by hand.
-@MainActor
-final class ManualDeadlineScheduler: DeadlineScheduling {
-    private final class Token: DeadlineToken {
-        var work: (() -> Void)?
-        var cancelled = false
-
-        func cancel() {
-            cancelled = true
-            work = nil
-        }
-    }
-
-    private var tokens: [(seconds: TimeInterval, token: Token)] = []
-
-    var scheduledDelays: [TimeInterval] { tokens.filter { !$0.token.cancelled }.map(\.seconds) }
-    var liveCount: Int { tokens.filter { !$0.token.cancelled }.count }
-
-    func schedule(after seconds: TimeInterval, _ work: @escaping () -> Void) -> DeadlineToken {
-        let token = Token()
-        token.work = work
-        tokens.append((seconds, token))
-        return token
-    }
-
-    /// Fires every deadline that has not been cancelled.
-    func fireAll() {
-        let live = tokens.filter { !$0.token.cancelled }
-        tokens.removeAll()
-        for entry in live {
-            entry.token.work?()
-        }
-    }
+/// The object a client event goes on the wire as, for comparing against what a
+/// fake line socket recorded.
+func wireObject(_ event: RealtimeClientEvent) throws -> NSDictionary {
+    try wireObject(event.line())
 }
 
 /// Records every call the audio owner makes, so the call lifecycle can be
@@ -184,4 +103,21 @@ final class FakeVoiceAudioEngine: VoiceAudioEngine, @unchecked Sendable {
     func diagnostics() -> String {
         "fake audio engine"
     }
+}
+
+/// Audio as the daemon relays it, base64 PCM16: a chunk of voice (a square
+/// wave well above `PCM16.voicedRMS`, distinct per `tag`), or Live's padding,
+/// the digital silence it sends between replies for the whole call.
+enum RelayedAudio {
+    static func voice(_ tag: Int = 1) -> String {
+        let amplitude = Int16(1_000 + tag * 10)
+        var samples = Data()
+        for index in 0..<480 {
+            var value = (index % 2 == 0 ? amplitude : -amplitude).littleEndian
+            withUnsafeBytes(of: &value) { samples.append(contentsOf: $0) }
+        }
+        return samples.base64EncodedString()
+    }
+
+    static let padding = Data(count: 4_800).base64EncodedString()
 }

@@ -28,6 +28,9 @@ public enum WindowKind: String, CaseIterable, Sendable {
 /// gating readiness failure names, or Settings when nothing gates (M34 §3.4).
 /// `SetupRouting` resolves that presentation from the daemon's readiness.
 public enum AppRoute: String, CaseIterable, Sendable {
+    /// The one conversation with Fermix, the rail's first row. Home stays
+    /// where a launch lands.
+    case chat
     case home
     case doctor
     case logs
@@ -62,6 +65,7 @@ public enum AppRoute: String, CaseIterable, Sendable {
     /// The sidebar row this route selects, where it is a sidebar destination.
     public var sidebarItemIdentifier: String? {
         switch self {
+        case .chat: return "chat"
         case .home: return "home"
         case .doctor: return "doctor"
         case .logs: return "logs"
@@ -160,16 +164,27 @@ public enum LaunchReason: Equatable, Sendable {
     case login
     /// The user opened it from the Dock, Finder, or Spotlight.
     case user
+    /// A task started this process hidden (plan §4.0), with `--background` on
+    /// the command line: no window, the status item kept, until the person
+    /// asks for one through it.
+    case background
     /// A `fermix://` url asked for a surface.
     case route(AppDestination)
 }
 
 /// Turns what the launch actually was into what the app should do about it.
 public enum LaunchClassifier {
-    /// A url is an explicit request, so it wins over a quiet login launch: the
-    /// user (or the CLI) asked for a surface by name.
-    public static func classify(isLoginLaunch: Bool, destination: AppDestination?) -> LaunchReason {
+    /// A url is an explicit request, so it wins over a quiet login or
+    /// background launch: the user (or the CLI) asked for a surface by name.
+    /// Otherwise a background launch wins over a login one, because a task can
+    /// start the app on a locked, logged-in Mac the same way login does.
+    public static func classify(
+        isLoginLaunch: Bool,
+        isBackgroundLaunch: Bool = false,
+        destination: AppDestination?
+    ) -> LaunchReason {
         if let destination { return .route(destination) }
+        if isBackgroundLaunch { return .background }
 
         return isLoginLaunch ? .login : .user
     }

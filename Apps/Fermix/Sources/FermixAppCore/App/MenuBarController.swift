@@ -64,6 +64,10 @@ public final class MenuBarController: MenuBarItemPresenting {
     private let model: AppModel
     private let item: any StatusItemPresenting
     private var modelChanges: AnyCancellable?
+    /// The glyph on the bar now. The model publishes for everything it holds,
+    /// including every audio chunk of a voice call, and the glyph depends on
+    /// two of those facts, so the image is set again only when it would change.
+    private var drawn: MenuBarGlyphState?
 
     /// The shipped item: one real `NSStatusItem`, made here because this is the
     /// one object that owns it. It is named as it is created, so macOS has
@@ -103,7 +107,9 @@ public final class MenuBarController: MenuBarItemPresenting {
     /// reads can never name different states.
     private func draw() {
         let state = model.menuGlyph
+        guard state != drawn else { return }
 
+        drawn = state
         item.present(
             MenuBarGlyphImage.template(for: state),
             label: state.accessibilityLabel,

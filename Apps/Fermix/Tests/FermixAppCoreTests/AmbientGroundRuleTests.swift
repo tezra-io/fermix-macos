@@ -84,6 +84,30 @@ struct AmbientGroundRuleTests {
         }
     }
 
+    /// The frame is the system's sidebar material under its own colours, and
+    /// it gives way to the plain fill for the two settings the ground gives
+    /// way for. Liquid Glass drew a rim round every piece of the frame, a line
+    /// under the band and a shard at each corner (owner, 2026-09-25), so it
+    /// stays out of the frame.
+    @Test("the frame is the sidebar material, rimless, and plain for the accessibility settings")
+    func frameIsSidebarGlass() throws {
+        let file = try SourceTree.swiftFiles(matching: "Design/Materials/AmbientGround.swift")
+        let text = try #require(file.first?.text)
+
+        #expect(text.contains("view.material = .sidebar"))
+        #expect(text.contains("view.blendingMode = .behindWindow"))
+        #expect(text.contains("if reduceTransparency || contrast == .increased {\n            WindowFrameRecipe.fill.color"))
+        #expect(!text.contains("NSGlassEffectView()"), "the frame draws Liquid Glass and its rim")
+        #expect(!text.contains(".glassEffect("), "the frame draws Liquid Glass and its rim")
+
+        // Rail, settings pane list, band and corners are one glass, so nothing
+        // paints the flat fill over the frame any more.
+        #expect(occurrences(of: "background { FrameGlass().ignoresSafeArea() }", in: text) == 2)
+        #expect(!text.contains("WindowFrameRecipe.pane"), "the pane list wears a glass of its own again")
+        #expect(text.contains("FrameGlass().frame(height: height)"))
+        #expect(occurrences(of: "WindowFrameRecipe.fill.color", in: text) == 1)
+    }
+
     /// A surface shows the ground by giving up the fill it paints for itself,
     /// and it says so through the one modifier that owns the rule. The raw
     /// modifier survives in exactly two places: that owner, and the assistant's
@@ -157,44 +181,69 @@ struct AmbientGroundRuleTests {
     }
 }
 
-/// Redlines §5.7, as build gates: the app sidebar is the rail, and the rail is
-/// still the system's list.
+/// Redlines §5.7, as build gates: the app sidebar is the rail.
 @Suite("Rail rule")
 struct RailRuleTests {
-    /// The rail is drawn by restyling the system's sidebar column, never by
-    /// replacing it. A hand-built column of buttons looks the same in a capture
-    /// and loses arrow-key selection, full keyboard access and the list's own
-    /// VoiceOver semantics, which is why the artboards' drawn rail was refused
-    /// twice before this one was taken.
-    @Test("the rail is the split view's own list, with symbols that keep their names")
-    func railIsTheSystemList() throws {
+    /// The rail is a column of symbol buttons (2026-09-25): a sidebar list
+    /// draws its selection across the whole row and cannot leave space between
+    /// rows, so the squares could not stand apart as the owner asked. A drawn
+    /// rail was refused twice before because it loses what the list gave, so
+    /// the gate is that it keeps all of it: each destination keeps its name for
+    /// VoiceOver and as its help tag, says which one is showing, is reachable by
+    /// full keyboard access, and the arrow keys walk the five in order.
+    @Test("the rail is named symbol buttons that keep the list's keyboard walk")
+    func railKeepsWhatTheListGave() throws {
         let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
         let text = try #require(window.first?.text)
+        let rail = try #require(try SourceTree.swiftFiles(matching: "App/Rail.swift").first?.text)
 
-        #expect(text.contains("List(selection: selection)"), "the rail is no longer a selectable list")
-        #expect(text.contains(".labelStyle(.iconOnly)"), "a rail row draws more than its symbol")
-        // The name stays on the row for VoiceOver, and is the pointer's help tag.
-        #expect(text.contains("Label(title, systemImage: systemImage)"))
-        #expect(text.contains(".help(title)"))
+        #expect(text.contains("RailColumn(items: SidebarItem.mainWindow, selected: selectedSidebarIdentifier)"))
+        #expect(text.contains("selection.wrappedValue = identifier"), "the rail routes around the one path")
         #expect(text.contains(".navigationSplitViewColumnWidth(WindowMetrics.railWidth)"))
 
-        // Both leading columns wear the rail: the app's symbols and Settings'
-        // pane list. One of them left on the system material is two sidebars.
-        #expect(occurrences(of: ".railColumn()", in: text) == 2)
+        #expect(rail.contains(".labelStyle(.iconOnly)"), "a rail destination draws more than its symbol")
+        #expect(rail.contains("Label(title, systemImage: systemImage)"))
+        #expect(rail.contains(".accessibilityLabel(title)"))
+        #expect(rail.contains(".help(title)"))
+        #expect(rail.contains(".accessibilityAddTraits(selected ? .isSelected : [])"))
+        #expect(rail.contains(".focused($focused, equals:"), "a destination cannot take keyboard focus")
+        #expect(rail.contains(".onMoveCommand(perform: move)"), "the arrow keys no longer walk the rail")
+
+        // One rail, in and out of settings, and settings' pane list is the
+        // second pane inside the frame rather than a second sidebar.
+        #expect(occurrences(of: ".railColumn()", in: text) == 1)
+        #expect(occurrences(of: ".paneColumn()", in: text) == 1)
     }
 
-    /// The rail's black and its white are the application icon's, the same in
-    /// both appearances, and the column resolves dark so its selection and its
-    /// symbols stay readable on it under a light window.
-    @Test("the rail is black with white ink in both appearances")
+    /// On dark the rail is the application icon's black with its white; on
+    /// light it is the standard window grey Mac sidebars wear (owner,
+    /// 2026-09-25). The column takes the window's appearance, so its selection
+    /// and its symbols are the ones drawn for the fill under them, and the ink
+    /// holds §9's floor on both.
+    @Test("the rail is the standard grey on light and black on dark")
     func railColours() throws {
-        #expect(WindowFrameRecipe.fill == ThemedColor(uniform: SRGBColor(hex: "#000000")))
-        #expect(WindowFrameRecipe.ink == ThemedColor(uniform: SRGBColor(hex: "#ffffff")))
-        #expect(Contrast.ratio(WindowFrameRecipe.ink.light, WindowFrameRecipe.fill.light) >= 4.5)
+        #expect(WindowFrameRecipe.fill == ThemedColor(lightHex: "#ececec", darkHex: "#000000"))
+        // The glass wears the same two colours, part transparent, so the frame
+        // shows a hint of the desktop without changing colour (owner, 2026-09-25).
+        #expect(WindowFrameRecipe.glassTint == ThemedColor(light: .rgba(236, 236, 236, 0.5), dark: .rgba(0, 0, 0, 0.6)))
+        for scheme in FermixColorScheme.allCases {
+            let tint = WindowFrameRecipe.glassTint.resolved(for: scheme)
+            let fill = WindowFrameRecipe.fill.resolved(for: scheme)
+            #expect([tint.red, tint.green, tint.blue] == [fill.red, fill.green, fill.blue], "the \(scheme) glass changed colour")
+            #expect(tint.alpha >= 0.5, "the \(scheme) frame shows more desktop than frame")
+        }
+        #expect(WindowFrameRecipe.ink == ThemedColor(lightHex: "#1d1d1f", darkHex: "#ffffff"))
+        for scheme in FermixColorScheme.allCases {
+            let ratio = Contrast.ratio(
+                WindowFrameRecipe.ink.resolved(for: scheme),
+                WindowFrameRecipe.fill.resolved(for: scheme)
+            )
+            #expect(ratio >= 4.5, "the rail's ink is \(ratio):1 on the \(scheme) rail")
+        }
 
         let ground = try SourceTree.swiftFiles(matching: "Design/Materials/AmbientGround.swift")
         let text = try #require(ground.first?.text)
-        #expect(text.contains(".environment(\\.colorScheme, .dark)"), "the rail follows the window's appearance")
+        #expect(!text.contains(".environment(\\.colorScheme, .dark)"), "the rail is forced dark on a light window")
     }
 
     /// The border around the content was tried and withdrawn the same day
@@ -216,24 +265,33 @@ struct RailRuleTests {
         }
     }
 
-    /// The body's two leading corners are cut to the window's own radius (owner,
+    /// The body's three open corners are cut to the window's own radius (owner,
     /// 2026-09-20: "should we make the left pane or the body rounded edge like
-    /// the macOS window?").
+    /// the macOS window?"; 2026-09-25, of the top trailing one: "add the rounded
+    /// edge to top right of the body as well to keep it consistent").
     ///
     /// Three things make it an overlay rather than the withdrawn panel, and all
-    /// three are asserted: it is laid on the detail column's leading edge, it is
-    /// filled with the rail's own black rather than a colour of its own, and it
-    /// takes no clicks from the live surface under it.
-    @Test("the body's two leading corners are the rail's black at the window's radius")
+    /// three are asserted: it is laid over the detail column, it is the frame's
+    /// own glass rather than a colour of its own, and it takes no clicks from the
+    /// live surface under it.
+    @Test("the body's three open corners are the frame's glass at the window's radius")
     func bodyCornersAreOverlaidNotClipped() throws {
         let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
         let text = try #require(window.first?.text)
 
-        #expect(text.contains(".overlay(alignment: .leading) { bodyCorners }"))
-        // Both corners, both from the one shape and the one fill.
-        #expect(occurrences(of: "FrameCorner().fill(WindowFrameRecipe.fill.color)", in: text) == 2)
-        #expect(occurrences(of: "WindowMetrics.bodyCornerRadius", in: text) == 4)
-        #expect(text.contains(".scaleEffect(x: 1, y: -1)"), "the bottom corner is not the top one flipped")
+        // Laid over the body: the surface, or in settings the form, since the
+        // pane list beside it is part of the frame.
+        #expect(occurrences(of: ".overlay { bodyCorners }", in: text) == 2)
+        #expect(text.contains("SettingsDetailView(model: settings, router: router, openRecovery: openRecovery)\n                    .overlay { bodyCorners }"), "in settings the corners do not round the form")
+        // Three corners, all from the one shape: top leading as drawn, top
+        // trailing and bottom leading as it flipped.
+        #expect(text.contains("bodyCorner(FrameCorner())"))
+        #expect(text.contains("bodyCorner(FrameCorner().scale(x: -1, y: 1))"), "the top trailing corner is not rounded")
+        #expect(text.contains("bodyCorner(FrameCorner().scale(x: 1, y: -1))"), "the bottom leading corner is not rounded")
+        #expect(occurrences(of: "bodyCorner(FrameCorner()", in: text) == 3)
+        #expect(text.contains("FrameGlass().mask(shape)"), "a corner is not the frame's own glass")
+        // Sized in one place, so the three cannot drift to different radii.
+        #expect(occurrences(of: ".frame(width: WindowMetrics.bodyCornerRadius, height: WindowMetrics.bodyCornerRadius)", in: text) == 1)
         #expect(text.contains(".allowsHitTesting(false)"), "the corners swallow clicks meant for the surface")
 
         // It is the window's measured radius, not the artboards' panel radius.
@@ -253,12 +311,16 @@ struct RailRuleTests {
         let window = try SourceTree.swiftFiles(matching: "App/MainWindowView.swift")
         let text = try #require(window.first?.text)
 
-        #expect(text.contains("ForEach(SidebarItem.mainWindow) { item in"))
-        #expect(!text.contains("SidebarItem.mainWindow.filter"), "the rail leaves a published row out")
-        #expect(!text.contains("PetMark("), "the mascot is drawn in the rail again")
+        let rail = try #require(try SourceTree.swiftFiles(matching: "App/Rail.swift").first?.text)
 
-        #expect(SidebarItem.mainWindow.map(\.route) == [.home, .doctor, .logs, .pet])
+        #expect(text.contains("RailColumn(items: SidebarItem.mainWindow,"))
+        #expect(rail.contains("ForEach(items) { item in"))
+        #expect(!text.contains("SidebarItem.mainWindow.filter"), "the rail leaves a published row out")
+        #expect(!text.contains("PetMark(") && !rail.contains("PetMark("), "the mascot is drawn in the rail again")
+
+        #expect(SidebarItem.mainWindow.map(\.route) == [.chat, .home, .doctor, .logs, .pet])
         #expect(SidebarItem.item(for: .pet)?.systemImage == "pawprint")
+        #expect(SidebarItem.item(for: .chat)?.systemImage == "bubble.left")
     }
 
     /// The Pet surface's still mascot is the generator's fourth image, shipped at

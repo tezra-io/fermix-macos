@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The ambient ground's colours and geometry (redlines §1.3).
@@ -69,24 +70,58 @@ public enum AmbientRecipe {
 
     public static let glowLeadingCenter = UnitPoint(x: 0.08, y: 0)
     public static let glowTrailingCenter = UnitPoint(x: 1, y: 1.05)
+
+    /// Whether the ground is drawn mirrored across the window's vertical axis:
+    /// wash, both glows and both centres, so "leading" and "trailing" above name
+    /// the light appearance's corners.
+    ///
+    /// The rule is that the darker end of the wash meets the rail. On
+    /// light the darker end is the blue-washed start, which is already at the
+    /// leading edge. On dark it is the near-black end, so the dark ground runs
+    /// the other way and the blue rises away from the rail instead of against
+    /// it (owner, 2026-09-24: the blue light on the left beside the pitch-black
+    /// rail "doesnt feel smooth"). Mirroring rather than recolouring keeps each
+    /// glow over the end of the wash it was measured on, so §9's floors hold
+    /// unchanged.
+    public static func isMirrored(in scheme: FermixColorScheme) -> Bool {
+        scheme == .dark
+    }
     /// Each glow's reach, as a fraction of the window's longer side, so the
     /// ground keeps its proportions from the 760 by 520 floor to a full screen.
     public static let glowLeadingReach: Double = 0.62
     public static let glowTrailingReach: Double = 0.60
 }
 
-/// The rail down the window's leading edge (redlines §5.7), in both appearances.
+/// The window's frame (redlines §5.7): the rail down the leading edge and the
+/// band across the top, one colour in one L, with the body set inside it.
 ///
-/// Black rather than a token from the neutral ramp, and the same in light and
-/// dark, because it is the application icon's own ground: the mark is white on
-/// near-black wherever the product draws it, and the rail is where the window
-/// wears that. It stops at the rail: a black border run on around the content
-/// was tried and withdrawn the same day (owner, 2026-09-20: "Lets remove the
-/// border, it doesnt fit well with the color of ours").
+/// Pitch black on dark, where it is the application icon's own ground: the mark
+/// is white on near-black wherever the product draws it, and the frame is where
+/// the window wears that. On light it is the standard window grey most Mac apps
+/// give their sidebar, the light value of the system's window background
+/// (owner, 2026-09-25: "for the light mode let the side bar color be the
+/// standard grey most app uses than the pitch black like the dark mode").
+///
+/// Thin, and only on two sides: the owner liked the thin frame of the Codex
+/// app (2026-09-25), a narrow rail and a titlebar band that carry the traffic
+/// lights between them. A frame on all four sides, an inset panel, was tried
+/// and withdrawn (owner, 2026-09-20: "Lets remove the border, it doesnt fit
+/// well with the color of ours").
+///
+/// It is glass rather than paint (owner, 2026-09-25: "can be bit liquid glassy.
+/// even in the light mode. Without having to change teh color too much"): the
+/// system's sidebar material, which shows what is behind the window, under the
+/// same two colours laid over it part transparent. What the frame shows through
+/// is a hint of the desktop; what it is still reads as the black and the grey.
 public enum WindowFrameRecipe {
-    public static let fill = ThemedColor(uniform: SRGBColor(hex: "#000000"))
-    /// The mark and the rail's symbols.
-    public static let ink = ThemedColor(uniform: SRGBColor(hex: "#ffffff"))
+    /// The frame's colour, and the whole frame wherever the glass steps aside.
+    public static let fill = ThemedColor(lightHex: "#ececec", darkHex: "#000000")
+    /// The fill as it lies over the glass: the same colour, part transparent.
+    /// Dark keeps more of its black than light keeps of its grey, because the
+    /// dark material is already dark and the black is the icon's own ground.
+    public static let glassTint = ThemedColor(light: .rgba(236, 236, 236, 0.5), dark: .rgba(0, 0, 0, 0.6))
+    /// The rail's symbols.
+    public static let ink = ThemedColor(lightHex: "#1d1d1f", darkHex: "#ffffff")
 }
 
 /// How hard the one ground turns its glows up (redlines §1.3).
@@ -126,7 +161,7 @@ public enum AmbientIntensity: String, CaseIterable, Sendable {
 
         switch route {
         case .setup, .recovery, .pet: return .expressive
-        case .home, .doctor, .logs, .update, .uninstall: return .calm
+        case .chat, .home, .doctor, .logs, .update, .uninstall: return .calm
         }
     }
 
@@ -159,6 +194,7 @@ struct AmbientGround: View {
     var intensity: AmbientIntensity = .expressive
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         if !reduceTransparency, contrast != .increased {
@@ -189,6 +225,7 @@ struct AmbientGround: View {
                 endRadius: longerSide * AmbientRecipe.glowTrailingReach
             )
         }
+        .scaleEffect(x: AmbientRecipe.isMirrored(in: colorScheme == .dark ? .dark : .light) ? -1 : 1)
     }
 }
 
@@ -206,23 +243,55 @@ extension View {
 }
 
 extension View {
-    /// The window's leading column, drawn as the rail (redlines §5.7).
-    ///
-    /// The list gives up the system's sidebar material for the rail's black,
-    /// and it resolves in the dark appearance whatever the window's is, because
-    /// its ground is black in both: a light-appearance selection and light
-    /// symbols on black are the one pairing that cannot be read. It sits beside
-    /// `showsAmbientGround()` because it is the same act with the other
-    /// outcome: a scroll container gives up its own fill, here for the rail's.
+    /// The window's leading column, drawn as the rail (redlines §5.7): the
+    /// frame's glass under the window's own appearance, so the symbols are dark
+    /// on the light grey and light on the dark rail's black.
     func railColumn() -> some View {
-        scrollContentBackground(.hidden)
-            .background(WindowFrameRecipe.fill.color)
-            .environment(\.colorScheme, .dark)
+        background { FrameGlass().ignoresSafeArea() }
+    }
+
+    /// The settings pane list, drawn as part of the frame (owner, 2026-09-25,
+    /// asked whether it was glass like the rail: "yea. do it.").
+    ///
+    /// A sidebar list, so its rows, symbols and selection are the system's
+    /// own, on the frame's own glass. In settings the frame is the rail and the
+    /// pane list together, and the body it rounds is the form. A glass of its
+    /// own was tried and withdrawn: on dark it landed on the rail's tone, so the
+    /// list read as frame anyway and the form beside it began in a square corner.
+    func paneColumn() -> some View {
+        listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background { FrameGlass().ignoresSafeArea() }
+    }
+
+    /// The frame's band across the top of the body.
+    ///
+    /// The band sits where the toolbar does, `height` being the column's top
+    /// safe area, and the body under it is masked off, so content scrolled up
+    /// ends at the band instead of running on under the title and the toolbar's
+    /// actions. The system's own toolbar background is not honoured over this
+    /// window's clear titlebar, so the band is drawn here.
+    func framedByBand(height: Double) -> some View {
+        mask {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: height)
+                Color.black
+            }
+            .ignoresSafeArea()
+        }
+        .background {
+            VStack(spacing: 0) {
+                FrameGlass().frame(height: height)
+                Color.clear
+            }
+            .ignoresSafeArea()
+        }
     }
 }
 
-/// The piece of the rail's black that turns a square corner of the body into a
-/// rounded one: a square with a quarter disc taken out of it.
+/// The piece of the frame that turns a square corner of the body into a
+/// rounded one: a square with a quarter disc taken out of it, which masks the
+/// frame's glass laid over that corner.
 ///
 /// It is drawn over the body's corner rather than clipped out of it, so the
 /// surface underneath keeps every point of its own width and needs no second
@@ -231,8 +300,8 @@ extension View {
 /// corner leaves exactly the wedge the window's rounded corner would have cut,
 /// and nothing has to be aligned by eye.
 ///
-/// One shape for both corners: the bottom one is the same path flipped, so the
-/// two can never be cut to different radii.
+/// One shape for all three corners: the others are the same path flipped, so
+/// they can never be cut to different radii.
 struct FrameCorner: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
@@ -249,4 +318,46 @@ struct FrameCorner: Shape {
 
         return path
     }
+}
+
+/// The frame's glass: the system's sidebar material, blended with what is
+/// behind the window, under the frame's own colour (`WindowFrameRecipe`).
+///
+/// It is the window server that blurs what is behind the window, as it does
+/// for every Mac sidebar, so the ground's rule holds here too: nothing in this
+/// view moves or filters, and it costs the app nothing per frame.
+///
+/// The system material and not Liquid Glass (`NSGlassEffectView`), which was
+/// tried first: Liquid Glass is for a control floating over content, and it
+/// drew its own bright rim round each piece of the frame, a line along the
+/// band's lower edge and a separate shard at each corner (owner, 2026-09-25:
+/// "Theres seems a ine on the top bar").
+///
+/// Reduce Transparency and Increase Contrast get the frame's plain fill, the
+/// same answer the ground gives those two settings.
+struct FrameGlass: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        if reduceTransparency || contrast == .increased {
+            WindowFrameRecipe.fill.color
+        } else {
+            SidebarMaterial().overlay(WindowFrameRecipe.glassTint.color)
+        }
+    }
+}
+
+/// The system's sidebar material, blended with what is behind the window and
+/// dimmed with the window as a sidebar is.
+private struct SidebarMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .sidebar
+        view.blendingMode = .behindWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }

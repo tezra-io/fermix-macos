@@ -12,14 +12,15 @@ struct OnboardingModelTests {
     @Test("beginning runs activation and lands on the screen the daemon's readiness names")
     func beginActivates() async throws {
         let harness = try OnboardingHarness()
+        try harness.gateOnPrimaryCredential()
 
         harness.model.begin()
         await harness.model.drainPendingWork()
 
         #expect(harness.activation.runs == 1)
-        // The golden setup state's one gating failure is the personalization
-        // one, which is the About you screen.
-        #expect(harness.model.stage == .aboutYou)
+        // The one gating failure is the primary's missing credential, which
+        // Connect your AI is the screen that clears.
+        #expect(harness.model.stage == .connectAI)
     }
 
     /// Activation's stages reach the ladder, so the headline the user reads is
@@ -27,7 +28,7 @@ struct OnboardingModelTests {
     @Test("the ladder follows activation's reported stages")
     func ladderFollowsActivation() async throws {
         let harness = try OnboardingHarness()
-        harness.activation.reportedStages = [.registering, .starting, .answering, .reading]
+        harness.activation.reported = [.reached(.registering), .reached(.starting), .reached(.answering), .reached(.reading)]
         // A failed run keeps the assistant on a stage that draws the ladder, so
         // the rows it reached are still readable.
         harness.activation.outcome = .failed(.timedOut)
@@ -55,11 +56,12 @@ struct OnboardingModelTests {
     }
 
     /// The owner's dead end: the card said to allow Fermix in System Settings
-    /// and offered Run Doctor, which asks a daemon that never started. It now
-    /// leads to the pane holding the switch, and Try again follows.
+    /// and offered Run Doctor, which asks a daemon that never started. A card
+    /// whose cause is a Login Items switch leads to that pane, and Try again
+    /// follows.
     @Test(
-        "a background item awaiting approval leads to Login Items settings",
-        arguments: [BootFailureCause.approvalPending, .backgroundItemDisabled, .registrationFailed]
+        "a Login Items failure card leads to Login Items settings",
+        arguments: [BootFailureCause.backgroundItemDisabled, .registrationFailed]
     )
     func approvalCardOpensLoginItems(cause: BootFailureCause) async throws {
         let harness = try OnboardingHarness()
@@ -74,8 +76,67 @@ struct OnboardingModelTests {
 
         harness.model.openLoginItems()
 
-        #expect(harness.settingsOpener.opened == [PermissionLedger.loginItemsPane])
+        #expect(harness.loginItems.settingsOpened == 1, "through the documented opener")
+        #expect(harness.settingsOpener.opened.isEmpty, "never through an undocumented url")
         #expect(harness.routes.isEmpty, "the pane is System Settings, not a Fermix surface")
+    }
+
+    /// The first-install fix: macOS holding the background item is a step of
+    /// Starting, with one sentence and one button under the ladder, and no
+    /// failure card. Cancel is still the way off it.
+    @Test("a held background item draws the approval block on Starting, not a failure card")
+    func approvalBlockOnStarting() async throws {
+        let harness = try OnboardingHarness()
+        harness.activation.reported = [.reached(.registering), .awaitingApproval(.awaited)]
+        harness.activation.blocksUntilCancelled = true
+
+        harness.model.begin()
+        await harness.settle()
+
+        #expect(harness.model.stage == .starting)
+        #expect(harness.model.failurePanel == nil)
+        #expect(harness.model.approvalSentence == ProductStrings[.startingApprovalBody])
+        #expect(harness.model.ladder?.rows.first?.title == ProductStrings[.startingRowAwaitingApproval])
+
+        harness.model.openLoginItems()
+        #expect(harness.loginItems.settingsOpened == 1)
+
+        harness.model.cancelStarting()
+        await harness.model.drainPendingWork()
+        #expect(harness.routes == [.surface(.home)])
+    }
+
+    @Test("an item the person switched off is named as switched off")
+    func approvalBlockNamesSwitchedOff() async throws {
+        let harness = try OnboardingHarness()
+        harness.activation.reported = [.reached(.registering), .awaitingApproval(.switchedOff)]
+        harness.activation.blocksUntilCancelled = true
+
+        harness.model.begin()
+        await harness.settle()
+
+        #expect(harness.model.approvalSentence == ProductStrings[.startingApprovalBodySwitchedOff])
+
+        harness.model.cancelStarting()
+        await harness.model.drainPendingWork()
+    }
+
+    @Test("the approval block is gone once the daemon's row is reached")
+    func approvalBlockOnlyWhileHeld() async throws {
+        let harness = try OnboardingHarness()
+        harness.activation.reported = [
+            .reached(.registering), .awaitingApproval(.awaited), .reached(.starting)
+        ]
+        harness.activation.blocksUntilCancelled = true
+
+        harness.model.begin()
+        await harness.settle()
+
+        #expect(harness.model.approvalSentence == nil)
+        #expect(harness.model.ladder?.rows.first?.title == ProductStrings[.startingRowService])
+
+        harness.model.cancelStarting()
+        await harness.model.drainPendingWork()
     }
 
     /// A daemon that never started has no lines to show, and the card carries
@@ -183,12 +244,13 @@ struct OnboardingModelTests {
     @Test("readiness is read through the one settings model")
     func readinessFromSettings() async throws {
         let harness = try OnboardingHarness()
+        try harness.gateOnPrimaryCredential()
 
         await harness.model.refreshReadiness()
 
         #expect(harness.gateway.calls.contains(.v2(.setupStateGet)))
         #expect(harness.model.readiness.daemonLive)
-        #expect(harness.model.readiness.gaps == [.personalization])
+        #expect(harness.model.readiness.gaps == [.provider])
         #expect(!harness.model.readiness.canFinish)
     }
 
@@ -242,6 +304,7 @@ struct OnboardingModelTests {
     @Test("what Starting read is adopted rather than re-asked")
     func rowFourIsAdopted() async throws {
         let harness = try OnboardingHarness()
+        try harness.gateOnPrimaryCredential()
 
         harness.model.begin()
         await harness.model.drainPendingWork()
@@ -872,6 +935,9 @@ final class OnboardingHarness {
     /// The system browser, recorded rather than opened, because the sign-in
     /// hop is the assistant's half of the flow.
     let opener = RecordingExternalOpener()
+    /// Login Items, recorded rather than registered or opened: the approval
+    /// step and the failure cards open System Settings through it.
+    let loginItems = FakeLoginItemService()
     /// System Settings, recorded rather than opened: the approval card's
     /// primary action deep-links into it.
     let settingsOpener = RecordingSystemSettingsOpener()
@@ -924,8 +990,27 @@ final class OnboardingHarness {
             onRoute: { destination in recorder.record(destination) },
             onRecoveryResolved: { recorder.recordRecoveryResolved() },
             onRetryUpdateRecovery: { recorder.recordUpdateRetry() },
-            settings: SettingsFixture.model(gateway: gateway, opener: opener, settingsOpener: settingsOpener),
+            settings: SettingsFixture.model(
+                gateway: gateway,
+                opener: opener,
+                settingsOpener: settingsOpener,
+                loginItems: loginItems
+            ),
             sleeper: NoWaitSleeper()
+        )
+    }
+
+    /// A daemon whose primary has no credential, in both places the assistant
+    /// reads it: what Starting hands over and what a later re-read answers. It
+    /// is the one gating failure the daemon publishes, so it is the home the
+    /// decision screens are looked at on; the golden home is ready.
+    func gateOnPrimaryCredential() throws {
+        let state = try ManagementValueFixture.setupState(primaryConfigured: false)
+
+        gateway.setupStateResult = state
+        activation.prepared = ActivationPreparation(
+            state: state,
+            detections: try ManagementValueFixture.detections()
         )
     }
 
@@ -1015,18 +1100,18 @@ final class FakeActivationDriver: ActivationDriving {
     private(set) var cancelled = false
 
     var outcome: ActivationOutcome?
-    var reportedStages: [ActivationStage] = []
+    var reported: [ActivationProgress] = []
     var hello: ManagementHello?
     var prepared = ActivationPreparation()
     /// Waits for the task to be cancelled instead of answering, the way a real
     /// activation sits in its bounded socket wait.
     var blocksUntilCancelled = false
 
-    func activate(progress: @escaping (ActivationStage) -> Void) async -> ActivationOutcome {
+    func activate(progress: @escaping (ActivationProgress) -> Void) async -> ActivationOutcome {
         runs += 1
 
-        for stage in reportedStages {
-            progress(stage)
+        for step in reported {
+            progress(step)
         }
 
         if blocksUntilCancelled { return await waitForCancellation() }

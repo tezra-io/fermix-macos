@@ -154,7 +154,7 @@ struct DeveloperRunActivationTests {
 
         _ = await harness.coordinator.activate { stages.record($0) }
 
-        #expect(stages.recorded == [.registering, .starting, .answering, .reading])
+        #expect(stages.recorded == [.reached(.registering), .reached(.starting), .reached(.answering), .reached(.reading)])
     }
 
     /// The daemon identity probe is the one preflight both plans run. A foreign

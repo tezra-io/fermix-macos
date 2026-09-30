@@ -155,6 +155,13 @@ public final class PermissionLedger: ObservableObject {
     private let microphone: any MicrophoneAuthorizationReading
     private let settingsOpener: any SystemSettingsOpening
     private let log = AppLog.logger(.app)
+    /// The background item's registration as macOS last answered. Held rather
+    /// than read through, because each read is a synchronous XPC round trip of
+    /// about 70 ms (`LoginRegistrations`), and the projection asked twice: the
+    /// Voice pane re-projects as it appears, so opening it froze the window for
+    /// both. It is read again, off the main thread, on every `refresh()`, which
+    /// is what the Permissions pane that draws the row runs as it opens.
+    private var agentRegistration: ServiceRegistrationStatus
 
     public init(
         gateway: any DaemonQuerying,
@@ -166,36 +173,41 @@ public final class PermissionLedger: ObservableObject {
         self.services = services
         self.microphone = microphone
         self.settingsOpener = settingsOpener
+        // Once, before the first draw, so the row never opens on a guess.
+        self.agentRegistration = services.status(.agent)
         self.rows = project()
     }
 
     /// Re-reads every right. Called on pane open and on Refresh, never on
     /// render: the helper's probe is a daemon round trip.
     public func refresh() async {
-        computerUse = .loading
+        // By the rule `SettingsModel.beginRead` states: an answer already drawn
+        // stays on screen while it is re-read.
+        if computerUse.value == nil { publish(.loading) }
         do {
-            computerUse = .loaded(try await gateway.computerUsePermissions())
+            publish(.loaded(try await gateway.computerUsePermissions()))
         } catch {
-            computerUse = .failure(error)
+            publish(.failure(error))
             log.error(
                 "computer-use permissions unavailable: \(ManagementMessage.sentence(for: error), privacy: .public)"
             )
         }
 
-        rows = project()
+        agentRegistration = await services.registrations().agent
+        publishRows()
     }
 
     /// Re-reads only what this process can answer for itself, which is what a
     /// return from System Settings needs.
     public func refreshLocalRights() {
-        rows = project()
+        publishRows()
     }
 
     /// Raises the microphone dialog. The one prompting call in this type, and
     /// it happens only where the operator pressed the button.
     public func requestMicrophone() async {
         _ = await microphone.requestMicrophone()
-        rows = project()
+        publishRows()
     }
 
     /// Opens the pane a row deep-links to, and answers whether it opened. A
@@ -212,8 +224,37 @@ public final class PermissionLedger: ObservableObject {
         return opened
     }
 
+    /// Opens Login Items, where the background item's switch is. It goes
+    /// through the service owner's documented opener, the same one setup's
+    /// approval step and the Boot failed card use, so the three buttons that
+    /// name the pane cannot open it three ways.
+    public func openLoginItems() {
+        services.openLoginItemsSettings()
+    }
+
     public func row(_ right: PermissionRight) -> PermissionRowModel? {
         rows.first { $0.right == right }
+    }
+
+    // MARK: - Publishing
+
+    /// Publishes the helper's answer only where it changed: each visit to
+    /// Permissions or Computer re-reads it, and the answer is nearly always
+    /// the one already drawn.
+    private func publish(_ answer: SettingsReadState<ManagementComputerUsePermissions>) {
+        guard answer != computerUse else { return }
+
+        computerUse = answer
+    }
+
+    /// Publishes the projection only where it changed. The Voice pane asks for
+    /// it each time it appears, and an unchanged ledger redrawing every pane
+    /// that observes it is the cost this avoids.
+    private func publishRows() {
+        let projected = project()
+        guard projected != rows else { return }
+
+        rows = projected
     }
 
     // MARK: - Projection
@@ -238,7 +279,7 @@ public final class PermissionLedger: ObservableObject {
             PermissionRowModel(
                 right: .backgroundService,
                 state: backgroundState,
-                action: services.status(.agent) == .requiresApproval ? .openLoginItems : nil
+                action: agentRegistration == .requiresApproval ? .openLoginItems : nil
             )
         ]
     }
@@ -270,7 +311,7 @@ public final class PermissionLedger: ObservableObject {
     }
 
     private var backgroundState: PermissionState {
-        switch services.status(.agent) {
+        switch agentRegistration {
         case .enabled: return .granted
         case .requiresApproval: return .requiresApproval
         case .notRegistered, .notFound: return .notGranted
@@ -282,5 +323,4 @@ public final class PermissionLedger: ObservableObject {
     public static let microphonePane = "com.apple.preference.security?Privacy_Microphone"
     public static let screenRecordingPane = "com.apple.preference.security?Privacy_ScreenCapture"
     public static let accessibilityPane = "com.apple.preference.security?Privacy_Accessibility"
-    public static let loginItemsPane = "com.apple.LoginItems-Settings.extension"
 }

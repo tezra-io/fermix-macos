@@ -141,20 +141,10 @@ live() {
 
 # The one signing identity this loop uses: the Developer ID Application
 # certificate in the login keychain, which is the identity a release carries
-# and the one whose Team ID the shipped app's grants are keyed to. Exactly
-# one, or a refusal that says what to import; a second identity would make the
-# choice silent.
-signing_identity() {
-  local listing matches count
-  listing="$(security find-identity -v -p codesigning 2>/dev/null)" || listing=""
-  matches="$(printf '%s\n' "$listing" | grep -F 'Developer ID Application:' || true)"
-  count="$(printf '%s' "$matches" | grep -c '"' || true)"
-  case "$count" in
-    1) printf '%s\n' "$matches" | sed -E 's/^[^"]*"([^"]*)".*$/\1/' ;;
-    0) fail "no Developer ID Application identity in the login keychain. The background agent is registered through SMAppService, which keys on the Team ID of the signed code; an ad-hoc signature has none, so every rebuild is a new program to launchd and the agent stops launching. Import the certificate this team releases with (docs/E2E_RUNBOOK.md, "Importing your Developer ID on this Mac"), then run up again" ;;
-    *) fail "$count Developer ID Application identities in the login keychain; keep exactly one so the choice is not silent" ;;
-  esac
-}
+# and the one whose Team ID the shipped app's grants are keyed to. Resolved by
+# scripts/signing_identity.sh, shared with the cloud acceptance loop.
+# shellcheck source=scripts/signing_identity.sh
+source "$ROOT_DIR/scripts/signing_identity.sh"
 
 # The dev home's secrets live under their own keychain prefix. A missing config
 # is written with the profile alone (the engine's first boot fills in the
