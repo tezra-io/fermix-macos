@@ -1,87 +1,122 @@
 # fermix-macos
 
-Native macOS apps for [Fermix](https://github.com/tezra-io/fermix), built,
-Developer-ID signed, notarized, and distributed as drag-to-Applications DMGs +
-Homebrew casks. Product-neutral: each app lives under `Apps/` and shares one
-signing / notarization / release pipeline.
-
-## Apps
-
-| App | Path | Cask | Tag namespace |
-|---|---|---|---|
-| **Fermix** — the macOS app, with the engine bundled inside it | `Apps/Fermix/` | `Casks/fermix.rb` | `v*` |
+The native macOS app for [Fermix](https://github.com/tezra-io/fermix), with the
+engine bundled inside it. Built, Developer ID signed, notarized and shipped as a
+DMG and a Homebrew cask. `AGENTS.md` holds the rules the code follows; this file
+is how to build, test and release it.
 
 ## Layout
 
 ```
-Apps/<App>/            SwiftPM package for each app, plus its XcodeGen project.yml
-Apps/Fermix/Sources/FermixAppCore/Resources/Product.json
-                       the one product configuration: identity, layout, versions,
-                       agent label, engine + Tools paths. Swift and the scripts
-                       both read it; no plist is written anywhere else.
-scripts/               product_config.sh + render_info_plist.sh + check_product_config.sh,
-                       keychain.sh, package_release.sh (build→sign→notarize→staple→DMG),
-                       verify_protocol_contract.sh
-.github/workflows/     ci.yml (cask style), fermix-app.yml (PR gates),
-                       notarize.yml (reusable signing), release.yml
-Casks/                 Homebrew cask templates (rendered at release with the real sha)
-Apps/Fermix/Sources/FermixAppCore/Resources/Contracts/
-                       vendored copies of Fermix's management and realtime wire
-                       contracts, pinned by CHECKSUMS.txt + SOURCE.json
+Apps/Fermix/                      SwiftPM package (plus project.yml for XcodeGen)
+  Sources/FermixAppCore/          every view and behaviour
+    Resources/Product.json        the one product configuration: identity, versions, paths
+    Resources/Contracts/          vendored engine wire contracts (management, realtime,
+                                  companion, browser_host), pinned by CHECKSUMS.txt + SOURCE.json
+    Resources/VendorMarks/        vendor marks with their provenance and roster
+  Sources/Fermix                  the GUI executable
+  Sources/FermixAgent             the background agent launchd runs
+  Sources/FermixBrowser           the WebKit browser behind the pane
+  Tests/FermixAppCoreTests        swift-testing; run through script/swift_test.sh
+engine/PIN.json                   which engine release the app ships
+scripts/                          staging, signing, verification, release and dev-loop scripts
+.github/workflows/                ci.yml (cask style), fermix-app.yml (PR gates),
+                                  notarize.yml (reusable signing), release.yml (the rail)
+Casks/                            Homebrew cask template, rendered at release
+CHANGELOG.md                      the release notes, kept as the work lands
+docs/                             runbooks, SHIPPING.md and the design redlines
 ```
 
-## Releasing an app
+## Testing locally with the latest engine
 
-1. Push a tag `vX.Y.Z` (maintainers only — protected-tag ruleset).
-2. `release.yml` builds universal2, signs with Developer ID, notarizes +
-   staples (two-pass: app then DMG), runs the Gatekeeper quarantine-acceptance gate,
-   then publishes a GitHub Release (**not** marked latest) with the DMG, its sha256,
-   a keyless cosign signature, and the rendered cask.
-3. Signing waits on the protected **`release-macos`** environment — a required
-   reviewer must approve before the Apple secrets are exposed.
+The dev loop builds the engine from a checkout of the
+[fermix](https://github.com/tezra-io/fermix) repo, stages the app around it as a
+separate development app (`Fermix Dev.app`, its own home at `~/.fermix-macos`,
+port 4530), signs it and launches it. The installed Fermix app, its daemon and
+its data are never touched.
 
-Installing (once a release exists and the repo/release is public):
+You need: a `fermix` checkout, the Developer ID Application identity in your
+login keychain (the loop refuses an ad-hoc signature, because macOS keys the
+background agent on the Team ID), Elixir and Erlang for the engine build, and
+either Xcode or the Command Line Tools with the macOS 26 SDK beside the 27 SDK
+(the loop picks the right one).
 
 ```sh
-brew install --cask tezra-io/tap/fermix   # or the local Casks/fermix.rb
+# Once: give the loop its own engine worktree, on the engine ref you want to run.
+git -C ~/projects/fermix fetch origin
+git -C ~/projects/fermix worktree add ~/.cache/fermix-engine-m34 origin/main
+
+# Each time: build the engine as that worktree stands, stage, sign and launch the app.
+scripts/dev_e2e.sh up            # full engine build
+scripts/dev_e2e.sh up --fast     # app only, reusing the built engine
+scripts/dev_e2e.sh status        # what is running, and which engine commit
+scripts/dev_e2e.sh down          # quit the app, unregister its agent, stop the engine
 ```
 
-## Development
+To run a different engine, move the worktree yourself and run `up` again:
+`git -C ~/.cache/fermix-engine-m34 checkout --detach v0.12.1` for a release tag,
+or `origin/dev` for the engine's tip. The loop never fetches, resets or moves
+that checkout: it builds exactly what is there, uncommitted work included. Set
+`FERMIX_REPO` if your checkout is not at `~/projects/fermix`.
 
-Local, unsigned build (self-signed identity, no notarization):
+The app opens on Chat; `open fermix-dev://settings/providers` and the other
+`fermix-dev://` routes open a surface directly. `docs/E2E_RUNBOOK.md` is the full
+acceptance session, and `docs/SHIPPING.md` the release plan.
+
+## Building and the gates
 
 ```sh
-Apps/Fermix/script/build_and_run.sh run
-```
-
-Gates:
-
-```sh
-cd Apps/Fermix && swift build && script/swift_test.sh
+cd Apps/Fermix
+swift build                       # zero warnings is the bar
+script/swift_test.sh              # the suite, with the paths Command Line Tools need
 xcodegen generate                 # validates project.yml
-../../scripts/check_product_config.sh
 ```
 
-`script/swift_test.sh` supplies the swift-testing search path and rpaths that
-Command Line Tools need and a full Xcode toolchain does not.
+On a Mac with only the Command Line Tools, whose default SDK is macOS 27, build
+with `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk` and the
+linker flags `-Xlinker -platform_version -Xlinker macos -Xlinker 15.0 -Xlinker 26.5`,
+and give the test script the testing macros with
+`script/swift_test.sh -Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing`;
+the dev loop and CI do this for you. The full gate list before any PR is in
+`AGENTS.md` under Working rules; `scripts/verify_protocol_contract.sh --source
+<fermix checkout>` proves the vendored contracts are byte for byte the engine's,
+and `scripts/check_vendor_marks.sh` compares the marks against the same checkout
+at the pinned engine commit.
 
-`ci.yml` proves the universal2 build (`arm64` + `x86_64`) and the static
-runtime-policy / build-harness checks on every PR, before any signed release.
+## Releasing
 
-## The wire contracts
+The app runs the engine it pins, never the newest engine. `AGENTS.md` under
+"Cutting an app release" is the procedure; in short:
 
-The app speaks two socket protocols defined canonically in the fermix repo: the
-packet-4 management protocol on `daemon.sock` and the newline-delimited realtime
-protocol on `realtime.sock`. Both are vendored under
-`Apps/Fermix/Sources/FermixAppCore/Resources/Contracts/` and pinned by
-`CHECKSUMS.txt` plus `SOURCE.json`; `scripts/verify_protocol_contract.sh` (run in
-CI) fails if either drifts, and `--source <fermix-checkout>` additionally proves
-the copy is byte-identical to upstream. Bump order across the two repos: **ship
-daemon support first, then the app** — see each `PROTOCOL.md`.
+1. The engine releases first. Compare its wire exports since the pinned tag and
+   re-vendor `Resources/Contracts` if they moved.
+2. One chore PR on `dev`: move `engine/PIN.json` as a whole to the new release,
+   bump `marketing_version` and `build_number` in `Product.json` and
+   `project.yml`, regenerate `Info.plist` with `scripts/render_info_plist.sh`, and
+   move the `CHANGELOG.md` entries under the new version heading. Prove it with
+   `scripts/check_product_config.sh`, `scripts/fetch_engine.sh` and
+   `scripts/verify_engine.sh` against the published engine release.
+3. Open the PR from `dev` to `main`; merge on green.
+4. A release owner pushes the tag `vX.Y.Z` on the merge commit (the
+   `protected-release-tags` ruleset allows only that team). `release.yml`
+   refuses a tag whose version has no changelog section, builds universal,
+   signs, notarizes and staples, runs the Gatekeeper gate, pauses at the
+   `release-macos` environment for approval, then publishes the GitHub Release
+   with the DMG, its sha256, a cosign signature, the appcast and the cask, and
+   opens the tap's cask PR.
+5. Afterwards: mark the release latest, merge the tap PR, and put the release's
+   `appcast.xml` into the site as `public/appcast.xml` on its `dev` branch. The
+   app reads the feed at `https://fermix.ai/appcast.xml`.
+
+Install a published release with:
+
+```sh
+brew install --cask tezra-io/tap/fermix
+```
 
 ## Required repo secrets (release only)
 
 `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `MACOS_KEYCHAIN_PASSWORD`,
-`MACOS_DEVELOPER_ID`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` (all seven,
-scoped to the `release-macos` environment). Optional: `HOMEBREW_TAP_TOKEN` to
-auto-publish the cask to `tezra-io/homebrew-tap`.
+`MACOS_DEVELOPER_ID`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`, scoped to
+the `release-macos` environment. `HOMEBREW_TAP_TOKEN` lets the rail open the
+cask PR on `tezra-io/homebrew-tap`.

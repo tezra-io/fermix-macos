@@ -41,6 +41,14 @@ jobs:
       - name: Product configuration (single source of truth)
         run: scripts/check_product_config.sh
 
+      # A release without notes is one nobody wrote down. The section is read
+      # here, before anything is signed, so a tag cut without its changelog
+      # entry fails in seconds rather than after notarization.
+      - name: Release notes present (CHANGELOG.md)
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: scripts/changelog_section.sh "${REF_NAME#v}" >/dev/null
+
       - id: v
         env:
           REF_NAME: ${{ github.ref_name }}
@@ -164,11 +172,13 @@ jobs:
         run: |
           set -euo pipefail
           dmg="$(ls dist/Fermix-*.dmg)"
+          notes="$(mktemp)"
+          scripts/changelog_section.sh "${REF_NAME#v}" > "$notes"
           gh release create "$REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$REF_NAME" \
             --latest=false \
-            --generate-notes \
+            --notes-file "$notes" \
             "$dmg" "$dmg.sha256" "$dmg.sig" "$dmg.pem" Casks/fermix.rb
 
       # Both documents become assets of this release: the feed is what the site
