@@ -118,7 +118,9 @@ extension SettingsModel {
         }
     }
 
-    /// Forgets the local session. Nothing is revoked upstream.
+    /// Forgets the local session. For OpenAI Codex the daemon also revokes the
+    /// ChatGPT session upstream, so Fermix is disconnected from the account and
+    /// not only from this Mac; nothing else is revoked.
     public func logOut(provider: String) async -> String? {
         precondition(!provider.isEmpty, "a sign-out names its provider")
 
@@ -137,6 +139,29 @@ extension SettingsModel {
     public func signInFinished() async {
         signingInProvider = nil
         await refreshSetupState()
+    }
+
+    /// Opens ChatGPT's usage settings, where a person sees what Fermix used of
+    /// their plan and caps it. Answers a sentence where the browser could not
+    /// open.
+    public func openChatGPTUsage() -> String? {
+        opener.open(ProviderRowProjection.chatGPTUsageURL) ? nil : ProductStrings[.providerSignInOpenFailed]
+    }
+
+    /// What a completed sign-in for this provider ends on: the way to ChatGPT's
+    /// usage settings for OpenAI Codex, which the sign-in sheet reads as
+    /// OpenAI's plan notice, and nil for every other provider, whose sheet
+    /// closes when it completes.
+    ///
+    /// OpenAI asks that a completed ChatGPT sign-in say the plan is in use and
+    /// where to manage it. One answer for both sheets that follow a sign-in, the
+    /// Providers pane's and Connect your AI's, so neither decides alone which
+    /// sign-ins end on it.
+    public func manageUsage(after provider: String) -> (() -> String?)? {
+        precondition(!provider.isEmpty, "a sign-in names its provider")
+        guard provider == ProviderRowProjection.chatGPTProvider else { return nil }
+
+        return { self.openChatGPTUsage() }
     }
 
     /// One page of models. A live fetch that fails answers `unavailable`; it

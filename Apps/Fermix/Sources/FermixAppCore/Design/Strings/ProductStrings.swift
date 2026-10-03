@@ -662,8 +662,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
 
     // Providers
     case providerVerbSignIn = "provider.verb.signIn"
+    case providerVerbContinueWithChatGPT = "provider.verb.continueWithChatGPT"
     case providerVerbImportClaudeCode = "provider.verb.importClaudeCode"
-    case providerVerbImportCodexCLI = "provider.verb.importCodexCLI"
     case providerVerbAddSetupToken = "provider.verb.addSetupToken"
     case providerVerbAddKey = "provider.verb.addKey"
     case providerStatusSigningIn = "provider.status.signingIn"
@@ -701,6 +701,21 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// live there rather than on the row.
     case providerDetails = "provider.details"
     case providerSignOut = "provider.signOut"
+    /// The signed-in account, in a provider's detail, for any provider whose
+    /// daemon row names one.
+    case providerAccount = "provider.account"
+    /// ChatGPT's plan, in OpenAI Codex's detail (M57): the offer under its
+    /// door, the line while Fermix uses the plan, and the way to its usage
+    /// settings.
+    case providerChatGPTOffer = "provider.chatgpt.offer"
+    case providerChatGPTUsingPlan = "provider.chatgpt.usingPlan"
+    case providerChatGPTManageUsage = "provider.chatgpt.manageUsage"
+    case providerChatGPTManageUsageHint = "provider.chatgpt.manageUsageHint"
+    /// OpenAI's notice after a ChatGPT sign-in completes, in the sign-in
+    /// sheet's place.
+    case providerChatGPTNoticeTitle = "provider.chatgpt.notice.title"
+    case providerChatGPTNoticeBody = "provider.chatgpt.notice.body"
+    case providerChatGPTNoticeDone = "provider.chatgpt.notice.done"
     /// The key of a provider that signs in, kept behind its sign-in.
 
     // Channels

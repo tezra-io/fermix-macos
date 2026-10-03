@@ -3,10 +3,12 @@ import Foundation
 
 /// Handing a url to the system browser, behind a seam.
 ///
-/// Two hops the app makes into a browser, and no others. A provider sign-in,
+/// Three hops the app makes into a browser, and no others. A provider sign-in,
 /// because RFC 8252 requires the external browser and the credential must never
-/// cross this process. And the prior installer Recovery offers after an update
-/// that did not finish (M34 §6, R4), because this app downloads nothing itself.
+/// cross this process. The prior installer Recovery offers after an update that
+/// did not finish (M34 §6, R4), because this app downloads nothing itself. And
+/// ChatGPT's usage settings, behind Manage usage (M57), a fixed public url with
+/// no credential in it, because where a person caps their plan is OpenAI's page.
 public protocol ExternalOpening: Sendable {
     func open(_ url: URL) -> Bool
 }

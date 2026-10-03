@@ -42,8 +42,9 @@ public struct ManagementSetupProvider: Decodable, Equatable, Sendable {
     public let presentKey: Bool
     public let defaultModel: String?
     public let reasoningEffort: String?
-    /// Fast mode, which M34 §5.1 renders as a Toggle. A boolean because
-    /// `Providers.RouteResolver.validate_fast!/1` accepts only nil or a boolean.
+    /// Fast mode, retired with the Codex-client sign-in (M57): the daemon drops
+    /// it at load and nothing draws it. Still decoded, because an older daemon
+    /// sends it.
     public let fast: Bool?
     public let accountLabel: String?
     /// M34 §7.3 names this field and publishes no value set, so it is carried

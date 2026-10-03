@@ -41,7 +41,7 @@
 
 /* MARK: Connect AI */
 "connectAI.title" = "Connect your AI";
-"connectAI.subcopy" = "Use a sign-in from this Mac or add an API key. A new ChatGPT sign-in opens in your browser, and Fermix never sees your password.";
+"connectAI.subcopy" = "Sign in with an account you already have, or add an API key. Fermix never sees your password.";
 "connectAI.keyRow.title" = "API key";
 "connectAI.keyRow.hint" = "Any provider that takes a key.";
 "connectAI.connectedTitle" = "Your AI is already connected";
@@ -186,7 +186,7 @@
 "attention.channel.titleFormat" = "%@ is on but not finished";
 "attention.channel.body" = "The channel is enabled and still missing something it needs, so it will not answer.";
 "attention.voice.title" = "The voice companion needs an OpenAI key";
-"attention.voice.body" = "Voice uses the OpenAI Realtime API, which a Codex or Claude sign-in does not authorize.";
+"attention.voice.body" = "Voice uses the OpenAI Realtime API, which a ChatGPT or Claude sign-in does not authorize.";
 "attention.sandboxEnv.missing.title" = "Some allowed environment variables are not set";
 "attention.sandboxEnv.missing.body" = "Sandboxed commands run without them until each value is stored or its name is removed from the allowed list. Fermix runs in the background and does not read your shell profile.";
 "attention.sandboxEnv.helperFailed.title" = "A helper command for an environment variable failed";
@@ -670,8 +670,8 @@
 
 /* MARK: Providers */
 "provider.verb.signIn" = "Sign in";
+"provider.verb.continueWithChatGPT" = "Continue with ChatGPT";
 "provider.verb.importClaudeCode" = "Import Claude Code sign-in";
-"provider.verb.importCodexCLI" = "Import Codex sign-in";
 "provider.verb.addSetupToken" = "Add setup token";
 "provider.verb.addKey" = "Add key…";
 "provider.status.signingIn" = "Signing in";
@@ -702,6 +702,14 @@
 "provider.models.title" = "Choose a model";
 "provider.models.searchPrompt" = "Search models";
 "provider.models.more" = "Load more";
+"provider.account" = "Account";
+"provider.chatgpt.offer" = "Use your ChatGPT plan in Fermix.";
+"provider.chatgpt.usingPlan" = "Using your ChatGPT plan";
+"provider.chatgpt.manageUsage" = "Manage usage";
+"provider.chatgpt.manageUsageHint" = "Opens ChatGPT settings in your browser.";
+"provider.chatgpt.notice.title" = "You’re using your ChatGPT plan";
+"provider.chatgpt.notice.body" = "Eligible usage in Fermix uses your ChatGPT plan. Manage usage in your ChatGPT settings.";
+"provider.chatgpt.notice.done" = "Got it";
 
 /* MARK: Channels */
 "channel.status.off" = "Off";

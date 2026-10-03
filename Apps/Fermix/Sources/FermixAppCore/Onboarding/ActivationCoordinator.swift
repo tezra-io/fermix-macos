@@ -47,8 +47,11 @@ public enum ActivationPolicy {
     public static let crashLoopThreshold = 3
     /// The targets row four probes (M34 §4). The daemon owns the 5-second budget
     /// for the probe itself; a second timer here would be a competing bound.
+    ///
+    /// Not `codex_cli`: the daemon refuses to import a Codex CLI sign-in, so
+    /// what the probe found would move no verb.
     public static let detectTargets: [ManagementDetectTarget] = [
-        .existingPrimary, .claudeCode, .codexCLI, .ollama
+        .existingPrimary, .claudeCode, .ollama
     ]
 }
 

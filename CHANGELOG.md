@@ -12,6 +12,8 @@ The release notes, kept as the work lands. One line per change a person sees or 
 - Pet: the call's cost stays on the page after the call ends.
 - Voice: a call can be begun and ended from the View menu and the menu bar, and when voice is not set up the call control says so and opens its settings instead of starting a call that fails.
 - Browser: a file a website offers in your own tab can be saved where you choose through the Mac's save panel.
+- Providers: OpenAI Codex connects with Continue with ChatGPT and runs on your ChatGPT plan, with no API key and no Codex command line tool. Its details show the account you signed in with, that your plan is in use, and Manage usage, which opens your ChatGPT usage settings. Signing out disconnects Fermix from your ChatGPT account, not only from this Mac.
+- Providers: Import Codex sign-in and Fast mode are gone, because OpenAI Codex now signs in only with ChatGPT.
 
 ## 0.3.0 (2026-09-30)
 

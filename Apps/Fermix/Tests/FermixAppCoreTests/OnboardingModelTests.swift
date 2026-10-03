@@ -644,9 +644,10 @@ struct OnboardingModelTests {
         #expect(!harness.model.keyTargets.isEmpty)
     }
 
-    /// The waiting sheet is bound to the settings model's own `signingIn`, so
-    /// starting a sign-in has to publish here or the browser opens with nothing
-    /// on screen and the row stays `Not connected` forever.
+    /// The waiting sheet is bound to the assistant's own sheet state and the
+    /// row to the settings model's `signingIn`, so starting a sign-in has to
+    /// publish both here or the browser opens with nothing on screen and the
+    /// row stays `Not connected` forever.
     @Test("starting a sign-in publishes the waiting state on the assistant")
     func startingASignInPublishes() async throws {
         let harness = try OnboardingHarness()
@@ -664,7 +665,57 @@ struct OnboardingModelTests {
         await harness.model.startSignIn(provider: "openai_codex")
 
         #expect(harness.model.settings.signingInProvider == "openai_codex")
+        #expect(harness.model.signInSheetProvider == "openai_codex")
         #expect(republished > 0)
+    }
+
+    /// OpenAI's notice is the sheet a completed ChatGPT sign-in turns into, so
+    /// the sheet outlives the flight it followed. When the job ends the row
+    /// goes back to the daemon's word and the gate reads again, which is what
+    /// the surface does as its runner stops, and the sheet stays on screen
+    /// until `Got it` closes it.
+    @Test("a completed ChatGPT sign-in keeps the assistant's sheet until it is closed")
+    func completedSignInKeepsTheSheetUntilClosed() async throws {
+        let harness = try OnboardingHarness()
+        harness.gateway.providerReadiness = FakeProviderReadiness()
+        harness.gateway.jobScript = [try ManagementValueFixture.job(kind: "auth", status: "completed", phase: nil)]
+        harness.model.resume(at: .connectAI)
+        await harness.model.refreshReadiness()
+
+        await harness.model.startSignIn(provider: "openai_codex")
+        await harness.model.signIn.drainPendingWork()
+        // What Connect your AI does when its runner stops running.
+        await harness.model.signInFinished()
+
+        #expect(harness.model.signIn.job?.status == .completed)
+        #expect(harness.model.settings.signingInProvider == nil, "the row reads the daemon's word again")
+        #expect(harness.model.readiness.gaps.isEmpty, "the gate read the sign-in")
+        #expect(harness.model.signInSheetProvider == "openai_codex", "the sheet is still up")
+        let usage = harness.model.settings.manageUsage(after: "openai_codex")
+        #expect(SignInSheetPhase(status: harness.model.signIn.job?.status, showsPlanNotice: usage != nil) == .planNotice)
+
+        await harness.model.signInSheetClosed()
+
+        #expect(harness.model.signInSheetProvider == nil)
+        #expect(harness.model.stage == .connectAI, "closing the notice moves nothing on")
+    }
+
+    /// The other way a sheet closes: over a flight nothing ended. A job that
+    /// was already over when `auth.start` answered leaves one, because its
+    /// runner never ran, so closing the sheet is what puts the row back on the
+    /// daemon's word.
+    @Test("closing the assistant's sign-in sheet ends a flight nothing else ended")
+    func closingTheSheetEndsAnUnendedFlight() async throws {
+        let harness = try OnboardingHarness()
+        harness.model.resume(at: .connectAI)
+        await harness.model.startSignIn(provider: "openai_codex")
+        #expect(harness.model.settings.signingInProvider == "openai_codex")
+
+        await harness.model.signInSheetClosed()
+
+        #expect(harness.model.signInSheetProvider == nil)
+        #expect(harness.model.settings.signingInProvider == nil)
+        harness.model.signIn.dismiss()
     }
 
     /// A start the daemon refused is the one the owner clicked into on
@@ -684,6 +735,7 @@ struct OnboardingModelTests {
 
         #expect(harness.model.signIn.failure == "This daemon does not serve auth.start.")
         #expect(harness.model.settings.signingInProvider == nil, "nothing is in flight")
+        #expect(harness.model.signInSheetProvider == nil, "no sheet over a flow that never started")
         #expect(harness.opener.urls.isEmpty, "no browser opened for a flow that never started")
     }
 

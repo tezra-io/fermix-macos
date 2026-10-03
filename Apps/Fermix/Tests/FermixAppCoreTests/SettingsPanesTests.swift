@@ -151,15 +151,13 @@ struct SettingsPanesTests {
                 checked += 1
 
                 switch row.verb {
-                case .signIn:
+                case .signIn, .continueWithChatGPT:
                     #expect(
-                        ProviderRowProjection.browserSignInProviders.contains(published.id),
+                        ProviderRowProjection.browserSignInVerbs[published.id] == row.verb,
                         "\(published.id) leads with a browser sign-in auth.start refuses"
                     )
                 case .importClaudeCode:
                     #expect(importSources.contains(ManagementDetectTarget.claudeCode.wireValue))
-                case .importCodexCLI:
-                    #expect(importSources.contains(ManagementDetectTarget.codexCLI.wireValue))
                 case .addSetupToken:
                     #expect(row.secretID == setupTokenId)
                 case .addKey:
@@ -173,8 +171,8 @@ struct SettingsPanesTests {
         #expect(checked == state.providers.count * 2, "every provider, both ways round")
         // Non-vacuity, and the crux: the one provider whose modes say `oauth`
         // and whose sign-in the daemon refuses never leads with one.
-        #expect(!ProviderRowProjection.browserSignInProviders.contains("anthropic"))
-        #expect(ProviderRowProjection.browserSignInProviders.contains("openai_codex"))
+        #expect(ProviderRowProjection.browserSignInVerbs["anthropic"] == nil)
+        #expect(ProviderRowProjection.browserSignInVerbs["openai_codex"] == .continueWithChatGPT)
     }
 
     /// The `secret.set` id the contract publishes a request frame for, read off
@@ -212,8 +210,46 @@ struct SettingsPanesTests {
             signingIn: nil,
             descriptorRows: [:]
         )
-        #expect(oauth.first?.verb == .signIn)
+        #expect(oauth.first?.verb == .continueWithChatGPT)
         #expect(oauth.first?.canPerform == true)
+    }
+
+    /// The two browser doors read one table, and OpenAI Codex's carries
+    /// OpenAI's own words: its guidelines ask for `Continue with ChatGPT`, so
+    /// the generic `Sign in` stays SpaceXAI's.
+    @Test("OpenAI Codex leads with Continue with ChatGPT, and SpaceXAI with Sign in")
+    func browserDoorsCarryTheirOwnVerbs() throws {
+        let codex = try provider(id: "openai_codex", authModes: ["oauth"])
+        let xai = try provider(id: "xai", authModes: ["api_key", "oauth"])
+
+        #expect(ProviderRowProjection.verb(for: codex, detections: nil) == .continueWithChatGPT)
+        #expect(ProviderRowProjection.verb(for: xai, detections: nil) == .signIn)
+        #expect(ProviderRowProjection.detailDoors(for: "xai", detections: nil) == [ProviderDoor(verb: .signIn, available: true)])
+        #expect(ProviderRowProjection.chatGPTProvider == codex.id)
+        #expect(!ProviderVerb.continueWithChatGPT.writesSecret)
+    }
+
+    /// The account the daemon names is carried for whichever provider names
+    /// one, not for ChatGPT alone: one rule rather than one exception.
+    @Test("a provider row carries the account its daemon row names, for any provider")
+    func rowsCarryTheDaemonsAccount() throws {
+        let state: ManagementSetupState = try FakeDaemonGateway.fixtureResult(
+            named: "setup_state_get",
+            as: ManagementSetupState.self
+        )
+        let golden = ProviderRowProjection.rows(
+            providers: state.providers, detections: nil, signingIn: nil, descriptorRows: [:]
+        )
+
+        #expect(golden.map(\.account) == state.providers.map(\.accountLabel))
+        #expect(golden.first { $0.id == "openai_codex" }?.account == "owner@example.com", "non-vacuity")
+
+        let anthropic = ProviderRowProjection.rows(
+            providers: [try provider(id: "anthropic", configured: true, account: "claude@example.com")],
+            detections: nil, signingIn: nil, descriptorRows: [:]
+        )
+        #expect(anthropic.first?.account == "claude@example.com")
+        #expect(anthropic.first?.status == ProductStrings[.providerStatusConnected], "the row stays a status word")
     }
 
     /// The two vocabularies are disjoint in the contract's own fixtures: no id
@@ -309,7 +345,7 @@ struct SettingsPanesTests {
                 let doors = ProviderRowProjection.detailDoors(for: published.id, detections: detected).map(\.verb)
 
                 switch verb {
-                case .signIn, .importClaudeCode, .importCodexCLI, .addSetupToken:
+                case .signIn, .continueWithChatGPT, .importClaudeCode, .addSetupToken:
                     checked += 1
                     #expect(doors.contains(verb), "\(published.id) leads with \(verb.rawValue)")
                 case .addKey:
@@ -1572,11 +1608,13 @@ struct SettingsPanesTests {
         presentKey: Bool = false,
         model: String? = nil,
         tokenState: String? = nil,
-        authModes: [String] = ["api_key"]
+        authModes: [String] = ["api_key"],
+        account: String? = nil
     ) throws -> ManagementSetupProvider {
         let modes = authModes.map { "\"\($0)\"" }.joined(separator: ",")
         let modelField = model.map { "\"\($0)\"" } ?? "null"
         let tokenField = tokenState.map { "\"\($0)\"" } ?? "null"
+        let accountField = account.map { "\"\($0)\"" } ?? "null"
 
         return try ManagementValueFixture.decode(
             """
@@ -1591,7 +1629,7 @@ struct SettingsPanesTests {
               "default_model": \(modelField),
               "reasoning_effort": null,
               "fast": null,
-              "account_label": null,
+              "account_label": \(accountField),
               "token_state": \(tokenField)
             }
             """,

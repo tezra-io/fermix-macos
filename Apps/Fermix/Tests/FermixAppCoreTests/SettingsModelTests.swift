@@ -571,7 +571,7 @@ struct SettingsModelTests {
             descriptorRows: [:]
         )
 
-        await harness.model.refreshDetections([.claudeCode, .codexCLI])
+        await harness.model.refreshDetections([.claudeCode])
         let after = ProviderRowProjection.rows(
             providers: providers,
             detections: harness.model.detections.value,

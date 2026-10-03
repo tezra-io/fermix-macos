@@ -84,7 +84,7 @@ struct SettingsRereadTests {
     @Test("each pane's probe keeps the other panes' answers and never blanks its own")
     func detectionsMergeByTarget() async throws {
         let harness = try SettingsHarness()
-        let providers: [ManagementDetectTarget] = [.claudeCode, .codexCLI, .existingPrimary]
+        let providers: [ManagementDetectTarget] = [.claudeCode, .existingPrimary]
         await harness.model.refreshDetections(providers)
 
         let coding = await Self.published(harness.model.$detections) {

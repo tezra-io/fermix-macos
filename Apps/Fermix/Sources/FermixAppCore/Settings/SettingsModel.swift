@@ -117,7 +117,8 @@ public final class SettingsModel: ObservableObject {
     let gateway: any DaemonQuerying
     private let store: any SettingsPaneStoring
     let sleeper: any Sleeping
-    /// The system browser, for the one hop a sign-in needs (RFC 8252).
+    /// The system browser, for the hop a sign-in needs (RFC 8252) and the one
+    /// to ChatGPT's usage settings.
     let opener: any ExternalOpening
     let log = AppLog.logger(.app)
 

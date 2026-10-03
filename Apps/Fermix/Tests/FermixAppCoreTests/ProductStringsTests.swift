@@ -361,11 +361,16 @@ struct ProductStringsTests {
         )
     }
 
-    @Test("connect AI commits to the browser handoff and never to a password")
+    /// The subcopy names what a person brings, an account they already have
+    /// or a key, rather than where a sign-in comes from: the Codex import that
+    /// made "a sign-in from this Mac" one of two ways in is gone.
+    @Test("connect AI offers an account or a key and never asks for a password")
     func connectAIDeck() {
         #expect(ProductStrings[.connectAITitle] == "Connect your AI")
-        #expect(ProductStrings[.connectAISubcopy].contains("opens in your browser"))
-        #expect(ProductStrings[.connectAISubcopy].contains("never sees your password"))
+        #expect(
+            ProductStrings[.connectAISubcopy]
+                == "Sign in with an account you already have, or add an API key. Fermix never sees your password."
+        )
         #expect(ProductStrings[.connectAIKeyRowTitle] == "API key")
                 // Not a vendor list: the picker inside the sheet is where the provider
         // is chosen, and a hand-written roster on the row went stale the moment
@@ -373,6 +378,30 @@ struct ProductStringsTests {
         #expect(ProductStrings[.connectAIKeyRowHint] == "Any provider that takes a key.")
         #expect(ProductStrings[.connectAIConnectedTitle] == "Your AI is already connected")
         #expect(ProductStrings[.connectAIConnectedBody].contains("found a working setup in your home folder"))
+    }
+
+    /// OpenAI's guidelines fix the words of the ChatGPT door and of the notice
+    /// a completed sign-in shows, so they are asserted whole rather than by a
+    /// fragment.
+    @Test("the ChatGPT door and its plan notice carry OpenAI's own words")
+    func chatGPTDeck() {
+        #expect(ProductStrings[.providerVerbContinueWithChatGPT] == "Continue with ChatGPT")
+        #expect(ProviderVerb.continueWithChatGPT.title == "Continue with ChatGPT")
+        #expect(ProductStrings[.providerChatGPTOffer] == "Use your ChatGPT plan in Fermix.")
+        #expect(ProductStrings[.providerChatGPTUsingPlan] == "Using your ChatGPT plan")
+        #expect(ProductStrings[.providerChatGPTManageUsage] == "Manage usage")
+        #expect(ProductStrings[.providerChatGPTManageUsageHint] == "Opens ChatGPT settings in your browser.")
+        #expect(ProductStrings[.providerChatGPTNoticeTitle] == "You\u{2019}re using your ChatGPT plan")
+        #expect(
+            ProductStrings[.providerChatGPTNoticeBody]
+                == "Eligible usage in Fermix uses your ChatGPT plan. Manage usage in your ChatGPT settings."
+        )
+        #expect(ProductStrings[.providerChatGPTNoticeDone] == "Got it")
+        #expect(ProductStrings[.providerAccount] == "Account")
+        #expect(
+            ProductStrings[.attentionVoiceBody]
+                == "Voice uses the OpenAI Realtime API, which a ChatGPT or Claude sign-in does not authorize."
+        )
     }
 
     /// M34 override 7: `ConnectChannel.dc.html` is not built, so no string in

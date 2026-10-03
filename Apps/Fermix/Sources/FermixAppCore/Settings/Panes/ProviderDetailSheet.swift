@@ -3,8 +3,8 @@ import SwiftUI
 /// The provider sub-page (M34 §5.1).
 ///
 /// Everything that belongs to one provider rather than to the list: how it
-/// connects, its base URL, its model, its reasoning effort and fast mode. All
-/// of them are the daemon's own `providers.<id>` descriptor rows, so this page
+/// connects and as whom, its base URL, its model and its reasoning effort. The
+/// settings are the daemon's own `providers.<id>` descriptor rows, so this page
 /// holds no field inventory — a routing key added in the engine appears here
 /// with no Swift. The page also offers sign out and use as primary.
 ///
@@ -181,16 +181,53 @@ struct ProviderDetailSheet: View {
     /// no such row draws what it has, its doors or its key. The primary's rows
     /// live on the pane, mode and key included, so its detail draws the doors
     /// alone and only while its mode is not the key.
+    ///
+    /// The account the daemon names comes before the doors, for any provider
+    /// that publishes one, so a person sees who is connected before the way to
+    /// connect again. OpenAI Codex has no mode row and only `oauth`, so its
+    /// block is the account, the plan and the ChatGPT door whether or not it is
+    /// the primary.
     @ViewBuilder
     private var connection: some View {
-        if showsMode || showsDoors || showsSecrets {
+        if row.account != nil || showsMode || showsDoors || showsSecrets {
             Section {
                 if showsMode { mode }
+                account
                 if showsDoors {
+                    chatGPTPlan
                     signIn
                     setupToken
                 }
                 if showsSecrets { secrets }
+            }
+        }
+    }
+
+    /// Who is connected, where the daemon names an account: plain text beside
+    /// its label, never a control.
+    @ViewBuilder
+    private var account: some View {
+        if let account = row.account {
+            LabeledContent(ProductStrings[.providerAccount]) {
+                Text(account)
+                    .foregroundStyle(Palette.secondary.color)
+            }
+        }
+    }
+
+    /// Whether this is OpenAI Codex, which signs in with ChatGPT.
+    private var isChatGPT: Bool { row.id == ProviderRowProjection.chatGPTProvider }
+
+    /// That Fermix is using the person's ChatGPT plan, with the way to OpenAI's
+    /// own usage settings beside it (M57). The daemon reports the provider
+    /// configured only once the sign-in granted plan usage, so this is drawn on
+    /// that and nothing else; until then the door below offers the plan.
+    @ViewBuilder
+    private var chatGPTPlan: some View {
+        if isChatGPT, row.configured {
+            LabeledContent(ProductStrings[.providerChatGPTUsingPlan]) {
+                Button(ProductStrings[.providerChatGPTManageUsage]) { refusal = model.openChatGPTUsage() }
+                    .accessibilityHint(ProductStrings[.providerChatGPTManageUsageHint])
             }
         }
     }
@@ -200,7 +237,8 @@ struct ProviderDetailSheet: View {
     private var showsDoors: Bool { !doors.isEmpty && authMode != ProviderRowProjection.apiKeyMode }
     private var showsSecrets: Bool { drawsRows && blocks.hasSecret && authMode != ProviderRowProjection.oauthMode }
 
-    /// The doors that are a click: the browser, and a sign-in this Mac has.
+    /// The doors that are a click: the browser, ChatGPT's included, and a
+    /// sign-in this Mac has.
     ///
     /// A door that is not ready stays where it is and cannot be pressed, with
     /// one line under the row saying what makes it ready. Taken away, a Mac
@@ -223,6 +261,16 @@ struct ProviderDetailSheet: View {
 
                 ForEach(buttons.filter { !$0.available }, id: \.verb.rawValue) { door in
                     Text(unavailableCaption(door.verb))
+                        .fermixType(Typography.style(.calloutSmall))
+                        .foregroundStyle(Palette.secondary.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // The ChatGPT door is kept once connected, because it is how a
+                // person reconnects or switches account; the offer is the one
+                // line it carries until the plan is in use.
+                if isChatGPT, !row.configured {
+                    Text(ProductStrings[.providerChatGPTOffer])
                         .fermixType(Typography.style(.calloutSmall))
                         .foregroundStyle(Palette.secondary.color)
                         .fixedSize(horizontal: false, vertical: true)
@@ -352,21 +400,22 @@ struct ProviderDetailSheet: View {
 
     private func authenticate(_ verb: ProviderVerb) {
         switch verb {
-        case .signIn:
+        case .signIn, .continueWithChatGPT:
             requestAuth(.signIn(row))
         case .importClaudeCode:
             requestAuth(.importSignIn(row, .claudeCode))
-        case .importCodexCLI:
-            requestAuth(.importSignIn(row, .codexCLI))
         case .addSetupToken, .addKey, .none:
             preconditionFailure("this action is not a button on the account row")
         }
     }
 
-    /// Sign out forgets the local session and revokes nothing upstream. Use as
-    /// primary goes back to the pane, which declares the side effect first.
-    /// They share the sheet's one button row with `Done`, leading where it
-    /// trails, so the sheet is a row shorter.
+    /// Sign out forgets the local session. For OpenAI Codex the daemon also
+    /// revokes the ChatGPT session upstream; nothing else is revoked. It asks
+    /// nothing first: this sheet never raises another (owner directive of
+    /// 2026-09-20), and signing in again is one click. Use as primary goes
+    /// back to the pane, which declares the side effect first. They share the
+    /// sheet's one button row with `Done`, leading where it trails, so the
+    /// sheet is a row shorter.
     private var verbs: some View {
         HStack(spacing: Spacing.xs) {
             Button(ProductStrings[.providerSignOut], action: signOut)

@@ -157,6 +157,15 @@ public final class OnboardingModel: ObservableObject {
     /// A restart that was asked for and did not finish, in one sentence. The
     /// ladder must never claim a step the transaction refused.
     @Published public private(set) var restartRefusal: String?
+    /// The provider whose sign-in sheet is open on Connect your AI.
+    ///
+    /// Its own fact, apart from `settings.signingInProvider`, which says a
+    /// sign-in is in flight. Bound to the flight, the sheet could not outlive
+    /// its job: ended with the job, the flight would have closed OpenAI's
+    /// notice after a ChatGPT sign-in as it appeared, and left running until
+    /// the sheet closed, it kept the row behind the sheet on `Signing in` and
+    /// the gate unread, as it did behind a failed sign-in's sentence.
+    @Published public private(set) var signInSheetProvider: String?
 
     /// The one settings model. Every provider, readiness and restart fact the
     /// assistant renders comes off this.
@@ -534,10 +543,15 @@ public final class OnboardingModel: ObservableObject {
     // MARK: - Connect your AI
 
     /// Starts the browser sign-in for one provider and follows it.
+    ///
+    /// The sheet opens over whatever is in flight once the call returns, so a
+    /// start the daemon refused opens none: its sentence is stated under the
+    /// rows instead.
     public func startSignIn(provider: String) async {
         if let sentence = await settings.startSignIn(provider: provider, on: signIn) {
             signIn.adopt(failure: sentence)
         }
+        signInSheetProvider = settings.signingInProvider
     }
 
     /// Adopts a sign-in this Mac already has.
@@ -545,12 +559,26 @@ public final class OnboardingModel: ObservableObject {
         if let sentence = await settings.startAuthImport(source: source, provider: provider, on: signIn) {
             signIn.adopt(failure: sentence)
         }
+        signInSheetProvider = settings.signingInProvider
     }
 
-    /// A sign-in ended, however it ended.
+    /// A sign-in ended, however it ended. The sheet stays where it is.
     public func signInFinished() async {
         await settings.signInFinished()
         applyReadinessFromSettings()
+    }
+
+    /// The sign-in sheet closed: `Got it`, `Done`, or a sign-in that ended
+    /// with nothing more to say.
+    ///
+    /// A flight still marked ends with it. That is a job that was already
+    /// over when `auth.start` answered: the runner never ran, so the end of
+    /// its run never came to end it.
+    public func signInSheetClosed() async {
+        signInSheetProvider = nil
+        guard settings.signingInProvider != nil else { return }
+
+        await signInFinished()
     }
 
     // MARK: - Applying
