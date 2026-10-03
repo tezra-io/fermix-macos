@@ -112,6 +112,8 @@ struct FixtureConfigurationTests {
         #expect(FixtureStart(name: "restart-sheet") == .restartSheet)
         #expect(FixtureStart(name: "chat-empty") == .emptyChat)
         #expect(FixtureStart(name: "browser") == .browser)
+        #expect(FixtureStart(name: "chat-call") == .chatCall)
+        #expect(FixtureStart(name: "chat-call-failed") == .failedChatCall)
     }
 
     /// A name this build does not publish resolves to nothing, so the caller
@@ -130,7 +132,7 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 4)
+            + OnboardingStage.allCases.count + 6)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -188,10 +190,12 @@ struct FixtureConfigurationTests {
             }
             var restartSheetShown = false
             var browserOpened = false
+            var callsBegun = 0
             FixtureLaunch(start: start).present(
                 with: harness.coordinator,
                 showRestartSheet: { restartSheetShown = true },
-                openBrowser: { browserOpened = true }
+                openBrowser: { browserOpened = true },
+                beginCall: { callsBegun += 1 }
             )
             // `fermix://setup` asks the daemon where to land before it lands
             // (M34 §3.4), so the window opens on the answer rather than on the
@@ -200,6 +204,10 @@ struct FixtureConfigurationTests {
 
             expectOpened(start, harness: harness, restartSheetShown: restartSheetShown)
             #expect(browserOpened == (start == .browser), "\(name) opened the browser pane")
+            #expect(
+                callsBegun == (start == .chatCall || start == .failedChatCall ? 1 : 0),
+                "\(name) began \(callsBegun) calls"
+            )
         }
     }
 
@@ -241,7 +249,7 @@ struct FixtureConfigurationTests {
         case .approvalStep:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.onboardingStage == .starting)
-        case .emptyChat, .browser:
+        case .emptyChat, .browser, .chatCall, .failedChatCall:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.route == .chat)
         }
@@ -258,6 +266,38 @@ struct FixtureConfigurationTests {
         #expect(FixtureLaunch(start: .surface(.chat)).companionTimeline == .full)
         #expect(FixtureLaunch(start: .surface(.home)).companionTimeline == .full)
         #expect(FixtureHome.forStart(.emptyChat) == .settled)
+    }
+
+    /// A call is looked at beside a conversation, so both call starts hold the
+    /// full timeline; only the failed one's daemon ends the call. Every other
+    /// start's voice talks to the conversation, so a call begun from the Pet
+    /// page of any start has a daemon to answer it.
+    @Test("chat-call and chat-call-failed open Chat over the full timeline, each with its own call")
+    func callStartsNameTheirCall() {
+        #expect(FixtureLaunch(start: .chatCall).presentation == .chatWithCall)
+        #expect(FixtureLaunch(start: .failedChatCall).presentation == .chatWithCall)
+        #expect(FixtureLaunch(start: .chatCall).companionTimeline == .full)
+        #expect(FixtureLaunch(start: .failedChatCall).companionTimeline == .full)
+        #expect(FixtureLaunch(start: .chatCall).realtimeCall == .conversation)
+        #expect(FixtureLaunch(start: .failedChatCall).realtimeCall == .costLimit)
+        #expect(FixtureLaunch(start: .surface(.pet)).realtimeCall == .conversation)
+        #expect(FixtureLaunch(start: .emptyChat).realtimeCall == .conversation)
+        #expect(FixtureHome.forStart(.chatCall) == .settled)
+        #expect(FixtureHome.forStart(.failedChatCall) == .settled)
+    }
+
+    /// The voice of every fixture launch stands on the scripted daemon and the
+    /// silent engine, so no start can reach the realtime socket or ask macOS
+    /// for the microphone, whichever surface a call is begun from.
+    @MainActor
+    @Test("the fixture environment hands the voice its scripted daemon and the silent engine")
+    func fixtureVoiceSeams() throws {
+        for start in [FixtureStart.chatCall, .failedChatCall, .surface(.pet)] {
+            let environment = try AppEnvironment.fixture(FixtureLaunch(start: start), mascot: StillMascot())
+
+            #expect(environment.realtimeLines is FixtureRealtimeTransport)
+            #expect(environment.voiceAudio is FixtureAudioEngine)
+        }
     }
 
     /// The pane is looked at beside a conversation, on the fixture's own two
