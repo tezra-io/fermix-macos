@@ -354,15 +354,43 @@ struct PetSurfaceTests {
         #expect(harness.socket.sent.count == before)
     }
 
-    /// The Live rows belong to a live call: a surface that kept drawing the
-    /// last call's caption would be reporting a call that is over.
-    @Test("the live call rows are drawn only while a call is active")
+    /// The live rows belong to a live call: a surface that kept drawing the
+    /// last call's caption would be reporting a call that is over. What the
+    /// call cost outlives it: the daemon settles the bill after the hang-up,
+    /// and that bill is drawn once the call has ended (M56 §4.2).
+    @Test("the live call rows are drawn while a call is up, and the bill after it ends")
     func liveRowsAreGatedOnACall() throws {
         let view = try SourceTree.swiftFiles(matching: "Pet/PetSurfaceView.swift")
         let text = try #require(view.first?.text)
 
         #expect(text.contains("if model.callActive {"))
         #expect(text.contains("liveCall"))
+        #expect(text.contains("model.settledBillText"))
+    }
+
+    /// The settled bill arrives after `call_stop`, so a surface that drew cost
+    /// only during the call never drew the one figure that is final.
+    @Test("the settled bill is drawn in the ended state, and not into the next call")
+    func settledBillIsDrawnAfterTheCall() throws {
+        let harness = try harness()
+        harness.call.voiceNegotiated()
+        harness.call.beginTestCall()
+        _ = harness.call.apply(.usage(RealtimeUsage(voiceCostCents: 4, accounting: "running")), audioIsPlaying: false)
+        #expect(harness.model.settledBillText == nil)
+
+        harness.call.callStopping()
+        _ = harness.call.apply(.usage(RealtimeUsage(voiceCostCents: 12.5, accounting: "complete")), audioIsPlaying: false)
+        _ = harness.call.apply(.state(.idle), audioIsPlaying: false)
+
+        #expect(harness.model.callActive == false)
+        #expect(harness.model.voiceCostText == nil)
+        #expect(
+            harness.model.settledBillText
+                == String(format: ProductStrings[.voiceCostSettledFormat], CurrencyFormat.wholeCents(12.5))
+        )
+
+        harness.call.callStarting()
+        #expect(harness.model.settledBillText == nil)
     }
 
     @Test("every pet action carries product copy that obeys the voice rules")

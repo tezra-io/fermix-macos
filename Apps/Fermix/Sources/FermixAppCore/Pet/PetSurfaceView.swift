@@ -23,6 +23,10 @@ struct PetSurfaceView: View {
 
                     if model.callActive {
                         liveCall
+                    } else if let bill = model.settledBillText {
+                        Text(bill)
+                            .fermixType(Typography.style(.caption))
+                            .foregroundStyle(Palette.faint.color)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -62,10 +66,10 @@ struct PetSurfaceView: View {
             .accessibilityValue(model.accessibilityValue)
     }
 
-    /// What a live call reports beside its controls: the last caption line, what
-    /// the backend delegation is doing, and what the voice has cost so far.
+    /// What a live call reports beside its controls: the running caption line,
+    /// what the backend work is doing, and what the voice has cost so far.
     /// Each row is drawn only where the daemon has actually sent it, and the
-    /// whole block only while a call is up.
+    /// whole block only while a call is up; once it is over, only its bill.
     @ViewBuilder private var liveCall: some View {
         VStack(spacing: Spacing.xxs) {
             if let caption = model.captionLine {

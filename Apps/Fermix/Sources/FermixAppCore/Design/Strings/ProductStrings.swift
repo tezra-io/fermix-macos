@@ -397,6 +397,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case voiceTaskCancelled = "voice.task.cancelled"
     case voiceTaskStatusFormat = "voice.task.statusFormat"
     case voiceCostFormat = "voice.costFormat"
+    case voiceCostSettledFormat = "voice.costSettledFormat"
 
     // Companion chat
     case companionConnectionEngineHasNoChat = "companion.connection.engineHasNoChat"

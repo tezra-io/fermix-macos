@@ -132,13 +132,23 @@ public final class PetFeatureModel: ObservableObject {
         return ProductStrings.middot(word, summary)
     }
 
-    /// What the call's voice has cost so far, where the daemon has said. The
-    /// backend's share is reported as unknown rather than as a number, so it is
-    /// never added in here as zero.
+    /// What the call's voice has cost so far, where the daemon has said, while
+    /// the call is up. The backend's share is reported as unknown rather than
+    /// as a number, so it is never added in here as zero.
     public var voiceCostText: String? {
-        guard let cents = call.voice.usage?.voiceCostCents else { return nil }
+        guard callActive, let cents = call.voice.usage?.voiceCostCents else { return nil }
 
         return String(format: ProductStrings[.voiceCostFormat], CurrencyFormat.wholeCents(cents))
+    }
+
+    /// What the call cost, once it is over. The daemon settles the bill after
+    /// the hang-up (PROTOCOL.md, Live call sequence), so this is the one final
+    /// figure; a call ended at its cost limit keeps the bill that reached it.
+    /// Drawn until the next call starts.
+    public var settledBillText: String? {
+        guard case .ended = call.voice.phase, let cents = call.voice.usage?.voiceCostCents else { return nil }
+
+        return String(format: ProductStrings[.voiceCostSettledFormat], CurrencyFormat.wholeCents(cents))
     }
 
     /// Cancelling is offered only for work that is actually running: a pending

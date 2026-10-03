@@ -361,6 +361,7 @@
 "voice.task.cancelled" = "Task cancelled";
 "voice.task.statusFormat" = "Task: %@";
 "voice.costFormat" = "Voice so far: %@";
+"voice.costSettledFormat" = "Voice for this call: %@";
 
 /* MARK: Companion chat */
 "companion.connection.engineHasNoChat" = "The Fermix engine on this Mac has no chat yet";
