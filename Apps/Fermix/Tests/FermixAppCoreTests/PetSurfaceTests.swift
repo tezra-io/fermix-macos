@@ -66,6 +66,74 @@ struct PetSurfaceTests {
         #expect(harness.call.voice.phase == .idle)
     }
 
+    /// Voice that is not set up turns the call control into the way to set it
+    /// up: one click opens Settings, Voice, and no call starts.
+    @Test("with voice not set up the call control sets it up")
+    func controlSetsUpVoice() throws {
+        let harness = try harness()
+        harness.readiness.voiceReadiness = .setupRequired
+
+        #expect(harness.model.callActionTitle == "Set up voice")
+        #expect(harness.model.callHelpText == "Set up voice")
+        #expect(harness.model.callActionEnabled)
+
+        harness.model.toggleCall()
+
+        #expect(harness.voiceSetUps.count == 1)
+        #expect(harness.call.voice.phase == .idle)
+        #expect(harness.engine.permissionRequests == 0)
+    }
+
+    /// Degraded or unread voice offers nothing to click: the control is dimmed
+    /// under its usual title, and the help says why in the app's own words.
+    @Test(
+        "with voice degraded or unread the call control does nothing and says why",
+        arguments: [VoiceReadiness.degraded, .unknown]
+    )
+    func controlExplainsUnavailableVoice(readiness: VoiceReadiness) throws {
+        let harness = try harness()
+        harness.readiness.voiceReadiness = readiness
+
+        #expect(harness.model.callActionTitle == ProductStrings[.petCallBegin])
+        #expect(!harness.model.callActionEnabled)
+        #expect(harness.model.callHelpText == readiness.sentence)
+        #expect(
+            harness.model.callHelpText
+                == (readiness == .degraded ? "Voice is not available right now" : "Checking voice")
+        )
+
+        harness.model.toggleCall()
+
+        #expect(harness.voiceSetUps.count == 0)
+        #expect(harness.call.voice.phase == .idle)
+    }
+
+    /// A call that is up is always the control's to end, whatever the last
+    /// overview said.
+    @Test("a call that is up ends whatever readiness says")
+    func controlEndsWhateverReadinessSays() throws {
+        let harness = try harness()
+        harness.call.beginTestCall()
+        harness.readiness.voiceReadiness = .degraded
+
+        #expect(harness.model.callActionTitle == ProductStrings[.petCallEnd])
+        #expect(harness.model.callActionEnabled)
+        #expect(harness.model.callHelpText == ProductStrings[.petCallEnd])
+    }
+
+    /// The Pet page redraws when readiness moves, as it does for the call.
+    @Test("a readiness change redraws the pet")
+    func readinessChangeRedraws() throws {
+        let harness = try harness()
+        var redraws = 0
+        let subscription = harness.model.objectWillChange.sink { _ in redraws += 1 }
+        defer { subscription.cancel() }
+
+        harness.readiness.voiceReadiness = .degraded
+
+        #expect(redraws == 1)
+    }
+
     @Test("starting a call is the first and only thing that asks for the microphone")
     func permissionAtFirstCall() async throws {
         let harness = try harness()
@@ -435,6 +503,10 @@ final class PetHarness {
     let socket = FakeRealtimeSocket()
     /// The stopping call's wait for the daemon's last frame.
     let callDeadlines = ManualDeadlineScheduler()
+    /// What the last overview said about voice: ready, unless a case says not.
+    let readiness = FakeVoiceReadiness()
+    /// Every time the gate opened Settings, Voice.
+    let voiceSetUps = SetUpRecorder()
 
     init() throws {
         windows = FakeWindowHost()
@@ -460,7 +532,18 @@ final class PetHarness {
             presentation: SettingsPresentation(),
             announcer: RecordingAnnouncer()
         )
-        model = PetFeatureModel(call: call, voice: voice, coordinator: coordinator)
+        let gate = VoiceCallGate(
+            call: call,
+            voice: voice,
+            readiness: readiness,
+            setUpVoice: { [voiceSetUps] in voiceSetUps.count += 1 }
+        )
+        model = PetFeatureModel(call: call, voice: voice, gate: gate, coordinator: coordinator)
+    }
+
+    /// Counts the gate's trips to Settings, Voice.
+    final class SetUpRecorder {
+        var count = 0
     }
 
     /// The daemon answering its half of the handshake, which is what turns a

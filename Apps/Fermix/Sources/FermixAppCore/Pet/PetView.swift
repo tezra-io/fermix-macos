@@ -55,6 +55,7 @@ struct PetView: View {
         .accessibilityValue(model.accessibilityValue)
         .contextMenu {
             Button(model.callActionTitle) { model.toggleCall() }
+                .disabled(!model.callActionEnabled)
 
             if model.callActive {
                 Button(model.muteActionTitle) { model.toggleMute() }
@@ -99,6 +100,7 @@ private struct ControlDock: View {
             ) {
                 model.toggleCall()
             }
+            .disabled(!model.callActionEnabled)
 
             if model.showsInterrupt {
                 PetControlButton(

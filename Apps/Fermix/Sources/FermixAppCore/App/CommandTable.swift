@@ -28,6 +28,11 @@ public enum AppCommand: String, CaseIterable, Sendable {
     case showDoctor
     case showLogs
     case showPet
+    /// The one call control, as a command (M56 §4.1): it begins a call, ends
+    /// it, or opens Settings, Voice, through the same gate the Pet page and
+    /// the floating pet use. With no window open, the status item's row is how
+    /// a call is ended, and its title is the sign that one is up.
+    case toggleVoiceCall
     /// Opens the browser pane on its own, with nothing to show yet, so the
     /// person can watch or browse without waiting for a link (plan §4.10).
     case showBrowser
@@ -241,6 +246,8 @@ public enum CommandTable {
         case .showDoctor: return .fixed(.menuTitleDoctor)
         case .showLogs: return .fixed(.menuTitleLogs)
         case .showPet: return .fixed(.menuTitlePet)
+        case .toggleVoiceCall:
+            return .toggling(whenOn: .menuTitleEndVoiceCall, whenOff: .menuTitleBeginVoiceCall)
         case .showBrowser: return .fixed(.menuTitleShowBrowser)
         case .runLocalChecks: return .fixed(.menuTitleRunLocalChecks)
         case .runNetworkChecks: return .fixed(.menuTitleRunNetworkChecks)
@@ -285,7 +292,7 @@ public enum CommandTable {
         case .showBrowser: return .browserShow
         case .pauseLogs: return nil
         case .openFermix, .checkForUpdates, .openSettings, .quit, .toggleSidebar, .showChat, .showHome,
-             .showDoctor, .showLogs, .showPet, .runLocalChecks,
+             .showDoctor, .showLogs, .showPet, .toggleVoiceCall, .runLocalChecks,
              .toggleBackgroundService, .toggleFloatingPet, .hideMenuBarItem,
              .linkCommandLineTool:
             return nil
@@ -406,6 +413,8 @@ public enum CommandTable {
             .command(.showDoctor),
             .command(.showLogs),
             .command(.showPet),
+            // After Pet, with no shortcut in the first cut (M56 P5).
+            .command(.toggleVoiceCall),
             .command(.showBrowser),
             .separator,
             .command(.runLocalChecks),
@@ -454,6 +463,8 @@ public enum CommandTable {
         .separator,
         .command(.restartDaemon),
         .command(.toggleFloatingPet),
+        // How a call is ended with no window open (M56 P3).
+        .command(.toggleVoiceCall),
         .command(.toggleBackgroundService),
         .separator,
         .command(.checkForUpdates),

@@ -106,6 +106,8 @@ struct PetSurfaceView: View {
     private var controls: some View {
         HStack(spacing: Spacing.s) {
             PrimaryAction(model.callActionTitle, size: .inWindow) { model.toggleCall() }
+                .disabled(!model.callActionEnabled)
+                .help(model.callHelpText)
 
             Button(model.muteActionTitle) { model.toggleMute() }
                 .buttonStyle(SecondaryButtonStyle(.inWindow))

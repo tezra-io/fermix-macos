@@ -161,8 +161,6 @@ final class AppComposition {
             gateway: gateway,
             gate: gate
         )
-        petModel = Self.buildPet(call: voiceCall, voice: voice, coordinator: coordinator)
-
         let interface = Self.buildInterface(
             environment: environment,
             model: model,
@@ -172,7 +170,7 @@ final class AppComposition {
             services: services,
             coordinator: coordinator,
             gateway: gateway,
-            petModel: petModel,
+            voice: voice,
             voiceCall: voiceCall,
             companion: companion,
             settings: settings,
@@ -181,6 +179,7 @@ final class AppComposition {
             browser: browser
         )
         surfaces = interface.surfaces
+        petModel = interface.surfaces.pet
         sidebar = interface.sidebar
         router = interface.router
         mainMenu = interface.mainMenu
@@ -493,15 +492,18 @@ final class AppComposition {
     }
 
     /// The companion's own model, which reads the voice stack and the
-    /// coordinator and owns nothing else.
+    /// coordinator and owns nothing else. Its call control clicks through the
+    /// same gate as the menus.
     private static func buildPet(
         call: VoiceCallModel,
         voice: VoiceCoordinator,
+        gate: VoiceCallGate,
         coordinator: AppCoordinator
     ) -> PetFeatureModel {
         PetFeatureModel(
             call: call,
             voice: voice,
+            gate: gate,
             coordinator: coordinator,
             openFermix: { coordinator.open(.home) }
         )
@@ -630,7 +632,7 @@ final class AppComposition {
         services: ServiceController,
         coordinator: AppCoordinator,
         gateway: ManagementGateway,
-        petModel: PetFeatureModel,
+        voice: VoiceCoordinator,
         voiceCall: VoiceCallModel,
         companion: CompanionSession,
         settings: SettingsModel,
@@ -650,7 +652,7 @@ final class AppComposition {
             services: services,
             coordinator: coordinator,
             gateway: gateway,
-            petModel: petModel,
+            voice: voice,
             voiceCall: voiceCall,
             companion: companion,
             settings: settings,
@@ -690,7 +692,7 @@ final class AppComposition {
         services: ServiceController,
         coordinator: AppCoordinator,
         gateway: ManagementGateway,
-        petModel: PetFeatureModel,
+        voice: VoiceCoordinator,
         voiceCall: VoiceCallModel,
         companion: CompanionSession,
         settings: SettingsModel,
@@ -705,27 +707,37 @@ final class AppComposition {
             settings: settings,
             instructions: instructions
         )
+        let home = HomeModel(
+            gateway: gateway,
+            services: services,
+            coordinator: coordinator,
+            updates: updates,
+            settings: settings,
+            reconciler: reconciler,
+            menuBar: menuBar,
+            call: voiceCall,
+            deadlines: MainQueueDeadlineScheduler(),
+            instructions: instructions,
+            // The reveal seam lives on Doctor, and this is that one rather
+            // than a second implementation of the same gesture.
+            revealSettingsFile: { doctor.revealSettingsFile() }
+        )
+        // Home is the one overview reader, so the gate reads readiness from it,
+        // and the one door into settings opens the Voice pane (M56 §4.1).
+        let gate = VoiceCallGate(
+            call: voiceCall,
+            voice: voice,
+            readiness: home,
+            setUpVoice: { coordinator.open(.settings(.voice)) }
+        )
 
         return MainWindowSurfaces(
-            home: HomeModel(
-                gateway: gateway,
-                services: services,
-                coordinator: coordinator,
-                updates: updates,
-                settings: settings,
-                reconciler: reconciler,
-                menuBar: menuBar,
-                call: voiceCall,
-                deadlines: MainQueueDeadlineScheduler(),
-                instructions: instructions,
-                // The reveal seam lives on Doctor, and this is that one rather
-                // than a second implementation of the same gesture.
-                revealSettingsFile: { doctor.revealSettingsFile() }
-            ),
+            home: home,
             doctor: doctor,
             logs: LogsModel(gateway: gateway),
-            pet: petModel,
+            pet: buildPet(call: voiceCall, voice: voice, gate: gate, coordinator: coordinator),
             voiceCall: voiceCall,
+            callGate: gate,
             onboarding: buildOnboarding(
                 environment: environment,
                 planner: planner,

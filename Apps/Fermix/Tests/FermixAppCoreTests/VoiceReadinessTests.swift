@@ -249,6 +249,17 @@ struct VoiceReadinessTests {
 
         #expect(harness.overviewReads == 1)
     }
+
+    /// The edges only the composition builds: the gate reads the one reader
+    /// and opens the one Voice pane.
+    @Test("the composition builds the gate over the one reader")
+    func compositionBuildsTheGate() throws {
+        let composition = try #require(try SourceTree.swiftFiles(matching: "App/AppComposition.swift").first)
+
+        #expect(composition.text.contains("VoiceCallGate("))
+        #expect(composition.text.contains("readiness: home"))
+        #expect(composition.text.contains("coordinator.open(.settings(.voice))"))
+    }
 }
 
 extension HomeHarness {

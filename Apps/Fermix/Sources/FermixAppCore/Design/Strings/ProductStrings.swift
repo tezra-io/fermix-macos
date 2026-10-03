@@ -878,6 +878,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case menuTitleRunDoctor = "menuTitle.runDoctor"
     case menuTitleShowPet = "menuTitle.showPet"
     case menuTitleHidePet = "menuTitle.hidePet"
+    case menuTitleBeginVoiceCall = "menuTitle.beginVoiceCall"
+    case menuTitleEndVoiceCall = "menuTitle.endVoiceCall"
     case menuTitleShowBrowser = "menuTitle.showBrowser"
     case menuTitleHideMenuBarItem = "menuTitle.hideMenuBarItem"
     case menuTitleLinkCommandLineTool = "menuTitle.linkCommandLineTool"

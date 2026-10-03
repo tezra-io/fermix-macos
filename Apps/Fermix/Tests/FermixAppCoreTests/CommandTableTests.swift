@@ -77,17 +77,19 @@ struct CommandTableTests {
     func togglingTitles() {
         let router = FakeCommandRouter()
 
-        router.on = [.toggleBackgroundService, .pauseLogs, .toggleFloatingPet, .toggleSidebar]
+        router.on = [.toggleBackgroundService, .pauseLogs, .toggleFloatingPet, .toggleSidebar, .toggleVoiceCall]
         #expect(router.menuTitle(of: .toggleBackgroundService) == "Disable Background Service")
         #expect(router.menuTitle(of: .pauseLogs) == "Resume Logs")
         #expect(router.menuTitle(of: .toggleFloatingPet) == "Hide Pet")
         #expect(router.menuTitle(of: .toggleSidebar) == "Hide Sidebar")
+        #expect(router.menuTitle(of: .toggleVoiceCall) == "End Voice Call")
 
         router.on = []
         #expect(router.menuTitle(of: .toggleBackgroundService) == "Enable Background Service")
         #expect(router.menuTitle(of: .pauseLogs) == "Pause Logs")
         #expect(router.menuTitle(of: .toggleFloatingPet) == "Show Pet")
         #expect(router.menuTitle(of: .toggleSidebar) == "Show Sidebar")
+        #expect(router.menuTitle(of: .toggleVoiceCall) == "Begin Voice Call")
     }
 
     /// M34 §4 bans Start and Stop for the durable service, in the menu as
@@ -113,12 +115,22 @@ struct CommandTableTests {
         #expect(router.statusItemTitle(of: .showDoctor) == "Run Doctor")
         #expect(router.menuTitle(of: .showDoctor) == "Doctor")
 
-        for command in AppCommand.allCases where command != .showDoctor {
-            #expect(
-                router.statusItemTitle(of: command) == router.menuTitle(of: command),
-                "\(command.rawValue) has an unexplained second spelling"
-            )
+        for isOn in [false, true] {
+            router.on = isOn ? Set(AppCommand.allCases) : []
+
+            for command in AppCommand.allCases where command != .showDoctor {
+                #expect(
+                    router.statusItemTitle(of: command) == router.menuTitle(of: command),
+                    "\(command.rawValue) has an unexplained second spelling"
+                )
+            }
         }
+
+        // The call row is spelled the same in both places, in both states.
+        router.on = []
+        #expect(router.statusItemTitle(of: .toggleVoiceCall) == "Begin Voice Call")
+        router.on = [.toggleVoiceCall]
+        #expect(router.statusItemTitle(of: .toggleVoiceCall) == "End Voice Call")
     }
 
     /// M34 §3.3: the status item's rows are the design's, and it carries only
@@ -133,9 +145,26 @@ struct CommandTableTests {
 
         #expect(commands == [
             .openFermix, .openSettings, .showDoctor, .restartDaemon, .toggleFloatingPet,
-            .toggleBackgroundService, .checkForUpdates, .hideMenuBarItem, .quit
+            .toggleVoiceCall, .toggleBackgroundService, .checkForUpdates, .hideMenuBarItem, .quit
         ])
         #expect(!CommandTable.statusItem.contains(.servicesMenu))
+    }
+
+    /// The call command sits in the View menu after Pet, and has no shortcut
+    /// in the first cut (M56 §4.1, P5).
+    @Test("the View menu carries the call command after Pet, with no shortcut")
+    func viewMenuCarriesTheCallCommand() throws {
+        let view = try #require(CommandTable.mainMenu.first { $0.titleKey == .menuTitleView })
+        let commands = view.commands
+        let pet = try #require(commands.firstIndex(of: .showPet))
+
+        #expect(commands[pet + 1] == .toggleVoiceCall)
+        #expect(CommandTable.shortcut(of: .toggleVoiceCall) == nil)
+        #expect(CommandTable.mainMenuCommands.contains(.toggleVoiceCall))
+        #expect(CommandTable.toolbarLabelKey(of: .toggleVoiceCall) == nil)
+        // In the View menu and the status item only, never the application menu.
+        let application = try #require(CommandTable.mainMenu.first { $0.titleKey == .productName })
+        #expect(!application.commands.contains(.toggleVoiceCall))
     }
 
     /// A surface's trailing side is at most three groups, and the type is what

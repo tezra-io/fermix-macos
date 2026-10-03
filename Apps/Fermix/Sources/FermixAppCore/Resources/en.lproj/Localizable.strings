@@ -525,6 +525,8 @@
 "menuTitle.runDoctor" = "Run Doctor";
 "menuTitle.showPet" = "Show Pet";
 "menuTitle.hidePet" = "Hide Pet";
+"menuTitle.beginVoiceCall" = "Begin Voice Call";
+"menuTitle.endVoiceCall" = "End Voice Call";
 "menuTitle.showBrowser" = "Show Browser";
 "menuTitle.hideMenuBarItem" = "Hide Menu Bar Item";
 "menuTitle.linkCommandLineTool" = "Add the fermix Command to Terminal…";

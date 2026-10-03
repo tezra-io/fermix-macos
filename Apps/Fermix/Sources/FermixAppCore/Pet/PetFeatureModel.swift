@@ -25,8 +25,9 @@ public protocol PetWindowPresenting: AnyObject {
 ///
 /// It owns the floating window's state and nothing of the call: the call's
 /// facts are `VoiceCallModel`'s, which this republishes rather than copies, and
-/// every action goes to the voice controller. The pet decides nothing about
-/// the call, it only draws it.
+/// every action goes to the voice controller. The call control's click goes
+/// through the gate the menus use, so the pet decides nothing about the call,
+/// it only draws it.
 @MainActor
 public final class PetFeatureModel: ObservableObject {
     /// Whether the pet window is actually on screen. False pauses the animation
@@ -35,23 +36,31 @@ public final class PetFeatureModel: ObservableObject {
 
     private let call: VoiceCallModel
     private let voice: any VoiceControlling
+    /// The one call control's gate, shared with the menus and the status item.
+    private let gate: VoiceCallGate
     private let windows: any PetWindowPresenting
     /// Opens the primary window. The pet floats without one, and with the menu
     /// bar item hidden its context menu is the only thing on screen.
     private let openFermix: () -> Void
     private var callChanges: AnyCancellable?
+    private var readinessChanges: AnyCancellable?
 
     public init(
         call: VoiceCallModel,
         voice: any VoiceControlling,
+        gate: VoiceCallGate,
         coordinator: any PetWindowPresenting,
         openFermix: @escaping () -> Void = {}
     ) {
         self.call = call
         self.voice = voice
+        self.gate = gate
         self.windows = coordinator
         self.openFermix = openFermix
         self.callChanges = call.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        self.readinessChanges = gate.readinessChanges.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
     }
@@ -71,11 +80,21 @@ public final class PetFeatureModel: ObservableObject {
     public var audioLevel: Float { call.audioLevel }
 
     /// What a click on the call control does now: a start the daemon has not
-    /// answered is ended like a call, and a call that is still ending is
-    /// already over as far as the control is concerned.
+    /// answered is ended like a call, a call that is still ending is already
+    /// over as far as the control is concerned, and voice that is not set up
+    /// is set up. Degraded or unread voice keeps the begin title over a
+    /// control that is dimmed, with the reason as its help.
     public var callActionTitle: String {
-        ProductStrings[call.voice.phase.callControlEnds ? .petCallEnd : .petCallBegin]
+        switch gate.action {
+        case .end: return ProductStrings[.petCallEnd]
+        case .setUp: return ProductStrings[.voiceReadinessSetUp]
+        case .begin, .unavailable: return ProductStrings[.petCallBegin]
+        }
     }
+
+    /// Whether a click on the call control does anything. A control that
+    /// would do nothing is dimmed rather than silently inert.
+    public var callActionEnabled: Bool { gate.action != .unavailable }
 
     public var muteActionTitle: String {
         ProductStrings[muted ? .petUnmute : .petMute]
@@ -88,9 +107,13 @@ public final class PetFeatureModel: ObservableObject {
     /// That window draws the mascot and the controls and has room for no
     /// sentence, so a failure would otherwise be readable only by opening the
     /// app. The action is the right thing to offer while there is an action to
-    /// take, and the failure is the right thing to offer once there is not.
+    /// take, and the failure, or the readiness that leaves no action, is the
+    /// right thing to offer once there is not.
     public var callHelpText: String {
-        call.voice.status.carriesItsOwnSentence ? statusText : callActionTitle
+        if call.voice.status.carriesItsOwnSentence { return statusText }
+        guard gate.action == .unavailable, let sentence = gate.readiness.sentence else { return callActionTitle }
+
+        return sentence
     }
 
     public var cancelTaskActionTitle: String { ProductStrings[.petCancelTask] }
@@ -198,8 +221,9 @@ public final class PetFeatureModel: ObservableObject {
         openFermix()
     }
 
+    /// The call control's click, through the gate the menus use.
     public func toggleCall() {
-        voice.toggleCall()
+        gate.toggleCall()
     }
 
     public func toggleMute() {

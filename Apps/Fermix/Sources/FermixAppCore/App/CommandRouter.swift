@@ -79,6 +79,10 @@ public final class CommandRouter: CommandPerforming {
         // the link, or this bundle ships none.
         case .linkCommandLineTool:
             return commandLine() != nil
+        // The gate's own answer: dimmed while voice is degraded or unread,
+        // and never while there is a call to end (M56 §4.1).
+        case .toggleVoiceCall:
+            return surfaces.callGate.action != .unavailable
         case .openFermix, .openSettings, .quit, .revealLogFolder, .toggleSidebar, .showChat, .showHome,
              .showDoctor, .showLogs, .showPet, .showBrowser, .pauseLogs, .toggleFloatingPet:
             return true
@@ -94,6 +98,10 @@ public final class CommandRouter: CommandPerforming {
         // coordinator writes, and a title taken from a mirror can name the
         // opposite direction to the action beside it.
         case .toggleFloatingPet: return coordinator.isPetWindowOpen
+        // The gate's answer, which is the call model's phase: "End" while a
+        // start or a call is up, "Begin" otherwise, including while the last
+        // call is still ending.
+        case .toggleVoiceCall: return surfaces.callGate.action == .end
         default: return false
         }
     }
@@ -141,6 +149,10 @@ public final class CommandRouter: CommandPerforming {
             coordinator.setBackgroundService(enabled: !surfaces.home.backgroundServiceEnabled)
         case .toggleFloatingPet:
             coordinator.setPetWindow(!coordinator.isPetWindowOpen)
+        // Through the gate the Pet page and the floating pet click through,
+        // so all four doors behave the same.
+        case .toggleVoiceCall:
+            surfaces.callGate.toggleCall()
         case .hideMenuBarItem:
             menuBar.setMenuBarItemShown(false)
             // An accessory app with no item and no window has no Dock tile, so
