@@ -6,6 +6,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 - Browser: a website's upload field in your own tab opens the Mac's file chooser, so you can attach a file or a folder. A task's tab never opens it.
 - Browser: a link to another app, such as an email address, asks before that app opens when you click it in your own tab, and a task's tab never opens another app.
+- Browser: a page on this Mac, such as a local development server, opens in the browser instead of a blank page.
 - Voice: a second click while a call is connecting calls it off, and hanging up waits for the call to settle, so the next call never shows the last one's task or cost.
 - Voice: the caption line shows the running words of whoever last spoke, a task shows the daemon's summary of the work, and a failed call says why in plain words with the provider's own explanation.
 - Pet: the call's cost stays on the page after the call ends.

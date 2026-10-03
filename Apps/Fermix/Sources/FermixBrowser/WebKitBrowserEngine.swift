@@ -77,8 +77,14 @@ public final class WebKitBrowserEngine: BrowserEngine {
     /// The privacy defaults that need no vendored list (plan §4.6).
     ///
     /// Known hosts go to https before the request leaves, and every other http
-    /// navigation is tried over https first, with WebKit's own warning page
-    /// standing between the person and a page that only answers in the clear.
+    /// navigation is tried over https first, except to this Mac's own loopback
+    /// addresses, which `WebKitBrowserPage` keeps as asked. Where https fails,
+    /// WebKit tells the navigation delegate nothing. For a host name it lays
+    /// its own warning view over the page ("This Connection Is Not Secure",
+    /// with Continue and Go Back), the web view's URL goes to nil and no
+    /// failure or finish arrives; Continue loads the page in the clear as a
+    /// new navigation. For an IPv4 address it tries nothing, commits
+    /// `about:blank` and reports that finished, with no warning.
     /// The fraudulent website warning is WebKit's default and is stated rather
     /// than left implicit, because turning it off would be a decision.
     private func configuration(for profile: BrowserProfile) -> WKWebViewConfiguration {

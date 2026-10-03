@@ -156,15 +156,28 @@ final class ReadyWaiter {
 extension WebKitBrowserPage: WKNavigationDelegate {
     /// A link that asks for a new window is allowed here and becomes a tab in
     /// `createWebViewWith`, which is where WebKit hands over the configuration
-    /// that keeps the new page's link to its opener.
+    /// that keeps the new page's link to its opener. A navigation to this
+    /// Mac's own loopback address keeps the scheme it was asked with, and
+    /// every other keeps the configuration's HTTPS-first.
     func webView(
         _ webView: WKWebView,
         decidePolicyFor action: WKNavigationAction,
-        decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
+        preferences: WKWebpagePreferences,
+        decisionHandler: @escaping @MainActor (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
         let decision = BrowserNavigationPolicy.decide(Self.navigation(action, targetsNewWindow: action.targetFrame == nil))
         carryOut(decision, for: action.request.url)
-        decisionHandler(Self.actionPolicy(decision))
+        Self.keepLoopbackScheme(of: action.request.url, in: preferences)
+        decisionHandler(Self.actionPolicy(decision), preferences)
+    }
+
+    /// HTTPS-first off for a loopback host (`BrowserNavigationPolicy
+    /// .isLoopback`). The policy is macOS 15.2's, as the configuration's is,
+    /// and below that there is no HTTPS-first to turn off.
+    private static func keepLoopbackScheme(of url: URL?, in preferences: WKWebpagePreferences) {
+        guard #available(macOS 15.2, *), let host = url?.host, BrowserNavigationPolicy.isLoopback(host: host) else { return }
+
+        preferences.preferredHTTPSNavigationPolicy = .keepAsRequested
     }
 
     /// A response that is a file rather than a page becomes a download where
