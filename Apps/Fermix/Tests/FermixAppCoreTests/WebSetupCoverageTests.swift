@@ -7,8 +7,8 @@ import Testing
 /// owner directive of 2026-09-03: "make sure all the options in the original
 /// setup web is available in the macos app").
 ///
-/// The unit is the web setup's own surface, field by field: 144 rows derived
-/// from the engine's Setup LiveView — 75 fields, 41 actions and 28 sub-surfaces
+/// The unit is the web setup's own surface, field by field: 143 rows derived
+/// from the engine's Setup LiveView — 74 fields, 41 actions and 28 sub-surfaces
 /// across its twelve tabs — checked in beside this file. Every row is claimed by
 /// a symbol this tree declares *in the file the claim names*, or carries an
 /// explicit exemption with its reason. The test fails on an unclaimed row, on an
@@ -73,12 +73,12 @@ struct WebSetupCoverageTests {
 
     // MARK: - Gates
 
-    @Test("the checked-in table is the 144 rows the design publishes")
+    @Test("the checked-in table is the 143 rows the design publishes")
     func tableIsTheDesignsOwn() throws {
         let rows = try WebSetupCoverage.rows()
 
-        #expect(rows.count == 144)
-        #expect(rows.filter { $0.kind == "field" }.count == 75)
+        #expect(rows.count == 143)
+        #expect(rows.filter { $0.kind == "field" }.count == 74)
         #expect(rows.filter { $0.kind == "action" }.count == 41)
         #expect(rows.filter { $0.kind == "sub_surface" }.count == 28)
         #expect(Set(rows.map(\.tab)).count == 12)

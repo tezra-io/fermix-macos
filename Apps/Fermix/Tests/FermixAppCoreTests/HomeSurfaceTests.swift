@@ -180,7 +180,7 @@ struct HomeSurfaceTests {
 
         #expect(
             home.runtime.first { $0.id == "provider" }?.detail
-                == "OpenAI Codex (ChatGPT) · gpt-5.6-sol"
+                == "OpenAI Codex · gpt-5.6-sol"
         )
     }
 

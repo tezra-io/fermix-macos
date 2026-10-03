@@ -81,16 +81,6 @@
   },
   {
     "tab": "provider",
-    "kind": "field",
-    "name": "provider_form[fast]",
-    "symbols": [
-      "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet"
-    ],
-    "section": "providers.openai_codex",
-    "row_key": "fast"
-  },
-  {
-    "tab": "provider",
     "kind": "action",
     "name": "provider_changed (phx-change)",
     "symbols": [
@@ -188,12 +178,12 @@
   {
     "tab": "provider",
     "kind": "sub_surface",
-    "name": "Model behavior side panel (effort radios + Fast mode toggle) components.ex:1002-1082",
+    "name": "Model behavior side panel (effort radios) components.ex:1144-1162",
     "symbols": [
       "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet"
     ],
     "section": "providers.openai_codex",
-    "row_key": "fast"
+    "row_key": "reasoning_effort"
   },
   {
     "tab": "realtime",

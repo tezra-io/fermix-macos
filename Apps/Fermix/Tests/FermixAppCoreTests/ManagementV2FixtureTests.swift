@@ -659,7 +659,7 @@ struct ManagementV2FixtureTests {
         )
 
         #expect(state.providers.first?.id == "openai_codex")
-        #expect(state.providers.first?.label == "OpenAI Codex (ChatGPT)")
+        #expect(state.providers.first?.label == "OpenAI Codex")
         #expect(state.providers.first { $0.id == "anthropic" }?.label == "Anthropic")
         #expect(state.providers.first { $0.id == "xai" }?.label == "SpaceXAI")
         #expect(state.profile == "general")

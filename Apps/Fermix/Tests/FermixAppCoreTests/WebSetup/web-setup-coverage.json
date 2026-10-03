@@ -65,14 +65,6 @@
   },
   {
     "tab": "provider",
-    "kind": "field",
-    "name": "provider_form[fast]",
-    "control": "hidden false + checkbox true toggle \"Fast mode\"; openai_codex only (components.ex:1060-1082)",
-    "secret": false,
-    "config_path": "fermix_core.providers.openai_codex.fast"
-  },
-  {
-    "tab": "provider",
     "kind": "action",
     "name": "provider_changed (phx-change)",
     "effect": "Rebuilds provider_form; if provider switched, loads that provider's saved block. Calls assign_model_sources \u2192 ModelListing.live_models synchronously (network to Ollama/OpenRouter) on every change (set",
@@ -141,7 +133,7 @@
   {
     "tab": "provider",
     "kind": "sub_surface",
-    "name": "Model behavior side panel (effort radios + Fast mode toggle) components.ex:1002-1082"
+    "name": "Model behavior side panel (effort radios) components.ex:1144-1162"
   },
   {
     "tab": "provider",
