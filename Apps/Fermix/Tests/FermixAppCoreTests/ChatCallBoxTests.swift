@@ -241,17 +241,17 @@ struct ChatCallBoxTests {
         }
     }
 
-    /// A caption arrives tens of times a turn: the box observes the call, and
-    /// the chat surface observes only the gate, which says when its answer
-    /// moves.
-    @Test("the box observes the call, and the chat surface only the gate")
+    /// A caption arrives tens of times a turn: the box observes the call, the
+    /// toolbar's call button the gate, and the chat surface neither.
+    @Test("the box observes the call, and the chat surface observes no part of it")
     func onlyTheBoxObservesTheCall() throws {
         let surface = try Self.text(of: "Chat/ChatSurfaceView.swift")
         #expect(surface.contains("let call: VoiceCallModel"))
         #expect(surface.contains("let pet: PetFeatureModel"))
-        #expect(surface.contains("@ObservedObject var gate: VoiceCallGate"))
+        #expect(surface.contains("let gate: VoiceCallGate"))
         #expect(!surface.contains("@ObservedObject var call"))
         #expect(!surface.contains("@ObservedObject var pet"))
+        #expect(!surface.contains("@ObservedObject var gate"))
 
         let box = try Self.text(of: "Chat/ChatCallBox.swift")
         #expect(box.contains("@ObservedObject var call: VoiceCallModel"))
@@ -279,8 +279,22 @@ struct ChatCallBoxTests {
         #expect(CommandTable.toolbarTitle(of: .toggleVoiceCall, isOn: true) == "End voice call")
     }
 
-    /// The gate announces only a change of its answer, so the chat surface
-    /// that observes it for its toolbar never redraws for a caption.
+    /// The window's toolbar is AppKit's, bridged from SwiftUI, and it keeps a
+    /// control as it first drew it: the chat redrawing left the call button
+    /// dimmed under "Checking voice" once voice was ready, and filled after
+    /// the call ended. So the button observes the gate where it stands.
+    @Test("the toolbar's call button follows the gate where it stands")
+    func toolbarFollowsTheGate() throws {
+        let surface = try Self.text(of: "Chat/ChatSurfaceView.swift")
+        #expect(surface.contains("SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router, follows: gate)"))
+
+        let toolbar = try Self.text(of: "Design/Components/SurfaceToolbar.swift")
+        #expect(toolbar.contains("Following(followed: follows) { button(command) }"))
+        #expect(toolbar.contains("@ObservedObject var followed: Followed"))
+    }
+
+    /// The gate announces only a change of its answer, so the call button that
+    /// follows it never redraws for a caption.
     @Test("the gate announces a change only when its answer moves")
     func gateAnnouncesItsAnswerOnly() throws {
         let harness = try PetHarness()

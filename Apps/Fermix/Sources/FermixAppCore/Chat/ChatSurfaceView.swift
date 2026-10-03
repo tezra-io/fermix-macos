@@ -83,10 +83,11 @@ struct ChatSurfaceView: View {
     /// The call's façade, which the box's pet draws from: the same one the Pet
     /// page and the floating pet draw.
     let pet: PetFeatureModel
-    /// The gate the toolbar's call button clicks through, observed: it says
-    /// only when its answer moves, so the toolbar redraws as a call begins
-    /// and ends and readiness changes, and never for a caption.
-    @ObservedObject var gate: VoiceCallGate
+    /// The gate the toolbar's call button clicks through. Held and not
+    /// observed: the button observes it where it stands in the toolbar, and
+    /// the gate says only when its answer moves, so neither this view nor the
+    /// button redraws for a caption.
+    let gate: VoiceCallGate
     /// Read for the greeting's name, through the one settings model.
     let settings: SettingsModel
     /// Where a link in a reply opens.
@@ -162,7 +163,7 @@ struct ChatSurfaceView: View {
                 return .handled
             })
             .toolbar {
-                SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router)
+                SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router, follows: gate)
             }
             .onChange(of: draft) {
                 session.draft = draft
