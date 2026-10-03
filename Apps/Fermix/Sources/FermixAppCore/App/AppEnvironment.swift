@@ -3,9 +3,10 @@ import Foundation
 /// Everything the composition takes from outside the process.
 ///
 /// The graph in `AppComposition` is one shape with one wiring; this is the
-/// boundary that shape stands on — the account's directories, the management
-/// and companion sockets, `SMAppService`, the microphone, user defaults, the
-/// browser, the liveness probes, and the clock the waits sleep on. Naming the boundary once
+/// boundary that shape stands on — the account's directories, the management,
+/// companion and realtime sockets, `SMAppService`, the microphone and the
+/// speaker, user defaults, the browser, the liveness probes, and the clock the
+/// waits sleep on. Naming the boundary once
 /// is what lets a second configuration exist without a second graph, and what
 /// keeps a surface from reaching past the graph to read the machine directly.
 ///
@@ -63,6 +64,11 @@ struct AppEnvironment {
     let companionLines: CompanionSocketClient.LineSocket
     /// The browser host wire's own line socket, the same way.
     let browserHostLines: BrowserHostClient.LineSocket
+    /// The voice wire's line socket, the same way. One socket for the one
+    /// voice session.
+    let realtimeLines: RealtimeSocketClient.LineSocket
+    /// The microphone and the speaker the one audio owner drives.
+    let voiceAudio: any VoiceAudioEngine
     /// Which steps activation runs on this configuration's machine.
     let activationPlan: ActivationPlan
     let sleeper: any Sleeping
@@ -144,6 +150,8 @@ extension AppEnvironment {
             identities: ManagementDaemonIdentityProbe(),
             companionLines: CompanionSocketClient.lineSocket(),
             browserHostLines: BrowserHostClient.lineSocket(),
+            realtimeLines: RealtimeSocketClient.lineSocket(),
+            voiceAudio: AudioController(),
             activationPlan: plan,
             sleeper: TaskSleeper(),
             reconciler: EngineReconciler(

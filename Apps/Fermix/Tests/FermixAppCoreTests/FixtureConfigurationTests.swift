@@ -937,6 +937,20 @@ struct FixtureConfigurationSourceGateTests {
         #expect(!composition[0].text.contains("#if DEBUG"), "the product root branches on the build")
     }
 
+    /// The voice stack is built over the two seams the environment hands it,
+    /// as chat is over its own: a socket or an audio engine the graph built for
+    /// itself is one no configuration governs, and the fixture's claim that it
+    /// never touches the microphone would be true only by accident.
+    @Test("the composition builds voice over the environment's socket and audio engine")
+    func voiceStandsOnTheEnvironment() throws {
+        let composition = try SourceTree.swiftFiles(matching: "App/AppComposition.swift")[0].text
+
+        #expect(composition.contains("environment.realtimeLines"))
+        #expect(composition.contains("environment.voiceAudio"))
+        #expect(!composition.contains("AudioController("), "the composition builds its own audio engine")
+        #expect(!composition.contains("lineSocket("), "the composition builds its own socket")
+    }
+
     /// Nothing reaches past the environment to read the machine directly. The
     /// boundary is only a boundary while the graph is its one reader: a surface
     /// that held the environment and read a probe off it would be a second way

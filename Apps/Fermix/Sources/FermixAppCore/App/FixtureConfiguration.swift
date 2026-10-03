@@ -516,6 +516,8 @@ extension AppEnvironment {
             identities: FixtureDaemonIdentity(),
             companionLines: FixtureCompanionTransport(timeline: launch.companionTimeline),
             browserHostLines: FixtureBrowserHostTransport(),
+            realtimeLines: RealtimeSocketClient.lineSocket(),
+            voiceAudio: AudioController(),
             // An installed machine: `notInApplications` exists to render the
             // location refusal, and the Starting ladder is looked at with the
             // registration row the shipped activation draws.

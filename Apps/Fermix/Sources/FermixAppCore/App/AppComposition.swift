@@ -109,7 +109,12 @@ final class AppComposition {
             browser: browser,
             workspace: environment.workspace
         )
-        voice = Self.buildVoice(model: model, bootstrap: store)
+        voice = Self.buildVoice(
+            model: model,
+            bootstrap: store,
+            lines: environment.realtimeLines,
+            audio: environment.voiceAudio
+        )
         let companion = Self.buildCompanion(bootstrap: store, lines: environment.companionLines)
         services = ServiceController(loginItems: environment.loginItems, plists: environment.plists)
         engineReconciler = environment.reconciler
@@ -259,10 +264,15 @@ final class AppComposition {
     }
 
     /// The voice stack: one audio owner, one realtime session, one coordinator.
-    private static func buildVoice(model: AppModel, bootstrap: BootstrapStore) -> VoiceCoordinator {
+    private static func buildVoice(
+        model: AppModel,
+        bootstrap: BootstrapStore,
+        lines: RealtimeSocketClient.LineSocket,
+        audio: any VoiceAudioEngine
+    ) -> VoiceCoordinator {
         let session = VoiceSession(
             transport: RealtimeSocketClient(
-                lines: MainActorLineDelivery(wrapping: RealtimeSocketClient.lineSocket())
+                lines: MainActorLineDelivery(wrapping: lines)
             ),
             // Resolved per connect from the bootstrap record, never from the
             // environment: §4 makes that record the sole macOS source.
@@ -273,7 +283,7 @@ final class AppComposition {
         return VoiceCoordinator(
             model: model,
             session: session,
-            audio: AudioOwner(engine: AudioController(), deadlines: MainQueueDeadlineScheduler())
+            audio: AudioOwner(engine: audio, deadlines: MainQueueDeadlineScheduler())
         )
     }
 
