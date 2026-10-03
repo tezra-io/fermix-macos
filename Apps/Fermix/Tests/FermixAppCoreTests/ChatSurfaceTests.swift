@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -113,6 +114,34 @@ struct ChatSurfaceTests {
         #expect(!ChatFollow.keepsBottom(readerAtBottom: false, before: viewport(480, atBottom: false), now: viewport(400, atBottom: false)))
         // The reader scrolled away from the bottom edge themselves.
         #expect(!ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(480, atBottom: false)))
+    }
+
+    // MARK: - The draft
+
+    /// The chat view is rebuilt on every rail change and when Settings opens,
+    /// so the text being written lives on the session and the view starts from
+    /// it. Not on the model, and not published: a keystroke redraws nothing
+    /// but the field.
+    @Test("the draft lives on the session, unpublished, so a rebuilt chat view finds it")
+    @MainActor
+    func draftOutlivesTheView() throws {
+        let session = CompanionSession(
+            transport: CompanionSocketClient(lines: FakeCompanionSocket()),
+            socketPath: { "/tmp/fermix-test/companion.sock" },
+            deadlines: ManualDeadlineScheduler()
+        )
+        var changes = 0
+        let subscription = session.model.objectWillChange.sink { _ in changes += 1 }
+        defer { subscription.cancel() }
+
+        #expect(session.draft.isEmpty)
+        session.draft = "check the lease"
+        #expect(session.draft == "check the lease")
+        #expect(changes == 0)
+
+        let surface = try #require(try SourceTree.swiftFiles(matching: "Chat/ChatSurfaceView.swift").first?.text)
+        #expect(surface.contains("_draft = State(initialValue: session.draft)"))
+        #expect(surface.contains("session.draft = draft"))
     }
 
     // MARK: - Where a hit is

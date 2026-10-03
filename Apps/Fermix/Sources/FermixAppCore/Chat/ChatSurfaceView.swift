@@ -87,7 +87,9 @@ struct ChatSurfaceView: View {
     /// The toolbar's commands: "Show browser" (plan §4.10) and the call.
     let router: any CommandPerforming
 
-    @State private var draft = ""
+    /// The text being written. The session holds it as well, so leaving Chat
+    /// or opening Settings mid-call, which rebuilds this view, does not lose it.
+    @State private var draft: String
     @State private var query = ""
     @State private var resultsShown = false
     @State private var reveal: ChatReveal?
@@ -110,6 +112,7 @@ struct ChatSurfaceView: View {
         self.settings = settings
         self.links = links
         self.router = router
+        _draft = State(initialValue: session.draft)
     }
 
     var body: some View {
@@ -153,6 +156,9 @@ struct ChatSurfaceView: View {
             })
             .toolbar {
                 SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router)
+            }
+            .onChange(of: draft) {
+                session.draft = draft
             }
     }
 
