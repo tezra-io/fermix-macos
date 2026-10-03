@@ -19,6 +19,12 @@ final class FixtureBrowserEngine: BrowserEngine {
         BrowserTab(profile: profile, page: FixtureBrowserPage())
     }
 
+    /// No file dialog: a fake page has no upload field, and a fixture run
+    /// raises nothing over the operator's window.
+    func chooseFiles(_ request: BrowserFileRequest, for page: NSView, answer: @escaping @MainActor ([URL]?) -> Void) {
+        answer(nil)
+    }
+
     /// Fake pages hold nothing to let go.
     func releaseIdle() {}
 }

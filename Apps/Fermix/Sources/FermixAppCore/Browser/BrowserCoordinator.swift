@@ -49,6 +49,9 @@ public final class BrowserCoordinator {
     /// Whether the primary window is on screen: open, and not covered,
     /// minimised or on another Space.
     private var windowVisible = false
+    /// Whether the system's file chooser is up for a page's upload field: the
+    /// pane's one popup while it is, as a page's dialog is.
+    private var choosingFiles = false
     /// Where each tab's page is now.
     private var placed: [BrowserTab.ID: BrowserPagePlace] = [:]
 
@@ -372,6 +375,12 @@ public final class BrowserCoordinator {
         model.notice = ProductStrings[.browserNoticeNoApp]
     }
 
+    /// Only the page in front, in an open pane, may ask the person anything,
+    /// and only while nothing else is asking, so a popup never stacks.
+    private func mayAsk(from tab: BrowserTab) -> Bool {
+        model.isOpen && model.selectedTabID == tab.id && model.dialog == nil && !choosingFiles
+    }
+
     private func availabilityChanged(_ availability: BrowserAvailability) {
         guard let report = model.host.availabilityChanged(availability) else { return }
 
@@ -506,18 +515,39 @@ extension BrowserCoordinator: BrowserTabDelegate {
         remove([tab.id])
     }
 
+    /// A page's upload field. The person's own tab gets the system's file
+    /// chooser, on the same terms as a page's dialog. A task's tab gets none:
+    /// a task uploads only through `page.upload`, which is confined to the
+    /// engine's workspace.
+    public func filesRequested(
+        _ request: BrowserFileRequest,
+        in tab: BrowserTab,
+        answer: @escaping @MainActor ([URL]?) -> Void
+    ) {
+        guard model.host.owner(of: tab.id) == .person, mayAsk(from: tab), let engine else {
+            answer(nil)
+            return
+        }
+
+        choosingFiles = true
+        engine.chooseFiles(request, for: tab.view) { [weak self] files in
+            self?.choosingFiles = false
+            answer(files)
+        }
+    }
+
     public func externalSchemeMet(_ url: URL) {
         openOutside(url)
     }
 
-    /// Only the page in front, in an open pane, may ask the person anything,
-    /// and only one at a time; every other dialog is dismissed at once.
+    /// Shown where the page may ask (`mayAsk`); every other dialog is
+    /// dismissed at once.
     public func dialogPresented(
         _ dialog: BrowserDialog,
         in tab: BrowserTab,
         answer: @escaping @MainActor (BrowserDialogAnswer) -> Void
     ) {
-        guard model.isOpen, model.selectedTabID == tab.id, model.dialog == nil else {
+        guard mayAsk(from: tab) else {
             answer(.dismissed)
             return
         }

@@ -103,6 +103,25 @@ final class FakeBrowserEngine: BrowserEngine {
         return BrowserTab(profile: profile, page: page)
     }
 
+    /// Every file chooser raised, with the page it was raised over; the open
+    /// one waits for the test's `answerFiles`.
+    private(set) var fileRequests: [BrowserFileRequest] = []
+    private(set) var filePages: [NSView] = []
+    private var fileAnswer: (@MainActor ([URL]?) -> Void)?
+
+    func chooseFiles(_ request: BrowserFileRequest, for page: NSView, answer: @escaping @MainActor ([URL]?) -> Void) {
+        fileRequests.append(request)
+        filePages.append(page)
+        fileAnswer = answer
+    }
+
+    /// The person answers the open chooser.
+    func answerFiles(_ files: [URL]?) {
+        let answer = fileAnswer
+        fileAnswer = nil
+        answer?(files)
+    }
+
     func releaseIdle() { idleReleases += 1 }
 }
 
@@ -210,6 +229,18 @@ final class RecordingTabDelegate: BrowserTabDelegate {
     }
 
     func closeRequested(by tab: BrowserTab) { closeRequests.append(tab) }
+
+    private(set) var fileRequests: [BrowserFileRequest] = []
+    var files: [URL]?
+
+    func filesRequested(
+        _ request: BrowserFileRequest,
+        in tab: BrowserTab,
+        answer: @escaping @MainActor ([URL]?) -> Void
+    ) {
+        fileRequests.append(request)
+        answer(files)
+    }
 
     func externalSchemeMet(_ url: URL) { externals.append(url) }
 

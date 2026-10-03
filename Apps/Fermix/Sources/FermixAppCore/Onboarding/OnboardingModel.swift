@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 /// Choosing a directory, behind a seam. The one place the assistant opens an
-/// `NSOpenPanel`, so nothing else in the app can raise a file dialog.
+/// `NSOpenPanel`, so nothing else in the assistant can raise a file dialog.
 @MainActor
 public protocol DirectoryChoosing {
     /// The directory the operator picked, or nil where they cancelled.

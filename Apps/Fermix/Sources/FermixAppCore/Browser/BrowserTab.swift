@@ -76,6 +76,19 @@ public enum BrowserDialogAnswer: Equatable, Sendable {
     case text(String)
 }
 
+/// A file chooser a page's upload field raised, as WebKit describes it.
+public struct BrowserFileRequest: Equatable, Sendable {
+    /// The field takes several files at once.
+    public let allowsMultipleSelection: Bool
+    /// The field takes a folder (`webkitdirectory`).
+    public let allowsDirectories: Bool
+
+    public init(allowsMultipleSelection: Bool, allowsDirectories: Bool) {
+        self.allowsMultipleSelection = allowsMultipleSelection
+        self.allowsDirectories = allowsDirectories
+    }
+}
+
 /// One page as the web engine drives it, behind the seam.
 ///
 /// The engine's side of a tab: `BrowserTab` holds one and forwards the
@@ -107,6 +120,9 @@ public protocol BrowserPageEvents: AnyObject {
     /// The page asked for its own window to close, as a sign-in window does
     /// when it is done.
     func pageAskedToClose()
+    /// The page's upload field asked for files. Answered exactly once: the
+    /// files chosen, or nil for none.
+    func pageRequestedFiles(_ request: BrowserFileRequest, answer: @escaping @MainActor ([URL]?) -> Void)
     func pageMetExternalScheme(_ url: URL)
     func pagePresented(_ dialog: BrowserDialog, answer: @escaping @MainActor (BrowserDialogAnswer) -> Void)
     func pageStartedDownload(_ url: URL)
@@ -120,6 +136,12 @@ public protocol BrowserTabDelegate: AnyObject {
     /// A page opened a tab of its own. Answering false refuses it.
     func newTabRequested(_ tab: BrowserTab, from opener: BrowserTab) -> Bool
     func closeRequested(by tab: BrowserTab)
+    /// A page's upload field asked for files, answered exactly once.
+    func filesRequested(
+        _ request: BrowserFileRequest,
+        in tab: BrowserTab,
+        answer: @escaping @MainActor ([URL]?) -> Void
+    )
     /// A navigation to a scheme no web page serves, such as `mailto:`, which
     /// belongs to another app on the Mac.
     func externalSchemeMet(_ url: URL)
@@ -206,6 +228,17 @@ extension BrowserTab: BrowserPageEvents {
 
     public func pageAskedToClose() {
         delegate?.closeRequested(by: self)
+    }
+
+    /// A page with nobody to ask gets no file, as a cancelled chooser does,
+    /// because WebKit holds the field until it is answered.
+    public func pageRequestedFiles(_ request: BrowserFileRequest, answer: @escaping @MainActor ([URL]?) -> Void) {
+        guard let delegate else {
+            answer(nil)
+            return
+        }
+
+        delegate.filesRequested(request, in: self, answer: answer)
     }
 
     public func pageMetExternalScheme(_ url: URL) {

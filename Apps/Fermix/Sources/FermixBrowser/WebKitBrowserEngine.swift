@@ -1,3 +1,4 @@
+import AppKit
 import FermixAppCore
 import Foundation
 import WebKit
@@ -28,6 +29,23 @@ public final class WebKitBrowserEngine: BrowserEngine {
 
     public func makeTab(profile: BrowserProfile) -> BrowserTab {
         BrowserTab(profile: profile, page: WebKitBrowserPage(configuration: configuration(for: profile)))
+    }
+
+    /// The system's open panel, as a sheet on the pane's window, which is the
+    /// window the person's tab in front is in. A page in no window has nowhere
+    /// to show it, and gets no file.
+    public func chooseFiles(_ request: BrowserFileRequest, for page: NSView, answer: @escaping @MainActor ([URL]?) -> Void) {
+        guard let window = page.window else {
+            answer(nil)
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = request.allowsMultipleSelection
+        panel.canChooseDirectories = request.allowsDirectories
+        panel.beginSheetModal(for: window) { response in
+            answer(response == .OK ? panel.urls : nil)
+        }
     }
 
     /// The corner window a task's pages run in while the pane cannot show

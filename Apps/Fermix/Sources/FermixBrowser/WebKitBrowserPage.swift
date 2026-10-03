@@ -286,9 +286,9 @@ extension WebKitBrowserPage: WKUIDelegate {
     }
 
     /// A file chooser the page's own input raised. A driven `upload` primes
-    /// `pendingUploadPath` immediately before the click that opens it; a panel
-    /// with none pending is a person's own tab, which this pane does not yet
-    /// offer a picker for (plan §4.7).
+    /// `pendingUploadPath` immediately before the click that opens it, and is
+    /// answered with exactly that file. Any other goes to the tab, whose owner
+    /// decides whether the person is shown the system's chooser (plan §8.1).
     func webView(
         _ webView: WKWebView,
         runOpenPanelWith parameters: WKOpenPanelParameters,
@@ -296,12 +296,20 @@ extension WebKitBrowserPage: WKUIDelegate {
         completionHandler: @escaping ([URL]?) -> Void
     ) {
         defer { pendingUploadPath = nil }
-        guard let path = pendingUploadPath else {
+        if let path = pendingUploadPath {
+            completionHandler([URL(fileURLWithPath: path)])
+            return
+        }
+        guard let events else {
             completionHandler(nil)
             return
         }
 
-        completionHandler([URL(fileURLWithPath: path)])
+        let request = BrowserFileRequest(
+            allowsMultipleSelection: parameters.allowsMultipleSelection,
+            allowsDirectories: parameters.allowsDirectories
+        )
+        events.pageRequestedFiles(request) { completionHandler($0) }
     }
 
     private func present(
