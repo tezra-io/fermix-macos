@@ -189,6 +189,10 @@ public struct HomeSnapshot: Equatable, Sendable {
     public let update: UpdateAvailability
     /// The version of the engine answering right now, where one answered.
     public let engineVersion: String?
+    /// Whether voice can take a call, from the same overview (M56 §4.1). Home
+    /// draws no row for it; the call control reads it from here, so there is
+    /// one reader and one value.
+    public let voiceReadiness: VoiceReadiness
 
     /// - Parameter setup: the shared `setup.state.get` snapshot, read for one
     ///   thing: the label the daemon publishes for the provider `overview.get`
@@ -213,6 +217,7 @@ public struct HomeSnapshot: Equatable, Sendable {
         self.setupComplete = ready
         self.nextSetupStep = ready ? nil : setup.flatMap { AttentionProjection.nextSetupStep(for: $0, names: names) }
         self.restartPending = overview?.health.restartRequired ?? false
+        self.voiceReadiness = VoiceReadiness(overview?.realtime.status)
         self.unreachable = unreachable
         self.update = update
         self.attention = attention
@@ -405,6 +410,45 @@ public struct HomeStatus: Equatable, Sendable {
     public init(transaction: LifecycleTransactionKind?, snapshot: HomeSnapshot) {
         title = transaction.map(LifecycleActivity.sentence(for:)) ?? snapshot.statusTitle
         inProgress = transaction != nil
+    }
+}
+
+/// Whether voice can take a call, from the last overview the app read
+/// (M56 §4.1).
+///
+/// The daemon publishes a word and no sentence beside it, so each value that
+/// stops a call carries the app's own sentence, and each has one action: begin
+/// the call, open Settings, Voice, or nothing at all.
+public enum VoiceReadiness: Equatable, Sendable {
+    case ready
+    /// Voice is not set up, or is switched off: Settings, Voice is the way on.
+    case setupRequired
+    case degraded
+    /// No overview has answered: before the first read, after a read that
+    /// found no daemon, and for a word this build cannot read.
+    case unknown
+
+    /// - Parameter status: `overview.realtime.status`. `disabled` is the
+    ///   engine's word for voice switched off, whose way on is the same pane
+    ///   as voice not set up.
+    public init(_ status: ManagementRealtimeStatus?) {
+        switch status {
+        case .ready?: self = .ready
+        case .setupRequired?, .disabled?: self = .setupRequired
+        case .degraded?: self = .degraded
+        case .unrecognized?, nil: self = .unknown
+        }
+    }
+
+    /// The app's own words for a readiness that stops a call. Ready has none:
+    /// the call control says what it does instead.
+    public var sentence: String? {
+        switch self {
+        case .ready: return nil
+        case .setupRequired: return ProductStrings[.voiceReadinessSetupRequired]
+        case .degraded: return ProductStrings[.voiceReadinessDegraded]
+        case .unknown: return ProductStrings[.voiceReadinessUnknown]
+        }
     }
 }
 

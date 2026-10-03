@@ -715,6 +715,8 @@ final class AppComposition {
                 settings: settings,
                 reconciler: reconciler,
                 menuBar: menuBar,
+                call: voiceCall,
+                deadlines: MainQueueDeadlineScheduler(),
                 instructions: instructions,
                 // The reveal seam lives on Doctor, and this is that one rather
                 // than a second implementation of the same gesture.

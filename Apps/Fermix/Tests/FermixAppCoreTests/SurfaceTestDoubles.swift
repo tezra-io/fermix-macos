@@ -294,9 +294,11 @@ enum ManagementValueFixture {
         uptimeMs: Int = 273_600_000,
         failedJobs: Int = 0,
         activeConversations: Int = 0,
-        pendingConversations: Int = 0
+        pendingConversations: Int = 0,
+        voice: String? = "ready"
     ) throws -> ManagementOverview {
         let active = provider.map { "\"\($0)\"" } ?? "null"
+        let voiceStatus = voice.map { "\"\($0)\"" } ?? "null"
         return try decode(
             """
             {
@@ -338,7 +340,7 @@ enum ManagementValueFixture {
               },
               "realtime": {
                 "enabled": true,
-                "status": "ok",
+                "status": \(voiceStatus),
                 "provider": "openai",
                 "model": "gpt-realtime",
                 "socket_alive": true,

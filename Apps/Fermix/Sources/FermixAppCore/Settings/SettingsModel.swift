@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// Where the Settings window remembers which pane was last open.
@@ -106,6 +107,12 @@ public final class SettingsModel: ObservableObject {
     /// hangs off this model because this model is the one instance: two ledgers
     /// is exactly the disagreement §5.9 exists to prevent.
     public let permissions: PermissionLedger
+
+    /// Each write the daemon accepted: a row, a secret, the primary provider.
+    /// The overview reader reads after every one, since a save is what sets
+    /// voice up (M56 §4.1). Not published state: a save is an event, not a
+    /// fact a view draws.
+    public let saves = PassthroughSubject<Void, Never>()
 
     let gateway: any DaemonQuerying
     private let store: any SettingsPaneStoring

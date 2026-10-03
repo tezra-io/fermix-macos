@@ -436,7 +436,9 @@ final class RouterHarness {
                 updates: updates,
                 settings: settings,
                 reconciler: EngineReconcilerFixture.aligned(),
-                menuBar: menuBar
+                menuBar: menuBar,
+                call: voiceCall,
+                deadlines: ManualDeadlineScheduler()
             ),
             doctor: DoctorModel(
                 gateway: gateway,

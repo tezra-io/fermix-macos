@@ -362,6 +362,10 @@
 "voice.task.statusFormat" = "Task: %@";
 "voice.costFormat" = "Voice so far: %@";
 "voice.costSettledFormat" = "Voice for this call: %@";
+"voice.readiness.setupRequired" = "Voice is not set up";
+"voice.readiness.setUp" = "Set up voice";
+"voice.readiness.degraded" = "Voice is not available right now";
+"voice.readiness.unknown" = "Checking voice";
 
 /* MARK: Companion chat */
 "companion.connection.engineHasNoChat" = "The Fermix engine on this Mac has no chat yet";

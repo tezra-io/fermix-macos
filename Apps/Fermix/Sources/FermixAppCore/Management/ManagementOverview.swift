@@ -171,7 +171,8 @@ public struct ManagementOverview: Decodable, Equatable, Sendable {
 
     public struct Realtime: Decodable, Equatable, Sendable {
         public let enabled: Bool
-        public let status: String?
+        /// Whether voice can take a call, in the daemon's own word.
+        public let status: ManagementRealtimeStatus?
         public let provider: String?
         /// Which voice engine is selected, in the daemon's own word. Null while
         /// voice is disabled, exactly like the provider and the model beside it.
@@ -196,5 +197,28 @@ public struct ManagementOverview: Decodable, Equatable, Sendable {
         public let skill: Int
         public let mcp: Int
         public let total: Int
+    }
+}
+
+/// `overview.realtime.status`: the daemon's word for whether voice can take a
+/// call. The engine says `disabled` while voice is switched off, beside the
+/// three words that describe voice once it is on.
+public enum ManagementRealtimeStatus: ManagementVocabulary {
+    case ready
+    case setupRequired
+    case degraded
+    case disabled
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = [
+        "ready": .ready,
+        "setup_required": .setupRequired,
+        "degraded": .degraded,
+        "disabled": .disabled
+    ]
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
     }
 }

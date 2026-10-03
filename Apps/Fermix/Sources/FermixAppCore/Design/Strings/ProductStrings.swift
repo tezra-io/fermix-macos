@@ -398,6 +398,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case voiceTaskStatusFormat = "voice.task.statusFormat"
     case voiceCostFormat = "voice.costFormat"
     case voiceCostSettledFormat = "voice.costSettledFormat"
+    case voiceReadinessSetupRequired = "voice.readiness.setupRequired"
+    /// The call control's action while voice is not set up.
+    case voiceReadinessSetUp = "voice.readiness.setUp"
+    case voiceReadinessDegraded = "voice.readiness.degraded"
+    case voiceReadinessUnknown = "voice.readiness.unknown"
 
     // Companion chat
     case companionConnectionEngineHasNoChat = "companion.connection.engineHasNoChat"

@@ -1130,6 +1130,10 @@ final class HomeHarness {
     /// switch has something real to write to.
     let statusItem = FakeStatusItem()
     let menuBar: MenuBarController
+    /// The call whose refusals Home reads after (M56 §4.1).
+    let call = VoiceCallModel()
+    /// The voice readiness check, driven by hand.
+    let deadlines = ManualDeadlineScheduler()
 
     init(protocolCeiling: Int? = nil, reconciler: EngineReconciler = EngineReconcilerFixture.aligned()) throws {
         gateway.hello = try ManagementValueFixture.hello(maximum: protocolCeiling)
@@ -1159,7 +1163,9 @@ final class HomeHarness {
             updates: updates,
             settings: settings,
             reconciler: reconciler,
-            menuBar: menuBar
+            menuBar: menuBar,
+            call: call,
+            deadlines: deadlines
         )
         // The same edge the composition builds: the item reports every change to
         // its own visibility, and Home redraws the switch from that.

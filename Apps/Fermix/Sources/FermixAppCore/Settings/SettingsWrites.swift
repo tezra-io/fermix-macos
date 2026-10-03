@@ -58,6 +58,7 @@ extension SettingsModel {
             await loadSection(section)
             clearDrafts(keys)
             await refreshSetupState()
+            saves.send()
             return true
         } catch {
             refuse(error, keys)
@@ -100,6 +101,7 @@ extension SettingsModel {
             let result = try await gateway.setSecret(id: id, value: value)
             apply(restart: result.restart)
             await reloadSurfacesHolding(secret: id)
+            saves.send()
             return nil
         } catch {
             return refusal(error)
@@ -117,6 +119,7 @@ extension SettingsModel {
             let result = try await gateway.clearSecret(id: id)
             apply(restart: result.restart)
             await reloadSurfacesHolding(secret: id)
+            saves.send()
             return nil
         } catch {
             return refusal(error)

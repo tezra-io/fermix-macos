@@ -44,6 +44,7 @@ extension SettingsModel {
             apply(restart: result.restart)
             sideEffects = result.sideEffects
             await refreshSetupState()
+            saves.send()
             return nil
         } catch {
             noteReconcile(error)
