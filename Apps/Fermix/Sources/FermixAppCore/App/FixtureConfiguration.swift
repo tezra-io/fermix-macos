@@ -516,8 +516,12 @@ extension AppEnvironment {
             identities: FixtureDaemonIdentity(),
             companionLines: FixtureCompanionTransport(timeline: launch.companionTimeline),
             browserHostLines: FixtureBrowserHostTransport(),
-            realtimeLines: RealtimeSocketClient.lineSocket(),
-            voiceAudio: AudioController(),
+            // A scripted daemon on the voice socket and a silent engine under
+            // the call, so a call begun from any surface reaches neither the
+            // realtime socket nor the microphone: the claim at the top of this
+            // file holds by construction.
+            realtimeLines: FixtureRealtimeTransport(call: .conversation, deadlines: MainQueueDeadlineScheduler()),
+            voiceAudio: FixtureAudioEngine(deadlines: MainQueueDeadlineScheduler()),
             // An installed machine: `notInApplications` exists to render the
             // location refusal, and the Starting ladder is looked at with the
             // registration row the shipped activation draws.
