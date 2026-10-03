@@ -212,20 +212,28 @@ extension WebKitBrowserPage: WKNavigationDelegate {
         resolveReadyWaiters(.success(()))
     }
 
-    /// A load that never reached a page says why, in the system's own words.
-    /// A navigation the person or the policy cancelled is not a failure: a
-    /// fresh one superseded it, and that one's own `didFinish` is still ahead.
+    /// A load that never reached a page, a navigation that became a download
+    /// among them.
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
-        guard !Self.wasCancelled(error) else { return }
-
-        events?.pageFailed(error.localizedDescription)
-        resolveReadyWaiters(.failure(BrowserPageDriveError.navigationFailed(error.localizedDescription)))
+        ended(with: error)
     }
 
     /// A load that reached the page but failed once committed (a resource the
     /// main frame needed never arrived).
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-        guard !Self.wasCancelled(error) else { return }
+        ended(with: error)
+    }
+
+    /// The one rule for a navigation that ended without a page
+    /// (`BrowserNavigationEnding`). A failure says why, in the system's own
+    /// words, and fails the reads waiting on it. Anything else leaves the
+    /// page as it stands: ready for those reads once nothing else is loading,
+    /// and where a fresh navigation replaced it, that one settles them.
+    private func ended(with error: any Error) {
+        guard BrowserNavigationEnding(error) == .failed else {
+            if !webView.isLoading { resolveReadyWaiters(.success(())) }
+            return
+        }
 
         events?.pageFailed(error.localizedDescription)
         resolveReadyWaiters(.failure(BrowserPageDriveError.navigationFailed(error.localizedDescription)))
@@ -235,16 +243,6 @@ extension WebKitBrowserPage: WKNavigationDelegate {
         let disposition = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
 
         return disposition?.lowercased().hasPrefix("attachment") == true
-    }
-
-    /// `NSURLErrorCancelled` is a navigation replaced by another, and WebKit's
-    /// frame-load-interrupted error is one the policy cancelled.
-    private static func wasCancelled(_ error: any Error) -> Bool {
-        let error = error as NSError
-        let frameLoadInterruptedByPolicyChange = 102
-
-        return (error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled)
-            || (error.domain == WKError.errorDomain && error.code == frameLoadInterruptedByPolicyChange)
     }
 }
 
