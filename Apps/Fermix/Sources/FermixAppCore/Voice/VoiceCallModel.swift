@@ -143,6 +143,22 @@ public struct VoiceState: Equatable, Sendable {
     /// The usage frame the daemon last reported.
     public var usage: VoiceUsage?
 
+    /// Whether a stopping call has heard everything the daemon will say about
+    /// it, so its next `state idle` is its last frame.
+    ///
+    /// The Live engine says idle as it begins to settle, then sends each
+    /// running task's cancellation and the settled bill (`accounting`
+    /// `complete` or `incomplete`), then idle again (`live_session_server.ex`
+    /// `settle/2`, `local_voice_socket.ex` `call_stop`). The Realtime engine
+    /// sends no `call_ready` and no accounting: its first idle is the end.
+    var settled: Bool {
+        if let usage, usage.accounting == "complete" || usage.accounting == "incomplete" {
+            return true
+        }
+
+        return engine == nil && usage?.accounting == nil
+    }
+
     /// Whether the daemon has a call: from `call_start` until the call's last
     /// frame. Derived, so it cannot disagree with the phase.
     public var callActive: Bool {
@@ -430,12 +446,14 @@ public final class VoiceCallModel: ObservableObject {
         return applyServerError(failure)
     }
 
-    /// Frames after `call_stop` belong to the call that is ending: the daemon
-    /// writes its last task and usage frames, then `state idle` as the call's
-    /// last frame. Nothing here moves the presentation, and no audio plays.
+    /// Frames after `call_stop` belong to the call that is ending, up to the
+    /// `state idle` that follows its settled bill (`VoiceState.settled`).
+    /// Nothing here moves the presentation, and no audio plays.
     private func applyWhileStopping(_ event: RealtimeServerEvent) -> [VoiceEffect] {
         switch event {
         case .state(.idle):
+            guard voice.settled else { return [] }
+
             end(.normal(settled: voice.usage))
             return [.callEnded]
         case .error(let failure):

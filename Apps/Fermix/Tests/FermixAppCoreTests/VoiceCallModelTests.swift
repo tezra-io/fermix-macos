@@ -406,7 +406,7 @@ struct VoiceCallModelRoutingTests {
         )
         _ = model.apply(.usage(RealtimeUsage(voiceCostCents: 5.35)), audioIsPlaying: false)
         model.callStopping()
-        _ = model.apply(.state(.idle), audioIsPlaying: false)
+        model.callEnded()
 
         model.callStarting()
 
@@ -550,15 +550,20 @@ struct VoiceCallLifecycleTests {
         #expect(try harness.sent("call_start") == 1)
     }
 
-    /// The daemon writes a call's last frames before its `state idle`
-    /// (`local_voice_socket.ex`, `call_stop`), so everything up to that idle
-    /// is the ending call's: its task's outcome and its settled bill.
-    @Test("end waits for the daemon's idle, and the call's last frames land on it")
-    func endWaitsForIdle() async throws {
+    /// The Live engine's order on `call_stop` (`live_session_server.ex`
+    /// `settle/2`, then `local_voice_socket.ex`): `state idle` as it begins
+    /// to settle, a `task cancelled` for each delegation still running, the
+    /// settled `usage`, then `state idle` again as the call's last frame. The
+    /// first idle is not the end: everything up to the settled bill is the
+    /// ending call's.
+    @Test("a Live call's stop ends at the idle after its settled bill")
+    func liveStopEndsAfterTheSettledBill() async throws {
         let harness = VoiceCallHarness()
         await harness.beginCall()
-        _ = harness.call.apply(.state(.listening), audioIsPlaying: false)
+        harness.socket.deliver(.callReady(RealtimeCallReady(engine: "openai_live", callId: "voice_live:1", captions: true)))
+        harness.socket.deliver(.state(.listening))
         harness.socket.deliver(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .running)))
+        harness.socket.deliver(.usage(RealtimeUsage(status: "live", voiceCostCents: 4, accounting: "running")))
 
         harness.coordinator.toggleCall()
 
@@ -569,19 +574,67 @@ struct VoiceCallLifecycleTests {
         #expect(harness.engine.calls.last == .shutdown)
         #expect(harness.callDeadlines.scheduledDelays == [VoiceCoordinator.stopGrace])
 
-        let settled = RealtimeUsage(voiceCostCents: 12.5, accounting: "complete")
-        harness.socket.deliver(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .completed)))
-        harness.socket.deliver(.usage(settled))
+        let settled = RealtimeUsage(status: "live", voiceCostCents: 12.5, accounting: "complete")
+        let streams = harness.engine.calls.filter { $0 == .beginStreaming }.count
         harness.socket.deliver(.state(.listening))
+        harness.socket.deliver(.state(.idle))
+        harness.socket.deliver(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .cancelled)))
         #expect(harness.call.voice.phase == .stopping)
-        #expect(!harness.engine.calls.contains(.beginStreaming))
+        harness.socket.deliver(.usage(settled))
+        #expect(harness.call.voice.phase == .stopping)
+        #expect(harness.engine.calls.filter { $0 == .beginStreaming }.count == streams)
 
         harness.socket.deliver(.state(.idle))
 
         #expect(harness.call.voice.phase == .ended(.normal(settled: settled)))
         #expect(harness.call.voice.usage == settled)
+        #expect(harness.call.voice.task?.status == .cancelled)
         #expect(harness.call.voice.callActive == false)
         #expect(harness.callDeadlines.liveCount == 0)
+    }
+
+    /// The Realtime engine settles nothing: no `call_ready`, no accounting on
+    /// its usage, and its first idle is the call's end.
+    @Test("a Realtime call's stop ends at its first idle")
+    func realtimeStopEndsAtTheFirstIdle() async throws {
+        let harness = VoiceCallHarness()
+        await harness.beginCall()
+        let usage = RealtimeUsage(voiceSeconds: 9)
+        harness.socket.deliver(.usage(usage))
+
+        harness.coordinator.toggleCall()
+        harness.socket.deliver(.state(.idle))
+
+        #expect(harness.call.voice.phase == .ended(.normal(settled: usage)))
+        #expect(harness.callDeadlines.liveCount == 0)
+    }
+
+    /// A call the daemon ends itself at the cost ceiling: `state idle`, the
+    /// usage that reached the limit, then `error` with its kind, and the
+    /// socket closes. The failure keeps its kind, its words and that bill,
+    /// and the close does not overwrite them.
+    @Test("a call ended at the cost limit keeps the failure and the bill through the socket closing")
+    func costLimitEndsAsAFailure() async throws {
+        let harness = VoiceCallHarness()
+        await harness.beginCall()
+        harness.socket.deliver(.callReady(RealtimeCallReady(engine: "openai_live", callId: "voice_live:1", captions: true)))
+        harness.socket.deliver(.state(.listening))
+
+        let limit = RealtimeUsage(status: "limit_reached", voiceCostCents: 500, accounting: "running")
+        harness.socket.deliver(.state(.idle))
+        harness.socket.deliver(.usage(limit))
+        harness.socket.deliver(.error(RealtimeServerError(reason: "cost_limit", kind: .costLimit)))
+        let failed = harness.call.voice
+        harness.socket.fail(.peerClosed)
+
+        guard case .ended(.failed(kind: .costLimit, let sentence)) = harness.call.voice.phase else {
+            Issue.record("the call did not end as a cost limit: \(harness.call.voice.phase)")
+            return
+        }
+        #expect(sentence == harness.call.voice.statusText)
+        #expect(harness.call.voice.status == failed.status)
+        #expect(harness.call.voice.usage == limit)
+        #expect(harness.call.voice.connected == false)
     }
 
     /// End then begin at once: the begin waits for the ending call's idle, so
