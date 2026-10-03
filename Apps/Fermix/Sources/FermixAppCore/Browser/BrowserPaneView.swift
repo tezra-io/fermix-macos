@@ -30,7 +30,25 @@ enum BrowserText {
 
     /// A dialog speaks for the website that raised it.
     static func dialogTitle(origin: String) -> String {
-        String(format: ProductStrings[.browserDialogTitleFormat], origin.isEmpty ? ProductStrings[.browserDialogThisPage] : origin)
+        String(format: ProductStrings[.browserDialogTitleFormat], speaker(origin))
+    }
+
+    /// A page's dialog is titled by the website that raised it, and the pane's
+    /// question before a link opens another app by that app.
+    static func dialogTitle(_ dialog: BrowserDialog) -> String {
+        guard case .openApp(let app) = dialog.kind else { return dialogTitle(origin: dialog.origin) }
+
+        return String(format: ProductStrings[.browserOpenAppTitleFormat], app)
+    }
+
+    /// The pane's question before a link opens another app says which website
+    /// asks.
+    static func openAppMessage(origin: String) -> String {
+        String(format: ProductStrings[.browserOpenAppMessageFormat], speaker(origin))
+    }
+
+    private static func speaker(_ origin: String) -> String {
+        origin.isEmpty ? ProductStrings[.browserDialogThisPage] : origin
     }
 }
 
@@ -76,7 +94,7 @@ struct BrowserPaneView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(alignment: .topLeading) { BrowserShortcuts(browser: browser) }
         .alert(
-            model.dialog.map { BrowserText.dialogTitle(origin: $0.dialog.origin) } ?? "",
+            model.dialog.map { BrowserText.dialogTitle($0.dialog) } ?? "",
             isPresented: dialogShown,
             presenting: model.dialog
         ) { request in
@@ -93,7 +111,8 @@ struct BrowserPaneView: View {
 
     /// A page's dialog, answered once: OK alone for an alert, OK and Cancel for
     /// a confirmation, and a field above them for a prompt, named by the page's
-    /// own question, which the alert already shows as its message.
+    /// own question, which the alert already shows as its message. The pane's
+    /// question before another app opens is Open and Cancel.
     @ViewBuilder
     private func dialogActions(_ dialog: BrowserDialog) -> some View {
         switch dialog.kind {
@@ -106,6 +125,9 @@ struct BrowserPaneView: View {
             TextField(dialog.message, text: $promptText)
                 .labelsHidden()
             Button(ProductStrings[.browserDialogOK]) { browser.answer(.text(promptText)) }
+            Button(ProductStrings[.browserDialogCancel], role: .cancel) { browser.answer(.dismissed) }
+        case .openApp:
+            Button(ProductStrings[.browserOpenAppOpen]) { browser.answer(.confirmed) }
             Button(ProductStrings[.browserDialogCancel], role: .cancel) { browser.answer(.dismissed) }
         }
     }

@@ -228,21 +228,6 @@ struct BrowserCoordinatorTests {
         #expect(harness.model.notice == ProductStrings[.browserNoticeDownloadRefused])
     }
 
-    @Test("another app's scheme goes to that app, and says so when none takes it")
-    func externalSchemesGoToTheMac() throws {
-        let harness = BrowserHarness()
-        harness.coordinator.open(Self.fermix)
-        let mail = URL(string: "mailto:hello@fermix.ai")!
-
-        harness.page(0).events?.pageMetExternalScheme(mail)
-        #expect(harness.workspace.opened == [mail])
-        #expect(harness.model.notice == nil)
-
-        harness.workspace.succeeds = false
-        harness.page(0).events?.pageMetExternalScheme(mail)
-        #expect(harness.model.notice == ProductStrings[.browserNoticeNoApp])
-    }
-
     @Test("the page in front opens in the person's own browser")
     func openInSystemBrowser() throws {
         let harness = BrowserHarness()

@@ -242,7 +242,7 @@ final class RecordingTabDelegate: BrowserTabDelegate {
         answer(files)
     }
 
-    func externalSchemeMet(_ url: URL) { externals.append(url) }
+    func externalSchemeMet(_ url: URL, in tab: BrowserTab) { externals.append(url) }
 
     func dialogPresented(
         _ dialog: BrowserDialog,
@@ -262,12 +262,16 @@ final class RecordingTabDelegate: BrowserTabDelegate {
 @MainActor
 final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
     var succeeds = true
+    /// The app this Mac would open any link in, or nil for none.
+    var installedApp: String? = "Mail"
     private(set) var opened: [URL] = []
 
     func open(_ url: URL) -> Bool {
         opened.append(url)
         return succeeds
     }
+
+    func appName(toOpen url: URL) -> String? { installedApp }
 }
 
 /// The link preference with no host state behind it: the suite never reads or

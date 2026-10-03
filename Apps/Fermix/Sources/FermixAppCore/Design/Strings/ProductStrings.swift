@@ -449,6 +449,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     // for did not happen.
     case browserNoticeNotAnAddress = "browser.notice.notAnAddress"
     case browserNoticeProfileUnavailable = "browser.notice.profileUnavailable"
+    /// A task's tab in front reached for another app, which a task never opens.
+    case browserNoticeTaskOpenAppRefused = "browser.notice.taskOpenAppRefused"
     case browserNoticeNoApp = "browser.notice.noApp"
     case browserNoticeDownloadRefused = "browser.notice.downloadRefused"
     /// The pane's controls, by what each does. The stop control is Cancel
@@ -474,6 +476,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case browserDialogThisPage = "browser.dialog.thisPage"
     case browserDialogOK = "browser.dialog.ok"
     case browserDialogCancel = "browser.dialog.cancel"
+    /// The pane's own question before a link in the person's tab opens
+    /// another app: titled by the app, saying which website asks.
+    case browserOpenAppTitleFormat = "browser.openApp.titleFormat"
+    case browserOpenAppMessageFormat = "browser.openApp.messageFormat"
+    case browserOpenAppOpen = "browser.openApp.open"
     /// A task's tab: the mark that says so, its close control, which cancels
     /// the task instead, and that control while the cancel is on its way.
     case browserTaskTab = "browser.taskTab"

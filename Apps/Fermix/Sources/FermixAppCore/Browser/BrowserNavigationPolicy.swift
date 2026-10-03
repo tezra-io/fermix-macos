@@ -36,7 +36,8 @@ public enum BrowserNavigationDecision: Equatable, Sendable {
     case allow
     /// The page gets a tab of its own for it.
     case newTab
-    /// The Mac's own app for the scheme opens it, and the tab stays put.
+    /// Another app's link: the tab stays put, and the tab's owner rules on
+    /// the app, which a person is asked about and a task never opens.
     case external
     /// Nothing is saved, and the pane says why.
     case refuseDownload

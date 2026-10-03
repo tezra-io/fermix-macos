@@ -536,8 +536,28 @@ extension BrowserCoordinator: BrowserTabDelegate {
         }
     }
 
-    public func externalSchemeMet(_ url: URL) {
-        openOutside(url)
+    /// A link to another app (`mailto:`, `tel:`, an app's own scheme), whose
+    /// navigation the page has already refused. A task's tab never opens
+    /// another app, and the pane says so where that tab is in front. The
+    /// person's own tab asks first, in the pane's one dialog, naming the app,
+    /// and the app opens only on their answer.
+    public func externalSchemeMet(_ url: URL, in tab: BrowserTab) {
+        guard model.host.owner(of: tab.id) == .person else {
+            if model.selectedTabID == tab.id { model.notice = ProductStrings[.browserNoticeTaskOpenAppRefused] }
+            return
+        }
+        guard let app = workspace.appName(toOpen: url) else {
+            model.notice = ProductStrings[.browserNoticeNoApp]
+            return
+        }
+
+        let origin = tab.url?.host ?? ""
+        let question = BrowserDialog(kind: .openApp(name: app), message: BrowserText.openAppMessage(origin: origin), origin: origin)
+        dialogPresented(question, in: tab) { [weak self] answer in
+            guard answer == .confirmed else { return }
+
+            self?.openOutside(url)
+        }
     }
 
     /// Shown where the page may ask (`mayAsk`); every other dialog is

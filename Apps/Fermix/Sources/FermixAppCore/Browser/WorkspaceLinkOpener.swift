@@ -11,6 +11,9 @@ import Foundation
 public protocol WorkspaceLinkOpening {
     /// Whether an app on this Mac took the link.
     func open(_ url: URL) -> Bool
+    /// The name of the app on this Mac that would take the link, as Finder
+    /// shows it, or nil where none would.
+    func appName(toOpen url: URL) -> String?
 }
 
 /// The production opener, through the workspace.
@@ -19,5 +22,9 @@ public struct WorkspaceLinkOpener: WorkspaceLinkOpening {
 
     public func open(_ url: URL) -> Bool {
         NSWorkspace.shared.open(url)
+    }
+
+    public func appName(toOpen url: URL) -> String? {
+        NSWorkspace.shared.urlForApplication(toOpen: url).map { FileManager.default.displayName(atPath: $0.path) }
     }
 }

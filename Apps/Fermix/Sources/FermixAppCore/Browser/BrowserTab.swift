@@ -49,12 +49,16 @@ public enum BrowserZoom: Sendable {
     }
 }
 
-/// A JavaScript dialog a page raised: `alert`, `confirm` or `prompt`.
+/// A JavaScript dialog a page raised: `alert`, `confirm` or `prompt`. Or the
+/// pane's own question before a link in the person's tab opens another app,
+/// which takes the same one place over the pane.
 public struct BrowserDialog: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case alert
         case confirm
         case prompt(defaultText: String)
+        /// Whether the app on this Mac named here may open the page's link.
+        case openApp(name: String)
     }
 
     public let kind: Kind
@@ -143,8 +147,9 @@ public protocol BrowserTabDelegate: AnyObject {
         answer: @escaping @MainActor ([URL]?) -> Void
     )
     /// A navigation to a scheme no web page serves, such as `mailto:`, which
-    /// belongs to another app on the Mac.
-    func externalSchemeMet(_ url: URL)
+    /// belongs to another app on the Mac. Whether that app opens is the tab
+    /// owner's rule.
+    func externalSchemeMet(_ url: URL, in tab: BrowserTab)
     func dialogPresented(
         _ dialog: BrowserDialog,
         in tab: BrowserTab,
@@ -242,7 +247,7 @@ extension BrowserTab: BrowserPageEvents {
     }
 
     public func pageMetExternalScheme(_ url: URL) {
-        delegate?.externalSchemeMet(url)
+        delegate?.externalSchemeMet(url, in: self)
     }
 
     /// A page with nobody to ask is answered at once, because WebKit holds the

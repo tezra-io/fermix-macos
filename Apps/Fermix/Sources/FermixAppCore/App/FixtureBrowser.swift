@@ -199,6 +199,8 @@ final class FixturePageView: NSView {
 /// another app.
 struct FixtureWorkspaceOpener: WorkspaceLinkOpening {
     func open(_ url: URL) -> Bool { true }
+    /// No app is named, so a fixture page never asks to leave for one.
+    func appName(toOpen url: URL) -> String? { nil }
 }
 
 /// The browser host socket, never dialed: the fixture drives its two tabs
