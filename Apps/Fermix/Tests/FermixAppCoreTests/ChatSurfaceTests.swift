@@ -90,6 +90,31 @@ struct ChatSurfaceTests {
         #expect(ChatFollow.follows(atBottom: true, sent: true) == true)
     }
 
+    /// The strip takes its room from the transcript, whose scroll view keeps
+    /// its top where it was: a reader on the bottom edge is put back there,
+    /// and one reading further up keeps their place. A reader's own scroll
+    /// changes no size, so it is never undone.
+    @Test("the transcript keeps a reader on its bottom edge when the strip takes room")
+    func transcriptKeepsTheBottomEdge() {
+        func viewport(_ height: Double, width: Double = 720, atBottom: Bool) -> ChatViewport {
+            ChatViewport(size: CGSize(width: width, height: height), atBottom: atBottom)
+        }
+        let reading = viewport(480, atBottom: true)
+
+        // The strip arrives, or takes a line.
+        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(400, atBottom: false)))
+        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(464, atBottom: true)))
+        // The column narrows beside the pane and the rows rewrap.
+        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: viewport(480, atBottom: true), now: viewport(480, width: 432, atBottom: false)))
+        // The pane opens over a run of sizes: past the first, the last reading
+        // is already off the bottom edge, and the reader still is not.
+        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: viewport(480, width: 600, atBottom: false), now: viewport(480, width: 480, atBottom: false)))
+        // A reader further up keeps their place.
+        #expect(!ChatFollow.keepsBottom(readerAtBottom: false, before: viewport(480, atBottom: false), now: viewport(400, atBottom: false)))
+        // The reader scrolled away from the bottom edge themselves.
+        #expect(!ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(480, atBottom: false)))
+    }
+
     // MARK: - Where a hit is
 
     @Test("a held hit is scrolled to, an older one is read towards, and one past the oldest page is not")
