@@ -798,10 +798,66 @@ public final class BrowserHostClient {
     private func validatedPath(_ path: String, under root: () throws -> URL) -> Bool {
         guard let root = try? root() else { return false }
 
-        let standardizedRoot = root.standardizedFileURL.path
-        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
-        return standardizedPath == standardizedRoot || standardizedPath.hasPrefix(standardizedRoot + "/")
+        return Self.path(path, liesUnder: root)
     }
+
+    /// The containment test on where both really are rather than how they
+    /// are spelled, as the engine decides it on its side (`Browser.Upload`):
+    /// a symbolic link inside the root that points out of it passes a test of
+    /// the text. The root is resolved too, so a root reached through a link
+    /// (`/tmp` is `/private/tmp`) still holds its own files.
+    static func path(_ path: String, liesUnder root: URL) -> Bool {
+        guard let resolvedRoot = resolved(root.path, links: 0), let resolvedPath = resolved(path, links: 0) else { return false }
+
+        return resolvedPath == resolvedRoot || resolvedPath.hasPrefix(resolvedRoot + "/")
+    }
+
+    /// Where `path` really lands: its deepest existing ancestor with every
+    /// link resolved by the system, as a read or a write would resolve it,
+    /// and the names below that ancestor as written, which is a file about to
+    /// be written. A missing name that is itself a link is followed, because
+    /// writing through a dangling link creates its target. Nil for a relative
+    /// path, for a walk the system refuses (a loop of links, a file where a
+    /// directory should be, a directory it may not search), and for missing
+    /// names that climb with `..`, which name no place.
+    private static func resolved(_ path: String, links: Int) -> String? {
+        guard (path as NSString).isAbsolutePath, links <= maximumLinks else { return nil }
+
+        var existing = path
+        var missing: [String] = []
+        while true {
+            let real = realPath(existing)
+            if let resolved = real.resolved {
+                guard !missing.contains("..") else { return nil }
+
+                return missing.reduce(resolved) { ($0 as NSString).appendingPathComponent($1) }
+            }
+            guard real.failure == ENOENT else { return nil }
+
+            if let target = try? FileManager.default.destinationOfSymbolicLink(atPath: existing) {
+                let parent = (existing as NSString).deletingLastPathComponent
+                let landing = (target as NSString).isAbsolutePath ? target : (parent as NSString).appendingPathComponent(target)
+                return resolved(([landing] + missing).joined(separator: "/"), links: links + 1)
+            }
+            missing.insert((existing as NSString).lastPathComponent, at: 0)
+            existing = (existing as NSString).deletingLastPathComponent
+        }
+    }
+
+    /// `realpath(3)`, with why it failed read at once, before releasing the
+    /// path's C string can touch `errno`.
+    private static func realPath(_ path: String) -> (resolved: String?, failure: Int32) {
+        path.withCString { pointer in
+            guard let real = realpath(pointer, nil) else { return (nil, errno) }
+            defer { free(real) }
+
+            return (String(cString: real), 0)
+        }
+    }
+
+    /// The links a resolution follows before it gives up, the system's own
+    /// bound (`MAXSYMLINKS`).
+    private static let maximumLinks = 32
 
     private func wireError(for refusal: BrowserTabRefusal, task: String) -> BrowserHostError {
         switch refusal {
