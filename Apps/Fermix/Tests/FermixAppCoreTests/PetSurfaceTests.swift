@@ -51,6 +51,21 @@ struct PetSurfaceTests {
         #expect(harness.engine.permissionRequests == 0)
     }
 
+    /// A click while the daemon has not answered calls the start off, so the
+    /// control says so: it was "Begin" through the whole handshake, and a
+    /// second click began again.
+    @Test("the call control ends a start the daemon has not answered")
+    func controlEndsAPendingStart() throws {
+        let harness = try harness()
+
+        harness.model.toggleCall()
+        #expect(harness.model.callActionTitle == ProductStrings[.petCallEnd])
+
+        harness.model.toggleCall()
+        #expect(harness.model.callActionTitle == ProductStrings[.petCallBegin])
+        #expect(harness.call.voice.phase == .idle)
+    }
+
     @Test("starting a call is the first and only thing that asks for the microphone")
     func permissionAtFirstCall() async throws {
         let harness = try harness()
@@ -133,7 +148,7 @@ struct PetSurfaceTests {
     func speakingTailKeepsItsWord() throws {
         let harness = try harness()
 
-        harness.call.voiceCallBegan()
+        harness.call.beginTestCall()
         harness.call.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
         harness.call.apply(.state(.listening), audioIsPlaying: true)
 
@@ -225,7 +240,7 @@ struct PetSurfaceTests {
         #expect(!harness.model.showsCancelTask)
 
         harness.call.voiceNegotiated()
-        harness.call.voiceCallBegan()
+        harness.call.beginTestCall()
         _ = harness.call.apply(
             .caption(RealtimeCaption(speaker: .user, delta: "what is ", startMs: 0, endMs: 440)),
             audioIsPlaying: false
@@ -248,7 +263,7 @@ struct PetSurfaceTests {
     func aFinishedTaskOffersNoCancel() throws {
         let harness = try harness()
         harness.call.voiceNegotiated()
-        harness.call.voiceCallBegan()
+        harness.call.beginTestCall()
 
         _ = harness.call.apply(
             .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .completed)),
@@ -345,6 +360,8 @@ final class PetHarness {
     let model: PetFeatureModel
 
     let socket = FakeRealtimeSocket()
+    /// The stopping call's wait for the daemon's last frame.
+    let callDeadlines = ManualDeadlineScheduler()
 
     init() throws {
         windows = FakeWindowHost()
@@ -354,7 +371,7 @@ final class PetHarness {
             socketPath: { "/tmp/fermix-pet-tests.sock" },
             deadlines: MainQueueDeadlineScheduler()
         )
-        voice = VoiceCoordinator(model: call, session: session, audio: audio)
+        voice = VoiceCoordinator(model: call, session: session, audio: audio, deadlines: callDeadlines)
         coordinator = AppCoordinator(
             model: appModel,
             windows: WindowCoordinator(host: windows),

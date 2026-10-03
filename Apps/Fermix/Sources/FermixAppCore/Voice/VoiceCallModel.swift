@@ -14,6 +14,9 @@ public enum VoiceEffect: Equatable, Sendable {
     case resetUtteranceAnchor
     /// Tear the microphone all the way down.
     case endAudio
+    /// The ending call's last frame arrived: its stop has nothing left to wait
+    /// for, and a start asked for meanwhile may go.
+    case callEnded
 }
 
 /// What the daemon said, as the model holds it.
@@ -25,15 +28,57 @@ public typealias VoiceCaption = RealtimeCaption
 public typealias VoiceTask = RealtimeTask
 public typealias VoiceUsage = RealtimeUsage
 
+/// How a call ended.
+public enum VoiceCallOutcome: Equatable, Sendable {
+    /// Hung up, by either side, with the bill the daemon settled, where it
+    /// sent one before the call's last frame.
+    case normal(settled: VoiceUsage?)
+    /// Refused or broken: the daemon's typed failure, where it named one, and
+    /// the sentence the surfaces show for it.
+    case failed(kind: RealtimeErrorKind?, sentence: String)
+}
+
+/// Where the one call is in its life (M56 §4.1).
+///
+/// Every frame the daemon sends about a call is read against this: a frame in
+/// `stopping` belongs to the call that is ending, and one in `idle` or
+/// `ended` belongs to no call and is dropped. Nothing else says whether a call
+/// is up.
+public enum VoiceCallPhase: Equatable, Sendable {
+    /// No call, and none ended since launch.
+    case idle
+    /// A start, waiting for the handshake or the microphone; `call_start` has
+    /// not been sent.
+    case starting
+    /// `call_start` has been sent: the call is the daemon's.
+    case active
+    /// `call_stop` has been sent, and the call's last frame has not arrived.
+    case stopping
+    /// The last call is over. Its facts stay for the surfaces until the next
+    /// start.
+    case ended(VoiceCallOutcome)
+
+    /// Whether the call control ends something here, a start the daemon has
+    /// not answered or a call, rather than beginning one. While a call is
+    /// stopping the control begins the next one, which waits for it to end.
+    public var callControlEnds: Bool {
+        self == .starting || self == .active
+    }
+}
+
 /// The voice facts, separate from how they draw.
 public struct VoiceState: Equatable, Sendable {
     /// How many caption fragments are kept. A Live call emits them for as long
     /// as it runs, so the tail is bounded and the head is dropped.
     public static let captionLimit = 40
 
+    public var phase: VoiceCallPhase = .idle
+    /// Which start this is. Minted by every start, so work begun for one start
+    /// (the handshake, the permission prompt) can tell it is no longer the
+    /// current one.
+    public var attempt = 0
     public var mode: VoiceMode = .offline
     public var connected = false
-    public var callActive = false
     public var muted = false
     /// True while voice audio is still leaving the speaker, which outlasts the
     /// daemon's speaking state by the length of the buffered tail.
@@ -51,6 +96,12 @@ public struct VoiceState: Equatable, Sendable {
     /// The usage frame the daemon last reported.
     public var usage: VoiceUsage?
 
+    /// Whether the daemon has a call: from `call_start` until the call's last
+    /// frame. Derived, so it cannot disagree with the phase.
+    public var callActive: Bool {
+        phase == .active || phase == .stopping
+    }
+
     public var presentation: VoicePresentation {
         VoicePresentation(mode: mode, callActive: callActive, audioActive: audioActive)
     }
@@ -64,6 +115,13 @@ public struct VoiceState: Equatable, Sendable {
     /// `.error` yields "Not connected".
     public var statusText: String {
         status.carriesItsOwnSentence ? status.text : presentation.accessibilityLabel
+    }
+
+    /// What the surfaces say with no call up: ready on a negotiated socket,
+    /// not connected otherwise.
+    mutating func restOutsideACall() {
+        mode = connected ? .idle : .offline
+        status = VoiceStatus(mode: mode)
     }
 
     /// What the microphone is doing while a call is live.
@@ -126,49 +184,104 @@ public final class VoiceCallModel: ObservableObject {
         self.now = now
     }
 
-    // MARK: - Session lifecycle
+    // MARK: - The call's lifecycle
+    //
+    // Each transition lands as one write, so nothing observing the model ever
+    // sees half of one: a phase that has moved on with facts that have not.
 
-    public func voiceConnecting() {
-        voice.status = .connecting
-        voice.mode = .idle
+    /// A start: mints its attempt and clears the last call's facts.
+    ///
+    /// Everything the daemon reports about a call belongs to that call. The
+    /// previous one's captions, delegation and bill are not this one's, and a
+    /// surface that showed them would be reporting the wrong call, so a start
+    /// is a fresh state that keeps only the connection and the count.
+    @discardableResult
+    public func callStarting() -> Int {
+        stoppedReplyHeardAt = nil
+        audioLevel = 0
+
+        var next = VoiceState()
+        next.attempt = voice.attempt + 1
+        next.connected = voice.connected
+        next.phase = .starting
+        next.mode = .idle
+        next.status = .connecting
+        voice = next
+        return next.attempt
+    }
+
+    /// `call_start` went out: the call is the daemon's. The status stays
+    /// "Connecting" until the daemon says what the turn is doing.
+    public func callStarted() {
+        voice.phase = .active
+    }
+
+    /// A start called off before `call_start` went out. Nothing reached the
+    /// daemon, so nothing ended: there is no call to report.
+    public func callCancelled() {
+        var next = voice
+        next.phase = .idle
+        next.restOutsideACall()
+        voice = next
+    }
+
+    /// `call_stop` went out. The call is still the daemon's until its last
+    /// frame, but the microphone and the speaker are already released.
+    public func callStopping() {
+        stoppedReplyHeardAt = nil
+        audioLevel = 0
+
+        var next = voice
+        next.phase = .stopping
+        next.muted = false
+        next.audioActive = false
+        next.restOutsideACall()
+        voice = next
+    }
+
+    /// The stopping call's last frame never came. It is over anyway, with
+    /// whatever bill had arrived.
+    public func callEnded() {
+        guard voice.phase == .stopping else { return }
+
+        end(.normal(settled: voice.usage))
     }
 
     public func voiceNegotiated() {
-        voice.connected = true
-        voice.mode = .idle
-        voice.status = .idle
+        var next = voice
+        next.connected = true
+
+        switch next.phase {
+        case .idle, .ended(.normal):
+            next.restOutsideACall()
+        case .starting, .active, .stopping, .ended(.failed):
+            // A start keeps saying "Connecting", and a failure keeps its words.
+            break
+        }
+
+        voice = next
     }
 
-    public func voiceCallBegan() {
-        stoppedReplyHeardAt = nil
-        voice.callActive = true
-        voice.muted = false
-        voice.mode = .idle
-        voice.status = .connecting
-        // Everything the daemon reports about a call belongs to that call. The
-        // previous one's captions, delegation and bill are not this one's, and
-        // a surface that showed them would be reporting the wrong call.
-        voice.engine = nil
-        voice.callId = nil
-        voice.captions = []
-        voice.task = nil
-        voice.usage = nil
-    }
+    /// The app is quitting: the call, if there is one, is over.
+    public func voiceShutDown() {
+        voice.connected = false
 
-    public func voiceCallEnded() {
-        stoppedReplyHeardAt = nil
-        voice.callActive = false
-        voice.muted = false
-        voice.audioActive = false
-        audioLevel = 0
-        voice.mode = voice.connected ? .idle : .offline
-        voice.status = VoiceStatus(mode: voice.mode)
+        switch voice.phase {
+        case .starting:
+            callCancelled()
+        case .active, .stopping:
+            end(.normal(settled: voice.usage))
+        case .idle, .ended(.normal):
+            voice.restOutsideACall()
+        case .ended(.failed):
+            break
+        }
     }
 
     public func voiceMuted(_ muted: Bool) {
         voice.muted = muted
 
-        guard voice.callActive else { return }
+        guard voice.phase == .active else { return }
 
         voice.mode = voice.activeInputMode
         voice.status = VoiceStatus(mode: voice.mode)
@@ -183,7 +296,7 @@ public final class VoiceCallModel: ObservableObject {
         audioLevel = 0
         stoppedReplyHeardAt = now()
 
-        guard voice.callActive else { return }
+        guard voice.phase == .active else { return }
 
         voice.mode = voice.restingMode
         voice.status = VoiceStatus(mode: voice.mode)
@@ -192,33 +305,30 @@ public final class VoiceCallModel: ObservableObject {
     /// The microphone could not start. The system's own sentence is what the
     /// user reads, because "voice failed" tells them nothing.
     public func voiceCaptureFailed(_ sentence: String) {
-        voice.callActive = false
-        voice.muted = false
-        voice.audioActive = false
-        voice.mode = .error
-        voice.status = .microphoneUnavailable(sentence)
+        fail(.microphoneUnavailable(sentence), kind: nil)
     }
 
+    /// The session ended. What that means depends on the call.
     public func voiceFailed(_ failure: VoiceSessionFailure) {
         voice.connected = false
-        voice.callActive = false
-        voice.muted = false
-        voice.audioActive = false
-        audioLevel = 0
+        let (mode, status) = Self.presentation(of: failure)
 
-        switch failure {
-        case .versionUnsupported:
-            voice.mode = .error
-            voice.status = .updateRequired
-        case .refused(let reason):
-            voice.mode = .error
-            voice.status = .refused(reason)
-        case .socketPathUnavailable:
-            voice.mode = .error
-            voice.status = .homeUnavailable
-        case .connectFailed, .handshakeTimedOut, .transport:
-            voice.mode = .offline
-            voice.status = .offline
+        switch voice.phase {
+        case .starting, .active:
+            fail(status, kind: Self.kind(of: failure), mode: mode)
+        case .stopping:
+            // The call was being hung up: losing the socket ends it as asked.
+            end(.normal(settled: voice.usage))
+        case .ended(.failed):
+            // The daemon closes the socket after most errors (PROTOCOL.md,
+            // `error`). The close is the refusal's consequence, and "Not
+            // connected" would overwrite the reason the daemon gave.
+            break
+        case .idle, .ended(.normal):
+            var next = voice
+            next.mode = mode
+            next.status = status
+            voice = next
         }
     }
 
@@ -240,7 +350,7 @@ public final class VoiceCallModel: ObservableObject {
         guard voice.audioActive else { return }
 
         voice.audioActive = false
-        guard voice.callActive, voice.mode == .speaking else { return }
+        guard voice.phase == .active, voice.mode == .speaking else { return }
 
         voice.mode = voice.restingMode
         voice.status = VoiceStatus(mode: voice.mode)
@@ -249,9 +359,71 @@ public final class VoiceCallModel: ObservableObject {
     // MARK: - Routing
 
     /// Routes one server event: updates the voice facts and answers with what
-    /// the audio owner must do.
+    /// the audio owner must do. The phase decides which call, if any, a frame
+    /// is about.
     @discardableResult
     public func apply(_ event: RealtimeServerEvent, audioIsPlaying: Bool) -> [VoiceEffect] {
+        switch voice.phase {
+        case .active:
+            return applyDuringCall(event, audioIsPlaying: audioIsPlaying)
+        case .stopping:
+            return applyWhileStopping(event)
+        case .starting:
+            return applyBeforeTheCall(event)
+        case .idle, .ended:
+            return dropped(event)
+        }
+    }
+
+    /// Frames for a start that has not sent `call_start` yet: no call frame
+    /// can be this start's, but a refusal from the daemon ends the start.
+    private func applyBeforeTheCall(_ event: RealtimeServerEvent) -> [VoiceEffect] {
+        guard case .error(let failure) = event else { return dropped(event) }
+
+        return applyServerError(failure)
+    }
+
+    /// Frames after `call_stop` belong to the call that is ending: the daemon
+    /// writes its last task and usage frames, then `state idle` as the call's
+    /// last frame. Nothing here moves the presentation, and no audio plays.
+    private func applyWhileStopping(_ event: RealtimeServerEvent) -> [VoiceEffect] {
+        switch event {
+        case .state(.idle):
+            end(.normal(settled: voice.usage))
+            return [.callEnded]
+        case .error(let failure):
+            return applyServerError(failure) + [.callEnded]
+        case .usage(let usage):
+            voice.usage = usage
+            return []
+        case .task(let task):
+            voice.task = task
+            return []
+        case .caption(let caption):
+            appendCaption(caption)
+            return []
+        case .callReady(let ready):
+            return applyCallReady(ready)
+        default:
+            return dropped(event)
+        }
+    }
+
+    /// A frame no call can carry. The handshake's frames are the session's
+    /// business and never reach here; the transcript deltas are inert in every
+    /// phase.
+    private func dropped(_ event: RealtimeServerEvent) -> [VoiceEffect] {
+        switch event {
+        case .serverHello, .transcriptDelta, .assistantTextDelta:
+            break
+        default:
+            log.info("dropping \(event.wireType, privacy: .public): no call carries it")
+        }
+
+        return []
+    }
+
+    private func applyDuringCall(_ event: RealtimeServerEvent, audioIsPlaying: Bool) -> [VoiceEffect] {
         switch event {
         case .state(let turnState):
             return applyTurnState(turnState, audioIsPlaying: audioIsPlaying)
@@ -352,12 +524,8 @@ public final class VoiceCallModel: ObservableObject {
 
     private func applyPlaybackStop() -> [VoiceEffect] {
         voice.audioActive = false
-
-        if voice.callActive {
-            voice.mode = voice.restingMode
-            voice.status = VoiceStatus(mode: voice.mode)
-        }
-
+        voice.mode = voice.restingMode
+        voice.status = VoiceStatus(mode: voice.mode)
         return [.stopPlayback, .resetUtteranceAnchor]
     }
 
@@ -368,7 +536,7 @@ public final class VoiceCallModel: ObservableObject {
             return []
         }
 
-        voice.mode = voice.callActive ? .toolUse : .idle
+        voice.mode = .toolUse
         voice.status = VoiceStatus(mode: voice.mode)
         return []
     }
@@ -386,14 +554,17 @@ public final class VoiceCallModel: ObservableObject {
     /// concatenate the deltas without trimming them or inserting spaces, and
     /// user and assistant fragments may overlap in time.
     private func applyCaption(_ caption: RealtimeCaption) -> [VoiceEffect] {
+        appendCaption(caption)
+        return []
+    }
+
+    private func appendCaption(_ caption: RealtimeCaption) {
         voice.captions.append(caption)
 
         let overflow = voice.captions.count - VoiceState.captionLimit
         if overflow > 0 {
             voice.captions.removeFirst(overflow)
         }
-
-        return []
     }
 
     /// A backend delegation presents like a tool call, which is what it is from
@@ -402,26 +573,67 @@ public final class VoiceCallModel: ObservableObject {
     /// terminal, so an unknown word never ends the work early.
     private func applyTask(_ task: RealtimeTask) -> [VoiceEffect] {
         voice.task = task
-
-        if task.status.isTerminal {
-            voice.mode = voice.callActive ? voice.activeInputMode : .idle
-        } else {
-            voice.mode = voice.callActive ? .toolUse : .idle
-        }
+        voice.mode = task.status.isTerminal ? voice.activeInputMode : .toolUse
 
         voice.status = VoiceStatus(mode: voice.mode)
         return []
     }
 
-    /// A server error may mean the socket is unusable, so the microphone is
-    /// detached before an in-flight buffer can race back to it.
+    /// A server error ends the call, and may mean the socket is unusable, so
+    /// the microphone is detached before an in-flight buffer can race back to
+    /// it.
     private func applyServerError(_ failure: RealtimeServerError) -> [VoiceEffect] {
-        voice.callActive = false
-        voice.muted = false
-        voice.audioActive = false
-        voice.mode = .error
-        voice.status = .refused(failure.reason)
-        audioLevel = 0
+        fail(.refused(failure.reason), kind: failure.kind)
         return [.endAudio]
+    }
+
+    // MARK: - Endings
+
+    private func end(_ outcome: VoiceCallOutcome) {
+        stoppedReplyHeardAt = nil
+        audioLevel = 0
+
+        var next = voice
+        next.phase = .ended(outcome)
+        next.muted = false
+        next.audioActive = false
+        next.restOutsideACall()
+        voice = next
+    }
+
+    /// The call, or the start of one, failed. `status` is the words every
+    /// surface reads, and the outcome keeps them beside the daemon's kind.
+    private func fail(_ status: VoiceStatus, kind: RealtimeErrorKind?, mode: VoiceMode = .error) {
+        stoppedReplyHeardAt = nil
+        audioLevel = 0
+
+        var next = voice
+        next.phase = .ended(.failed(kind: kind, sentence: status.text))
+        next.muted = false
+        next.audioActive = false
+        next.mode = mode
+        next.status = status
+        voice = next
+    }
+
+    private static func presentation(of failure: VoiceSessionFailure) -> (VoiceMode, VoiceStatus) {
+        switch failure {
+        case .versionUnsupported:
+            return (.error, .updateRequired)
+        case .refused(let reason):
+            return (.error, .refused(reason))
+        case .socketPathUnavailable:
+            return (.error, .homeUnavailable)
+        case .connectFailed, .handshakeTimedOut, .transport:
+            return (.offline, .offline)
+        }
+    }
+
+    /// A version refusal is the daemon's `update_required` whichever half of
+    /// the handshake noticed it.
+    private static func kind(of failure: VoiceSessionFailure) -> RealtimeErrorKind? {
+        guard case .versionUnsupported = failure else { return nil }
+
+        return .updateRequired
     }
 }

@@ -356,7 +356,8 @@ struct FixtureRealtimeTransportTests {
                 socketPath: { "/fixture/realtime.sock" },
                 deadlines: ManualDeadlineScheduler()
             ),
-            audio: AudioOwner(engine: FixtureAudioEngine(deadlines: deadlines), deadlines: ManualDeadlineScheduler())
+            audio: AudioOwner(engine: FixtureAudioEngine(deadlines: deadlines), deadlines: ManualDeadlineScheduler()),
+            deadlines: ManualDeadlineScheduler()
         )
 
         voice.toggleCall()
@@ -365,12 +366,13 @@ struct FixtureRealtimeTransportTests {
         }
         Self.drain(deadlines)
 
+        #expect(model.voice.phase == .active)
         #expect(model.voice.callActive)
         #expect(model.voice.status == .listening)
         #expect(model.voice.engine == "openai_live")
         #expect(model.voice.task?.status == .completed)
         #expect(model.voice.usage?.accounting == "running")
-        #expect(!model.voice.captions.isEmpty)
+        #expect(model.voice.captions != VoiceState().captions)
     }
 
     // MARK: - Helpers

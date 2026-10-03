@@ -70,8 +70,11 @@ public final class PetFeatureModel: ObservableObject {
     /// update must not invalidate the SwiftUI tree.
     public var audioLevel: Float { call.audioLevel }
 
+    /// What a click on the call control does now: a start the daemon has not
+    /// answered is ended like a call, and a call that is still ending is
+    /// already over as far as the control is concerned.
     public var callActionTitle: String {
-        ProductStrings[callActive ? .petCallEnd : .petCallBegin]
+        ProductStrings[call.voice.phase.callControlEnds ? .petCallEnd : .petCallBegin]
     }
 
     public var muteActionTitle: String {

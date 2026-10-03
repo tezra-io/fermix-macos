@@ -24,12 +24,14 @@ struct VoiceCallModelRoutingTests {
         #expect(model.voice.connected == false)
         #expect(model.voice.callActive == false)
         #expect(model.voice.status == .offline)
+        #expect(model.voice.phase == .idle)
+        #expect(model.voice.attempt == 0)
     }
 
     @Test("listening starts capture and reads as listening")
     func listeningStartsCapture() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
 
         let effects = model.apply(.state(.listening), audioIsPlaying: false)
 
@@ -41,7 +43,7 @@ struct VoiceCallModelRoutingTests {
     @Test("a muted turn state mutes capture and reads as muted")
     func mutedStateMutesCapture() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
 
         let effects = model.apply(.state(.muted), audioIsPlaying: false)
 
@@ -53,7 +55,7 @@ struct VoiceCallModelRoutingTests {
     @Test("returning to idle unmutes capture")
     func idleUnmutesCapture() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.state(.muted), audioIsPlaying: false)
 
         let effects = model.apply(.state(.idle), audioIsPlaying: false)
@@ -67,7 +69,7 @@ struct VoiceCallModelRoutingTests {
     @Test("listening while muted still reads as muted")
     func listeningWhileMutedStaysMuted() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.state(.muted), audioIsPlaying: false)
 
         _ = model.apply(.state(.listening), audioIsPlaying: false)
@@ -78,7 +80,7 @@ struct VoiceCallModelRoutingTests {
     @Test("an unknown turn state presents as idle without losing the call")
     func unknownStatePresentsAsIdle() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
 
         _ = model.apply(.state(.unrecognized("dreaming")), audioIsPlaying: false)
 
@@ -89,7 +91,7 @@ struct VoiceCallModelRoutingTests {
     @Test("audio deltas play and mark the speaking tail")
     func audioDeltaPlays() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
 
         let effects = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
@@ -104,7 +106,7 @@ struct VoiceCallModelRoutingTests {
     @Test("audio chunks after the first publish nothing")
     func laterAudioDeltasPublishNothing() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
         var published = 0
@@ -122,7 +124,7 @@ struct VoiceCallModelRoutingTests {
     @Test("the speaking tail survives the daemon moving on while audio plays")
     func speakingTailSurvivesStateChange() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
         _ = model.apply(.state(.listening), audioIsPlaying: true)
@@ -137,7 +139,7 @@ struct VoiceCallModelRoutingTests {
     @Test("the speaking tail ends when the daemon moves on with nothing playing")
     func speakingTailEndsWhenDrained() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
         _ = model.apply(.state(.listening), audioIsPlaying: false)
@@ -149,7 +151,7 @@ struct VoiceCallModelRoutingTests {
     @Test("leaving speaking resets the utterance anchor")
     func leavingSpeakingResetsTheAnchor() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
 
         let effects = model.apply(.state(.listening), audioIsPlaying: false)
@@ -160,7 +162,7 @@ struct VoiceCallModelRoutingTests {
     @Test("playback stop clears the tail and returns to the input state")
     func playbackStopReturnsToInput() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: true)
 
         let effects = model.apply(.playbackStop, audioIsPlaying: true)
@@ -174,7 +176,7 @@ struct VoiceCallModelRoutingTests {
     @Test("a tool event reads as tool use during a call")
     func toolEventDuringACall() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
 
         _ = model.apply(.toolEvent(status: .started, reason: nil), audioIsPlaying: false)
         #expect(model.voice.mode == .toolUse)
@@ -186,7 +188,7 @@ struct VoiceCallModelRoutingTests {
     @Test("a failed tool carries the daemon's own reason")
     func failedToolCarriesItsReason() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
 
         _ = model.apply(.toolEvent(status: .failed, reason: "write_refused"), audioIsPlaying: false)
 
@@ -199,7 +201,7 @@ struct VoiceCallModelRoutingTests {
     @Test("a server error tears the call down and shuts audio off")
     func serverErrorTearsDownTheCall() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
 
         let effects = model.apply(.error(RealtimeServerError(reason: "provider_unavailable")), audioIsPlaying: true)
 
@@ -208,6 +210,11 @@ struct VoiceCallModelRoutingTests {
         #expect(model.voice.muted == false)
         #expect(model.voice.mode == .error)
         #expect(model.voice.status == .refused("provider_unavailable"))
+        #expect(
+            model.voice.phase == .ended(
+                .failed(kind: nil, sentence: VoiceStatus.refused("provider_unavailable").text)
+            )
+        )
     }
 
     /// `call_ready` is a fact about the call rather than a turn state: it says
@@ -215,7 +222,7 @@ struct VoiceCallModelRoutingTests {
     @Test("call ready records the engine and the call without moving the mode")
     func callReadyRecordsTheCall() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.state(.listening), audioIsPlaying: false)
 
         let effects = model.apply(
@@ -237,7 +244,7 @@ struct VoiceCallModelRoutingTests {
     @Test("captions are appended verbatim, in the order they arrived")
     func captionsAreAppendedVerbatim() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
 
         _ = model.apply(
             .caption(RealtimeCaption(speaker: .user, delta: "what is ", startMs: 0, endMs: 440)),
@@ -258,7 +265,7 @@ struct VoiceCallModelRoutingTests {
     @Test("the caption history keeps the last fragments and drops the oldest")
     func captionHistoryIsBounded() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
 
         for index in 0..<(VoiceState.captionLimit + 5) {
             _ = model.apply(
@@ -279,7 +286,7 @@ struct VoiceCallModelRoutingTests {
     @Test("a running task reads as tool use and a finished one returns to the microphone")
     func taskDrivesTheMode() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.state(.listening), audioIsPlaying: false)
 
         let running = RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running)
@@ -298,7 +305,7 @@ struct VoiceCallModelRoutingTests {
     @Test("a failed task returns to the microphone and keeps its summary")
     func failedTaskReturnsToTheMicrophone() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.state(.listening), audioIsPlaying: false)
 
         let failed = RealtimeTask(
@@ -318,7 +325,7 @@ struct VoiceCallModelRoutingTests {
     @Test("a task status this build cannot read does not end the work")
     func unknownTaskStatusKeepsWorking() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
 
         _ = model.apply(
             .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .unrecognized("paused"))),
@@ -334,7 +341,7 @@ struct VoiceCallModelRoutingTests {
     @Test("a usage frame is recorded and changes no state")
     func usageIsRecordedOnly() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.state(.listening), audioIsPlaying: false)
 
         let usage = RealtimeUsage(
@@ -359,7 +366,7 @@ struct VoiceCallModelRoutingTests {
     @Test("a new call does not inherit the last call's captions, task, or bill")
     func aNewCallStartsClean() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(
             .callReady(RealtimeCallReady(engine: "openai_live", callId: "voice_live:17", captions: true)),
             audioIsPlaying: false
@@ -373,9 +380,10 @@ struct VoiceCallModelRoutingTests {
             audioIsPlaying: false
         )
         _ = model.apply(.usage(RealtimeUsage(voiceCostCents: 5.35)), audioIsPlaying: false)
-        model.voiceCallEnded()
+        model.callStopping()
+        _ = model.apply(.state(.idle), audioIsPlaying: false)
 
-        model.voiceCallBegan()
+        model.callStarting()
 
         #expect(model.voice.engine == nil)
         #expect(model.voice.callId == nil)
@@ -387,7 +395,7 @@ struct VoiceCallModelRoutingTests {
     @Test("a transcript delta changes no state")
     func transcriptDeltasAreInert() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         let before = model.voice
 
         let effects = model.apply(.transcriptDelta(text: "hello"), audioIsPlaying: false)
@@ -399,7 +407,7 @@ struct VoiceCallModelRoutingTests {
     @Test("an event this build does not know changes no state")
     func unknownEventsAreInert() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
         let before = model.voice
 
         let effects = model.apply(.unrecognized(type: "weather"), audioIsPlaying: false)
@@ -408,10 +416,12 @@ struct VoiceCallModelRoutingTests {
         #expect(model.voice == before)
     }
 
-    @Test("losing the session returns to offline and drops the call")
+    /// A socket lost mid-call ends the call, and says so: the strip keeps the
+    /// failure rather than reading as a call that was hung up.
+    @Test("losing the session mid-call ends the call as offline")
     func sessionLossReturnsToOffline() {
         let model = negotiatedModel()
-        model.voiceCallBegan()
+        model.beginTestCall()
 
         model.voiceFailed(.transport(.peerClosed))
 
@@ -419,6 +429,26 @@ struct VoiceCallModelRoutingTests {
         #expect(model.voice.callActive == false)
         #expect(model.voice.mode == .offline)
         #expect(model.voice.status == .offline)
+        #expect(model.voice.phase == .ended(.failed(kind: nil, sentence: VoiceStatus.offline.text)))
+    }
+
+    /// The daemon closes the socket after most errors (PROTOCOL.md, `error`).
+    /// The close is the refusal's consequence, not a second failure: "Not
+    /// connected" must not overwrite the reason the daemon gave.
+    @Test("a refusal survives the socket closing after it")
+    func refusalSurvivesTheClose() {
+        let model = negotiatedModel()
+        model.beginTestCall()
+        let refusal = RealtimeServerError(reason: "provider_unavailable")
+        _ = model.apply(.error(refusal), audioIsPlaying: false)
+        let refused = model.voice
+
+        model.voiceFailed(.transport(.peerClosed))
+
+        #expect(model.voice.status == refused.status)
+        #expect(model.voice.phase == refused.phase)
+        #expect(model.voice.mode == .error)
+        #expect(model.voice.connected == false)
     }
 
     @Test("a version refusal asks for an update rather than naming a wire code")
@@ -429,6 +459,202 @@ struct VoiceCallModelRoutingTests {
 
         #expect(model.voice.status == .updateRequired)
         #expect(model.voice.mode == .error)
+    }
+}
+
+/// The call's lifecycle, end to end on the fakes: the attempt every start
+/// mints, the handshake and the permission prompt fenced by it, and a stop that
+/// waits for the daemon's last frame before the next call may begin (M56 §4.1).
+@Suite("The call's lifecycle")
+@MainActor
+struct VoiceCallLifecycleTests {
+    @Test("a start mints an attempt, and a click while it is pending cancels it")
+    func clickWhileStartingCancels() throws {
+        let harness = VoiceCallHarness()
+
+        harness.coordinator.toggleCall()
+        #expect(harness.call.voice.phase == .starting)
+        #expect(harness.call.voice.attempt == 1)
+        #expect(harness.call.voice.status == .connecting)
+        #expect(harness.call.voice.phase.callControlEnds)
+
+        harness.coordinator.toggleCall()
+        #expect(harness.call.voice.phase == .idle)
+        #expect(!harness.call.voice.phase.callControlEnds)
+        #expect(try harness.sent("client_hello") == 1)
+        #expect(try harness.sent("call_start") == 0)
+    }
+
+    /// The handshake outlives a cancelled start. When the daemon answers it,
+    /// the socket is negotiated for the next start and nothing else happens:
+    /// no microphone, no `call_start`.
+    @Test("a server hello for a cancelled attempt is dropped")
+    func lateHelloForACancelledAttempt() async throws {
+        let harness = VoiceCallHarness()
+        harness.coordinator.toggleCall()
+        harness.coordinator.toggleCall()
+
+        harness.negotiate()
+        for _ in 0..<50 { await Task.yield() }
+
+        #expect(harness.call.voice.phase == .idle)
+        #expect(harness.call.voice.connected)
+        #expect(!harness.engine.calls.contains(.requestPermission))
+        #expect(try harness.sent("call_start") == 0)
+    }
+
+    /// The prompt is modal and answers every asker at once, so the first
+    /// attempt's request comes back too. Only the attempt still current may
+    /// send `call_start`: one call, the second one.
+    @Test("start, cancel, start while the permission prompt is up sends one call start, for the second attempt")
+    func restartDuringThePermissionPrompt() async throws {
+        let harness = VoiceCallHarness()
+        harness.engine.suspendsPermission = true
+        harness.coordinator.toggleCall()
+        harness.negotiate()
+        await harness.settle { harness.engine.pendingPermissionRequests == 1 }
+
+        harness.coordinator.toggleCall()
+        harness.coordinator.toggleCall()
+        await harness.settle { harness.engine.pendingPermissionRequests == 2 }
+        harness.engine.grantCapturePermission()
+        await harness.settle { harness.engine.calls.filter { $0 == .prepareCapture }.count == 2 }
+
+        #expect(harness.call.voice.attempt == 2)
+        #expect(harness.call.voice.phase == .active)
+        #expect(try harness.sent("call_start") == 1)
+    }
+
+    /// The daemon writes a call's last frames before its `state idle`
+    /// (`local_voice_socket.ex`, `call_stop`), so everything up to that idle
+    /// is the ending call's: its task's outcome and its settled bill.
+    @Test("end waits for the daemon's idle, and the call's last frames land on it")
+    func endWaitsForIdle() async throws {
+        let harness = VoiceCallHarness()
+        await harness.beginCall()
+        _ = harness.call.apply(.state(.listening), audioIsPlaying: false)
+        harness.socket.deliver(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .running)))
+
+        harness.coordinator.toggleCall()
+
+        #expect(harness.call.voice.phase == .stopping)
+        #expect(harness.call.voice.callActive)
+        #expect(!harness.call.voice.phase.callControlEnds)
+        #expect(try harness.sent("call_stop") == 1)
+        #expect(harness.engine.calls.last == .shutdown)
+        #expect(harness.callDeadlines.scheduledDelays == [VoiceCoordinator.stopGrace])
+
+        let settled = RealtimeUsage(voiceCostCents: 12.5, accounting: "complete")
+        harness.socket.deliver(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .completed)))
+        harness.socket.deliver(.usage(settled))
+        harness.socket.deliver(.state(.listening))
+        #expect(harness.call.voice.phase == .stopping)
+        #expect(!harness.engine.calls.contains(.beginStreaming))
+
+        harness.socket.deliver(.state(.idle))
+
+        #expect(harness.call.voice.phase == .ended(.normal(settled: settled)))
+        #expect(harness.call.voice.usage == settled)
+        #expect(harness.call.voice.callActive == false)
+        #expect(harness.callDeadlines.liveCount == 0)
+    }
+
+    /// End then begin at once: the begin waits for the ending call's idle, so
+    /// that call's last frames are read as its own and the new call starts
+    /// with none of them.
+    @Test("end then begin at once: the first call's last frames land on it and the new one starts clean")
+    func endThenBeginAtOnce() async throws {
+        let harness = VoiceCallHarness()
+        await harness.beginCall()
+        harness.socket.deliver(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .running)))
+        var seen: [VoiceState] = []
+        let subscription = harness.call.$voice.sink { seen.append($0) }
+        defer { subscription.cancel() }
+
+        harness.coordinator.toggleCall()
+        harness.coordinator.toggleCall()
+        #expect(harness.call.voice.phase == .stopping)
+        #expect(try harness.sent("call_start") == 1)
+
+        let settled = RealtimeUsage(voiceCostCents: 12.5, accounting: "complete")
+        let finished = RealtimeTask(delegationId: "dg_1", revision: 1, status: .completed)
+        harness.socket.deliver(.task(finished))
+        harness.socket.deliver(.usage(settled))
+        harness.socket.deliver(.state(.idle))
+        await harness.settle { harness.call.voice.phase == .active }
+
+        let ended = try #require(seen.last { $0.phase == .ended(.normal(settled: settled)) })
+        #expect(ended.task == finished)
+        #expect(ended.attempt == 1)
+        #expect(harness.call.voice.attempt == 2)
+        #expect(harness.call.voice.task == nil)
+        #expect(harness.call.voice.usage == nil)
+        #expect(harness.call.voice.captions.isEmpty)
+        #expect(try harness.sent("call_start") == 2)
+        #expect(try harness.sent("call_stop") == 1)
+    }
+
+    /// The daemon guarantees the idle, but a guarantee is not a deadline: a
+    /// call that never hears it still ends, two seconds after the click.
+    @Test("a stop ends the call after two seconds when the idle never comes")
+    func stopGivesUpAfterTwoSeconds() async throws {
+        let harness = VoiceCallHarness()
+        await harness.beginCall()
+        harness.coordinator.toggleCall()
+        harness.coordinator.toggleCall()
+
+        harness.callDeadlines.fireAll()
+
+        await harness.settle { harness.call.voice.phase == .active }
+        #expect(harness.call.voice.attempt == 2)
+        #expect(try harness.sent("call_start") == 2)
+    }
+
+    @Test("a stop that times out ends the call, and the late frames after it are dropped")
+    func lateFramesAfterTheTimeoutAreDropped() async {
+        let harness = VoiceCallHarness()
+        await harness.beginCall()
+        harness.coordinator.toggleCall()
+
+        harness.callDeadlines.fireAll()
+        #expect(harness.call.voice.phase == .ended(.normal(settled: nil)))
+
+        harness.socket.deliver(.usage(RealtimeUsage(voiceCostCents: 3)))
+        harness.socket.deliver(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .completed)))
+        harness.socket.deliver(.state(.idle))
+
+        #expect(harness.call.voice.phase == .ended(.normal(settled: nil)))
+        #expect(harness.call.voice.usage == nil)
+        #expect(harness.call.voice.task == nil)
+    }
+
+    /// With no call there is nothing for a call frame to describe. A bill
+    /// with no call is no call's bill.
+    @Test("call frames with no call are dropped")
+    func framesOutsideACallAreDropped() {
+        let model = VoiceCallModel()
+        model.voiceNegotiated()
+        let before = model.voice
+
+        #expect(model.apply(.usage(RealtimeUsage(voiceCostCents: 3)), audioIsPlaying: false).isEmpty)
+        #expect(model.apply(.state(.listening), audioIsPlaying: false).isEmpty)
+        #expect(model.apply(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .running)), audioIsPlaying: false).isEmpty)
+        #expect(model.voice == before)
+    }
+
+    /// The controls act on a call, and only on one: a mute or an interrupt
+    /// sent with no call is a frame the daemon answers by closing the socket.
+    @Test("mute and interrupt send nothing outside a call")
+    func controlsNeedACall() async throws {
+        let harness = VoiceCallHarness()
+        await harness.beginCall()
+        harness.coordinator.toggleCall()
+
+        harness.coordinator.setMuted(true)
+        harness.coordinator.interrupt()
+
+        #expect(try harness.sent("mute") == 0)
+        #expect(try harness.sent("interrupt") == 0)
     }
 }
 
@@ -493,7 +719,7 @@ struct StoppedReplyTests {
     private func speakingModel(_ clock: Clock) -> VoiceCallModel {
         let model = VoiceCallModel(now: { clock.now })
         model.voiceNegotiated()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.state(.listening), audioIsPlaying: false)
         _ = model.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
         return model
@@ -558,8 +784,9 @@ struct StoppedReplyTests {
         let model = speakingModel(clock)
 
         model.voiceInterrupted()
-        model.voiceCallEnded()
-        model.voiceCallBegan()
+        model.callStopping()
+        model.callEnded()
+        model.beginTestCall()
         clock.now += 0.1
 
         #expect(model.apply(.audioDelta(base64: RelayedAudio.voice(9)), audioIsPlaying: false) == [.play(base64: RelayedAudio.voice(9))])
@@ -578,7 +805,7 @@ struct LiveReplyEndTests {
     private func liveCall() -> VoiceCallModel {
         let model = VoiceCallModel()
         model.voiceNegotiated()
-        model.voiceCallBegan()
+        model.beginTestCall()
         _ = model.apply(.state(.listening), audioIsPlaying: false)
         return model
     }

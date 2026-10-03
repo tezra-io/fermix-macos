@@ -287,7 +287,8 @@ final class AppComposition {
         return VoiceCoordinator(
             model: model,
             session: session,
-            audio: AudioOwner(engine: audio, deadlines: MainQueueDeadlineScheduler())
+            audio: AudioOwner(engine: audio, deadlines: MainQueueDeadlineScheduler()),
+            deadlines: MainQueueDeadlineScheduler()
         )
     }
 
