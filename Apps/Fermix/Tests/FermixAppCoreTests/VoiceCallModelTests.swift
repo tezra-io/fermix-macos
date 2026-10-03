@@ -209,12 +209,60 @@ struct VoiceCallModelRoutingTests {
         #expect(model.voice.callActive == false)
         #expect(model.voice.muted == false)
         #expect(model.voice.mode == .error)
-        #expect(model.voice.status == .refused("provider_unavailable"))
-        #expect(
-            model.voice.phase == .ended(
-                .failed(kind: nil, sentence: VoiceStatus.refused("provider_unavailable").text)
+        #expect(model.voice.statusText == "The daemon reported: provider_unavailable")
+        #expect(model.voice.phase == .ended(.failed(kind: nil, sentence: model.voice.statusText)))
+    }
+
+    /// `error.kind` is the daemon's typed failure and `error.detail` the
+    /// vendor's own sentence (PROTOCOL.md, `error`). Each kind reads as the
+    /// product's sentence for it, and the vendor's words follow when it sent
+    /// some, because a terminal word is not a diagnosis.
+    @Test("each error kind ends the call in its own sentence, with the vendor's detail after it")
+    func errorKindsHaveSentences() throws {
+        let sentences: [(RealtimeErrorKind, ProductStringKey)] = [
+            (.updateRequired, .voiceStatusUpdateRequired),
+            (.providerRefused, .voiceErrorProviderRefused),
+            (.costLimit, .voiceErrorCostLimit),
+            (.sessionExpired, .voiceErrorSessionExpired),
+            (.closeTimeout, .voiceErrorCloseTimeout),
+            (.bridgeUnavailable, .voiceErrorBridgeUnavailable),
+            (.maxSessionDuration, .voiceErrorMaxSessionDuration),
+            (.providerDisconnected, .voiceErrorProviderDisconnected)
+        ]
+
+        for (kind, key) in sentences {
+            let sentence = ProductStrings[key]
+            #expect(ProductCopyRules.violations(in: sentence).isEmpty, "\(key.rawValue)")
+            #expect(!sentence.lowercased().split(separator: " ").contains("stop"), "\(key.rawValue)")
+
+            let bare = negotiatedModel()
+            bare.beginTestCall()
+            _ = bare.apply(.error(RealtimeServerError(reason: "terminal", kind: kind)), audioIsPlaying: false)
+            #expect(bare.voice.statusText == sentence)
+            #expect(bare.voice.phase == .ended(.failed(kind: kind, sentence: sentence)))
+
+            let detailed = negotiatedModel()
+            detailed.beginTestCall()
+            _ = detailed.apply(
+                .error(RealtimeServerError(reason: "terminal", kind: kind, detail: "The organization is not verified")),
+                audioIsPlaying: false
             )
-        )
+            #expect(detailed.voice.statusText == "\(sentence). The organization is not verified")
+        }
+    }
+
+    /// With no kind, or one this build cannot read, the daemon's own reason is
+    /// still the only words that name what happened.
+    @Test("an error with no kind, or an unknown one, keeps the daemon's reason")
+    func errorWithoutAKindKeepsTheReason() {
+        for kind in [nil, RealtimeErrorKind.unrecognized("solar_flare")] {
+            let model = negotiatedModel()
+            model.beginTestCall()
+
+            _ = model.apply(.error(RealtimeServerError(reason: "provider_unavailable", kind: kind)), audioIsPlaying: false)
+
+            #expect(model.voice.statusText == String(format: ProductStrings[.voiceStatusRefusedFormat], "provider_unavailable"))
+        }
     }
 
     /// `call_ready` is a fact about the call rather than a turn state: it says
@@ -725,7 +773,8 @@ struct VoiceCallLifecycleTests {
             Issue.record("the call did not end as a cost limit: \(harness.call.voice.phase)")
             return
         }
-        #expect(sentence == harness.call.voice.statusText)
+        #expect(sentence == ProductStrings[.voiceErrorCostLimit])
+        #expect(harness.call.voice.statusText == ProductStrings[.voiceErrorCostLimit])
         #expect(harness.call.voice.status == failed.status)
         #expect(harness.call.voice.usage == limit)
         #expect(harness.call.voice.connected == false)

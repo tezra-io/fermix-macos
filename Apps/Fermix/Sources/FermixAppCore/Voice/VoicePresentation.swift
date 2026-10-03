@@ -48,6 +48,10 @@ public enum VoiceStatus: Equatable, Sendable {
     case refused(String)
     /// Capture could not start, in the system's own sentence.
     case microphoneUnavailable(String)
+    /// The daemon refused or ended a call: the product's sentence for the
+    /// failure's kind, or the daemon's own reason where it named no kind this
+    /// build reads, with the vendor's detail after it when it sent one.
+    case callFailed(RealtimeServerError)
 
     public var text: String {
         switch self {
@@ -65,6 +69,31 @@ public enum VoiceStatus: Equatable, Sendable {
         // The capture errors are already whole sentences from the copy deck,
         // so wrapping them in a second sentence would say it twice.
         case .microphoneUnavailable(let sentence): return sentence
+        case .callFailed(let error): return Self.sentence(for: error)
+        }
+    }
+
+    private static func sentence(for error: RealtimeServerError) -> String {
+        let sentence = error.kind.flatMap(sentence(for:))
+            ?? String(format: ProductStrings[.voiceStatusRefusedFormat], error.reason)
+        guard let detail = error.detail, !detail.isEmpty else { return sentence }
+
+        return String(format: ProductStrings[.voiceErrorDetailFormat], sentence, detail)
+    }
+
+    /// One sentence per kind the contract publishes. A kind published after
+    /// this build has none, and the daemon's reason speaks for it instead.
+    private static func sentence(for kind: RealtimeErrorKind) -> String? {
+        switch kind {
+        case .updateRequired: return ProductStrings[.voiceStatusUpdateRequired]
+        case .providerRefused: return ProductStrings[.voiceErrorProviderRefused]
+        case .costLimit: return ProductStrings[.voiceErrorCostLimit]
+        case .sessionExpired: return ProductStrings[.voiceErrorSessionExpired]
+        case .closeTimeout: return ProductStrings[.voiceErrorCloseTimeout]
+        case .bridgeUnavailable: return ProductStrings[.voiceErrorBridgeUnavailable]
+        case .maxSessionDuration: return ProductStrings[.voiceErrorMaxSessionDuration]
+        case .providerDisconnected: return ProductStrings[.voiceErrorProviderDisconnected]
+        case .unrecognized: return nil
         }
     }
 
@@ -73,12 +102,12 @@ public enum VoiceStatus: Equatable, Sendable {
     /// Every failure records its own sentence, and `.error` reconstructs as
     /// `.offline` — so a surface that derives its words from the mode reports a
     /// healthy disconnection for a machine that is refusing for a reason it has
-    /// already put into words. These four are the statuses a surface must read
+    /// already put into words. These five are the statuses a surface must read
     /// from the status itself. Enumerated rather than defaulted, so a status
     /// added later has to decide which half it belongs to.
     public var carriesItsOwnSentence: Bool {
         switch self {
-        case .updateRequired, .homeUnavailable, .refused, .microphoneUnavailable:
+        case .updateRequired, .homeUnavailable, .refused, .microphoneUnavailable, .callFailed:
             return true
         case .offline, .connecting, .idle, .listening, .muted, .thinking, .speaking, .toolUse:
             return false

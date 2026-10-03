@@ -723,7 +723,7 @@ public final class VoiceCallModel: ObservableObject {
     /// the microphone is detached before an in-flight buffer can race back to
     /// it.
     private func applyServerError(_ failure: RealtimeServerError) -> [VoiceEffect] {
-        fail(.refused(failure.reason), kind: failure.kind)
+        fail(.callFailed(failure), kind: failure.kind)
         return [.endAudio]
     }
 
