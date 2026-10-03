@@ -39,8 +39,9 @@ public enum BrowserNavigationDecision: Equatable, Sendable {
     /// Another app's link: the tab stays put, and the tab's owner rules on
     /// the app, which a person is asked about and a task never opens.
     case external
-    /// Nothing is saved, and the pane says why.
-    case refuseDownload
+    /// A file to save, handed to the tab, whose owner rules on it: the
+    /// person's is saved where they choose, and a task's never is.
+    case download
     /// Nothing happens.
     case cancel
 }
@@ -58,16 +59,27 @@ public enum BrowserNavigationPolicy {
         webSchemes.contains(scheme.lowercased())
     }
 
-    /// The decision, in order: a download is refused whatever it points at; a
-    /// web page moves the tab or opens a new one; anything else belongs to
-    /// another app, which is opened only for a click on the page itself. A
-    /// frame or a script reaching for another app on its own is refused: that
-    /// is how a page would launch an app nobody asked for.
+    /// The schemes a file is saved from: the web's own, and `blob` and `data`
+    /// for a file a page built itself. A download of any other scheme (another
+    /// app's, `file`, `about`, `javascript`) is nothing a website offers.
+    public static let downloadSchemes: Set<String> = ["http", "https", "blob", "data"]
+
+    /// The decision, in order: a download is saved where its scheme is one a
+    /// file is saved from, and never where a frame began it, since a hidden
+    /// frame is how a page saves a file nobody asked for; a web page moves the
+    /// tab or opens a new one; anything else belongs to another app, which is
+    /// opened only for a click on the page itself. A frame or a script
+    /// reaching for another app on its own is refused: that is how a page
+    /// would launch an app nobody asked for.
     public static func decide(_ navigation: BrowserNavigation) -> BrowserNavigationDecision {
-        guard !navigation.isDownload else { return .refuseDownload }
+        guard !navigation.isDownload else { return isSavable(navigation) ? .download : .cancel }
         guard !isWeb(navigation.scheme) else { return navigation.targetsNewWindow ? .newTab : .allow }
         guard navigation.isMainFrame || navigation.targetsNewWindow, navigation.isUserInitiated else { return .cancel }
 
         return .external
+    }
+
+    private static func isSavable(_ download: BrowserNavigation) -> Bool {
+        download.isMainFrame && downloadSchemes.contains(download.scheme.lowercased())
     }
 }

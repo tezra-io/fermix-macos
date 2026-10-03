@@ -1060,6 +1060,15 @@ extension BrowserHostClient: BrowserHostLink {
         send(.tabClosed(tabId: Self.wireID(tab), by: .page))
     }
 
+    /// The contract's own two events, in its order: `download.began`, then a
+    /// terminal `download.finished` that failed, with no path and no bytes.
+    public func downloadRefused(_ download: UUID, tab: BrowserTab.ID, filename: String, reason: String) {
+        let downloadId = download.uuidString
+        let tabId = Self.wireID(tab)
+        send(.downloadBegan(downloadId: downloadId, tabId: tabId, filename: filename))
+        send(.downloadFinished(downloadId: downloadId, tabId: tabId, state: .failed, path: nil, bytes: nil, reason: reason))
+    }
+
     /// The person's "Cancel task", from its tab in the pane. The daemon's own
     /// `task.release` behind this is what releases the tabs; this build's
     /// local state keeps the tab until then.

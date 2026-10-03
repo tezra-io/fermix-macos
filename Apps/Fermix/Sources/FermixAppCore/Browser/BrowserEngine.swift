@@ -25,6 +25,11 @@ public protocol BrowserEngine: AnyObject {
     /// window `page` is in, answered once with the files the person chose or
     /// nil. The coordinator offers it to the person's own tab alone.
     func chooseFiles(_ request: BrowserFileRequest, for page: NSView, answer: @escaping @MainActor ([URL]?) -> Void)
+    /// The system's save panel for a file a page is downloading, as a sheet on
+    /// the window `page` is in, open on the person's Downloads folder with
+    /// `filename` filled in, answered once with the place they chose or nil.
+    /// The coordinator offers it to the person's own tab alone.
+    func chooseSaveDestination(_ filename: String, for page: NSView, answer: @escaping @MainActor (URL?) -> Void)
     /// The invisible corner window a task's page runs in while the pane cannot
     /// show it (plan §4.10). WebKit suspends a page whose window is not on
     /// screen, so a task's page is always in one.

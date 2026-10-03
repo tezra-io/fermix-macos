@@ -129,7 +129,8 @@ public protocol BrowserPageEvents: AnyObject {
     func pageRequestedFiles(_ request: BrowserFileRequest, answer: @escaping @MainActor ([URL]?) -> Void)
     func pageMetExternalScheme(_ url: URL)
     func pagePresented(_ dialog: BrowserDialog, answer: @escaping @MainActor (BrowserDialogAnswer) -> Void)
-    func pageStartedDownload(_ url: URL)
+    /// A navigation became a file to save.
+    func pageStartedDownload(_ download: any BrowserDownload)
     /// A load never reached a page, in the system's own sentence.
     func pageFailed(_ reason: String)
 }
@@ -155,7 +156,9 @@ public protocol BrowserTabDelegate: AnyObject {
         in tab: BrowserTab,
         answer: @escaping @MainActor (BrowserDialogAnswer) -> Void
     )
-    func downloadStarted(_ url: URL)
+    /// A page in the tab began saving a file. Whoever takes it sets its
+    /// events at once.
+    func downloadStarted(_ download: any BrowserDownload, in tab: BrowserTab)
     func loadFailed(_ reason: String, in tab: BrowserTab)
 }
 
@@ -261,8 +264,14 @@ extension BrowserTab: BrowserPageEvents {
         delegate.dialogPresented(dialog, in: self, answer: answer)
     }
 
-    public func pageStartedDownload(_ url: URL) {
-        delegate?.downloadStarted(url)
+    /// A tab nobody holds any more saves nothing.
+    public func pageStartedDownload(_ download: any BrowserDownload) {
+        guard let delegate else {
+            download.cancel {}
+            return
+        }
+
+        delegate.downloadStarted(download, in: self)
     }
 
     public func pageFailed(_ reason: String) {

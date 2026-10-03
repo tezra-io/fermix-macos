@@ -48,6 +48,22 @@ public final class WebKitBrowserEngine: BrowserEngine {
         }
     }
 
+    /// The system's save panel, as a sheet on the pane's window, the same way.
+    /// A page in no window has nowhere to show it, which cancels the download.
+    public func chooseSaveDestination(_ filename: String, for page: NSView, answer: @escaping @MainActor (URL?) -> Void) {
+        guard let window = page.window else {
+            answer(nil)
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        panel.nameFieldStringValue = filename
+        panel.beginSheetModal(for: window) { response in
+            answer(response == .OK ? panel.url : nil)
+        }
+    }
+
     /// The corner window a task's pages run in while the pane cannot show
     /// them.
     public var hostWindow: any BrowserPageStage { cornerWindow }

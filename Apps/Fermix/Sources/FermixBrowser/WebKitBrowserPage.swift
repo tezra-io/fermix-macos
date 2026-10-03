@@ -94,15 +94,34 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         )
     }
 
-    /// What a refused navigation leaves behind: the other app opened, or the
-    /// pane's sentence about the file.
+    /// What a refused navigation leaves behind: a link to another app, handed
+    /// to the tab, whose owner rules on it. A task's tab never opens the app,
+    /// and the person's asks them first.
     private func carryOut(_ decision: BrowserNavigationDecision, for url: URL?) {
         guard let url else { return }
 
         switch decision {
         case .external: events?.pageMetExternalScheme(url)
-        case .refuseDownload: events?.pageStartedDownload(url)
-        case .allow, .newTab, .cancel: return
+        case .allow, .newTab, .download, .cancel: return
+        }
+    }
+
+    /// The policy's decision as WebKit takes it for a navigation. A new tab
+    /// is allowed here and made in `createWebViewWith`.
+    private static func actionPolicy(_ decision: BrowserNavigationDecision) -> WKNavigationActionPolicy {
+        switch decision {
+        case .allow, .newTab: return .allow
+        case .download: return .download
+        case .external, .cancel: return .cancel
+        }
+    }
+
+    /// The policy's decision as WebKit takes it for a response.
+    private static func responsePolicy(_ decision: BrowserNavigationDecision) -> WKNavigationResponsePolicy {
+        switch decision {
+        case .allow: return .allow
+        case .download: return .download
+        case .newTab, .external, .cancel: return .cancel
         }
     }
 
@@ -145,12 +164,11 @@ extension WebKitBrowserPage: WKNavigationDelegate {
     ) {
         let decision = BrowserNavigationPolicy.decide(Self.navigation(action, targetsNewWindow: action.targetFrame == nil))
         carryOut(decision, for: action.request.url)
-        decisionHandler(decision == .allow || decision == .newTab ? .allow : .cancel)
+        decisionHandler(Self.actionPolicy(decision))
     }
 
-    /// A response that is a file rather than a page. Only the tab's own
-    /// download is reported: a frame's is refused without a sentence, so a page
-    /// cannot fill the pane with them.
+    /// A response that is a file rather than a page becomes a download where
+    /// the policy allows one: a frame's is refused without a sentence.
     func webView(
         _ webView: WKWebView,
         decidePolicyFor response: WKNavigationResponse,
@@ -162,9 +180,18 @@ extension WebKitBrowserPage: WKNavigationDelegate {
             isDownload: isDownload,
             isMainFrame: response.isForMainFrame
         )
-        let decision = BrowserNavigationPolicy.decide(navigation)
-        if response.isForMainFrame { carryOut(decision, for: response.response.url) }
-        decisionHandler(decision == .allow ? .allow : .cancel)
+        decisionHandler(Self.responsePolicy(BrowserNavigationPolicy.decide(navigation)))
+    }
+
+    /// A navigation the policy answered `.download` is now a download, a
+    /// link's `download` attribute or a response that is a file. The tab is
+    /// handed it, and its owner rules on where the file goes, if anywhere.
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        events?.pageStartedDownload(WebKitBrowserDownload(download))
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        events?.pageStartedDownload(WebKitBrowserDownload(download))
     }
 
     /// The navigation every `waitUntilReady()` call was parked on.

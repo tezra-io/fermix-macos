@@ -16,6 +16,8 @@ import Foundation
 /// The host's side of the daemon's `browser_host` wire runs through here too:
 /// a task's tabs, their release, the availability the host reports and its
 /// part of a quit, each decided by `BrowserHostReducer` and carried out here.
+/// A file a page saves is routed here by whose tab it came from, and
+/// `BrowserDownloads` carries it to its end.
 @MainActor
 public final class BrowserCoordinator {
     /// How long a quit waits for the daemon's answer to `host_stopping`.
@@ -43,15 +45,18 @@ public final class BrowserCoordinator {
     private var availabilityChanges: AnyCancellable?
     private var quitDone: (@MainActor () -> Void)?
     private var quitBoundToken: DeadlineToken?
+    /// The files the pages are saving.
+    private let downloads = BrowserDownloads()
 
     /// The pane's page area, while SwiftUI has one built.
     private weak var paneStage: (any BrowserPageStage)?
     /// Whether the primary window is on screen: open, and not covered,
     /// minimised or on another Space.
     private var windowVisible = false
-    /// Whether the system's file chooser is up for a page's upload field: the
+    /// Whether a system panel is up over the pane, the file chooser for a
+    /// page's upload field or the save panel for a person's download: the
     /// pane's one popup while it is, as a page's dialog is.
-    private var choosingFiles = false
+    private var systemPanelShown = false
     /// Where each tab's page is now.
     private var placed: [BrowserTab.ID: BrowserPagePlace] = [:]
 
@@ -75,6 +80,7 @@ public final class BrowserCoordinator {
         availabilityChanges = session.changes.sink { [weak self] availability in
             self?.availabilityChanged(availability)
         }
+        downloads.host = self
     }
 
     // MARK: - Opening
@@ -375,10 +381,25 @@ public final class BrowserCoordinator {
         model.notice = ProductStrings[.browserNoticeNoApp]
     }
 
-    /// Only the page in front, in an open pane, may ask the person anything,
-    /// and only while nothing else is asking, so a popup never stacks.
+    /// The one rule for asking the person anything, whether a page's dialog,
+    /// the file chooser or the save panel: only the page in front, in an open
+    /// pane, may ask, and only while nothing else is asking, so a popup never
+    /// stacks.
     private func mayAsk(from tab: BrowserTab) -> Bool {
-        model.isOpen && model.selectedTabID == tab.id && model.dialog == nil && !choosingFiles
+        model.isOpen && model.selectedTabID == tab.id && model.dialog == nil && !systemPanelShown
+    }
+
+    /// Puts up a system panel, which is the pane's one popup until the person
+    /// answers it.
+    private func showSystemPanel<Answer>(
+        _ show: (@escaping @MainActor (Answer) -> Void) -> Void,
+        answer: @escaping @MainActor (Answer) -> Void
+    ) {
+        systemPanelShown = true
+        show { [weak self] chosen in
+            self?.systemPanelShown = false
+            answer(chosen)
+        }
     }
 
     private func availabilityChanged(_ availability: BrowserAvailability) {
@@ -466,6 +487,7 @@ extension BrowserCoordinator: BrowserHostQuitting {
     /// the answer or the bound, whichever comes first (BROWSER-7).
     public func stopHost(done: @escaping @MainActor () -> Void) {
         session.applicationTerminating()
+        downloads.cancelAll()
 
         switch model.host.stop() {
         case .complete(let released):
@@ -529,11 +551,7 @@ extension BrowserCoordinator: BrowserTabDelegate {
             return
         }
 
-        choosingFiles = true
-        engine.chooseFiles(request, for: tab.view) { [weak self] files in
-            self?.choosingFiles = false
-            answer(files)
-        }
+        showSystemPanel({ engine.chooseFiles(request, for: tab.view, answer: $0) }, answer: answer)
     }
 
     /// A link to another app (`mailto:`, `tel:`, an app's own scheme), whose
@@ -575,8 +593,12 @@ extension BrowserCoordinator: BrowserTabDelegate {
         model.dialog = BrowserDialogRequest(dialog: dialog, tabID: tab.id, answer: answer)
     }
 
-    public func downloadStarted(_ url: URL) {
-        model.notice = ProductStrings[.browserNoticeDownloadRefused]
+    /// The person's file is saved where they choose. A task's is refused:
+    /// the daemon cannot vet it over the host wire, by where it comes from or
+    /// by its size, as it vets every download in its own browser.
+    public func downloadStarted(_ download: any BrowserDownload, in tab: BrowserTab) {
+        let route: BrowserDownloads.Route = owner(of: tab) == .person ? .person : .task
+        downloads.save(download, from: tab.id, route: route)
     }
 
     /// The system's sentence, for the tab in front only: a tab behind it has
@@ -591,3 +613,22 @@ extension BrowserCoordinator: BrowserTabDelegate {
 /// The wire client's seam onto this coordinator (`BrowserHostClient.swift`),
 /// which the methods above already answer exactly.
 extension BrowserCoordinator: BrowserHostCoordinating {}
+
+extension BrowserCoordinator: BrowserDownloadsHosting {
+    var downloadLink: (any BrowserHostLink)? { link }
+
+    /// On the one rule (`mayAsk`): the save panel, over the person's page,
+    /// holds the pane's one popup as the file chooser does.
+    func askWhereToSave(_ filename: String, from tab: BrowserTab.ID, answer: @escaping @MainActor (URL?) -> Void) {
+        guard let tab = model.tabs.first(where: { $0.id == tab }), mayAsk(from: tab), let engine else {
+            answer(nil)
+            return
+        }
+
+        showSystemPanel({ engine.chooseSaveDestination(filename, for: tab.view, answer: $0) }, answer: answer)
+    }
+
+    func say(_ notice: String) {
+        model.notice = notice
+    }
+}

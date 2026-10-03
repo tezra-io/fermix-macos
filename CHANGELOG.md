@@ -10,6 +10,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 - Voice: the caption line shows the running words of whoever last spoke, a task shows the daemon's summary of the work, and a failed call says why in plain words with the provider's own explanation.
 - Pet: the call's cost stays on the page after the call ends.
 - Voice: a call can be begun and ended from the View menu and the menu bar, and when voice is not set up the call control says so and opens its settings instead of starting a call that fails.
+- Browser: a file a website offers in your own tab can be saved where you choose through the Mac's save panel.
 
 ## 0.3.0 (2026-09-30)
 

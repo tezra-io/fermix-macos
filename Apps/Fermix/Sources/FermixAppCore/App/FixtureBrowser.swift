@@ -25,6 +25,11 @@ final class FixtureBrowserEngine: BrowserEngine {
         answer(nil)
     }
 
+    /// No save panel either: a fake page downloads nothing.
+    func chooseSaveDestination(_ filename: String, for page: NSView, answer: @escaping @MainActor (URL?) -> Void) {
+        answer(nil)
+    }
+
     /// Fake pages hold nothing to let go.
     func releaseIdle() {}
 }

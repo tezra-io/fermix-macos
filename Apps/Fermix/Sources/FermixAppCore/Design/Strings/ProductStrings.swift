@@ -446,13 +446,20 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatSearchOlder = "chat.search.older"
 
     // The browser pane. Its one sentence says why something the person asked
-    // for did not happen.
+    // for did not happen, or what became of a file they saved.
     case browserNoticeNotAnAddress = "browser.notice.notAnAddress"
     case browserNoticeProfileUnavailable = "browser.notice.profileUnavailable"
     /// A task's tab in front reached for another app, which a task never opens.
     case browserNoticeTaskOpenAppRefused = "browser.notice.taskOpenAppRefused"
     case browserNoticeNoApp = "browser.notice.noApp"
-    case browserNoticeDownloadRefused = "browser.notice.downloadRefused"
+    /// A file the person chose a place for, by its name: on its way, saved,
+    /// and stopped short, with the system's own sentence after.
+    case browserNoticeDownloadingFormat = "browser.notice.downloadingFormat"
+    case browserNoticeDownloadSavedFormat = "browser.notice.downloadSavedFormat"
+    case browserNoticeDownloadFailedFormat = "browser.notice.downloadFailedFormat"
+    /// The name a downloaded file gets where the page suggested none it
+    /// could keep.
+    case browserDownloadUntitled = "browser.download.untitled"
     /// The pane's controls, by what each does. The stop control is Cancel
     /// loading: `Stop` leads no string in the product, which keeps the word for
     /// the service.
@@ -503,6 +510,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// `task.cancel`'s own `reason`, sent to the daemon when the person
     /// cancels a task from its tab in the pane.
     case browserHostReasonPersonCancelled = "browserHost.reason.personCancelled"
+    /// `download.finished`'s `reason` for a task's download, which the pane
+    /// refuses to save: it finishes the engine's "The download did not
+    /// finish: ...".
+    case browserHostReasonTaskDownloadRefused = "browserHost.reason.taskDownloadRefused"
 
     // Pet
     case petCallBegin = "pet.callBegin"

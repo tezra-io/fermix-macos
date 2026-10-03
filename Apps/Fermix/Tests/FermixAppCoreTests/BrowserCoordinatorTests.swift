@@ -218,16 +218,6 @@ struct BrowserCoordinatorTests {
         #expect(harness.model.dialog == nil)
     }
 
-    @Test("a download is refused with the pane's sentence")
-    func downloadsAreRefusedWithASentence() throws {
-        let harness = BrowserHarness()
-        harness.coordinator.open(Self.fermix)
-
-        harness.page(0).events?.pageStartedDownload(URL(string: "https://fermix.ai/Fermix.dmg")!)
-
-        #expect(harness.model.notice == ProductStrings[.browserNoticeDownloadRefused])
-    }
-
     @Test("the page in front opens in the person's own browser")
     func openInSystemBrowser() throws {
         let harness = BrowserHarness()
