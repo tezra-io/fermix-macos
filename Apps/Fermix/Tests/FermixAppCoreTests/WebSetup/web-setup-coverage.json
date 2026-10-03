@@ -11,7 +11,7 @@
     "tab": "provider",
     "kind": "field",
     "name": "provider_form[default_model]",
-    "control": "select (static ModelCatalog.models_for) OR text+datalist when ModelListing.live? (ollama installed models, openrouter upstream catalog) OR free text with warning when live fetch fails (components.ex:568-646)",
+    "control": "select (static ModelCatalog.models_for) OR text+datalist when ModelListing.live? (ollama installed models, openrouter upstream catalog) OR free text with warning when live fetch fails (components.ex:594-672); openai_codex's picker opens only once ChatGPT is connected with plan usage on (components.ex:365-379, 816-819)",
     "secret": false,
     "config_path": "fermix_core.providers.<edit_provider>.default_model"
   },
@@ -74,7 +74,7 @@
     "tab": "provider",
     "kind": "action",
     "name": "save_provider (submit; __nav=stay|next)",
-    "effect": "maybe_store_anthropic_setup_token \u2192 answers [:edit_provider, :default_model, :reasoning_effort, :fast, descriptor fields, :<p>_auth_mode, :subagent_model] \u2192 Wizard.save_answers \u2192 commit_snapshot (save",
+    "effect": "maybe_store_anthropic_setup_token \u2192 answers [:edit_provider, :default_model, :reasoning_effort, descriptor fields, :<p>_auth_mode, :subagent_model] \u2192 Wizard.save_answers (setup_live.ex:265-288)",
     "external_flow": null
   },
   {
@@ -87,9 +87,37 @@
   {
     "tab": "provider",
     "kind": "action",
-    "name": "codex_login (phx-click, Sign in with ChatGPT / Reconnect ChatGPT)",
-    "effect": "Task.Supervisor.async_nolink \u2192 CodexLogin.login (auth/codex_login.ex:26-36) \u2192 OAuthFlow.start_loopback: PKCE, daemon listens on 127.0.0.1:1455, authorize URL auth.openai.com (oauth_flow.ex:60-85); ope",
-    "external_flow": "System browser OAuth (auth.openai.com) \u2192 loopback http://localhost:1455/auth/callback"
+    "name": "chatgpt_login (phx-click, Continue with ChatGPT / Turn on ChatGPT plan usage / Reconnect to ChatGPT)",
+    "effect": "async_nolink Auth.ChatGPT.login: client registration, PKCE, loopback on a free 127.0.0.1 port; plan on \u2192 notice, connect openai_codex, ensure model; off \u2192 sentence (setup_live.ex:322-328, 3655-3760)",
+    "external_flow": "System browser OAuth (auth.openai.com, Sign in with ChatGPT) \u2192 loopback http://127.0.0.1:<free port>/auth/callback"
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "chatgpt_cancel (phx-click, Cancel)",
+    "effect": "Task.shutdown of the sign-in task; a result that already arrived is finished, else flash \"ChatGPT sign-in cancelled.\" (setup_live.ex:330-332, 3708-3719)",
+    "external_flow": null
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "chatgpt_paste (phx-submit, callback_url)",
+    "effect": "ChatGPT.paste_callback(task pid, url): the address a browser that could not reach 127.0.0.1 ended on completes the same attempt (setup_live.ex:334-336, 3695-3706)",
+    "external_flow": null
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "chatgpt_logout (phx-click, Sign out)",
+    "effect": "start_async ChatGPT.logout: revoke upstream, then clear locally; \"Signed out of ChatGPT.\" or the could-not-confirm sentence; clears the notice (setup_live.ex:338-344, 3789-3815)",
+    "external_flow": "Network to OpenAI (token revocation)"
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "Manage usage (link to https://chatgpt.com/settings/usage)",
+    "effect": "Opens ChatGPT's usage settings in a new tab; no server event (components.ex:821, 906-914)",
+    "external_flow": "Browser tab to chatgpt.com/settings/usage"
   },
   {
     "tab": "provider",
@@ -118,7 +146,12 @@
   {
     "tab": "provider",
     "kind": "sub_surface",
-    "name": "ChatGPT OAuth panel (badge, account email, error line, button, fallback link, embed caption \"Sign-in opens in your browser and returns here\") components.ex:783-"
+    "name": "ChatGPT auth panel (badge; Waiting with fallback link, paste field and Cancel; Connected with account \u00b7 Using ChatGPT plan, Manage usage and Sign out; Plan usage off; Reconnect needed; Not connected with \"Use your ChatGPT plan in Fermix.\") components.ex:821-1000"
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "One-time plan notice \"You're using your ChatGPT plan. Eligible usage in Fermix uses your ChatGPT plan. Manage usage in your ChatGPT settings.\" after a plan-on sign-in (components.ex:899-905; setup_live.ex:3745-3752)"
   },
   {
     "tab": "provider",
@@ -764,7 +797,7 @@
     "tab": "media",
     "kind": "field",
     "name": "image_form[backend]",
-    "control": "radio openai | xai (SpaceXAI) | google | openai_codex (components.ex:1639-1663)",
+    "control": "radio openai | xai (SpaceXAI) | google (components.ex:1755-1773)",
     "secret": false,
     "config_path": "fermix_core.tools.generate_image.backend"
   },
@@ -788,17 +821,9 @@
     "tab": "media",
     "kind": "field",
     "name": "image_form[model]",
-    "control": "select from MediaRegistry.supported_models(:image, backend): openai [gpt-image default, gpt-image-1.5]; xai [grok-imagine-image-2.0, grok-imagine-image-quality]; google [default, gemini-3-pro-image, gemini-2.5-flash-image]; openai_codex [one]",
+    "control": "select from MediaRegistry.supported_models(:image, backend): openai [gpt-image default, gpt-image-1.5]; xai [grok-imagine-image-2.0, grok-imagine-image-quality]; google [default, gemini-3-pro-image, gemini-2.5-flash-image]",
     "secret": false,
     "config_path": "fermix_core.tools.generate_image.model"
-  },
-  {
-    "tab": "media",
-    "kind": "field",
-    "name": "openai_codex warning",
-    "control": "read-only \"Connect OpenAI Codex on the Providers tab first.\" when codex not connected (components.ex:1698-1705)",
-    "secret": false,
-    "config_path": "n/a"
   },
   {
     "tab": "media",

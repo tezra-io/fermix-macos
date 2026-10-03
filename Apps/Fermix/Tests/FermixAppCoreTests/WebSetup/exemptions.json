@@ -6,6 +6,12 @@
     "reason": "Web-only mechanic. The LiveView batches a form and badges it dirty through a JS hook; every native control applies as it is changed and the daemon confirms it, so there is no unsaved state for a badge to report."
   },
   {
+    "tab": "provider",
+    "kind": "action",
+    "name": "chatgpt_paste (phx-submit, callback_url)",
+    "reason": "Web-only mechanic. The paste field serves a browser on another machine, reaching a remote engine's setup page through an ssh tunnel, whose redirect to 127.0.0.1 lands on the wrong host. The app runs the engine on the same Mac as the browser it opens, so the engine's own listener always receives the redirect and there is no address to paste."
+  },
+  {
     "tab": "plugins",
     "kind": "action",
     "name": "next_step / previous_step",
