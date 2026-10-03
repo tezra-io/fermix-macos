@@ -80,6 +80,64 @@ public struct VoiceCaptions: Equatable, Sendable {
     }
 }
 
+/// The backend delegations of a call (M56 §4.2).
+///
+/// Keyed by `delegation_id` and fenced by `revision`: a frame with a lower
+/// revision than the one held is a late answer to an earlier ask, and is
+/// refused. A finished task stays, for the task line, until newer ones
+/// displace it; at most `limit` are held, the oldest finished one first out.
+/// Each id's highest revision outlives its eviction for the rest of the call,
+/// so a late frame of an evicted task is still refused rather than read as new
+/// work.
+public struct VoiceTasks: Equatable, Sendable {
+    public static let limit = 8
+
+    /// The tasks held, in the order they started.
+    public private(set) var held: [VoiceTask] = []
+    /// Every delegation's highest revision this call, held or evicted.
+    private var revisions: [String: Int] = [:]
+
+    public init() {}
+
+    public subscript(delegationId: String) -> VoiceTask? {
+        held.first { $0.delegationId == delegationId }
+    }
+
+    /// The newest task that has not finished. A status this build cannot read
+    /// is not finished: nothing may claim work whose word is unknown is over.
+    public var newestRunning: VoiceTask? {
+        held.last { !$0.status.isTerminal }
+    }
+
+    /// The task the call's task line draws: the newest one still running, or,
+    /// while none is, the last to start, kept until the next one starts.
+    public var current: VoiceTask? {
+        newestRunning ?? held.last
+    }
+
+    /// Takes a frame, or refuses it as late. Answers whether it was taken.
+    mutating func apply(_ task: VoiceTask) -> Bool {
+        let id = task.delegationId
+
+        if let index = held.firstIndex(where: { $0.delegationId == id }) {
+            guard task.revision >= held[index].revision else { return false }
+
+            held[index] = task
+        } else {
+            // Evicted, then heard from again: only a re-ask is new work.
+            if let remembered = revisions[id], task.revision <= remembered { return false }
+
+            if held.count == Self.limit {
+                held.remove(at: held.firstIndex { $0.status.isTerminal } ?? held.startIndex)
+            }
+            held.append(task)
+        }
+
+        revisions[id] = task.revision
+        return true
+    }
+}
+
 /// How a call ended.
 public enum VoiceCallOutcome: Equatable, Sendable {
     /// Hung up, by either side, with the bill the daemon settled, where it
@@ -138,8 +196,8 @@ public struct VoiceState: Equatable, Sendable {
     public var callId: String?
     /// What this call has said, a bounded running text per speaker.
     public var captions = VoiceCaptions()
-    /// The backend delegation the daemon last reported, where the call has one.
-    public var task: VoiceTask?
+    /// The call's backend delegations, by id.
+    public var tasks = VoiceTasks()
     /// The usage frame the daemon last reported.
     public var usage: VoiceUsage?
 
@@ -196,8 +254,7 @@ public struct VoiceState: Equatable, Sendable {
     /// listening once it has played, does not end the work (RCA of
     /// 2026-09-25: "Retain task activity independently").
     var restingMode: VoiceMode {
-        let working = task.map { !$0.status.isTerminal } ?? false
-        return working ? .toolUse : activeInputMode
+        tasks.newestRunning == nil ? activeInputMode : .toolUse
     }
 }
 
@@ -462,7 +519,10 @@ public final class VoiceCallModel: ObservableObject {
             voice.usage = usage
             return []
         case .task(let task):
-            voice.task = task
+            var tasks = voice.tasks
+            if accept(task, into: &tasks) {
+                voice.tasks = tasks
+            }
             return []
         case .caption(let caption):
             appendCaption(caption)
@@ -635,15 +695,28 @@ public final class VoiceCallModel: ObservableObject {
     }
 
     /// A backend delegation presents like a tool call, which is what it is from
-    /// this side: the assistant is working while it runs, and back at the
-    /// microphone once it stops. A status this build cannot read is not
+    /// this side: the assistant is working while any runs, and back at the
+    /// microphone once none does. A status this build cannot read is not
     /// terminal, so an unknown word never ends the work early.
     private func applyTask(_ task: RealtimeTask) -> [VoiceEffect] {
-        voice.task = task
-        voice.mode = task.status.isTerminal ? voice.activeInputMode : .toolUse
+        var next = voice
+        guard accept(task, into: &next.tasks) else { return [] }
 
-        voice.status = VoiceStatus(mode: voice.mode)
+        next.mode = next.restingMode
+        next.status = VoiceStatus(mode: next.mode)
+        voice = next
         return []
+    }
+
+    private func accept(_ task: RealtimeTask, into tasks: inout VoiceTasks) -> Bool {
+        guard tasks.apply(task) else {
+            log.info(
+                "dropping a late task frame for \(task.delegationId, privacy: .public) at revision \(task.revision, privacy: .public)"
+            )
+            return false
+        }
+
+        return true
     }
 
     /// A server error ends the call, and may mean the socket is unusable, so

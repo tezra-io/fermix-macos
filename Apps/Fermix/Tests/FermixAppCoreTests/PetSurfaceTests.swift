@@ -300,6 +300,25 @@ struct PetSurfaceTests {
         #expect(harness.model.taskStatusText == ProductStrings[.voiceTaskCompleted])
     }
 
+    /// The daemon's summary of the work is drawn beside its status word: a
+    /// terminal word alone says that something finished, not what.
+    @Test("the task line carries the daemon's summary beside the status word")
+    func taskLineCarriesTheSummary() throws {
+        let harness = try harness()
+        harness.call.voiceNegotiated()
+        harness.call.beginTestCall()
+
+        _ = harness.call.apply(
+            .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running, summary: "Checking the lease")),
+            audioIsPlaying: false
+        )
+
+        #expect(
+            harness.model.taskStatusText
+                == ProductStrings.middot(ProductStrings[.voiceTaskRunning], "Checking the lease")
+        )
+    }
+
     /// The pet decides nothing about the call: cancelling reaches the daemon as
     /// the delegation the daemon itself named.
     @Test("cancelling a task sends the daemon that delegation")

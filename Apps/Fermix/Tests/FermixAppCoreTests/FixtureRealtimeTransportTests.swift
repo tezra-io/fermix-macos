@@ -370,7 +370,8 @@ struct FixtureRealtimeTransportTests {
         #expect(model.voice.callActive)
         #expect(model.voice.status == .listening)
         #expect(model.voice.engine == "openai_live")
-        #expect(model.voice.task?.status == .completed)
+        #expect(model.voice.tasks.current?.status == .completed)
+        #expect(model.voice.tasks.newestRunning == nil)
         #expect(model.voice.usage?.accounting == "running")
         #expect(model.voice.captions != VoiceState().captions)
     }

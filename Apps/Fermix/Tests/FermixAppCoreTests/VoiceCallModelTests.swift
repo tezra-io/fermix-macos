@@ -317,12 +317,13 @@ struct VoiceCallModelRoutingTests {
         let running = RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running)
         _ = model.apply(.task(running), audioIsPlaying: false)
         #expect(model.voice.mode == .toolUse)
-        #expect(model.voice.task == running)
+        #expect(model.voice.tasks.newestRunning == running)
 
         let done = RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .completed, summary: "checked")
         _ = model.apply(.task(done), audioIsPlaying: false)
         #expect(model.voice.mode == .listening)
-        #expect(model.voice.task == done)
+        #expect(model.voice.tasks.newestRunning == nil)
+        #expect(model.voice.tasks.current == done)
     }
 
     /// A failed delegation is still a delegation that stopped: the microphone
@@ -342,7 +343,7 @@ struct VoiceCallModelRoutingTests {
         _ = model.apply(.task(failed), audioIsPlaying: false)
 
         #expect(model.voice.mode == .listening)
-        #expect(model.voice.task?.summary == "the calendar refused")
+        #expect(model.voice.tasks.current?.summary == "the calendar refused")
     }
 
     /// Work whose status word this build cannot read is work nothing may claim
@@ -358,6 +359,99 @@ struct VoiceCallModelRoutingTests {
         )
 
         #expect(model.voice.mode == .toolUse)
+    }
+
+    /// `revision` fences a re-asked task (PROTOCOL.md, `task`): a frame from
+    /// an earlier revision is a late answer to an earlier ask.
+    @Test("many revisions of one task: the newest wins and a stale frame is refused")
+    func revisionsFenceATask() {
+        let model = negotiatedModel()
+        model.beginTestCall()
+
+        for revision in 1...5 {
+            _ = model.apply(.task(RealtimeTask(delegationId: "dg_1", revision: revision, status: .running)), audioIsPlaying: false)
+        }
+        let late = model.apply(.task(RealtimeTask(delegationId: "dg_1", revision: 3, status: .completed)), audioIsPlaying: false)
+
+        #expect(late.isEmpty)
+        #expect(model.voice.tasks.current == RealtimeTask(delegationId: "dg_1", revision: 5, status: .running))
+        #expect(model.voice.mode == .toolUse)
+
+        let done = RealtimeTask(delegationId: "dg_1", revision: 5, status: .completed, summary: "booked")
+        _ = model.apply(.task(done), audioIsPlaying: false)
+        #expect(model.voice.tasks.current == done)
+    }
+
+    /// Delegations run side by side. Each keeps its own slot, and the pet keeps
+    /// thinking while any of them is still working.
+    @Test("one task finishing leaves the work that is still running")
+    func concurrentTasksKeepTheirOwnSlots() {
+        let model = negotiatedModel()
+        model.beginTestCall()
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+
+        _ = model.apply(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .running)), audioIsPlaying: false)
+        _ = model.apply(.task(RealtimeTask(delegationId: "dg_2", revision: 1, status: .running)), audioIsPlaying: false)
+        _ = model.apply(.task(RealtimeTask(delegationId: "dg_2", revision: 1, status: .completed)), audioIsPlaying: false)
+
+        #expect(model.voice.tasks.held.count == 2)
+        #expect(model.voice.tasks.newestRunning?.delegationId == "dg_1")
+        #expect(model.voice.mode == .toolUse)
+    }
+
+    /// A finished task is kept for the task line until the next one starts,
+    /// so "Task finished" with its summary is still readable after the work.
+    @Test("a finished task stays on the line until the next task starts")
+    func finishedTaskStaysUntilTheNext() {
+        let model = negotiatedModel()
+        model.beginTestCall()
+        let done = RealtimeTask(delegationId: "dg_1", revision: 1, status: .completed, summary: "sent")
+
+        _ = model.apply(.task(done), audioIsPlaying: false)
+        #expect(model.voice.tasks.current == done)
+
+        let next = RealtimeTask(delegationId: "dg_2", revision: 1, status: .running)
+        _ = model.apply(.task(next), audioIsPlaying: false)
+        #expect(model.voice.tasks.current == next)
+    }
+
+    /// At most eight are held, the oldest finished one first out. The
+    /// evicted task's highest revision is remembered for the rest of the call,
+    /// so its late frame is still refused rather than read as new work.
+    @Test("nine tasks: the oldest finished goes, and a late frame of it is still refused")
+    func ninthTaskEvictsTheOldestFinished() {
+        let model = negotiatedModel()
+        model.beginTestCall()
+        _ = model.apply(.task(RealtimeTask(delegationId: "dg_0", revision: 1, status: .running)), audioIsPlaying: false)
+        _ = model.apply(.task(RealtimeTask(delegationId: "dg_1", revision: 2, status: .completed)), audioIsPlaying: false)
+
+        for index in 2...8 {
+            _ = model.apply(.task(RealtimeTask(delegationId: "dg_\(index)", revision: 1, status: .running)), audioIsPlaying: false)
+        }
+
+        let ids = model.voice.tasks.held.map(\.delegationId)
+        #expect(ids.count == VoiceTasks.limit)
+        #expect(!ids.contains("dg_1"))
+        #expect(ids.contains("dg_0"))
+        #expect(model.voice.tasks.newestRunning?.delegationId == "dg_8")
+
+        _ = model.apply(.task(RealtimeTask(delegationId: "dg_1", revision: 2, status: .completed)), audioIsPlaying: false)
+        _ = model.apply(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .running)), audioIsPlaying: false)
+        #expect(model.voice.tasks.held.map(\.delegationId) == ids)
+    }
+
+    /// With nothing finished to give way, the oldest running task does: the
+    /// line shows the newest, and the bound holds.
+    @Test("with no finished task to evict, the oldest running one goes")
+    func ninthRunningTaskEvictsTheOldest() {
+        let model = negotiatedModel()
+        model.beginTestCall()
+
+        for index in 0...8 {
+            _ = model.apply(.task(RealtimeTask(delegationId: "dg_\(index)", revision: 1, status: .running)), audioIsPlaying: false)
+        }
+
+        #expect(model.voice.tasks.held.map(\.delegationId) == (1...8).map { "dg_\($0)" })
     }
 
     /// A bill is a fact, not a state. What a cost ceiling does to a call
@@ -413,7 +507,7 @@ struct VoiceCallModelRoutingTests {
         #expect(model.voice.engine == nil)
         #expect(model.voice.callId == nil)
         #expect(model.voice.captions == VoiceCaptions())
-        #expect(model.voice.task == nil)
+        #expect(model.voice.tasks == VoiceTasks())
         #expect(model.voice.usage == nil)
     }
 
@@ -588,7 +682,7 @@ struct VoiceCallLifecycleTests {
 
         #expect(harness.call.voice.phase == .ended(.normal(settled: settled)))
         #expect(harness.call.voice.usage == settled)
-        #expect(harness.call.voice.task?.status == .cancelled)
+        #expect(harness.call.voice.tasks["dg_1"]?.status == .cancelled)
         #expect(harness.call.voice.callActive == false)
         #expect(harness.callDeadlines.liveCount == 0)
     }
@@ -662,10 +756,10 @@ struct VoiceCallLifecycleTests {
         await harness.settle { harness.call.voice.phase == .active }
 
         let ended = try #require(seen.last { $0.phase == .ended(.normal(settled: settled)) })
-        #expect(ended.task == finished)
+        #expect(ended.tasks.current == finished)
         #expect(ended.attempt == 1)
         #expect(harness.call.voice.attempt == 2)
-        #expect(harness.call.voice.task == nil)
+        #expect(harness.call.voice.tasks == VoiceTasks())
         #expect(harness.call.voice.usage == nil)
         #expect(harness.call.voice.captions == VoiceCaptions())
         #expect(try harness.sent("call_start") == 2)
@@ -703,7 +797,7 @@ struct VoiceCallLifecycleTests {
 
         #expect(harness.call.voice.phase == .ended(.normal(settled: nil)))
         #expect(harness.call.voice.usage == nil)
-        #expect(harness.call.voice.task == nil)
+        #expect(harness.call.voice.tasks == VoiceTasks())
     }
 
     /// With no call there is nothing for a call frame to describe. A bill
@@ -718,6 +812,28 @@ struct VoiceCallLifecycleTests {
         #expect(model.apply(.state(.listening), audioIsPlaying: false).isEmpty)
         #expect(model.apply(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .running)), audioIsPlaying: false).isEmpty)
         #expect(model.voice == before)
+    }
+
+    /// "Cancel task" names the task and the revision the surface showed. The
+    /// wire carries the id alone, so the revision is this side's fence: a
+    /// click on work that has since been re-asked or finished sends nothing.
+    @Test("a cancel names its task and revision, and a stale one sends nothing")
+    func cancelIsFencedByRevision() async throws {
+        let harness = VoiceCallHarness()
+        await harness.beginCall()
+        harness.socket.deliver(.task(RealtimeTask(delegationId: "dg_1", revision: 1, status: .running)))
+        harness.socket.deliver(.task(RealtimeTask(delegationId: "dg_1", revision: 2, status: .running)))
+
+        harness.coordinator.cancelTask(delegationId: "dg_1", revision: 1)
+        harness.coordinator.cancelTask(delegationId: "dg_9", revision: 1)
+        #expect(try harness.sent("task_cancel") == 0)
+
+        harness.coordinator.cancelTask(delegationId: "dg_1", revision: 2)
+        #expect(try harness.socket.sentObjects().last == wireObject(.taskCancel(delegationId: "dg_1")))
+
+        harness.socket.deliver(.task(RealtimeTask(delegationId: "dg_1", revision: 2, status: .cancelled)))
+        harness.coordinator.cancelTask(delegationId: "dg_1", revision: 2)
+        #expect(try harness.sent("task_cancel") == 1)
     }
 
     /// The controls act on a call, and only on one: a mute or an interrupt

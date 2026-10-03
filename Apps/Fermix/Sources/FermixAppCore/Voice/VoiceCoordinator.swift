@@ -11,9 +11,12 @@ public protocol VoiceControlling: AnyObject {
     func toggleCall()
     func setMuted(_ muted: Bool)
     func interrupt()
-    /// Calls off the backend delegation the daemon last reported. Nothing is
-    /// presumed about the outcome: the task ends when a `task` frame says so.
-    func cancelTask()
+    /// Calls off one backend delegation, named by its id and the revision the
+    /// surface showed. The wire carries the id alone (`task_cancel`), so the
+    /// revision is this side's fence: a click on work that has since been
+    /// re-asked or has finished sends nothing. Nothing is presumed about the
+    /// outcome: the task ends when a `task` frame says so.
+    func cancelTask(delegationId: String, revision: Int)
     /// Releases the microphone and the socket. Sends no daemon lifecycle
     /// command: the daemon outlives the window.
     func shutdown()
@@ -95,8 +98,16 @@ public final class VoiceCoordinator: VoiceControlling {
         model.voiceInterrupted()
     }
 
-    public func cancelTask() {
-        guard model.voice.phase == .active, let delegationId = model.voice.task?.delegationId else { return }
+    public func cancelTask(delegationId: String, revision: Int) {
+        guard
+            model.voice.phase == .active,
+            let task = model.voice.tasks[delegationId],
+            task.revision == revision,
+            !task.status.isTerminal
+        else {
+            log.info("not cancelling \(delegationId, privacy: .public): the task has moved on")
+            return
+        }
 
         session.send(.taskCancel(delegationId: delegationId))
     }

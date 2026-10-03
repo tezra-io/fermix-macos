@@ -110,19 +110,26 @@ public final class PetFeatureModel: ObservableObject {
         )
     }
 
-    /// What the backend delegation is doing, or the daemon's own word for it
-    /// where this build has never seen that status.
+    /// What the backend work is doing, in the catalogue's status word or the
+    /// daemon's own word where this build has never seen that status, with
+    /// the daemon's summary beside it when it sent one: the newest task still
+    /// running, or the last one to finish until the next starts.
     public var taskStatusText: String? {
-        guard let task = call.voice.task else { return nil }
+        guard let task = call.voice.tasks.current else { return nil }
 
+        let word: String
         switch task.status {
-        case .pending: return ProductStrings[.voiceTaskPending]
-        case .running: return ProductStrings[.voiceTaskRunning]
-        case .completed: return ProductStrings[.voiceTaskCompleted]
-        case .failed: return ProductStrings[.voiceTaskFailed]
-        case .cancelled: return ProductStrings[.voiceTaskCancelled]
-        case .unrecognized(let value): return String(format: ProductStrings[.voiceTaskStatusFormat], value)
+        case .pending: word = ProductStrings[.voiceTaskPending]
+        case .running: word = ProductStrings[.voiceTaskRunning]
+        case .completed: word = ProductStrings[.voiceTaskCompleted]
+        case .failed: word = ProductStrings[.voiceTaskFailed]
+        case .cancelled: word = ProductStrings[.voiceTaskCancelled]
+        case .unrecognized(let value): word = String(format: ProductStrings[.voiceTaskStatusFormat], value)
         }
+
+        guard let summary = task.summary, !summary.isEmpty else { return word }
+
+        return ProductStrings.middot(word, summary)
     }
 
     /// What the call's voice has cost so far, where the daemon has said. The
@@ -136,7 +143,7 @@ public final class PetFeatureModel: ObservableObject {
 
     /// Cancelling is offered only for work that is actually running: a pending
     /// task has nothing to call off yet, and a finished one cannot be.
-    public var showsCancelTask: Bool { call.voice.task?.status == .running }
+    public var showsCancelTask: Bool { call.voice.tasks.current?.status == .running }
 
     private static func speakerName(_ speaker: VoiceCaptions.Speaker) -> String {
         switch speaker {
@@ -193,8 +200,11 @@ public final class PetFeatureModel: ObservableObject {
         voice.interrupt()
     }
 
+    /// Calls off the task the line shows, by the id and revision it shows.
     public func cancelTask() {
-        voice.cancelTask()
+        guard let task = call.voice.tasks.newestRunning, task.status == .running else { return }
+
+        voice.cancelTask(delegationId: task.delegationId, revision: task.revision)
     }
 
     public func setWindowVisible(_ visible: Bool) {
