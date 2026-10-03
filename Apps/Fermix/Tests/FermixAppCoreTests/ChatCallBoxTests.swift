@@ -5,8 +5,8 @@ import Testing
 @testable import FermixAppCore
 
 /// The call in the chat window (M56, in the owner's direction of 2026-10-03):
-/// the call button at the toolbar's top right, and the pet floating over the
-/// column while a call is up.
+/// the call button at the toolbar's top right, and the pet floating at the
+/// body's top right while a call is up.
 ///
 /// Which state the box draws is `ChatCallBoxState`, proven here on
 /// `PetHarness`'s fakes with no window; what only a view can show (its place
@@ -197,11 +197,37 @@ struct ChatCallBoxTests {
 
     // MARK: - The box over the column
 
-    @Test("the box floats over the column, never a sheet, a popover or room taken from the column")
+    /// The owner's rule: the box stands at the body's extreme right, in the
+    /// margin beside the centred column, and reaches over the transcript only
+    /// where that margin cannot hold it.
+    @Test("the box stands clear of the column where the margin holds it, and overlaps where it cannot")
+    func placement() {
+        let box = ChatMetrics.callBoxWidth
+        let inset = ChatMetrics.callBoxInset
+        let column = ChatMetrics.columnWidth
+        #expect(box == 156)
+        #expect(inset == 16)
+
+        // A wide window: a 1440 point window's body leaves a 334 point margin.
+        #expect(!ChatCallBox.overlapsColumn(box: box, body: 1_388, column: column, inset: inset))
+        // The margin exactly holds the box and its inset.
+        #expect(!ChatCallBox.overlapsColumn(box: box, body: column + 2 * (box + inset), column: column, inset: inset))
+        // A point less, and the box reaches over the column's edge.
+        #expect(ChatCallBox.overlapsColumn(box: box, body: column + 2 * (box + inset) - 2, column: column, inset: inset))
+        // The default window's 988 point body leaves 134.
+        #expect(ChatCallBox.overlapsColumn(box: box, body: 988, column: column, inset: inset))
+        // Beside the browser pane the body is 480 and the column 432: 24 left.
+        #expect(ChatCallBox.overlapsColumn(box: box, body: 480, column: column, inset: inset))
+    }
+
+    @Test("the box floats at the body's top right, never a sheet, a popover or room taken from the column")
     func boxIsAnOverlay() throws {
         let surface = try Self.text(of: "Chat/ChatSurfaceView.swift")
-        #expect(surface.contains(".overlay(alignment: .top) {\n                ChatCallBox(call: call, pet: pet)"))
-        #expect(surface.contains(".frame(maxWidth: ChatMetrics.columnWidth, alignment: .trailing)"))
+        #expect(surface.contains(".overlay(alignment: .topTrailing) {\n                ChatCallBox(call: call, pet: pet)"))
+        #expect(surface.contains(".padding(.top, ChatMetrics.callBoxInset)"))
+        #expect(surface.contains(".padding(.trailing, ChatMetrics.callBoxInset)"))
+        // On the body, not the column: nothing narrows it to the column's width.
+        #expect(!surface.contains(".frame(maxWidth: ChatMetrics.columnWidth, alignment: .trailing)"))
         for presentation in [".sheet(", ".popover(", ".safeAreaInset(", ".fullScreenCover("] {
             #expect(!surface.contains(presentation), "the chat surface presents with \(presentation)")
         }

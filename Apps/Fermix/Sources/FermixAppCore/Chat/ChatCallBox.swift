@@ -23,7 +23,7 @@ enum ChatCallBoxState: Equatable {
     }
 }
 
-/// The call, floating at the top right of the chat column (M56; the owner's
+/// The call, floating at the top right of the chat body (M56; the owner's
 /// direction of 2026-10-03).
 ///
 /// It is the pet, as the floating window draws it (`PetCompanion`): the
@@ -32,7 +32,10 @@ enum ChatCallBoxState: Equatable {
 /// no caption, no task and no cost: those are the Pet page's. A failure keeps
 /// the box with the mascot still, the failure's sentence and Dismiss.
 ///
-/// It floats over the transcript rather than taking room in the column, so
+/// It stands at the body's extreme right, in the margin a wide window leaves
+/// beside the centred reading column, overlapping nothing; only where that
+/// margin is narrower than the box does it reach over the transcript's
+/// trailing edge (`overlapsColumn`). It takes no room in the column, so
 /// nothing moves or docks when it comes and goes, and it is never a sheet or a
 /// popover. It observes the call model itself: the chat surface only holds the
 /// call, so a caption redraws the box and never the transcript. It has no
@@ -70,6 +73,18 @@ struct ChatCallBox: View {
     /// Reduce Motion.
     static func playsIntro(live: Bool, introPlayed: Bool, reduceMotion: Bool) -> Bool {
         live && !introPlayed && !reduceMotion
+    }
+
+    /// Whether the box, at the body's top right with its inset, reaches over
+    /// the reading column. The column is centred, and as wide as it is allowed
+    /// or as the body less its gutters allows, so the margin beside it is half
+    /// of what the body has left: the box stands clear wherever that margin
+    /// holds the box and its inset. A matter of geometry, not of a breakpoint.
+    static func overlapsColumn(box: Double, body: Double, column: Double, inset: Double) -> Bool {
+        let drawn = min(column, body - 2 * ChatMetrics.columnGutter)
+        let margin = (body - drawn) / 2
+
+        return box + inset > margin
     }
 
     /// The mascot's click ends what is up and begins nothing: beside a failure
@@ -116,6 +131,7 @@ struct ChatCallBox: View {
             }
         }
         .padding(Spacing.s)
+        .frame(width: ChatMetrics.callBoxWidth)
         .background(.ultraThinMaterial, in: shape)
         .overlay(shape.strokeBorder(Palette.hairline(.standard).color, lineWidth: Stroke.hairline))
     }

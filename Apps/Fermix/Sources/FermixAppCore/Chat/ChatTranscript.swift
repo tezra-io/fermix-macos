@@ -50,7 +50,7 @@ struct ChatTranscript: View {
                 }
                 .scrollTargetLayout()
                 .frame(maxWidth: ChatMetrics.columnWidth)
-                .padding(.horizontal, Spacing.l)
+                .padding(.horizontal, ChatMetrics.columnGutter)
                 .padding(.vertical, Spacing.m)
                 .frame(maxWidth: .infinity)
             }

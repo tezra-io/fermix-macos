@@ -5,6 +5,13 @@ enum ChatMetrics {
     /// The reading column the transcript and the composer share, centred in
     /// the body however wide the window is.
     static let columnWidth: Double = 720
+    /// The room the column keeps from the body's edges, the transcript's and
+    /// the composer's alike, when the body is narrower than the column.
+    static let columnGutter: Double = Spacing.l
+    /// The call box: the pet's stage, with the box's own padding round it.
+    static let callBoxWidth: Double = PetMetrics.stageSize.width + 2 * Spacing.s
+    /// What the call box keeps from the body's top and trailing edges.
+    static let callBoxInset: Double = Spacing.m
     /// The room a message the owner wrote leaves on its leading side, so the
     /// two sides of the conversation read as two sides.
     static let userRowLeadingRoom: Double = Spacing.xxl * 2
@@ -63,9 +70,9 @@ enum ChatMetrics {
 /// search, and clearing the field returns to it.
 ///
 /// The call begins and ends from the toolbar's call button, at the
-/// conversation's top right, and while it is up the pet floats there over the
-/// column (`ChatCallBox`): nothing in the column moves for it, in either state
-/// (M56; the owner's direction of 2026-10-03).
+/// conversation's top right, and while it is up the pet floats at the body's
+/// top right (`ChatCallBox`): nothing in the column moves for it, in either
+/// state (M56; the owner's direction of 2026-10-03).
 struct ChatSurfaceView: View {
     let session: CompanionSession
     @ObservedObject var model: CompanionModel
@@ -120,13 +127,13 @@ struct ChatSurfaceView: View {
 
         column(items)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // The call floats at the column's top right, over the transcript,
-            // at the inset the transcript's own rows keep.
-            .overlay(alignment: .top) {
+            // The call floats at the body's top right, in the margin beside
+            // the centred column; only a body too narrow for that margin puts
+            // it over the transcript's trailing edge (`ChatCallBox.overlapsColumn`).
+            .overlay(alignment: .topTrailing) {
                 ChatCallBox(call: call, pet: pet)
-                    .frame(maxWidth: ChatMetrics.columnWidth, alignment: .trailing)
-                    .padding(.horizontal, Spacing.l)
-                    .padding(.top, Spacing.m)
+                    .padding(.top, ChatMetrics.callBoxInset)
+                    .padding(.trailing, ChatMetrics.callBoxInset)
             }
             .navigationTitle(ProductStrings[.sidebarChat])
             .searchable(text: $query, placement: .toolbar, prompt: ProductStrings[.chatSearchPrompt])
@@ -196,7 +203,7 @@ struct ChatSurfaceView: View {
                 cancel: session.cancel(clientMsgId:)
             )
             .frame(maxWidth: ChatMetrics.columnWidth)
-            .padding(.horizontal, Spacing.l)
+            .padding(.horizontal, ChatMetrics.columnGutter)
             .padding(.top, docked ? ChatMetrics.composerTopGap : 0)
             .padding(.bottom, docked ? Spacing.m : 0)
 
