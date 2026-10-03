@@ -231,11 +231,22 @@ public struct VoiceState: Equatable, Sendable {
     ///
     /// The presentation's label is the default, because it follows the visual
     /// mode and so keeps saying "Speaking" through the audio tail the daemon
-    /// has already moved past. A failure is the exception: its own words are
-    /// the only ones that name what went wrong, and rebuilding them from
-    /// `.error` yields "Not connected".
+    /// has already moved past. There are two exceptions. A failure's own words
+    /// are the only ones that name what went wrong, and rebuilding them from
+    /// `.error` yields "Not connected". And a start says "Connecting" from the
+    /// click until the daemon says what the turn is doing (M56 §4.2), while
+    /// its mode rests at idle, whose label is "Ready".
     public var statusText: String {
-        status.carriesItsOwnSentence ? status.text : presentation.accessibilityLabel
+        status.carriesItsOwnSentence || status == .connecting ? status.text : presentation.accessibilityLabel
+    }
+
+    /// What the call that ended cost, in cents, where the daemon settled a
+    /// bill before its last frame. Nothing while a call is up: the figure so
+    /// far is not the bill.
+    public var settledCostCents: Double? {
+        guard case .ended = phase else { return nil }
+
+        return usage?.voiceCostCents
     }
 
     /// What the surfaces say with no call up: ready on a negotiated socket,
@@ -270,10 +281,24 @@ public struct VoiceState: Equatable, Sendable {
 public final class VoiceCallModel: ObservableObject {
     @Published public private(set) var voice = VoiceState()
 
+    /// Whether the primary window, which draws the chat's call box, is on
+    /// screen. The box's mascot animates only while it is, as the floating
+    /// pet's does only while its own window is. Held here rather than on the
+    /// box, which is rebuilt on every rail change and never hears the window
+    /// host; it changes a few times a session, so publishing it costs nothing.
+    @Published public private(set) var mainWindowVisible = true
+
     /// Normalized RMS (0...1) of the model's voice output. A plain property, not
     /// published: the pet's timeline samples it every frame, so a per-chunk
     /// update must not invalidate the SwiftUI tree.
     public private(set) var audioLevel: Float = 0
+
+    /// The start whose mascot has played its intro in the chat's call box. The
+    /// box is rebuilt on every rail change, so the box cannot remember
+    /// that the two second intro already played for this call, and a mascot
+    /// that swelled out of its sphere again on each visit to Chat would read
+    /// as a new call. Not published: nothing redraws for it.
+    private var introAttempt: Int?
 
     /// When the last chunk of a reply the operator stopped arrived, while more
     /// of it may still be coming.
@@ -365,6 +390,18 @@ public final class VoiceCallModel: ObservableObject {
         guard voice.phase == .stopping else { return }
 
         end(.normal(settled: voice.usage))
+    }
+
+    /// The ended call's state was dismissed: its outcome and its bill leave
+    /// every surface, and the presentation rests as it does with no call.
+    /// A call that is up, starting or stopping has nothing to dismiss.
+    public func dismissEnded() {
+        guard case .ended = voice.phase else { return }
+
+        var next = voice
+        next.phase = .idle
+        next.restOutsideACall()
+        voice = next
     }
 
     public func voiceNegotiated() {
@@ -474,6 +511,22 @@ public final class VoiceCallModel: ObservableObject {
 
         voice.mode = voice.restingMode
         voice.status = VoiceStatus(mode: voice.mode)
+    }
+
+    // MARK: - What the chat's call box remembers
+
+    /// Whether this start's mascot has played its intro.
+    public var introPlayed: Bool { introAttempt == voice.attempt }
+
+    /// The box's mascot appeared for this start, so its intro is spent.
+    public func introShown() {
+        introAttempt = voice.attempt
+    }
+
+    public func mainWindowVisibilityChanged(_ visible: Bool) {
+        guard visible != mainWindowVisible else { return }
+
+        mainWindowVisible = visible
     }
 
     // MARK: - Routing

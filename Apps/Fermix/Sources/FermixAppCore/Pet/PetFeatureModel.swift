@@ -92,9 +92,20 @@ public final class PetFeatureModel: ObservableObject {
         }
     }
 
+    /// What a click on the call control does now, as the gate decides it.
+    public var callAction: VoiceCallAction { gate.action }
+
     /// Whether a click on the call control does anything. A control that
     /// would do nothing is dimmed rather than silently inert.
     public var callActionEnabled: Bool { gate.action != .unavailable }
+
+    /// Why the call control is dimmed, while it is: the readiness sentence,
+    /// since degraded or unread voice leaves no action to name.
+    public var callUnavailableReason: String? {
+        guard gate.action == .unavailable else { return nil }
+
+        return gate.readiness.sentence
+    }
 
     public var muteActionTitle: String {
         ProductStrings[muted ? .petUnmute : .petMute]
@@ -111,9 +122,8 @@ public final class PetFeatureModel: ObservableObject {
     /// right thing to offer once there is not.
     public var callHelpText: String {
         if call.voice.status.carriesItsOwnSentence { return statusText }
-        guard gate.action == .unavailable, let sentence = gate.readiness.sentence else { return callActionTitle }
 
-        return sentence
+        return callUnavailableReason ?? callActionTitle
     }
 
     public var cancelTaskActionTitle: String { ProductStrings[.petCancelTask] }
@@ -169,7 +179,7 @@ public final class PetFeatureModel: ObservableObject {
     /// figure; a call ended at its cost limit keeps the bill that reached it.
     /// Drawn until the next call starts.
     public var settledBillText: String? {
-        guard case .ended = call.voice.phase, let cents = call.voice.usage?.voiceCostCents else { return nil }
+        guard let cents = call.voice.settledCostCents else { return nil }
 
         return String(format: ProductStrings[.voiceCostSettledFormat], CurrencyFormat.wholeCents(cents))
     }

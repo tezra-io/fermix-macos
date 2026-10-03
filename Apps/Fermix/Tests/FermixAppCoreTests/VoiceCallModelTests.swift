@@ -1190,3 +1190,138 @@ struct RelayedAudioTests {
         #expect(!PCM16.isVoiced(base64: RelayedAudio.padding))
     }
 }
+
+/// What a second view of the call needs from the one model (M56 §4.2, §4.3):
+/// "Connecting" until the daemon answers, an ended call kept until it is
+/// dismissed, the intro once per call, and whether the primary window is on
+/// screen.
+@Suite("The call seen from the chat")
+@MainActor
+struct VoiceCallSecondViewTests {
+    private func negotiatedModel() -> VoiceCallModel {
+        let model = VoiceCallModel()
+        model.voiceNegotiated()
+        return model
+    }
+
+    /// A start's mode rests at idle, whose label is "Ready": the start said
+    /// "Ready" on the Pet page from the click until the first turn state.
+    @Test("a start says Connecting until the daemon says what the turn is doing")
+    func connectingUntilTheDaemonAnswers() {
+        let model = negotiatedModel()
+
+        model.callStarting()
+        #expect(model.voice.statusText == ProductStrings[.voiceStatusConnecting])
+
+        model.callStarted()
+        _ = model.apply(
+            .callReady(RealtimeCallReady(engine: "openai_live", callId: "voice_live:test", captions: true)),
+            audioIsPlaying: false
+        )
+        #expect(model.voice.statusText == ProductStrings[.voiceStatusConnecting])
+
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+        #expect(model.voice.statusText == ProductStrings[.voiceStatusListening])
+    }
+
+    @Test("dismiss returns an ended call to idle, and does nothing to a call that is up")
+    func dismissOnlyEndsTheEndedState() {
+        let model = negotiatedModel()
+        model.beginTestCall()
+        _ = model.apply(.state(.listening), audioIsPlaying: false)
+
+        model.dismissEnded()
+        #expect(model.voice.phase == .active)
+
+        _ = model.apply(
+            .error(RealtimeServerError(reason: "provider_disconnected", kind: .providerDisconnected)),
+            audioIsPlaying: false
+        )
+        #expect(model.voice.phase == .ended(.failed(kind: .providerDisconnected, sentence: ProductStrings[.voiceErrorProviderDisconnected])))
+
+        model.dismissEnded()
+        #expect(model.voice.phase == .idle)
+        #expect(!model.voice.status.carriesItsOwnSentence)
+        #expect(model.voice.settledCostCents == nil)
+    }
+
+    @Test("the settled cost is the ended call's, never the figure while it is up")
+    func settledCostOnlyOnceEnded() {
+        let model = negotiatedModel()
+        model.beginTestCall()
+        _ = model.apply(.usage(RealtimeUsage(voiceCostCents: 4, accounting: "running")), audioIsPlaying: false)
+        #expect(model.voice.settledCostCents == nil)
+
+        model.callStopping()
+        _ = model.apply(.usage(RealtimeUsage(voiceCostCents: 12.5, accounting: "complete")), audioIsPlaying: false)
+        #expect(model.voice.settledCostCents == nil)
+
+        _ = model.apply(.state(.idle), audioIsPlaying: false)
+        #expect(model.voice.settledCostCents == 12.5)
+    }
+
+    /// The chat view is rebuilt on every rail change, so the call model
+    /// remembers whether this call's intro has played.
+    @Test("the intro plays once per call, and not again when the strip is rebuilt")
+    func introOncePerCall() {
+        let model = negotiatedModel()
+
+        model.callStarting()
+        #expect(!model.introPlayed)
+
+        model.introShown()
+        #expect(model.introPlayed)
+        // A rail change mid-call builds a new strip, which reads this again.
+        model.callStarted()
+        #expect(model.introPlayed)
+
+        model.callStopping()
+        model.callEnded()
+        #expect(model.introPlayed)
+
+        model.callStarting()
+        #expect(!model.introPlayed)
+    }
+
+    @Test("the main window's visibility reaches the call model, published only when it moves")
+    func mainWindowVisibility() {
+        let model = VoiceCallModel()
+        var changes = 0
+        let subscription = model.objectWillChange.sink { _ in changes += 1 }
+        defer { subscription.cancel() }
+
+        #expect(model.mainWindowVisible)
+
+        model.mainWindowVisibilityChanged(false)
+        #expect(!model.mainWindowVisible)
+        #expect(changes == 1)
+
+        model.mainWindowVisibilityChanged(false)
+        #expect(changes == 1)
+
+        model.mainWindowVisibilityChanged(true)
+        #expect(model.mainWindowVisible)
+        #expect(changes == 2)
+    }
+
+    @Test("the composition routes the main window's visibility to the call model")
+    func compositionRoutesVisibility() throws {
+        let text = try #require(try SourceTree.swiftFiles(matching: "App/AppComposition.swift").first?.text)
+
+        #expect(text.contains("case .main:"))
+        #expect(text.contains("voiceCall.mainWindowVisibilityChanged(onScreen)"))
+    }
+
+    /// The composer's button names the next click, and the floating pet's
+    /// tooltip the failure: both read the gate through the façade.
+    @Test("the façade says what the gate decided and why a control is dimmed")
+    func facadeReadsTheGate() throws {
+        let harness = try PetHarness()
+        #expect(harness.model.callAction == .begin)
+        #expect(harness.model.callUnavailableReason == nil)
+
+        harness.readiness.voiceReadiness = .degraded
+        #expect(harness.model.callAction == .unavailable)
+        #expect(harness.model.callUnavailableReason == VoiceReadiness.degraded.sentence)
+    }
+}

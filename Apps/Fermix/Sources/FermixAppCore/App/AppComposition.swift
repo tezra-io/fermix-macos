@@ -228,14 +228,17 @@ final class AppComposition {
             links: links
         )
         // Every report goes through the coordinator, which owns whether a window
-        // is on screen; the pet and the browser read that answer rather than
-        // the raw signal. A task's page leaves a covered pane for the host
-        // window, which SwiftUI cannot see happen.
-        windowHost.onVisibilityChanged = { [petModel, windows, browser] kind, visible in
+        // is on screen; the pet, the browser and the chat's call box read
+        // that answer rather than the raw signal. A task's page leaves a
+        // covered pane for the host window, which SwiftUI cannot see happen,
+        // and the box's mascot parks while its window is off screen.
+        windowHost.onVisibilityChanged = { [petModel, windows, browser, voiceCall] kind, visible in
             let onScreen = windows.visibilityChanged(visible, for: kind)
             switch kind {
             case .pet: petModel.setWindowVisible(onScreen)
-            case .main: browser.windowVisibilityChanged(onScreen)
+            case .main:
+                browser.windowVisibilityChanged(onScreen)
+                voiceCall.mainWindowVisibilityChanged(onScreen)
             }
         }
 
