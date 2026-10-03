@@ -23,51 +23,52 @@ public protocol PetWindowPresenting: AnyObject {
 
 /// The pet's own narrow model.
 ///
-/// It republishes the app model rather than holding a second copy of the voice
-/// state, and forwards every action to the voice controller: the pet decides
-/// nothing about the call, it only draws it.
+/// It owns the floating window's state and nothing of the call: the call's
+/// facts are `VoiceCallModel`'s, which this republishes rather than copies, and
+/// every action goes to the voice controller. The pet decides nothing about
+/// the call, it only draws it.
 @MainActor
 public final class PetFeatureModel: ObservableObject {
     /// Whether the pet window is actually on screen. False pauses the animation
     /// timeline: an occluded, minimized, or off-Space window costs no frames.
     @Published public private(set) var windowVisible = true
 
-    private let model: AppModel
+    private let call: VoiceCallModel
     private let voice: any VoiceControlling
     private let windows: any PetWindowPresenting
     /// Opens the primary window. The pet floats without one, and with the menu
     /// bar item hidden its context menu is the only thing on screen.
     private let openFermix: () -> Void
-    private var modelChanges: AnyCancellable?
+    private var callChanges: AnyCancellable?
 
     public init(
-        model: AppModel,
+        call: VoiceCallModel,
         voice: any VoiceControlling,
         coordinator: any PetWindowPresenting,
         openFermix: @escaping () -> Void = {}
     ) {
-        self.model = model
+        self.call = call
         self.voice = voice
         self.windows = coordinator
         self.openFermix = openFermix
-        self.modelChanges = model.objectWillChange.sink { [weak self] _ in
+        self.callChanges = call.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
     }
 
     // MARK: - What the pet draws
 
-    public var presentation: VoicePresentation { model.voice.presentation }
+    public var presentation: VoicePresentation { call.voice.presentation }
     public var expression: PetExpression { presentation.expression }
     public var visualMode: VoiceMode { presentation.visualMode }
-    public var mode: VoiceMode { model.voice.mode }
-    public var callActive: Bool { model.voice.callActive }
-    public var muted: Bool { model.voice.muted }
-    public var audioActive: Bool { model.voice.audioActive }
+    public var mode: VoiceMode { call.voice.mode }
+    public var callActive: Bool { call.voice.callActive }
+    public var muted: Bool { call.voice.muted }
+    public var audioActive: Bool { call.voice.audioActive }
 
     /// Not published: the timeline samples it every frame, so a per-chunk
     /// update must not invalidate the SwiftUI tree.
-    public var audioLevel: Float { model.audioLevel }
+    public var audioLevel: Float { call.audioLevel }
 
     public var callActionTitle: String {
         ProductStrings[callActive ? .petCallEnd : .petCallBegin]
@@ -86,7 +87,7 @@ public final class PetFeatureModel: ObservableObject {
     /// app. The action is the right thing to offer while there is an action to
     /// take, and the failure is the right thing to offer once there is not.
     public var callHelpText: String {
-        model.voice.status.carriesItsOwnSentence ? statusText : callActionTitle
+        call.voice.status.carriesItsOwnSentence ? statusText : callActionTitle
     }
 
     public var cancelTaskActionTitle: String { ProductStrings[.petCancelTask] }
@@ -96,7 +97,7 @@ public final class PetFeatureModel: ObservableObject {
     /// caption. The surface draws it on one line and truncates what does not
     /// fit rather than rewriting it.
     public var captionLine: String? {
-        guard let caption = model.voice.captions.last else { return nil }
+        guard let caption = call.voice.captions.last else { return nil }
 
         return String(
             format: ProductStrings[.voiceCaptionLineFormat],
@@ -108,7 +109,7 @@ public final class PetFeatureModel: ObservableObject {
     /// What the backend delegation is doing, or the daemon's own word for it
     /// where this build has never seen that status.
     public var taskStatusText: String? {
-        guard let task = model.voice.task else { return nil }
+        guard let task = call.voice.task else { return nil }
 
         switch task.status {
         case .pending: return ProductStrings[.voiceTaskPending]
@@ -124,14 +125,14 @@ public final class PetFeatureModel: ObservableObject {
     /// backend's share is reported as unknown rather than as a number, so it is
     /// never added in here as zero.
     public var voiceCostText: String? {
-        guard let cents = model.voice.usage?.voiceCostCents else { return nil }
+        guard let cents = call.voice.usage?.voiceCostCents else { return nil }
 
         return String(format: ProductStrings[.voiceCostFormat], CurrencyFormat.wholeCents(cents))
     }
 
     /// Cancelling is offered only for work that is actually running: a pending
     /// task has nothing to call off yet, and a finished one cannot be.
-    public var showsCancelTask: Bool { model.voice.task?.status == .running }
+    public var showsCancelTask: Bool { call.voice.task?.status == .running }
 
     private static func speakerName(_ speaker: RealtimeCaptionSpeaker) -> String {
         switch speaker {
@@ -149,7 +150,7 @@ public final class PetFeatureModel: ObservableObject {
     public var accessibilityValue: String { statusText }
 
     /// The state in words, so the sidebar surface reads it without the mascot.
-    public var statusText: String { model.voice.statusText }
+    public var statusText: String { call.voice.statusText }
 
     /// Whether the optional floating companion window is on screen. It stays
     /// hidden until it is opened: a launch must not put a companion in front of

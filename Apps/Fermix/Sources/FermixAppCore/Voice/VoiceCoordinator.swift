@@ -17,18 +17,18 @@ public protocol VoiceControlling: AnyObject {
 
 /// Wires the session, the audio owner, and the model together.
 ///
-/// It decides nothing: routing lives in `AppModel`, the handshake in
+/// It decides nothing: routing lives in `VoiceCallModel`, the handshake in
 /// `VoiceSession`, and the capture lifecycle in `AudioOwner`. This is the one
 /// place they meet, and it is deliberately the smallest of the four.
 @MainActor
 public final class VoiceCoordinator: VoiceControlling {
-    private let model: AppModel
+    private let model: VoiceCallModel
     private let session: VoiceSession
     private let audio: AudioOwner
     private let log = AppLog.logger(.voice)
     private var callRequested = false
 
-    public init(model: AppModel, session: VoiceSession, audio: AudioOwner) {
+    public init(model: VoiceCallModel, session: VoiceSession, audio: AudioOwner) {
         self.model = model
         self.session = session
         self.audio = audio

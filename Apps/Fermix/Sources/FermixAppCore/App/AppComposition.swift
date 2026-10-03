@@ -23,6 +23,8 @@ final class AppComposition {
     let model: AppModel
     let windowHost: AppKitWindowHost
     let windows: WindowCoordinator
+    /// The one owner of the call's facts, app scoped like the call itself.
+    let voiceCall: VoiceCallModel
     let voice: VoiceCoordinator
     let petModel: PetFeatureModel
     let services: ServiceController
@@ -109,8 +111,9 @@ final class AppComposition {
             browser: browser,
             workspace: environment.workspace
         )
+        voiceCall = VoiceCallModel()
         voice = Self.buildVoice(
-            model: model,
+            model: voiceCall,
             bootstrap: store,
             lines: environment.realtimeLines,
             audio: environment.voiceAudio
@@ -158,7 +161,7 @@ final class AppComposition {
             gateway: gateway,
             gate: gate
         )
-        petModel = Self.buildPet(model: model, voice: voice, coordinator: coordinator)
+        petModel = Self.buildPet(call: voiceCall, voice: voice, coordinator: coordinator)
 
         let interface = Self.buildInterface(
             environment: environment,
@@ -170,6 +173,7 @@ final class AppComposition {
             coordinator: coordinator,
             gateway: gateway,
             petModel: petModel,
+            voiceCall: voiceCall,
             companion: companion,
             settings: settings,
             menuBar: menuBar,
@@ -265,7 +269,7 @@ final class AppComposition {
 
     /// The voice stack: one audio owner, one realtime session, one coordinator.
     private static func buildVoice(
-        model: AppModel,
+        model: VoiceCallModel,
         bootstrap: BootstrapStore,
         lines: RealtimeSocketClient.LineSocket,
         audio: any VoiceAudioEngine
@@ -490,12 +494,12 @@ final class AppComposition {
     /// The companion's own model, which reads the voice stack and the
     /// coordinator and owns nothing else.
     private static func buildPet(
-        model: AppModel,
+        call: VoiceCallModel,
         voice: VoiceCoordinator,
         coordinator: AppCoordinator
     ) -> PetFeatureModel {
         PetFeatureModel(
-            model: model,
+            call: call,
             voice: voice,
             coordinator: coordinator,
             openFermix: { coordinator.open(.home) }
@@ -626,6 +630,7 @@ final class AppComposition {
         coordinator: AppCoordinator,
         gateway: ManagementGateway,
         petModel: PetFeatureModel,
+        voiceCall: VoiceCallModel,
         companion: CompanionSession,
         settings: SettingsModel,
         menuBar: MenuBarController,
@@ -645,6 +650,7 @@ final class AppComposition {
             coordinator: coordinator,
             gateway: gateway,
             petModel: petModel,
+            voiceCall: voiceCall,
             companion: companion,
             settings: settings,
             menuBar: menuBar,
@@ -684,6 +690,7 @@ final class AppComposition {
         coordinator: AppCoordinator,
         gateway: ManagementGateway,
         petModel: PetFeatureModel,
+        voiceCall: VoiceCallModel,
         companion: CompanionSession,
         settings: SettingsModel,
         menuBar: any MenuBarItemPresenting,
@@ -715,6 +722,7 @@ final class AppComposition {
             doctor: doctor,
             logs: LogsModel(gateway: gateway),
             pet: petModel,
+            voiceCall: voiceCall,
             onboarding: buildOnboarding(
                 environment: environment,
                 planner: planner,

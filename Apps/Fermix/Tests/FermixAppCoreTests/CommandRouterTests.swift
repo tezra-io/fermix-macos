@@ -371,6 +371,7 @@ final class RouterHarness {
     let gateway = FakeDaemonGateway()
     let loginItems = FakeLoginItemService()
     let model = AppModel()
+    let voiceCall = VoiceCallModel()
     let windows = FakeWindowHost()
     let lifecycle = FakeLifecycleController()
     let termination = FakeTerminationRequester()
@@ -446,7 +447,8 @@ final class RouterHarness {
                 sleeper: NoWaitSleeper()
             ),
             logs: LogsModel(gateway: gateway),
-            pet: PetFeatureModel(model: model, voice: FakeVoiceController(), coordinator: coordinator),
+            pet: PetFeatureModel(call: voiceCall, voice: FakeVoiceController(), coordinator: coordinator),
+            voiceCall: voiceCall,
             onboarding: OnboardingModel(
                 gateway: gateway,
                 activation: FakeActivationDriver(),

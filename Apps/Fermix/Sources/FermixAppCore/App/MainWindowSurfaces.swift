@@ -12,6 +12,9 @@ public final class MainWindowSurfaces {
     public let doctor: DoctorModel
     public let logs: LogsModel
     public let pet: PetFeatureModel
+    /// The one call's facts, which every view of the call reads: the Pet page,
+    /// the floating pet and, through this, the chat window.
+    public let voiceCall: VoiceCallModel
     public let onboarding: OnboardingModel
     /// The one `SettingsModel` (M34 §8). It is built before these surfaces and
     /// handed in, because Home and onboarding read the same snapshot: two
@@ -27,6 +30,7 @@ public final class MainWindowSurfaces {
         doctor: DoctorModel,
         logs: LogsModel,
         pet: PetFeatureModel,
+        voiceCall: VoiceCallModel,
         onboarding: OnboardingModel,
         settings: SettingsModel,
         companion: CompanionSession
@@ -35,6 +39,7 @@ public final class MainWindowSurfaces {
         self.doctor = doctor
         self.logs = logs
         self.pet = pet
+        self.voiceCall = voiceCall
         self.onboarding = onboarding
         self.settings = settings
         self.companion = companion

@@ -346,7 +346,7 @@ struct FixtureRealtimeTransportTests {
     /// listening with the script's facts.
     @Test("a fixture call over the real session, routing and audio owner reaches listening")
     func callReachesListening() async throws {
-        let model = AppModel()
+        let model = VoiceCallModel()
         let deadlines = ManualDeadlineScheduler()
         let lines = FixtureRealtimeTransport(call: .conversation, deadlines: deadlines)
         let voice = VoiceCoordinator(

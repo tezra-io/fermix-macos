@@ -133,9 +133,9 @@ struct PetSurfaceTests {
     func speakingTailKeepsItsWord() throws {
         let harness = try harness()
 
-        harness.appModel.voiceCallBegan()
-        harness.appModel.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
-        harness.appModel.apply(.state(.listening), audioIsPlaying: true)
+        harness.call.voiceCallBegan()
+        harness.call.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
+        harness.call.apply(.state(.listening), audioIsPlaying: true)
 
         #expect(harness.model.visualMode == .speaking)
         #expect(harness.model.statusText == ProductStrings[.voiceStatusSpeaking])
@@ -224,17 +224,17 @@ struct PetSurfaceTests {
         #expect(harness.model.voiceCostText == nil)
         #expect(!harness.model.showsCancelTask)
 
-        harness.appModel.voiceNegotiated()
-        harness.appModel.voiceCallBegan()
-        _ = harness.appModel.apply(
+        harness.call.voiceNegotiated()
+        harness.call.voiceCallBegan()
+        _ = harness.call.apply(
             .caption(RealtimeCaption(speaker: .user, delta: "what is ", startMs: 0, endMs: 440)),
             audioIsPlaying: false
         )
-        _ = harness.appModel.apply(
+        _ = harness.call.apply(
             .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running)),
             audioIsPlaying: false
         )
-        _ = harness.appModel.apply(.usage(RealtimeUsage(voiceCostCents: 5.35)), audioIsPlaying: false)
+        _ = harness.call.apply(.usage(RealtimeUsage(voiceCostCents: 5.35)), audioIsPlaying: false)
 
         #expect(harness.model.captionLine?.hasSuffix("what is ") == true)
         #expect(harness.model.taskStatusText == ProductStrings[.voiceTaskRunning])
@@ -247,10 +247,10 @@ struct PetSurfaceTests {
     @Test("a finished task offers no cancel")
     func aFinishedTaskOffersNoCancel() throws {
         let harness = try harness()
-        harness.appModel.voiceNegotiated()
-        harness.appModel.voiceCallBegan()
+        harness.call.voiceNegotiated()
+        harness.call.voiceCallBegan()
 
-        _ = harness.appModel.apply(
+        _ = harness.call.apply(
             .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .completed)),
             audioIsPlaying: false
         )
@@ -269,7 +269,7 @@ struct PetSurfaceTests {
         harness.negotiate()
         await harness.settle()
 
-        _ = harness.appModel.apply(
+        _ = harness.call.apply(
             .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running)),
             audioIsPlaying: false
         )
@@ -337,6 +337,7 @@ struct PetSurfaceTests {
 @MainActor
 final class PetHarness {
     let appModel = AppModel()
+    let call = VoiceCallModel()
     let engine = PermissionCountingAudioEngine()
     let windows: FakeWindowHost
     let coordinator: AppCoordinator
@@ -353,7 +354,7 @@ final class PetHarness {
             socketPath: { "/tmp/fermix-pet-tests.sock" },
             deadlines: MainQueueDeadlineScheduler()
         )
-        voice = VoiceCoordinator(model: appModel, session: session, audio: audio)
+        voice = VoiceCoordinator(model: call, session: session, audio: audio)
         coordinator = AppCoordinator(
             model: appModel,
             windows: WindowCoordinator(host: windows),
@@ -369,7 +370,7 @@ final class PetHarness {
             presentation: SettingsPresentation(),
             announcer: RecordingAnnouncer()
         )
-        model = PetFeatureModel(model: appModel, voice: voice, coordinator: coordinator)
+        model = PetFeatureModel(call: call, voice: voice, coordinator: coordinator)
     }
 
     /// The daemon answering its half of the handshake, which is what turns a
