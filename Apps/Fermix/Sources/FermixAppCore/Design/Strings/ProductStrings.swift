@@ -403,6 +403,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case voiceReadinessSetUp = "voice.readiness.setUp"
     case voiceReadinessDegraded = "voice.readiness.degraded"
     case voiceReadinessUnknown = "voice.readiness.unknown"
+    /// Puts away a failed call's sentence in the chat's call box.
+    case voiceDismiss = "voice.dismiss"
 
     // Companion chat
     case companionConnectionEngineHasNoChat = "companion.connection.engineHasNoChat"

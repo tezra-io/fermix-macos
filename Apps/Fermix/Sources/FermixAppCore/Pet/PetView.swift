@@ -1,34 +1,33 @@
 import AppKit
 import SwiftUI
 
-/// The floating companion. It draws the voice state and offers the three
-/// actions a call has; every one of them goes through the voice controller.
+/// The floating companion: the pet, in a window of its own that floats over
+/// other apps.
+///
+/// What it draws is `PetCompanion`, the same view the chat's call box hosts;
+/// what is the window's alone is here: the drag from anywhere on it, the first
+/// press taken from an inactive app, the dock revealed by the pointer, and the
+/// context menu that is the only way back when the pet is all that is on
+/// screen.
 struct PetView: View {
     @ObservedObject var model: PetFeatureModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.mascot) private var mascot
 
     @State private var hovered = false
 
     var body: some View {
-        VStack(spacing: 2) {
-            ZStack {
-                mascotView
-                    .frame(width: PetMetrics.mascotSize.width, height: PetMetrics.mascotSize.height)
-                    // The mascot draws and never takes the click, so the whole
-                    // of its frame is this one button: a click starts the call
-                    // or ends it (owner, 2026-09-25: "the click on the mascot
-                    // leads to enabling or disabling it").
-                    .contentShape(Rectangle())
-                    .onTapGesture { model.toggleCall() }
-                    .help(model.callHelpText)
-            }
-            .frame(width: PetMetrics.stageSize.width, height: PetMetrics.stageSize.height)
-
-            ControlDock(model: model)
-                .opacity(shouldShowControls ? 1 : 0)
-                .animation(motion.animation(.stepCrossfade), value: shouldShowControls)
-        }
+        // Reduce Motion and a window off screen both park the loops; the pose
+        // still changes, so no state is lost. The intro plays on every show.
+        PetCompanion(
+            model: model,
+            animates: model.windowVisible && !reduceMotion,
+            playsIntro: !reduceMotion,
+            dock: shouldShowControls ? .shown : .hidden,
+            // The whole of the mascot's frame is this one button: a click
+            // starts the call or ends it (owner, 2026-09-25: "the click on
+            // the mascot leads to enabling or disabling it").
+            mascotClick: { model.toggleCall() }
+        )
         .padding(.horizontal, Spacing.xs)
         .padding(.vertical, Spacing.xxs)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,11 +47,8 @@ struct PetView: View {
         .simultaneousGesture(WindowDragGesture())
         .allowsWindowActivationEvents(true)
         .onHover { inside in
-            withAnimation(motion.animation(.stepCrossfade)) { hovered = inside }
+            withAnimation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade)) { hovered = inside }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(model.accessibilityLabel)
-        .accessibilityValue(model.accessibilityValue)
         .contextMenu {
             Button(model.callActionTitle) { model.toggleCall() }
                 .disabled(!model.callActionEnabled)
@@ -67,23 +63,68 @@ struct PetView: View {
         }
     }
 
-    private var motion: Motion { Motion(reduceMotion: reduceMotion) }
-
     private var shouldShowControls: Bool {
         hovered || model.callActive || model.visualMode == .speaking
     }
+}
 
-    /// The Rive mascot, fed the pose and the live level.
-    ///
-    /// Reduce Motion and a window off screen both park the loops; the pose
-    /// still changes, so no state is lost. The level is read by the renderer
-    /// rather than published here, because it changes with every audio chunk.
+/// The pet: the Rive mascot, fed the call's pose and live level, and under it
+/// the dock of its call controls.
+///
+/// One view, two hosts: the floating window (`PetView`) and the chat's call box
+/// (`ChatCallBox`). Each host decides what is its own: whether the mascot may
+/// move (its own window's visibility), whether the intro plays, whether the
+/// dock shows, and what a click on the mascot does. The mascot draws and never
+/// takes the click, so the whole of its frame is that one action.
+struct PetCompanion: View {
+    /// Whether the dock of call controls is drawn.
+    enum Dock: Equatable {
+        case shown
+        /// Not drawn, keeping its room, so revealing it moves nothing.
+        case hidden
+        /// Not drawn and taking no room.
+        case absent
+    }
+
+    @ObservedObject var model: PetFeatureModel
+    let animates: Bool
+    let playsIntro: Bool
+    let dock: Dock
+    let mascotClick: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.mascot) private var mascot
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ZStack {
+                mascotView
+                    .frame(width: PetMetrics.mascotSize.width, height: PetMetrics.mascotSize.height)
+                    .contentShape(Rectangle())
+                    .onTapGesture { mascotClick() }
+                    .help(model.callHelpText)
+            }
+            .frame(width: PetMetrics.stageSize.width, height: PetMetrics.stageSize.height)
+
+            if dock != .absent {
+                ControlDock(model: model)
+                    .opacity(dock == .shown ? 1 : 0)
+                    .animation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade), value: dock)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(model.accessibilityLabel)
+        .accessibilityValue(model.accessibilityValue)
+    }
+
+    /// The level is read by the renderer rather than published here, because
+    /// it changes with every audio chunk.
     private var mascotView: some View {
         mascot?.mascot(
             pose: model.expression,
             level: { [model] in model.audioLevel },
-            animates: model.windowVisible && !reduceMotion,
-            playsIntro: !reduceMotion
+            animates: animates,
+            playsIntro: playsIntro
         )
     }
 }

@@ -260,7 +260,8 @@ struct PetSurfaceTests {
         #expect(text.contains(".simultaneousGesture(WindowDragGesture())"))
         #expect(text.contains(".allowsWindowActivationEvents(true)"))
         // The click is still the mascot's, beside the drag rather than under it.
-        #expect(text.contains(".onTapGesture { model.toggleCall() }"))
+        #expect(text.contains(".onTapGesture { mascotClick() }"))
+        #expect(text.contains("mascotClick: { model.toggleCall() }"))
     }
 
     /// The mascot draws no ground on either screen that draws it.

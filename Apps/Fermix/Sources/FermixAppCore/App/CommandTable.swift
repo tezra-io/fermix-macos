@@ -299,11 +299,15 @@ public enum CommandTable {
         }
     }
 
-    /// `pauseLogs` is the one toolbar command whose label toggles, so it reads
-    /// its two sentence-case spellings here rather than through the menu's.
+    /// `pauseLogs` and `toggleVoiceCall` are the toolbar commands whose labels
+    /// toggle, so they read their two sentence-case spellings here rather than
+    /// through the menu's. The call's are the ones the pet's own control says.
     public static func toolbarTitle(of command: AppCommand, isOn: Bool) -> String {
         if command == .pauseLogs {
             return ProductStrings[isOn ? .logsResume : .logsPause]
+        }
+        if command == .toggleVoiceCall {
+            return ProductStrings[isOn ? .petCallEnd : .petCallBegin]
         }
 
         guard let key = toolbarLabelKey(of: command) else {
@@ -323,15 +327,33 @@ public enum CommandTable {
         command == .runNetworkChecks ? .doctorNetworkBody : nil
     }
 
+    /// That sentence, written out, for a performer with nothing to add.
+    public static func toolbarHelp(of command: AppCommand) -> String? {
+        toolbarHelpKey(of: command).map { ProductStrings[$0] }
+    }
+
     /// The SF Symbol a toolbar control draws beside or instead of its label.
+    ///
+    /// The call's is a phone: it sits in the conversation's header, where a
+    /// messaging app puts its call button, and the owner asked for a call
+    /// button there. Filled while a call is up (`fillsWhenOn`), so its state
+    /// shows in its shape as well as in its name.
     public static func symbol(of command: AppCommand) -> String? {
         switch command {
         case .runNetworkChecks: return "globe"
         case .showBrowser: return "safari"
+        case .toggleVoiceCall: return "phone"
         case .pauseLogs: return "pause.circle"
         case .exportLogs, .exportSupportBundle: return "square.and.arrow.up"
         default: return nil
         }
+    }
+
+    /// Whether a toolbar control's symbol takes its filled form while its
+    /// command is on. Only the call's does: the one toolbar control whose
+    /// state is a fact about something running elsewhere.
+    public static func fillsWhenOn(_ command: AppCommand) -> Bool {
+        command == .toggleVoiceCall
     }
 
     public static func shortcut(of command: AppCommand) -> CommandShortcut? {
@@ -491,9 +513,10 @@ public enum CommandTable {
         case .home:
             return home(condition)
         // Chat's search is the toolbar's own search field, not a command; the
-        // pane opens from the toolbar too, on its own (plan §4.10).
+        // pane opens from the toolbar too, on its own (plan §4.10), and the
+        // call begins and ends there, at the conversation's top right (M56).
         case .chat:
-            return ToolbarSpec(secondary: [.showBrowser])
+            return ToolbarSpec(secondary: [.showBrowser, .toggleVoiceCall])
         case .pet, .setup, .update, .uninstall, .recovery:
             return ToolbarSpec()
         }
@@ -524,9 +547,17 @@ public protocol CommandPerforming: AnyObject {
     /// Whether a toggling command is in its "on" state, which picks its title.
     func isOn(_ command: AppCommand) -> Bool
     func perform(_ command: AppCommand)
+    /// The help tag a toolbar control carries right now, or nothing.
+    func toolbarHelp(of command: AppCommand) -> String?
 }
 
 extension CommandPerforming {
+    /// The table's own help tag: a performer whose answer depends on nothing
+    /// but the command says this.
+    public func toolbarHelp(of command: AppCommand) -> String? {
+        CommandTable.toolbarHelp(of: command)
+    }
+
     /// The title to draw in a menu right now.
     public func menuTitle(of command: AppCommand) -> String {
         ProductStrings[CommandTable.title(of: command).key(isOn: isOn(command))]

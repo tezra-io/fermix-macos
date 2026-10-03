@@ -35,7 +35,7 @@ enum ChatMetrics {
         bottom: (HitTarget.button - HitTarget.rowAction) / 2,
         trailing: (HitTarget.button - HitTarget.rowAction) / 2
     )
-    /// A message's own corners, and the approval card's.
+    /// A message's own corners, the approval card's and the call box's.
     static let rowRadius: Double = 16
     /// How long typing in the search field pauses before the daemon is asked,
     /// so a word being typed is one search rather than one per letter.
@@ -61,14 +61,30 @@ enum ChatMetrics {
 /// typing pauses or on Return. Its hits replace the transcript until one is
 /// chosen; the transcript stays underneath so the reader's place survives a
 /// search, and clearing the field returns to it.
+///
+/// The call begins and ends from the toolbar's call button, at the
+/// conversation's top right, and while it is up the pet floats there over the
+/// column (`ChatCallBox`): nothing in the column moves for it, in either state
+/// (M56; the owner's direction of 2026-10-03).
 struct ChatSurfaceView: View {
     let session: CompanionSession
     @ObservedObject var model: CompanionModel
+    /// The one call's facts. Held and not observed: the call box observes
+    /// them, so a caption redraws the box and never this view or the
+    /// transcript.
+    let call: VoiceCallModel
+    /// The call's façade, which the box's pet draws from: the same one the Pet
+    /// page and the floating pet draw.
+    let pet: PetFeatureModel
+    /// The gate the toolbar's call button clicks through, observed: it says
+    /// only when its answer moves, so the toolbar redraws as a call begins
+    /// and ends and readiness changes, and never for a caption.
+    @ObservedObject var gate: VoiceCallGate
     /// Read for the greeting's name, through the one settings model.
     let settings: SettingsModel
     /// Where a link in a reply opens.
     let links: ContentLinkOpener
-    /// "Show browser", the toolbar's one command (plan §4.10).
+    /// The toolbar's commands: "Show browser" (plan §4.10) and the call.
     let router: any CommandPerforming
 
     @State private var draft = ""
@@ -77,9 +93,20 @@ struct ChatSurfaceView: View {
     @State private var reveal: ChatReveal?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(session: CompanionSession, settings: SettingsModel, links: ContentLinkOpener, router: any CommandPerforming) {
+    init(
+        session: CompanionSession,
+        call: VoiceCallModel,
+        pet: PetFeatureModel,
+        gate: VoiceCallGate,
+        settings: SettingsModel,
+        links: ContentLinkOpener,
+        router: any CommandPerforming
+    ) {
         self.session = session
         self.model = session.model
+        self.call = call
+        self.pet = pet
+        self.gate = gate
         self.settings = settings
         self.links = links
         self.router = router
@@ -90,6 +117,14 @@ struct ChatSurfaceView: View {
 
         column(items)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The call floats at the column's top right, over the transcript,
+            // at the inset the transcript's own rows keep.
+            .overlay(alignment: .top) {
+                ChatCallBox(call: call, pet: pet)
+                    .frame(maxWidth: ChatMetrics.columnWidth, alignment: .trailing)
+                    .padding(.horizontal, Spacing.l)
+                    .padding(.top, Spacing.m)
+            }
             .navigationTitle(ProductStrings[.sidebarChat])
             .searchable(text: $query, placement: .toolbar, prompt: ProductStrings[.chatSearchPrompt])
             .onSubmit(of: .search) { search() }

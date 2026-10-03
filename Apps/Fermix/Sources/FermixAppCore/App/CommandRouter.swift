@@ -106,6 +106,15 @@ public final class CommandRouter: CommandPerforming {
         }
     }
 
+    /// The call's tag is the pet's façade's: what a click does now ("Set up
+    /// voice" while voice is not set up), or, while it does nothing, why. Every
+    /// other command's is the table's.
+    public func toolbarHelp(of command: AppCommand) -> String? {
+        guard command == .toggleVoiceCall else { return CommandTable.toolbarHelp(of: command) }
+
+        return surfaces.pet.callUnavailableReason ?? surfaces.pet.callActionTitle
+    }
+
     public func perform(_ command: AppCommand) {
         guard canPerform(command) else {
             log.log("refusing \(command.rawValue, privacy: .public): its condition does not hold")

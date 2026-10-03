@@ -111,6 +111,7 @@ struct SurfaceToolbar: ToolbarContent {
         } label: {
             if let symbol = CommandTable.symbol(of: command) {
                 Label(router.toolbarTitle(of: command), systemImage: symbol)
+                    .symbolVariant(CommandTable.fillsWhenOn(command) && router.isOn(command) ? .fill : .none)
             } else {
                 Text(router.toolbarTitle(of: command))
             }
@@ -122,9 +123,10 @@ struct SurfaceToolbar: ToolbarContent {
 
     /// The help tag a control carries, or nothing. `Text("")` draws no tag, so
     /// the modifier is applied once rather than behind a branch that would make
-    /// two toolbars out of one.
+    /// two toolbars out of one. The router answers, because the call's tag
+    /// follows the gate: what a click does, or why it does nothing.
     private func helpText(for command: AppCommand) -> String {
-        CommandTable.toolbarHelpKey(of: command).map { ProductStrings[$0] } ?? ""
+        router.toolbarHelp(of: command) ?? ""
     }
 }
 

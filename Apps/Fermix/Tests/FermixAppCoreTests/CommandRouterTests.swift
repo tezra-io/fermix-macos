@@ -452,6 +452,28 @@ struct CommandRouterTests {
         #expect(harness.router.statusItemTitle(of: .toggleVoiceCall) == "Begin Voice Call")
     }
 
+    /// Chat's toolbar draws the call as a symbol, so its tag says what a
+    /// click does now, or why it does nothing, in the pet's own words.
+    @Test(
+        "the toolbar's call button names the next click, or why there is none",
+        arguments: [("ready", "Begin voice call"), ("setup_required", "Set up voice"), ("degraded", "Voice is not available right now")]
+    )
+    func callToolbarHelp(word: String, help: String) async throws {
+        let harness = try RouterHarness()
+        try await harness.readVoice(word)
+
+        #expect(harness.router.toolbarHelp(of: .toggleVoiceCall) == help)
+        #expect(harness.router.toolbarTitle(of: .toggleVoiceCall) == "Begin voice call")
+
+        harness.voiceCall.beginTestCall()
+        #expect(harness.router.toolbarHelp(of: .toggleVoiceCall) == "End voice call")
+        #expect(harness.router.toolbarTitle(of: .toggleVoiceCall) == "End voice call")
+
+        // Every other command's tag is the table's.
+        #expect(harness.router.toolbarHelp(of: .showBrowser) == nil)
+        #expect(harness.router.toolbarHelp(of: .runNetworkChecks) == ProductStrings[.doctorNetworkBody])
+    }
+
     /// The Pet page, the floating pet and the menus are four doors on one
     /// gate: the pet's click opens the same pane the menu row does.
     @Test("the pet's call control clicks through the command's gate")

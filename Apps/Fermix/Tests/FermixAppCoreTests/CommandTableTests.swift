@@ -196,9 +196,9 @@ struct CommandTableTests {
         #expect(home.secondary.isEmpty)
         #expect(home.more.isEmpty)
         #expect(CommandTable.toolbar(for: .pet).isEmpty)
-        // Chat's search is the toolbar's own field, not a command; "Show
-        // browser" is the one command it does carry (plan §4.10).
-        #expect(CommandTable.toolbar(for: .chat).secondary == [.showBrowser])
+        // Chat's search is the toolbar's own field, not a command; it carries
+        // "Show browser" (plan §4.10) and the call, at the top right (M56).
+        #expect(CommandTable.toolbar(for: .chat).secondary == [.showBrowser, .toggleVoiceCall])
         #expect(CommandTable.toolbar(for: .chat).primary == nil)
         #expect(CommandTable.toolbar(for: .chat).more.isEmpty)
     }

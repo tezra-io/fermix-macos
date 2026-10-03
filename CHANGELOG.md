@@ -15,6 +15,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 - Providers: OpenAI Codex connects with Continue with ChatGPT and runs on your ChatGPT plan, with no API key and no Codex command line tool. Its details show the account you signed in with, that your plan is in use, and Manage usage, which opens your ChatGPT usage settings. Signing out disconnects Fermix from your ChatGPT account, not only from this Mac.
 - Providers: Import Codex sign-in and Fast mode are gone, because OpenAI Codex now signs in only with ChatGPT.
 - Sign-in: the browser stays in front while you sign in, because the waiting sheet now opens it after coming up instead of appearing over it.
+- Chat: a call button at the top right begins and ends a voice call, and while the call runs the pet floats there with its mute, interrupt and end controls, staying to say why if the call fails.
 
 ## 0.3.0 (2026-09-30)
 
