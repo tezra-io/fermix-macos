@@ -95,17 +95,18 @@ public final class PetFeatureModel: ObservableObject {
 
     public var cancelTaskActionTitle: String { ProductStrings[.petCancelTask] }
 
-    /// The last caption fragment, prefixed with who said it: the daemon's own
-    /// bytes, never reflowed, because a caption is verbatim or it is not a
-    /// caption. The surface draws it on one line and truncates what does not
-    /// fit rather than rewriting it.
+    /// What the speaker who last spoke has said, prefixed with who it is: the
+    /// daemon's own bytes, never reflowed, because a caption is verbatim or it
+    /// is not a caption. The surface draws it on one line and cuts what does
+    /// not fit from the middle, so the name and the newest words both show.
     public var captionLine: String? {
-        guard let caption = call.voice.captions.last else { return nil }
+        let captions = call.voice.captions
+        guard let speaker = captions.latest else { return nil }
 
         return String(
             format: ProductStrings[.voiceCaptionLineFormat],
-            Self.speakerName(caption.speaker),
-            caption.delta
+            Self.speakerName(speaker),
+            captions.text(of: speaker)
         )
     }
 
@@ -137,11 +138,10 @@ public final class PetFeatureModel: ObservableObject {
     /// task has nothing to call off yet, and a finished one cannot be.
     public var showsCancelTask: Bool { call.voice.task?.status == .running }
 
-    private static func speakerName(_ speaker: RealtimeCaptionSpeaker) -> String {
+    private static func speakerName(_ speaker: VoiceCaptions.Speaker) -> String {
         switch speaker {
         case .user: return ProductStrings[.voiceCaptionSpeakerUser]
         case .assistant: return ProductStrings[.voiceCaptionSpeakerAssistant]
-        case .unrecognized(let value): return value
         }
     }
 

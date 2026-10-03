@@ -257,6 +257,32 @@ struct PetSurfaceTests {
         #expect(harness.model.showsCancelTask)
     }
 
+    /// The line names whoever last spoke and shows that speaker's running
+    /// text, not the last fragment alone ("You: what is ").
+    @Test("the caption line is the running text of the speaker that last grew")
+    func captionLineFollowsTheLastSpeaker() throws {
+        let harness = try harness()
+        harness.call.voiceNegotiated()
+        harness.call.beginTestCall()
+
+        for (speaker, delta) in [(RealtimeCaptionSpeaker.user, "what is "), (.user, "the time"), (.assistant, "It is ")] {
+            _ = harness.call.apply(.caption(RealtimeCaption(speaker: speaker, delta: delta, startMs: 0, endMs: 1)), audioIsPlaying: false)
+        }
+        #expect(harness.model.captionLine == "Fermix: It is ")
+
+        _ = harness.call.apply(.caption(RealtimeCaption(speaker: .user, delta: "?", startMs: 0, endMs: 1)), audioIsPlaying: false)
+        #expect(harness.model.captionLine == "You: what is the time?")
+    }
+
+    /// One line of a running text: the speaker's name leads it and the newest
+    /// words end it, so what does not fit is cut from the middle.
+    @Test("the caption line keeps its speaker and its newest words")
+    func captionLineKeepsBothEnds() throws {
+        let text = try #require(try SourceTree.swiftFiles(matching: "Pet/PetSurfaceView.swift").first?.text)
+
+        #expect(text.contains(".truncationMode(.middle)"))
+    }
+
     /// Cancelling is offered for work that is running, and for nothing else: a
     /// finished delegation has nothing left to call off.
     @Test("a finished task offers no cancel")

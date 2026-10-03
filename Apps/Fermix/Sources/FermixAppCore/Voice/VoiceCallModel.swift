@@ -21,12 +21,64 @@ public enum VoiceEffect: Equatable, Sendable {
 
 /// What the daemon said, as the model holds it.
 ///
-/// The wire shapes are the model's shapes: a caption is the fragment that
-/// arrived, a task is the frame that arrived, and a parallel struct beside each
-/// would only be somewhere for the two to drift apart.
-public typealias VoiceCaption = RealtimeCaption
+/// The wire shapes are the model's shapes: a task is the frame that arrived,
+/// and a parallel struct beside it would only be somewhere for the two to
+/// drift apart.
 public typealias VoiceTask = RealtimeTask
 public typealias VoiceUsage = RealtimeUsage
+
+/// What the call has said, one running text per speaker (M56 §4.2).
+///
+/// Each text is that speaker's `delta` bytes joined exactly as they arrived:
+/// the contract says to concatenate them, never trimming or inserting spaces,
+/// and the two speakers may overlap in time. Captions carry no turn boundary
+/// and the app implies none, so a text only grows, and `latest` says which
+/// grew last. A call can run for minutes, so each keeps its last `byteLimit`
+/// bytes.
+public struct VoiceCaptions: Equatable, Sendable {
+    public enum Speaker: Equatable, Sendable {
+        case user
+        case assistant
+    }
+
+    public static let byteLimit = 1_000
+
+    private var user = ""
+    private var assistant = ""
+    /// The speaker whose text grew last, or nil before either has spoken.
+    public private(set) var latest: Speaker?
+
+    public init() {}
+
+    public func text(of speaker: Speaker) -> String {
+        switch speaker {
+        case .user: return user
+        case .assistant: return assistant
+        }
+    }
+
+    mutating func append(_ delta: String, from speaker: Speaker) {
+        switch speaker {
+        case .user: user = Self.tail(of: user + delta)
+        case .assistant: assistant = Self.tail(of: assistant + delta)
+        }
+        latest = speaker
+    }
+
+    /// The text's last `byteLimit` bytes, cut where a character begins: the
+    /// bound is in bytes, and half a character is not text.
+    private static func tail(of text: String) -> String {
+        let excess = text.utf8.count - byteLimit
+        guard excess > 0 else { return text }
+
+        var cut = text.utf8.index(text.utf8.startIndex, offsetBy: excess)
+        while cut < text.endIndex, cut.samePosition(in: text) == nil {
+            cut = text.utf8.index(after: cut)
+        }
+
+        return String(text[cut...])
+    }
+}
 
 /// How a call ended.
 public enum VoiceCallOutcome: Equatable, Sendable {
@@ -68,10 +120,6 @@ public enum VoiceCallPhase: Equatable, Sendable {
 
 /// The voice facts, separate from how they draw.
 public struct VoiceState: Equatable, Sendable {
-    /// How many caption fragments are kept. A Live call emits them for as long
-    /// as it runs, so the tail is bounded and the head is dropped.
-    public static let captionLimit = 40
-
     public var phase: VoiceCallPhase = .idle
     /// Which start this is. Minted by every start, so work begun for one start
     /// (the handshake, the permission prompt) can tell it is no longer the
@@ -88,9 +136,8 @@ public struct VoiceState: Equatable, Sendable {
     /// are the daemon's own words, and neither changes what the pet draws.
     public var engine: String?
     public var callId: String?
-    /// The transcript fragments of this call, oldest first, capped at
-    /// `captionLimit`. They are held exactly as they arrived.
-    public var captions: [VoiceCaption] = []
+    /// What this call has said, a bounded running text per speaker.
+    public var captions = VoiceCaptions()
     /// The backend delegation the daemon last reported, where the call has one.
     public var task: VoiceTask?
     /// The usage frame the daemon last reported.
@@ -550,20 +597,22 @@ public final class VoiceCallModel: ObservableObject {
         return []
     }
 
-    /// Fragments are appended exactly as they arrived: the contract says to
-    /// concatenate the deltas without trimming them or inserting spaces, and
-    /// user and assistant fragments may overlap in time.
     private func applyCaption(_ caption: RealtimeCaption) -> [VoiceEffect] {
         appendCaption(caption)
         return []
     }
 
+    /// A fragment joins its speaker's text. The contract names two speakers;
+    /// a third would be a word with no line of its own, and crediting it to
+    /// either of the two would misquote the call.
     private func appendCaption(_ caption: RealtimeCaption) {
-        voice.captions.append(caption)
-
-        let overflow = voice.captions.count - VoiceState.captionLimit
-        if overflow > 0 {
-            voice.captions.removeFirst(overflow)
+        switch caption.speaker {
+        case .user:
+            voice.captions.append(caption.delta, from: .user)
+        case .assistant:
+            voice.captions.append(caption.delta, from: .assistant)
+        case .unrecognized(let speaker):
+            log.info("dropping a caption from speaker \(speaker, privacy: .public)")
         }
     }
 

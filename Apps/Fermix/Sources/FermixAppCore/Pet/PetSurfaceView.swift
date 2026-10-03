@@ -69,11 +69,13 @@ struct PetSurfaceView: View {
     @ViewBuilder private var liveCall: some View {
         VStack(spacing: Spacing.xxs) {
             if let caption = model.captionLine {
+                // A running text on one line: the speaker leads it and the
+                // newest words end it, so the middle is what gives way.
                 Text(caption)
                     .fermixType(Typography.style(.calloutSmall))
                     .foregroundStyle(Palette.secondary.color)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .truncationMode(.middle)
                     .accessibilityAddTraits(.updatesFrequently)
             }
 

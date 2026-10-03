@@ -238,47 +238,72 @@ struct VoiceCallModelRoutingTests {
         #expect(model.voice.mode == .listening)
     }
 
-    /// Captions are concatenated as they arrive. Nothing trims a fragment or
-    /// inserts a space the daemon did not send, and the two speakers may
-    /// overlap, so they share one ordered history rather than two.
-    @Test("captions are appended verbatim, in the order they arrived")
-    func captionsAreAppendedVerbatim() {
+    /// Captions are concatenated as they arrive, one running text per
+    /// speaker. Nothing trims a fragment or inserts a space the daemon did not
+    /// send, and the two speakers may overlap, so each keeps its own text and
+    /// the model remembers which grew last (M56 §4.2).
+    @Test("captions grow one verbatim text per speaker, and the last to grow is named")
+    func captionsGrowPerSpeaker() {
+        let model = negotiatedModel()
+        model.beginTestCall()
+
+        for (speaker, delta) in [(RealtimeCaptionSpeaker.user, "what is "), (.assistant, "It "), (.user, "the time")] {
+            let effects = model.apply(
+                .caption(RealtimeCaption(speaker: speaker, delta: delta, startMs: 0, endMs: 1)),
+                audioIsPlaying: false
+            )
+            #expect(effects.isEmpty)
+        }
+
+        #expect(model.voice.captions.text(of: .user) == "what is the time")
+        #expect(model.voice.captions.text(of: .assistant) == "It ")
+        #expect(model.voice.captions.latest == .user)
+    }
+
+    /// A Live call emits captions for as long as it runs, so each text keeps
+    /// only its tail. The cut falls where a character begins: the bound is in
+    /// bytes, and half a character is not text.
+    @Test("a long call keeps each caption text within its bound")
+    func captionTextsAreBounded() {
+        let model = negotiatedModel()
+        model.beginTestCall()
+        var said = ""
+        var answered = ""
+
+        for index in 0..<400 {
+            let question = "é\(index) "
+            let answer = "ok \(index), "
+            said += question
+            answered += answer
+            _ = model.apply(.caption(RealtimeCaption(speaker: .user, delta: question, startMs: index, endMs: index)), audioIsPlaying: false)
+            _ = model.apply(.caption(RealtimeCaption(speaker: .assistant, delta: answer, startMs: index, endMs: index)), audioIsPlaying: false)
+        }
+
+        let user = model.voice.captions.text(of: .user)
+        let assistant = model.voice.captions.text(of: .assistant)
+        #expect(user.utf8.count <= VoiceCaptions.byteLimit)
+        #expect(assistant.utf8.count <= VoiceCaptions.byteLimit)
+        #expect(user.utf8.count > VoiceCaptions.byteLimit - 4)
+        #expect(said.hasSuffix(user))
+        #expect(answered.hasSuffix(assistant))
+        #expect(user.hasSuffix("é399 "))
+        #expect(model.voice.captions.latest == .assistant)
+    }
+
+    /// The contract names two speakers. A third would be a word this build
+    /// has no line for, so its fragment is dropped rather than credited to
+    /// either of them.
+    @Test("a caption from a speaker the contract does not name is dropped")
+    func unknownSpeakerIsDropped() {
         let model = negotiatedModel()
         model.beginTestCall()
 
         _ = model.apply(
-            .caption(RealtimeCaption(speaker: .user, delta: "what is ", startMs: 0, endMs: 440)),
-            audioIsPlaying: false
-        )
-        let effects = model.apply(
-            .caption(RealtimeCaption(speaker: .assistant, delta: "the ", startMs: 300, endMs: 520)),
+            .caption(RealtimeCaption(speaker: .unrecognized("narrator"), delta: "meanwhile", startMs: 0, endMs: 1)),
             audioIsPlaying: false
         )
 
-        #expect(effects.isEmpty)
-        #expect(model.voice.captions.map(\.delta) == ["what is ", "the "])
-        #expect(model.voice.captions.map(\.speaker) == [.user, .assistant])
-    }
-
-    /// A Live call emits captions for as long as it runs, so the history is
-    /// bounded. The tail is what a surface draws, so the head is what goes.
-    @Test("the caption history keeps the last fragments and drops the oldest")
-    func captionHistoryIsBounded() {
-        let model = negotiatedModel()
-        model.beginTestCall()
-
-        for index in 0..<(VoiceState.captionLimit + 5) {
-            _ = model.apply(
-                .caption(
-                    RealtimeCaption(speaker: .user, delta: "\(index) ", startMs: index, endMs: index)
-                ),
-                audioIsPlaying: false
-            )
-        }
-
-        #expect(model.voice.captions.count == VoiceState.captionLimit)
-        #expect(model.voice.captions.first?.delta == "5 ")
-        #expect(model.voice.captions.last?.delta == "\(VoiceState.captionLimit + 4) ")
+        #expect(model.voice.captions == VoiceCaptions())
     }
 
     /// A backend delegation reads like a tool call, because that is what it is
@@ -387,7 +412,7 @@ struct VoiceCallModelRoutingTests {
 
         #expect(model.voice.engine == nil)
         #expect(model.voice.callId == nil)
-        #expect(model.voice.captions.isEmpty)
+        #expect(model.voice.captions == VoiceCaptions())
         #expect(model.voice.task == nil)
         #expect(model.voice.usage == nil)
     }
@@ -589,7 +614,7 @@ struct VoiceCallLifecycleTests {
         #expect(harness.call.voice.attempt == 2)
         #expect(harness.call.voice.task == nil)
         #expect(harness.call.voice.usage == nil)
-        #expect(harness.call.voice.captions.isEmpty)
+        #expect(harness.call.voice.captions == VoiceCaptions())
         #expect(try harness.sent("call_start") == 2)
         #expect(try harness.sent("call_stop") == 1)
     }
