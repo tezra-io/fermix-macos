@@ -188,10 +188,11 @@ struct ProvidersPane: View {
         }
     }
 
-    /// The browser opens on the click, and the sheet says what is happening
-    /// while it is open (M34 §5.1). Both doors into a sign-in behave this way,
-    /// so a person clicking `Sign in` is never asked to click a second button
-    /// inside a sheet to make anything happen.
+    /// The click is the whole of starting (M34 §5.1): the sheet that says what
+    /// is happening comes up as the daemon answers and opens the browser once
+    /// it is on screen, so the browser ends in front. Both doors into a sign-in
+    /// behave this way, so a person clicking `Sign in` is never asked to click
+    /// a second button inside a sheet to make anything happen.
     private func startSignIn(_ row: ProviderRowModel, source: ManagementAuthImportSource? = nil) {
         guard !startingAuth else { return }
 
@@ -231,6 +232,7 @@ struct ProvidersPane: View {
                 importing: source != nil,
                 starting: model.startingSignIn,
                 runner: auth,
+                open: { model.openSignIn(on: auth) },
                 reopen: { model.reopenSignIn(on: auth) },
                 retry: { startSignIn(row, source: source) },
                 manageUsage: model.manageUsage(after: row.id)

@@ -740,14 +740,19 @@ struct OnboardingModelTests {
     }
 
     /// The other half of the same click, which is what the owner asked about:
-    /// a start the daemon accepts opens the browser at the url it minted.
-    @Test("a started sign-in opens the browser at the daemon's authorize url")
+    /// a start the daemon accepts opens the browser at the url it minted, once
+    /// the sheet that waits on it is up, which is what keeps the browser in
+    /// front of the sheet.
+    @Test("a started sign-in opens the browser at the daemon's authorize url once its sheet is up")
     func startedSignInOpensTheBrowser() async throws {
         let harness = try OnboardingHarness()
         let minted = try FakeDaemonGateway.fixtureResult(named: "auth_start", as: ManagementAuthStart.self)
         let authorize = try #require(minted.authorizeURL)
 
         await harness.model.startSignIn(provider: "openai_codex")
+        #expect(harness.opener.urls.isEmpty, "the click opened the browser before the sheet")
+        #expect(harness.model.signInSheetProvider == "openai_codex")
+        harness.model.settings.openSignIn(on: harness.model.signIn)
         await harness.model.signIn.drainPendingWork()
 
         #expect(harness.opener.urls.map(\.absoluteString) == [authorize])

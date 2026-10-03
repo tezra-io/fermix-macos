@@ -54,6 +54,12 @@ extension SettingsModel {
 
     /// Starts a browser sign-in and follows it. Answers the daemon's sentence
     /// where the flow could not start at all.
+    ///
+    /// It opens no browser: the surface that waits on the sign-in does, once it
+    /// is on screen (`openSignIn(on:)`). Opened here, the browser came up
+    /// first and the waiting sheet presented after it, over the browser, so a
+    /// person was pulled back to Fermix before they had approved anything
+    /// (owner report of 2026-10-03).
     public func startSignIn(provider: String, on runner: JobRunner) async -> String? {
         precondition(!provider.isEmpty, "a sign-in names its provider")
         guard !startingSignIn, !runner.isRunning else { return nil }
@@ -70,7 +76,6 @@ extension SettingsModel {
                 expiresInMs: started.expiresInMs
             )
             note(started.job)
-            reopenSignIn(on: runner)
 
             return nil
         } catch {
@@ -80,6 +85,16 @@ extension SettingsModel {
             runner.adopt(failure: sentence)
             return sentence
         }
+    }
+
+    /// Opens the browser for a sign-in the first time the surface waiting on it
+    /// is drawn, and does nothing after: the browser is the last thing a click
+    /// brings forward. One call for every such surface, the provider sign-in
+    /// sheet and a plugin's wait, so none of them opens the url its own way.
+    public func openSignIn(on runner: JobRunner) {
+        guard let url = runner.takeUnopenedBrowserURL() else { return }
+
+        runner.browserOpened(opener.open(url))
     }
 
     /// Reopens the authorization URL minted for this run without starting a job.

@@ -95,6 +95,8 @@ struct SignInStaysExternalTests {
         let runner = model.makeJobRunner()
 
         #expect(await model.startSignIn(provider: "openai_codex", on: runner) == nil)
+        // What the sign-in sheet does once it is on screen.
+        model.openSignIn(on: runner)
 
         #expect(external.urls.map(\.host) == ["auth.openai.com"], "the authorize address did not reach the browser")
         #expect(workspace.opened.isEmpty)

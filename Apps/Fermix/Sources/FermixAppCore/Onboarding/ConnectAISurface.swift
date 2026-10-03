@@ -161,9 +161,9 @@ struct ConnectAISurface: View {
         return ProductStrings.middot(provider.label, named)
     }
 
-    /// The one sign-in sheet, the same one the Providers pane draws. The
-    /// browser was already opened by the row's click, so the sheet only reports
-    /// the step and offers the tab again.
+    /// The one sign-in sheet, the same one the Providers pane draws. It opens
+    /// the browser once it is on screen, then reports the step and offers the
+    /// tab again.
     @ViewBuilder
     private var signInSheet: some View {
         if let provider = model.signInSheetProvider {
@@ -172,6 +172,7 @@ struct ConnectAISurface: View {
                 importing: model.signIn.job?.kind == .authImport,
                 starting: model.settings.startingSignIn,
                 runner: model.signIn,
+                open: { model.settings.openSignIn(on: model.signIn) },
                 reopen: { model.settings.reopenSignIn(on: model.signIn) },
                 retry: { retrySignIn(provider: provider) },
                 manageUsage: model.settings.manageUsage(after: provider)

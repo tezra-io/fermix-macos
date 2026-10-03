@@ -116,10 +116,11 @@ struct AddKeySheet: View {
 
 /// Sign in (M34 §5.1).
 ///
-/// One sheet for both doors. The browser opens on the row's click, so by the
-/// time this is on screen the tab is already there: what the sheet adds is the
-/// step the daemon reports, one way to open the tab again where it was lost,
-/// and one way to stop.
+/// One sheet for both doors. It comes up as the daemon answers the row's
+/// click and opens the browser once it is on screen, so the browser lands in
+/// front of it rather than behind it; then it adds the step the daemon
+/// reports, one way to open the tab again where it was lost, and one way to
+/// stop.
 ///
 /// A completed ChatGPT sign-in does not close it: the sheet turns into OpenAI's
 /// notice that the plan is in use, in place, and closes on `Got it`. One popup
@@ -131,6 +132,9 @@ struct SignInSheet: View {
     let importing: Bool
     let starting: Bool
     @ObservedObject var runner: JobRunner
+    /// Opens the browser for this run once the sheet is on screen, which is
+    /// what keeps the browser in front of it: `SettingsModel.openSignIn(on:)`.
+    let open: () -> Void
     /// Opens the browser again for the same provider.
     let reopen: () -> Void
     let retry: () -> Void
@@ -156,6 +160,9 @@ struct SignInSheet: View {
         // Escape closes the notice, as on every sheet (M34 §3.1). While the
         // sheet waits, its Cancel and Done buttons own the key instead.
         .onExitCommand(perform: phase == .planNotice ? dismiss : nil)
+        // Each run's browser opens here, after the sheet came up, so the
+        // browser is the last window a click brings forward.
+        .task(id: runner.job?.jobId) { open() }
         .task(id: runner.job?.status) {
             guard phase == .closed else { return }
 

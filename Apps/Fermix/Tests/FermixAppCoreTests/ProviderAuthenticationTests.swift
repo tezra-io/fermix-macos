@@ -32,7 +32,11 @@ struct ProviderAuthenticationTests {
         #expect(runner.failure == sentence)
     }
 
-    @Test("reopening a browser reuses the active URL without another auth job")
+    /// The click opens no browser: the sheet waiting on the sign-in does, once
+    /// it is on screen, so the browser is the last window to come forward
+    /// (owner report of 2026-10-03: the sheet presented after the browser and
+    /// came up over it). That first open happens once per run.
+    @Test("the browser opens once, when the waiting surface asks, and reopening reuses the URL")
     func reopeningReusesTheURL() async throws {
         let gateway = try SettingsFixture.gateway()
         let opener = RecordingExternalOpener()
@@ -40,6 +44,10 @@ struct ProviderAuthenticationTests {
         let runner = model.makeJobRunner()
 
         #expect(await model.startSignIn(provider: "openai_codex", on: runner) == nil)
+        #expect(opener.urls.isEmpty, "starting a sign-in opened the browser before its sheet was up")
+        model.openSignIn(on: runner)
+        model.openSignIn(on: runner)
+        #expect(opener.urls.count == 1, "a surface drawn again opened the same run a second time")
         model.reopenSignIn(on: runner)
 
         #expect(opener.urls.count == 2)
@@ -59,6 +67,7 @@ struct ProviderAuthenticationTests {
         let runner = model.makeJobRunner()
 
         #expect(await model.startSignIn(provider: "openai_codex", on: runner) == nil)
+        model.openSignIn(on: runner)
         #expect(runner.isRunning)
         #expect(runner.browserFailure == ProductStrings[.providerSignInOpenFailed])
         #expect(runner.authorizationURL != nil)
