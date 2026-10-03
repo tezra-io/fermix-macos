@@ -132,7 +132,8 @@ public struct BrowserHostDetach: Equatable, Sendable {
 /// (`tla/specs/browser_host`, the unpinned mirror): the ownership registry,
 /// the caps, the connection the task tabs belong to, the tasks the person
 /// asked to cancel, the availability last reported, whether web views are
-/// held, and the quit hold.
+/// held, and the quit hold. Beside the spec's state, the directory each
+/// task's downloads go into.
 ///
 /// Pure: every transition is a value in and a decision out, and the
 /// coordinator carries the decision to the tabs, the wire and the window. Its
@@ -150,6 +151,10 @@ public struct BrowserHostReducer: Equatable, Sendable {
     public private(set) var openers: [BrowserTab.ID: BrowserTab.ID] = [:]
     /// The tasks the person asked to cancel whose release has not arrived.
     public private(set) var pendingRelease: Set<BrowserTaskID> = []
+    /// Where each task's downloads go, its tabs' popups included: the
+    /// `download_dir` its latest `tab.open` named. It goes with the task's
+    /// last tab.
+    public private(set) var downloadDirectories: [BrowserTaskID: URL] = [:]
     public private(set) var availability: BrowserAvailability
     /// Whether the host holds web views, which the idle release lets go.
     public private(set) var viewsHeld = false
@@ -178,6 +183,10 @@ public struct BrowserHostReducer: Equatable, Sendable {
 
     public func tabCount(of task: BrowserTaskID) -> Int {
         owners.values.filter { $0 == .task(task) }.count
+    }
+
+    public func downloadDirectory(of task: BrowserTaskID) -> URL? {
+        downloadDirectories[task]
     }
 
     /// Why a task's request on a tab (`page.act`, `page.snapshot` and the rest)
@@ -252,13 +261,19 @@ public struct BrowserHostReducer: Equatable, Sendable {
     // MARK: - Tabs
 
     /// `tab.open`: the task's tab, unless the host is stopping, detached or
-    /// unavailable, or the tab would pass a cap. Refused, never queued.
-    public mutating func openTaskTab(_ tab: BrowserTab.ID, for task: BrowserTaskID) -> BrowserTabAdmission {
+    /// unavailable, or the tab would pass a cap. Refused, never queued. The
+    /// directory it names is where the task's downloads go from now on.
+    public mutating func openTaskTab(
+        _ tab: BrowserTab.ID,
+        for task: BrowserTaskID,
+        downloadDirectory: URL
+    ) -> BrowserTabAdmission {
         guard quit == .none else { return .refused(.stopping) }
         guard let caps else { return .refused(.notAttached) }
         if case .unavailable(let reason) = availability { return .refused(.unavailable(reason)) }
         if let refusal = capRefusal(for: task, caps: caps) { return .refused(refusal) }
 
+        downloadDirectories[task] = downloadDirectory
         return register(tab, .task(task))
     }
 
@@ -313,7 +328,10 @@ public struct BrowserHostReducer: Equatable, Sendable {
     /// answered so a task's closed tab can be told to the daemon.
     public mutating func pageClosed(_ tab: BrowserTab.ID) -> BrowserTabOwner? {
         openers[tab] = nil
-        return owners.removeValue(forKey: tab)
+        let owner = owners.removeValue(forKey: tab)
+        forgetTasksWithoutTabs()
+
+        return owner
     }
 
     /// The idle release. It reads the registry in the step that releases, so a
@@ -381,7 +399,13 @@ public struct BrowserHostReducer: Equatable, Sendable {
             owners[tab] = nil
             openers[tab] = nil
         }
+        forgetTasksWithoutTabs()
 
         return released
+    }
+
+    /// A task's download directory goes with its last tab.
+    private mutating func forgetTasksWithoutTabs() {
+        downloadDirectories = downloadDirectories.filter { task, _ in owners.values.contains(.task(task)) }
     }
 }

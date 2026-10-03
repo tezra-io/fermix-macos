@@ -16,6 +16,8 @@ import Foundation
 /// The host's side of the daemon's `browser_host` wire runs through here too:
 /// a task's tabs, their release, the availability the host reports and its
 /// part of a quit, each decided by `BrowserHostReducer` and carried out here.
+/// A file a page saves is routed here by whose tab it came from, and
+/// `BrowserDownloads` carries it to its end.
 @MainActor
 public final class BrowserCoordinator {
     /// How long a quit waits for the daemon's answer to `host_stopping`.
@@ -43,9 +45,12 @@ public final class BrowserCoordinator {
     private var availabilityChanges: AnyCancellable?
     private var quitDone: (@MainActor () -> Void)?
     private var quitBoundToken: DeadlineToken?
+    /// The files the pages are saving.
+    private let downloads = BrowserDownloads()
 
-    /// The pane's page area, while SwiftUI has one built.
-    private weak var paneStage: (any BrowserPageStage)?
+    /// The pane's page area, while SwiftUI has one built. The save panel is a
+    /// sheet on its window.
+    private weak var paneStage: (any BrowserPaneArea)?
     /// Whether the primary window is on screen: open, and not covered,
     /// minimised or on another Space.
     private var windowVisible = false
@@ -72,6 +77,7 @@ public final class BrowserCoordinator {
         availabilityChanges = session.changes.sink { [weak self] availability in
             self?.availabilityChanged(availability)
         }
+        downloads.host = self
     }
 
     // MARK: - Opening
@@ -179,14 +185,14 @@ public final class BrowserCoordinator {
 
     /// The pane built its page area. Pages that stood in one it replaced are
     /// placed again.
-    public func paneStageAppeared(_ stage: any BrowserPageStage) {
+    public func paneStageAppeared(_ stage: any BrowserPaneArea) {
         forgetPanePlacements(releasingFrom: paneStage)
         paneStage = stage
         placePages()
     }
 
     /// The pane's page area is gone. Its pages go where the rules say now.
-    public func paneStageGone(_ stage: any BrowserPageStage) {
+    public func paneStageGone(_ stage: any BrowserPaneArea) {
         guard paneStage === stage else { return }
 
         paneStage = nil
@@ -239,8 +245,14 @@ public final class BrowserCoordinator {
     /// task that is not visible never opens the pane: it comes to the front
     /// only of a pane with nothing in front. A visible task is what "launch
     /// the browser" means, so it opens the pane, the "Show browser" path, and
-    /// brings the primary window up too, in case the app launched hidden.
-    public func openTaskTab(_ url: URL, for task: BrowserTaskID, visible: Bool = false) -> Result<BrowserTab.ID, BrowserTabRefusal> {
+    /// brings the primary window up too, in case the app launched hidden. The
+    /// task's downloads go into `downloadDirectory`.
+    public func openTaskTab(
+        _ url: URL,
+        for task: BrowserTaskID,
+        downloadDirectory: URL,
+        visible: Bool = false
+    ) -> Result<BrowserTab.ID, BrowserTabRefusal> {
         let engine: any BrowserEngine
         do {
             engine = try builtEngine()
@@ -249,7 +261,8 @@ public final class BrowserCoordinator {
         }
 
         let tab = engine.makeTab(profile: .shared)
-        if case .refused(let refusal) = model.host.openTaskTab(tab.id, for: task) { return .failure(refusal) }
+        let admission = model.host.openTaskTab(tab.id, for: task, downloadDirectory: downloadDirectory)
+        if case .refused(let refusal) = admission { return .failure(refusal) }
 
         tab.delegate = self
         insert(tab, after: nil)
@@ -357,10 +370,12 @@ public final class BrowserCoordinator {
         select(tabs[(front + 1)...].first { !going.contains($0.id) } ?? last)
     }
 
-    /// A tab that is going answers any dialog its page is waiting on, and its
-    /// page answers anything it asks from now on by itself.
+    /// A tab that is going answers any dialog its page is waiting on, a
+    /// task's download on it is cancelled, and its page answers anything it
+    /// asks from now on by itself.
     private func retire(_ tab: BrowserTab) {
         if model.dialog?.tabID == tab.id { answer(.dismissed) }
+        downloads.tabGone(tab.id)
         tab.delegate = nil
         tab.stop()
         unplace(tab)
@@ -449,6 +464,15 @@ public final class BrowserCoordinator {
 
         return owner
     }
+
+    /// Every task with a tab has a download directory, from its `tab.open`.
+    private func downloadDirectory(of task: BrowserTaskID) -> URL {
+        guard let directory = model.host.downloadDirectory(of: task) else {
+            preconditionFailure("a task with a tab has no download directory on record")
+        }
+
+        return directory
+    }
 }
 
 extension BrowserCoordinator: BrowserHostQuitting {
@@ -457,6 +481,7 @@ extension BrowserCoordinator: BrowserHostQuitting {
     /// the answer or the bound, whichever comes first (BROWSER-7).
     public func stopHost(done: @escaping @MainActor () -> Void) {
         session.applicationTerminating()
+        downloads.cancelAll()
 
         switch model.host.stop() {
         case .complete(let released):
@@ -497,13 +522,16 @@ extension BrowserCoordinator: BrowserTabDelegate {
     }
 
     /// A page closed its own window. A task's closed tab is told to the
-    /// daemon, which never otherwise hears of it.
+    /// daemon, which never otherwise hears of it, once the tab is gone: the
+    /// end of a download it was running reaches the daemon while the daemon
+    /// still knows the tab.
     public func closeRequested(by tab: BrowserTab) {
-        if let task = model.host.pageClosed(tab.id)?.task {
+        let owner = model.host.pageClosed(tab.id)
+        remove([tab.id])
+
+        if let task = owner?.task {
             link?.tabClosed(tab.id, task: task)
         }
-
-        remove([tab.id])
     }
 
     public func externalSchemeMet(_ url: URL) {
@@ -525,8 +553,15 @@ extension BrowserCoordinator: BrowserTabDelegate {
         model.dialog = BrowserDialogRequest(dialog: dialog, tabID: tab.id, answer: answer)
     }
 
-    public func downloadStarted(_ url: URL) {
-        model.notice = ProductStrings[.browserNoticeDownloadRefused]
+    /// A task's file goes into the directory its `tab.open` named, a popup's
+    /// into its opener's, and the person's wherever they choose.
+    public func downloadStarted(_ download: any BrowserDownload, in tab: BrowserTab) {
+        switch owner(of: tab) {
+        case .task(let task):
+            downloads.save(download, from: tab.id, route: .task(directory: downloadDirectory(of: task)))
+        case .person:
+            downloads.save(download, from: tab.id, route: .person)
+        }
     }
 
     /// The system's sentence, for the tab in front only: a tab behind it has
@@ -535,6 +570,22 @@ extension BrowserCoordinator: BrowserTabDelegate {
         guard model.selectedTabID == tab.id else { return }
 
         model.notice = reason
+    }
+}
+
+extension BrowserCoordinator: BrowserDownloadsHosting {
+    var downloadLink: (any BrowserHostLink)? { link }
+
+    /// The person is asked where a file goes as a page's dialog asks them
+    /// anything: only for the tab in front, in an open pane.
+    func savePanel(for tab: BrowserTab.ID) -> (any BrowserSavePanelPresenting)? {
+        guard model.isOpen, model.selectedTabID == tab else { return nil }
+
+        return paneStage
+    }
+
+    func say(_ notice: String) {
+        model.notice = notice
     }
 }
 

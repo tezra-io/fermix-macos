@@ -488,6 +488,62 @@ struct BrowserHostReducerTests {
         #expect(host.pageClosed(tab) == nil)
         #expect(host.release(Self.first).isEmpty)
     }
+
+    // MARK: - Where a task downloads
+
+    static let firstDownloads = URL(fileURLWithPath: "/fermix/browser/downloads/first", isDirectory: true)
+    static let secondDownloads = URL(fileURLWithPath: "/fermix/browser/downloads/second", isDirectory: true)
+
+    @Test("a task's download directory is the one its tab.open named, kept for each task apart")
+    func downloadDirectoryKeptWithTheTask() throws {
+        let (host, _) = try Self.attached()
+
+        #expect(host.openTaskTab(UUID(), for: Self.first, downloadDirectory: Self.firstDownloads) == .admitted(.task(Self.first)))
+        #expect(host.openTaskTab(UUID(), for: Self.second, downloadDirectory: Self.secondDownloads) == .admitted(.task(Self.second)))
+
+        #expect(host.downloadDirectory(of: Self.first) == Self.firstDownloads)
+        #expect(host.downloadDirectory(of: Self.second) == Self.secondDownloads)
+        #expect(host.downloadDirectory(of: BrowserTaskID("task-3")) == nil)
+    }
+
+    @Test("a refused tab.open keeps no download directory")
+    func refusedTabOpenKeepsNoDirectory() {
+        let host = HostUnderTest(.available)
+
+        #expect(host.openTaskTab(UUID(), for: Self.first, downloadDirectory: Self.firstDownloads) == .refused(.notAttached))
+        #expect(host.downloadDirectory(of: Self.first) == nil)
+    }
+
+    @Test("a task's download directory goes with its last tab, however the tab goes")
+    func downloadDirectoryGoesWithTheLastTab() throws {
+        let (host, connection) = try Self.attached()
+        let one = UUID()
+        _ = host.openTaskTab(one, for: Self.first, downloadDirectory: Self.firstDownloads)
+        let two = try Self.open(Self.first, in: host)
+
+        _ = host.pageClosed(one)
+        #expect(host.downloadDirectory(of: Self.first) != nil, "the task still holds a tab")
+        _ = host.pageClosed(two)
+        #expect(host.downloadDirectory(of: Self.first) == nil)
+
+        _ = try Self.open(Self.first, in: host)
+        _ = host.release(Self.first)
+        #expect(host.downloadDirectory(of: Self.first) == nil)
+
+        _ = try Self.open(Self.second, in: host)
+        _ = host.detach(connection)
+        #expect(host.downloadDirectories.isEmpty)
+    }
+
+    @Test("a quit drops every task's download directory")
+    func quitDropsDownloadDirectories() throws {
+        let (host, _) = try Self.attached()
+        _ = try Self.open(Self.first, in: host)
+
+        _ = host.stop()
+
+        #expect(host.downloadDirectories.isEmpty)
+    }
 }
 
 /// The reducer in a box, so a transition can sit inside an expectation: the
@@ -506,6 +562,7 @@ final class HostUnderTest {
     }
 
     func owner(of tab: UUID) -> BrowserTabOwner? { state.owner(of: tab) }
+    func downloadDirectory(of task: BrowserTaskID) -> URL? { state.downloadDirectory(of: task) }
     func requestRefusal(for task: BrowserTaskID, on tab: UUID) -> BrowserTabRefusal? {
         state.requestRefusal(for: task, on: tab)
     }
@@ -515,7 +572,15 @@ final class HostUnderTest {
     func opener(of tab: UUID) -> UUID? { state.opener(of: tab) }
     func detach(_ gone: BrowserHostConnection) -> BrowserHostDetach { state.detach(gone) }
     func availabilityChanged(_ now: BrowserAvailability) -> BrowserAvailability? { state.availabilityChanged(now) }
-    func openTaskTab(_ tab: UUID, for task: BrowserTaskID) -> BrowserTabAdmission { state.openTaskTab(tab, for: task) }
+    /// The spec's rules never look at where a task downloads, so a case that
+    /// does not name a directory gets this one.
+    func openTaskTab(
+        _ tab: UUID,
+        for task: BrowserTaskID,
+        downloadDirectory: URL = URL(fileURLWithPath: "/fermix/browser/downloads", isDirectory: true)
+    ) -> BrowserTabAdmission {
+        state.openTaskTab(tab, for: task, downloadDirectory: downloadDirectory)
+    }
     func openPopup(_ tab: UUID, from opener: UUID) -> BrowserTabAdmission { state.openPopup(tab, from: opener) }
     func openPersonTab(_ tab: UUID) { state.openPersonTab(tab) }
     func personClose(_ tab: UUID) -> BrowserPersonClose { state.personClose(tab) }

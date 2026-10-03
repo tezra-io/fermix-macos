@@ -235,10 +235,10 @@ struct BrowserHostOperationsTests {
         let coordinator = FakeHostCoordinator()
         let (client, transport) = Self.attachedClient(coordinator: coordinator)
 
-        let first = try await Self.send(transport, .tabOpen(id: 1, Self.openRequest(task: "task-1", taskTabCap: 1, tabCap: 1)))
+        let first = try await Self.send(transport, .tabOpen(id: 1, Self.openRequest(coordinator, task: "task-1", taskTabCap: 1, tabCap: 1)))
         #expect(first["ok"] as? Bool == true)
 
-        let second = try await Self.send(transport, .tabOpen(id: 2, Self.openRequest(task: "task-1", taskTabCap: 1, tabCap: 1)))
+        let second = try await Self.send(transport, .tabOpen(id: 2, Self.openRequest(coordinator, task: "task-1", taskTabCap: 1, tabCap: 1)))
         let error = try #require(second["error"] as? [String: Any])
         #expect(error["reason"] as? String == "cap_reached", "the first tab.open's own cap now governs the task")
         _ = client
@@ -249,10 +249,10 @@ struct BrowserHostOperationsTests {
         let coordinator = FakeHostCoordinator()
         let (client, transport) = Self.attachedClient(coordinator: coordinator)
 
-        let first = try await Self.send(transport, .tabOpen(id: 1, Self.openRequest(task: "task-1", taskTabCap: 2, tabCap: 4)))
+        let first = try await Self.send(transport, .tabOpen(id: 1, Self.openRequest(coordinator, task: "task-1", taskTabCap: 2, tabCap: 4)))
         #expect(first["ok"] as? Bool == true)
 
-        let second = try await Self.send(transport, .tabOpen(id: 2, Self.openRequest(task: "task-2", taskTabCap: 3, tabCap: 4)))
+        let second = try await Self.send(transport, .tabOpen(id: 2, Self.openRequest(coordinator, task: "task-2", taskTabCap: 3, tabCap: 4)))
         let error = try #require(second["error"] as? [String: Any])
         #expect(error["reason"] as? String == "invalid_request")
         _ = client
@@ -263,7 +263,7 @@ struct BrowserHostOperationsTests {
         let coordinator = FakeHostCoordinator()
         let (client, transport) = Self.attachedClient(coordinator: coordinator)
 
-        let response = try await Self.send(transport, .tabOpen(id: 1, Self.openRequest(task: "task-1", taskTabCap: 0, tabCap: 0)))
+        let response = try await Self.send(transport, .tabOpen(id: 1, Self.openRequest(coordinator, task: "task-1", taskTabCap: 0, tabCap: 0)))
 
         let error = try #require(response["error"] as? [String: Any])
         #expect(error["reason"] as? String == "invalid_request")
@@ -276,7 +276,7 @@ struct BrowserHostOperationsTests {
     func tabListCarriesAPopupsOpener() async throws {
         let coordinator = FakeHostCoordinator()
         let (client, transport) = Self.attachedClient(coordinator: coordinator)
-        let opened = try await Self.send(transport, .tabOpen(id: 1, Self.openRequest(task: "task-1")))
+        let opened = try await Self.send(transport, .tabOpen(id: 1, Self.openRequest(coordinator, task: "task-1")))
         let openerID = try #require((opened["result"] as? [String: Any])?["tab_id"] as? String)
         let popup = BrowserTab(profile: .shared, page: FakeOperationsPage())
         #expect(coordinator.admitPopup(popup, from: UUID(uuidString: openerID)!))
@@ -309,11 +309,18 @@ struct BrowserHostOperationsTests {
         )
     }
 
-    private static func openRequest(task: String, taskTabCap: Int = 10, tabCap: Int = 60) -> BrowserHostTabOpenRequest {
+    /// A `tab.open` as the engine sends one, naming a download directory
+    /// under the coordinator's browser directory.
+    private static func openRequest(
+        _ coordinator: FakeHostCoordinator,
+        task: String,
+        taskTabCap: Int = 10,
+        tabCap: Int = 60
+    ) -> BrowserHostTabOpenRequest {
         BrowserHostTabOpenRequest(
             taskId: task, url: "https://example.com/", observe: false,
-            downloadDir: "/tmp/fermix-test/workspace/downloads", taskTabCap: taskTabCap, tabCap: tabCap, snapshot: nil,
-            visible: nil
+            downloadDir: coordinator.browserDirectory.appendingPathComponent("downloads/\(task)").path,
+            taskTabCap: taskTabCap, tabCap: tabCap, snapshot: nil, visible: nil
         )
     }
 
@@ -322,7 +329,7 @@ struct BrowserHostOperationsTests {
     private static func attachedWithOneTab() async throws -> (client: BrowserHostClient, transport: Transport, tab: OpenTab) {
         let coordinator = FakeHostCoordinator()
         let (client, transport) = Self.attachedClient(coordinator: coordinator)
-        let opened = try await Self.send(transport, .tabOpen(id: 1, Self.openRequest(task: "task-1")))
+        let opened = try await Self.send(transport, .tabOpen(id: 1, Self.openRequest(coordinator, task: "task-1")))
         let wireID = try #require((opened["result"] as? [String: Any])?["tab_id"] as? String)
 
         return (client, transport, OpenTab(coordinator: coordinator, wireID: wireID, page: coordinator.page))
@@ -475,10 +482,15 @@ private final class FakeHostCoordinator: BrowserHostCoordinating {
         model.host.establishCaps(caps)
     }
 
-    func openTaskTab(_ url: URL, for task: BrowserTaskID, visible: Bool) -> Result<BrowserTab.ID, BrowserTabRefusal> {
+    func openTaskTab(
+        _ url: URL,
+        for task: BrowserTaskID,
+        downloadDirectory: URL,
+        visible: Bool
+    ) -> Result<BrowserTab.ID, BrowserTabRefusal> {
         let newPage = FakeOperationsPage()
         let tab = BrowserTab(profile: .shared, page: newPage)
-        switch model.host.openTaskTab(tab.id, for: task) {
+        switch model.host.openTaskTab(tab.id, for: task, downloadDirectory: downloadDirectory) {
         case .refused(let refusal):
             return .failure(refusal)
         case .admitted:
@@ -507,7 +519,8 @@ private final class FakeHostCoordinator: BrowserHostCoordinating {
     /// A second tab, admitted directly rather than through `tab.open`, for a
     /// case that needs two tabs with two distinct stores.
     func admit(_ tab: BrowserTab, for task: BrowserTaskID) {
-        guard case .admitted = model.host.openTaskTab(tab.id, for: task) else { return }
+        let downloads = browserDirectory.appendingPathComponent("downloads/\(task.rawValue)", isDirectory: true)
+        guard case .admitted = model.host.openTaskTab(tab.id, for: task, downloadDirectory: downloads) else { return }
 
         model.tabs.append(tab)
     }

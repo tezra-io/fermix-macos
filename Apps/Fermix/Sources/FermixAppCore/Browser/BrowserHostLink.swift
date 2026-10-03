@@ -26,6 +26,23 @@ public protocol BrowserHostLink: BrowserHostStopping, BrowserTaskCancelling {
     /// A task's tab closed without the task's release: its page closed its
     /// own window.
     func tabClosed(_ tab: BrowserTab.ID, task: BrowserTaskID)
+    /// A task's download, by its own id: it began writing `filename` into the
+    /// task's directory, it moved, and it ended. The person's downloads never
+    /// cross the wire.
+    func downloadBegan(_ download: UUID, tab: BrowserTab.ID, filename: String)
+    func downloadProgressed(_ download: UUID, receivedBytes: Int, totalBytes: Int?)
+    func downloadFinished(_ download: UUID, tab: BrowserTab.ID, outcome: BrowserDownloadOutcome)
+}
+
+/// How a task's download ended, as `download.finished` carries it.
+public enum BrowserDownloadOutcome: Equatable, Sendable {
+    /// The whole file is at `path`, inside the task's download directory.
+    /// `bytes` is its size, where it could be read.
+    case completed(path: String, bytes: Int?)
+    /// It stopped short, in the system's own sentence.
+    case failed(reason: String)
+    /// The host stopped it.
+    case cancelled(reason: String)
 }
 
 /// The host's part of a quit, as the app coordinator asks for it.

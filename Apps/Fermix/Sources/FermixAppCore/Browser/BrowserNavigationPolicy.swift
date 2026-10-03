@@ -38,8 +38,8 @@ public enum BrowserNavigationDecision: Equatable, Sendable {
     case newTab
     /// The Mac's own app for the scheme opens it, and the tab stays put.
     case external
-    /// Nothing is saved, and the pane says why.
-    case refuseDownload
+    /// The response is saved as a file, where the tab's owner says.
+    case download
     /// Nothing happens.
     case cancel
 }
@@ -57,13 +57,14 @@ public enum BrowserNavigationPolicy {
         webSchemes.contains(scheme.lowercased())
     }
 
-    /// The decision, in order: a download is refused whatever it points at; a
+    /// The decision, in order: a download is saved, unless a frame began it,
+    /// since a hidden frame is how a page saves a file nobody asked for; a
     /// web page moves the tab or opens a new one; anything else belongs to
     /// another app, which is opened only for a click on the page itself. A
     /// frame or a script reaching for another app on its own is refused: that
     /// is how a page would launch an app nobody asked for.
     public static func decide(_ navigation: BrowserNavigation) -> BrowserNavigationDecision {
-        guard !navigation.isDownload else { return .refuseDownload }
+        guard !navigation.isDownload else { return navigation.isMainFrame ? .download : .cancel }
         guard !isWeb(navigation.scheme) else { return navigation.targetsNewWindow ? .newTab : .allow }
         guard navigation.isMainFrame || navigation.targetsNewWindow, navigation.isUserInitiated else { return .cancel }
 

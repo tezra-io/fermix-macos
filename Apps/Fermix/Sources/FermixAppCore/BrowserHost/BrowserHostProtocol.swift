@@ -159,6 +159,8 @@ public struct BrowserHostTabOpenRequest: Equatable, Sendable, Decodable {
     public let taskId: String
     public let url: String
     public let observe: Bool
+    /// Where the task's downloads go, its tabs' popups included: a directory
+    /// the engine has made under its browser directory.
     public let downloadDir: String
     public let taskTabCap: Int
     public let tabCap: Int
@@ -524,6 +526,8 @@ public enum BrowserHostEvent: Equatable, Sendable {
     case dialogOpened(tabId: String, kind: BrowserHostDialogKind, message: String, defaultText: String?)
     case downloadBegan(downloadId: String, tabId: String, filename: String)
     case downloadProgress(downloadId: String, receivedBytes: Int, totalBytes: Int?)
+    /// `reason` is bounded to `BrowserHostProtocol.maximumMessageChars` at
+    /// encode time, and an empty one is absent.
     case downloadFinished(
         downloadId: String,
         tabId: String,
@@ -602,7 +606,10 @@ extension BrowserHostEvent: Encodable {
             try container.encode(state, forKey: .state)
             try container.encodeIfPresent(path, forKey: .path)
             try container.encodeIfPresent(bytes, forKey: .bytes)
-            try container.encodeIfPresent(reason, forKey: .reason)
+            // The system's own sentence, so bounded here: an empty or overlong
+            // reason is refused by the daemon, which closes the connection.
+            let bounded = reason.map { String($0.prefix(BrowserHostProtocol.maximumMessageChars)) }
+            try container.encodeIfPresent(bounded?.isEmpty == false ? bounded : nil, forKey: .reason)
         case .taskCancel(let taskId, let reason):
             try container.encode(taskId, forKey: .taskId)
             try container.encode(String(reason.prefix(BrowserHostProtocol.maximumReasonChars)), forKey: .reason)

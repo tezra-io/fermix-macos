@@ -8,6 +8,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 - Voice: the caption line shows the running words of whoever last spoke, a task shows the daemon's summary of the work, and a failed call says why in plain words with the provider's own explanation.
 - Pet: the call's cost stays on the page after the call ends.
 - Voice: a call can be begun and ended from the View menu and the menu bar, and when voice is not set up the call control says so and opens its settings instead of starting a call that fails.
+- Browser: a task's download in the pane lands where the engine asks and tells the task when it is done instead of timing out, and a file you download from your own tab is saved where you choose.
 
 ## 0.3.0 (2026-09-30)
 

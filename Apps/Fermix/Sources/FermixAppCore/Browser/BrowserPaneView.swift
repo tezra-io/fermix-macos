@@ -489,3 +489,22 @@ final class BrowserPaneStage: NSView, BrowserPageStage {
         page.removeFromSuperview()
     }
 }
+
+/// Where a file the person saves goes: the system save panel, as a sheet on
+/// the window the page area is in, open on their Downloads folder. A page
+/// area in no window has nobody to ask, which is a cancel.
+extension BrowserPaneStage: BrowserSavePanelPresenting {
+    func chooseDestination(for filename: String, answer: @escaping @MainActor (URL?) -> Void) {
+        guard let window else {
+            answer(nil)
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        panel.nameFieldStringValue = filename
+        panel.beginSheetModal(for: window) { response in
+            answer(response == .OK ? panel.url : nil)
+        }
+    }
+}

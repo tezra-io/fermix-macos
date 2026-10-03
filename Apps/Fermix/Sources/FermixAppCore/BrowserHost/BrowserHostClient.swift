@@ -16,7 +16,13 @@ public protocol BrowserHostCoordinating: AnyObject {
     func establishTabCaps(_ caps: BrowserTabCaps) -> Bool
     /// `visible` is `tab.open`'s own flag: true when the task runs on the
     /// visible profile, which is what "launch the browser" means.
-    func openTaskTab(_ url: URL, for task: BrowserTaskID, visible: Bool) -> Result<BrowserTab.ID, BrowserTabRefusal>
+    /// `downloadDirectory` is its `download_dir`, already checked.
+    func openTaskTab(
+        _ url: URL,
+        for task: BrowserTaskID,
+        downloadDirectory: URL,
+        visible: Bool
+    ) -> Result<BrowserTab.ID, BrowserTabRefusal>
     func closeTaskTab(_ tab: BrowserTab.ID)
     func releaseTask(_ task: BrowserTaskID)
     func select(_ tab: BrowserTab)
@@ -433,6 +439,15 @@ public final class BrowserHostClient {
             respond(BrowserHostResponse(id: id, error: BrowserHostError(reason: .navigationRefused, message: "not a URL: \(payload.url)")))
             return
         }
+        // The task's downloads are written there, so it is held to the root a
+        // screenshot is.
+        guard validatedPath(payload.downloadDir, under: browserRoot) else {
+            respond(BrowserHostResponse(
+                id: id,
+                error: BrowserHostError(reason: .invalidRequest, message: "download_dir is outside the engine's browser directory")
+            ))
+            return
+        }
         guard let caps = BrowserTabCaps(taskTabCap: payload.taskTabCap, tabCap: payload.tabCap) else {
             respond(BrowserHostResponse(
                 id: id,
@@ -448,7 +463,8 @@ public final class BrowserHostClient {
             return
         }
 
-        switch coordinator.openTaskTab(url, for: task, visible: payload.visible ?? false) {
+        let downloadDirectory = URL(fileURLWithPath: payload.downloadDir, isDirectory: true)
+        switch coordinator.openTaskTab(url, for: task, downloadDirectory: downloadDirectory, visible: payload.visible ?? false) {
         case .failure(let refusal):
             respond(BrowserHostResponse(id: id, error: wireError(for: refusal, task: payload.taskId)))
         case .success(let tabID):
@@ -1002,6 +1018,29 @@ extension BrowserHostClient: BrowserHostLink {
     /// window.
     public func tabClosed(_ tab: BrowserTab.ID, task: BrowserTaskID) {
         send(.tabClosed(tabId: Self.wireID(tab), by: .page))
+    }
+
+    public func downloadBegan(_ download: UUID, tab: BrowserTab.ID, filename: String) {
+        send(.downloadBegan(downloadId: download.uuidString, tabId: Self.wireID(tab), filename: filename))
+    }
+
+    public func downloadProgressed(_ download: UUID, receivedBytes: Int, totalBytes: Int?) {
+        send(.downloadProgress(downloadId: download.uuidString, receivedBytes: receivedBytes, totalBytes: totalBytes))
+    }
+
+    /// `path` and `bytes` only for a completed download, `reason` only for
+    /// one that did not complete, as the contract has it.
+    public func downloadFinished(_ download: UUID, tab: BrowserTab.ID, outcome: BrowserDownloadOutcome) {
+        let downloadId = download.uuidString
+        let tabId = Self.wireID(tab)
+        switch outcome {
+        case .completed(let path, let bytes):
+            send(.downloadFinished(downloadId: downloadId, tabId: tabId, state: .completed, path: path, bytes: bytes, reason: nil))
+        case .failed(let reason):
+            send(.downloadFinished(downloadId: downloadId, tabId: tabId, state: .failed, path: nil, bytes: nil, reason: reason))
+        case .cancelled(let reason):
+            send(.downloadFinished(downloadId: downloadId, tabId: tabId, state: .cancelled, path: nil, bytes: nil, reason: reason))
+        }
     }
 
     /// The person's "Cancel task", from its tab in the pane. The daemon's own

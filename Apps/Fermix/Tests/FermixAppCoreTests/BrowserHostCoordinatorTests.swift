@@ -15,6 +15,7 @@ struct BrowserHostCoordinatorTests {
     nonisolated static let task = BrowserTaskID("task-1")
     nonisolated static let other = BrowserTaskID("task-2")
     nonisolated static let caps = BrowserTabCaps(perTask: 2, global: 3)
+    nonisolated static let downloads = URL(fileURLWithPath: "/fermix/browser/downloads/task-1", isDirectory: true)
 
     /// A harness whose host is attached, and the daemon's end of it.
     static func attached(
@@ -31,7 +32,7 @@ struct BrowserHostCoordinatorTests {
         _ harness: BrowserHarness,
         for task: BrowserTaskID = task
     ) throws -> BrowserTab {
-        let id = try harness.coordinator.openTaskTab(page, for: task).get()
+        let id = try harness.coordinator.openTaskTab(page, for: task, downloadDirectory: downloads).get()
 
         return try #require(harness.model.tabs.first { $0.id == id })
     }
@@ -79,7 +80,7 @@ struct BrowserHostCoordinatorTests {
         _ = try Self.attached(harness, caps: BrowserTabCaps(perTask: 1, global: 1))
         _ = try Self.openTaskTab(harness)
 
-        let refused = harness.coordinator.openTaskTab(Self.page, for: Self.task)
+        let refused = harness.coordinator.openTaskTab(Self.page, for: Self.task, downloadDirectory: Self.downloads)
 
         #expect(refused == .failure(.taskCap))
         #expect(harness.model.tabs.count == 1)
@@ -90,7 +91,7 @@ struct BrowserHostCoordinatorTests {
     func detachedHostRefuses() {
         let harness = BrowserHarness()
 
-        #expect(harness.coordinator.openTaskTab(Self.page, for: Self.task) == .failure(.notAttached))
+        #expect(harness.coordinator.openTaskTab(Self.page, for: Self.task, downloadDirectory: Self.downloads) == .failure(.notAttached))
         #expect(harness.model.tabs.isEmpty)
     }
 
@@ -99,7 +100,7 @@ struct BrowserHostCoordinatorTests {
         let harness = BrowserHarness(availability: .unavailable(.screenLocked))
         _ = try Self.attached(harness)
 
-        #expect(harness.coordinator.openTaskTab(Self.page, for: Self.task) == .failure(.unavailable(.screenLocked)))
+        #expect(harness.coordinator.openTaskTab(Self.page, for: Self.task, downloadDirectory: Self.downloads) == .failure(.unavailable(.screenLocked)))
     }
 
     // MARK: - Visibility while driven

@@ -16,17 +16,29 @@ struct BrowserNavigationPolicyTests {
         #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: "https", targetsNewWindow: true)) == .newTab)
     }
 
-    /// Whatever it points at: a download link to a web page is still a file.
-    @Test("a download is refused, wherever it points")
-    func downloadsAreRefused() {
-        for scheme in ["https", "blob", "mailto"] {
-            #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme, isDownload: true)) == .refuseDownload)
+    /// Whatever it points at: a download link to a web page is still a file,
+    /// and a link's `download` attribute keeps it out of a new window.
+    @Test("the tab's own download is saved, wherever it points")
+    func downloadsAreSaved() {
+        for scheme in ["https", "blob", "data", "mailto"] {
+            #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme, isDownload: true)) == .download)
         }
         #expect(
             BrowserNavigationPolicy.decide(
                 BrowserNavigation(scheme: "https", targetsNewWindow: true, isDownload: true)
-            ) == .refuseDownload
+            ) == .download
         )
+        #expect(
+            BrowserNavigationPolicy.decide(
+                BrowserNavigation(scheme: "https", isDownload: true, isUserInitiated: false)
+            ) == .download
+        )
+    }
+
+    /// A hidden frame is how a page saves a file nobody asked for.
+    @Test("a frame's download is refused without a word")
+    func frameDownloadsAreRefused() {
+        #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: "https", isDownload: true, isMainFrame: false)) == .cancel)
     }
 
     @Test("a click on another app's scheme opens that app", arguments: ["mailto", "tel", "facetime", "zoommtg"])
@@ -128,7 +140,7 @@ struct BrowserTabTests {
         let tab = BrowserTab(profile: .shared, page: page)
         tab.delegate = delegate
         let mail = try #require(URL(string: "mailto:hello@fermix.ai"))
-        let file = try #require(URL(string: "https://fermix.ai/fermix.dmg"))
+        let file = FakeDownload()
 
         page.events?.pageMetExternalScheme(mail)
         page.events?.pageStartedDownload(file)
@@ -136,9 +148,22 @@ struct BrowserTabTests {
         page.events?.pageFailed("A server with the specified hostname could not be found.")
 
         #expect(delegate.externals == [mail])
-        #expect(delegate.downloads == [file])
+        #expect(delegate.downloads.map(ObjectIdentifier.init) == [ObjectIdentifier(file)])
+        #expect(file.cancels == 0)
         #expect(delegate.failures == ["A server with the specified hostname could not be found."])
         #expect(delegate.closeRequests.map(\.id) == [tab.id])
+    }
+
+    @Test("a download from a tab nobody holds is cancelled")
+    func unheldTabCancelsADownload() {
+        let page = FakeBrowserPage()
+        let tab = BrowserTab(profile: .shared, page: page)
+        let file = FakeDownload()
+
+        page.events?.pageStartedDownload(file)
+
+        #expect(file.cancels == 1)
+        #expect(tab.delegate == nil)
     }
 
     /// WebKit holds a page until its dialog is answered, so a tab nobody is

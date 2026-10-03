@@ -107,11 +107,28 @@ final class FakeBrowserEngine: BrowserEngine {
 }
 
 /// A place a page can be, without a window: it records which pages it holds.
+/// As the pane's page area it is also where the save panel is raised, which
+/// it records by the file name offered and holds open for the test to answer.
 @MainActor
-final class FakePageStage: BrowserPageStage {
+final class FakePageStage: BrowserPaneArea {
     private(set) var held: [NSView] = []
     /// Every hold and release, in order, as "hold" or "release".
     private(set) var moves: [String] = []
+    /// Every save panel raised here, by the file name it offered.
+    private(set) var savePanels: [String] = []
+    private var saveAnswer: (@MainActor (URL?) -> Void)?
+
+    func chooseDestination(for filename: String, answer: @escaping @MainActor (URL?) -> Void) {
+        savePanels.append(filename)
+        saveAnswer = answer
+    }
+
+    /// The person answers the save panel: a place, or nil for Cancel.
+    func answerSavePanel(_ destination: URL?) {
+        let answer = saveAnswer
+        saveAnswer = nil
+        answer?(destination)
+    }
 
     func hold(_ page: NSView) {
         moves.append("hold")
@@ -180,6 +197,30 @@ final class FakeHostLink: BrowserHostLink {
         events.append("cancel")
     }
 
+    /// Every download event, in the order the host sent it.
+    private(set) var downloads: [FakeHostLink.Download] = []
+
+    enum Download: Equatable {
+        case began(UUID, tab: UUID, filename: String)
+        case progressed(UUID, received: Int, total: Int?)
+        case finished(UUID, tab: UUID, outcome: BrowserDownloadOutcome)
+    }
+
+    func downloadBegan(_ download: UUID, tab: UUID, filename: String) {
+        downloads.append(.began(download, tab: tab, filename: filename))
+        events.append("download.began")
+    }
+
+    func downloadProgressed(_ download: UUID, receivedBytes: Int, totalBytes: Int?) {
+        downloads.append(.progressed(download, received: receivedBytes, total: totalBytes))
+        events.append("download.progress")
+    }
+
+    func downloadFinished(_ download: UUID, tab: UUID, outcome: BrowserDownloadOutcome) {
+        downloads.append(.finished(download, tab: tab, outcome: outcome))
+        events.append("download.finished")
+    }
+
     func sendHostStopping(answered: @escaping @MainActor () -> Void) {
         stoppingSent += 1
         events.append("host_stopping")
@@ -200,7 +241,7 @@ final class RecordingTabDelegate: BrowserTabDelegate {
     private(set) var closeRequests: [BrowserTab] = []
     private(set) var externals: [URL] = []
     private(set) var dialogs: [BrowserDialog] = []
-    private(set) var downloads: [URL] = []
+    private(set) var downloads: [any BrowserDownload] = []
     private(set) var failures: [String] = []
     var answer: BrowserDialogAnswer = .confirmed
 
@@ -222,9 +263,71 @@ final class RecordingTabDelegate: BrowserTabDelegate {
         answer(self.answer)
     }
 
-    func downloadStarted(_ url: URL) { downloads.append(url) }
+    func downloadStarted(_ download: any BrowserDownload, in tab: BrowserTab) { downloads.append(download) }
 
     func loadFailed(_ reason: String, in tab: BrowserTab) { failures.append(reason) }
+}
+
+/// A download with no web engine behind it, standing in for
+/// `WebKitBrowserDownload`: the test speaks for WebKit through its verbs, and
+/// `write(_:)` puts bytes where the pane said the file goes, as WebKit writes
+/// a file as it arrives.
+@MainActor
+final class FakeDownload: BrowserDownload {
+    weak var events: (any BrowserDownloadEvents)?
+    let suggestedFilename: String
+    /// What the pane answered for the file's place, once it has.
+    private(set) var destination: URL?
+    private(set) var answered = false
+    private(set) var cancels = 0
+    /// The cancel's answer, held until the test says the engine stopped.
+    private var stopped: (@MainActor () -> Void)?
+
+    init(suggestedFilename: String = "report.pdf") {
+        self.suggestedFilename = suggestedFilename
+    }
+
+    func cancel(_ stopped: @escaping @MainActor () -> Void) {
+        events = nil
+        cancels += 1
+        self.stopped = stopped
+    }
+
+    /// WebKit asks where the file goes; the pane may answer later. A refused
+    /// place cancels the download, so nothing is reported after it.
+    func askForDestination() {
+        events?.download(self, needsDestinationFor: suggestedFilename) { [weak self] destination in
+            self?.answered = true
+            self?.destination = destination
+            if destination == nil { self?.events = nil }
+        }
+    }
+
+    /// Bytes arrive at the destination.
+    func write(_ text: String) throws {
+        guard let destination else { throw CocoaError(.fileNoSuchFile) }
+
+        try Data(text.utf8).write(to: destination)
+    }
+
+    func progress(_ received: Int, of total: Int?) {
+        events?.download(self, received: received, of: total)
+    }
+
+    func finish() {
+        events?.downloadFinished(self)
+    }
+
+    func fail(_ reason: String) {
+        events?.download(self, failed: reason)
+    }
+
+    /// The engine has stopped writing after a cancel.
+    func engineStopped() {
+        let stopped = self.stopped
+        self.stopped = nil
+        stopped?()
+    }
 }
 
 /// The Mac's own opener for content links, recorded rather than opened.
