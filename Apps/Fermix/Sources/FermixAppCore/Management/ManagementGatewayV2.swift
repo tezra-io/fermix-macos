@@ -197,6 +197,20 @@ extension ManagementGateway {
         try await negotiated().computerUsePermissions()
     }
 
+    // MARK: - The iMessage channel
+
+    public func imessagePermissions() async throws -> ManagementIMessagePermissions {
+        try await negotiated().imessagePermissions()
+    }
+
+    public func startIMessageGrant(service: ManagementIMessageGrantService) async throws -> ManagementJob {
+        try await negotiated().startIMessageGrant(service: service)
+    }
+
+    public func confirmIMessagePolicy() async throws -> ManagementJob {
+        try await negotiated().confirmIMessagePolicy()
+    }
+
     // MARK: - The phone channel
 
     public func mobileStatus() async throws -> ManagementMobileStatus {

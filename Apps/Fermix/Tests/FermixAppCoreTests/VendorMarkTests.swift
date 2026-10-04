@@ -83,6 +83,51 @@ struct VendorMarkTests {
         }
     }
 
+    /// A vendor with no retrievable mark draws its name beside the symbol its
+    /// record names. The view draws the kind's neutral symbol for a mark that
+    /// ships no file, so the two have to be one symbol: a record naming another
+    /// would be drawn as a symbol it never chose.
+    @Test("a text-with-symbol mark draws the symbol its record names and no file")
+    func textMarksDrawTheRecordedSymbol() throws {
+        let recorded = try Self.marks().filter { $0["treatment"] as? String == "vendor_text_with_symbol" }
+
+        #expect(!recorded.isEmpty, "no record carries the text treatment to check")
+        for entry in recorded {
+            let kindName = try #require(entry["kind"] as? String)
+            let kind = try #require(VendorMark.Kind(rawValue: kindName))
+            let key = try #require(entry["key"] as? String)
+            let mark = try #require(VendorMarks.mark(kind, key))
+            let fallback = try #require(entry["fallback"] as? [String: Any], "\(key) records no fallback")
+
+            #expect(fallback["sf_symbol"] as? String == kind.neutralSymbol, "\(key)")
+            #expect(mark.asset(dark: false) == nil && mark.asset(dark: true) == nil, "\(key) draws a file")
+        }
+    }
+
+    /// The name beside that symbol is the daemon's own spelling, from the
+    /// section index, and it is the name the record says the row speaks.
+    @Test("the iMessage row is named by the daemon beside the channel symbol")
+    func imessageRowIsNamed() throws {
+        let state: ManagementSetupState = try FakeDaemonGateway.fixtureResult(
+            named: "setup_state_get",
+            as: ManagementSetupState.self
+        )
+        let inventory: ManagementSettingsInventory = try FakeDaemonGateway.fixtureResult(
+            named: "settings_sections",
+            as: ManagementSettingsInventory.self
+        )
+        let record = try #require(
+            try Self.marks().first { $0["kind"] as? String == "channel" && $0["key"] as? String == "imessage" }
+        )
+        let row = try #require(
+            ChannelRowProjection.rows(state.channels, titledBy: inventory.sections).first { $0.name == "imessage" }
+        )
+
+        #expect(row.title == record["display_name"] as? String)
+        #expect(row.title == record["accessibility_label"] as? String)
+        #expect(VendorMarks.mark(.channel, row.name)?.treatment == .textWithSymbol)
+    }
+
     /// A record and a table that agree about a file that is not in the bundle
     /// still draws nothing. Loading is the half neither JSON nor Swift can
     /// prove on its own.

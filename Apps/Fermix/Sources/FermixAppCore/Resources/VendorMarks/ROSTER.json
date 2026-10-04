@@ -1,18 +1,18 @@
 {
   "schema_version": 2,
-  "recorded_on": "2026-09-29",
+  "recorded_on": "2026-10-04",
   "note": "The vendored roster snapshot. PROVENANCE.json must carry one record per key here, and roster_source.roster_sha256 pins these bytes, so a vendor cannot be dropped from either file alone. The upstream cross-check (vendor_marks.py check --fermix-repo <checkout>) is what re-vendors it when fermix moves.",
   "source": {
     "repository": "https://github.com/tezra-io/fermix",
     "providers": {
       "path": "apps/fermix_core/lib/fermix_core/providers/descriptor.ex",
       "symbol": "Providers.Descriptor.all/0",
-      "sha256": "f27b0c452c665ded635c6452b9968d4aeaba4f0104663b1e3e1ae1077a295371"
+      "sha256": "31a970ac43570cf7acffa9543047c3195e2e78e44d1d9c7a06bdcbc7454d31a0"
     },
     "channels": {
       "path": "apps/fermix_web/lib/fermix_web_web/live/setup_live.ex",
       "symbol": "the channels form map",
-      "sha256": "64414a12918a3b0e51a35a81b3227cd4f1cb61d57842d8b84d21d11a6a6e9076"
+      "sha256": "d38741764becc2eb7870ecb9c0e26d614d7a57bf4bf6a06ffb39bcbcf6e5981c"
     },
     "plugins": {
       "path": "apps/fermix_core/priv/plugins/index.json",
@@ -52,6 +52,7 @@
   ],
   "channels": [
     "discord",
+    "imessage",
     "signal",
     "slack",
     "telegram",

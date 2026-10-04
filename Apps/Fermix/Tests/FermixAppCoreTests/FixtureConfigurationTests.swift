@@ -531,6 +531,21 @@ struct FixtureConfigurationTests {
         }
     }
 
+    /// The voice section publishes one golden per engine for the same request,
+    /// and Live's carries rows the other never does. The home answers the one
+    /// published under the engine its own overview runs, so the Voice pane
+    /// never draws Live's backend row beside a Realtime engine.
+    @Test("the voice section answers under the engine the overview names")
+    func voiceSectionFollowsTheOverviewEngine() async throws {
+        let client = try await negotiatedClient()
+        let overview = try await client.overview()
+        let voice = try await client.settings(section: "realtime")
+
+        #expect(overview.realtime.engine == "openai_realtime")
+        #expect(voice.rows.contains { $0.key == "realtime_reasoning_effort" })
+        #expect(!voice.rows.contains { $0.key == "realtime_backend" })
+    }
+
     /// A section this home does not publish is loud, not empty: a pane
     /// rendering nothing is exactly what this configuration exists to prevent.
     @Test("a section with no golden answer is refused, not answered empty")
@@ -618,7 +633,7 @@ struct FixtureConfigurationTests {
         // Every channel the Channels pane draws, one answering and the rest
         // offered: the list is the daemon's, and a home carrying one channel
         // could never render the list at all.
-        #expect(state.channels.count == 5)
+        #expect(state.channels.count == 6)
         #expect(state.channels.contains { $0.enabled && $0.configured })
         #expect(state.channels.contains { !$0.configured })
 
@@ -694,7 +709,7 @@ struct FixtureConfigurationTests {
         #expect(!state.providers.isEmpty, "the list is still the daemon's own")
         #expect(!state.providers.contains { $0.configured })
         #expect(!state.providers.contains { $0.primary })
-        #expect(state.channels.count == 5)
+        #expect(state.channels.count == 6)
         #expect(!state.channels.contains { $0.enabled || $0.configured })
         // Seeded before any screen: the name, the time zone and a default style.
         #expect(state.personalization.present.userName)

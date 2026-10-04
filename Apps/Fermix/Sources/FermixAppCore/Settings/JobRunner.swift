@@ -269,7 +269,8 @@ public enum JobPhaseCopy {
     }
 
     /// Every (kind, phase) pair PROTOCOL.md's per-kind vocabulary publishes.
-    /// `computer_use_grant` has none, which is why it has no entry.
+    /// `computer_use_grant`, `imessage_grant` and `imessage_policy_confirm` have
+    /// none, which is why they have no entry.
     public static let published: [Step: ProductStringKey] = [
         Step(.providerProbe, "calling"): .jobPhaseCalling,
         Step(.auth, "binding"): .jobPhaseBinding,

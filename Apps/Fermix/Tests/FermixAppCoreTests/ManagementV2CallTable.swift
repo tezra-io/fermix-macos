@@ -160,6 +160,9 @@ enum ManagementV2Calls {
         "computer_use_grant_start": { _ = try await $0.startComputerUseGrant() },
         "browser_install_start": { _ = try await $0.startBrowserInstall() },
         "computer_use_permissions_get": { _ = try await $0.computerUsePermissions() },
+        "imessage_permissions_get": { _ = try await $0.imessagePermissions() },
+        "imessage_grant_start": { _ = try await $0.startIMessageGrant(service: .automation) },
+        "imessage_policy_confirm": { _ = try await $0.confirmIMessagePolicy() },
 
         "mobile_status": { _ = try await $0.mobileStatus() },
         "mobile_pair_start": { _ = try await $0.startPairing() },

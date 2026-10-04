@@ -152,7 +152,27 @@ struct FixtureManagementTransport: ManagementTransport {
             grouped[record.method, default: []].append(record)
         }
 
-        return atStatusMoment(grouped)
+        return atVoiceEngine(atStatusMoment(grouped))
+    }
+
+    /// The voice engine this daemon runs.
+    ///
+    /// `settings.get {section: "realtime"}` publishes one golden per engine,
+    /// every one for the same request, because the section's rows are scoped
+    /// to the engine its model implies (PROTOCOL.md), so no selector tells them
+    /// apart. A daemon runs one engine, and `overview.get` names it under
+    /// `realtime.engine`; the voice section published under that engine is
+    /// this machine's answer, and the other is another machine's. An overview
+    /// that names no engine leaves the records as published, and `resolve` says
+    /// so.
+    private static func atVoiceEngine(_ grouped: [String: [Record]]) -> [String: [Record]] {
+        guard let live = grouped[ManagementMethod.overviewGet.rawValue]?.first?.liveVoice else { return grouped }
+
+        var records = grouped
+        records[ManagementMethod.settingsGet.rawValue] = grouped[ManagementMethod.settingsGet.rawValue]?
+            .filter { $0.liveVoice == nil || $0.liveVoice == live }
+
+        return records
     }
 
     /// The moment this daemon answers from.
@@ -190,6 +210,9 @@ struct FixtureManagementTransport: ManagementTransport {
         let selector: [String: String]
         /// The pairing session this answer is a moment of, where it is one.
         let moment: PairingMoment?
+        /// Whether this answer speaks of the Live voice engine, where it names
+        /// an engine at all.
+        let liveVoice: Bool?
         let result: Data
 
         func answers(_ params: [String: Any]) -> Bool {
@@ -221,9 +244,35 @@ struct FixtureManagementTransport: ManagementTransport {
             method: method,
             selector: selector(method: method, result: result),
             moment: pairingMoment(method: method, result: result),
+            liveVoice: liveVoice(method: method, result: result),
             result: try JSONSerialization.data(withJSONObject: result)
         )
     }
+
+    /// Whether an answer speaks of the Live voice engine: `overview.get` names
+    /// the engine under `realtime.engine`, and the voice section is Live's
+    /// exactly when it carries `realtime_backend`, the row PROTOCOL.md publishes
+    /// only under Live. Nil for every other answer, and for an overview whose
+    /// voice is off.
+    private static func liveVoice(method: String, result: Any) -> Bool? {
+        guard let object = result as? [String: Any] else { return nil }
+
+        switch method {
+        case ManagementMethod.overviewGet.rawValue:
+            let engine = (object["realtime"] as? [String: Any])?["engine"] as? String
+            return engine.map { $0 == Self.liveEngine }
+        case ManagementMethod.settingsGet.rawValue where object["id"] as? String == Self.voiceSection:
+            let rows = object["rows"] as? [[String: Any]] ?? []
+            return rows.contains { $0["key"] as? String == Self.liveOnlyRow }
+        default:
+            return nil
+        }
+    }
+
+    /// The wire names `liveVoice` reads, each as PROTOCOL.md publishes it.
+    private static let voiceSection = "realtime"
+    private static let liveEngine = "openai_live"
+    private static let liveOnlyRow = "realtime_backend"
 
     /// The pairing session an answer speaks of: `mobile.status` under
     /// `pairing`, a start or a read as the whole result. Nil for every other

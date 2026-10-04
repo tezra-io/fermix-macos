@@ -427,7 +427,9 @@ struct DescriptorCoverageTests {
     /// agreed would let a per-row reading pass by accident.
     @Test("a restart flag is per row and a restart reason names a section")
     func restartIsFlaggedPerRowAndReasonedPerSection() throws {
-        var sections = 0
+        // A set, because the voice section publishes one golden per engine: the
+        // count is of sections, not of records.
+        var sections: Set<String> = []
         var mixed: [String] = []
 
         for fixture in try ManagementFixtures.load(.success, from: .management)
@@ -443,10 +445,10 @@ struct DescriptorCoverageTests {
             for row in rows.rows {
                 #expect(DescriptorRowModel(row: row, value: row.value).restart == row.restart)
             }
-            sections += 1
+            sections.insert(rows.id)
         }
 
-        #expect(sections == 29)
+        #expect(sections.count == 30)
         #expect(!mixed.isEmpty, "no section mixes the two, so the flag reads as section-wide")
 
         let state: ManagementSetupState = try FakeDaemonGateway.fixtureResult(
@@ -658,10 +660,10 @@ struct DescriptorRowInfoTests {
         var explained = 0
 
         #expect(!published.isEmpty, "the scan found no vendored rows to check")
-        for (section, raw) in published {
+        for (section, raw, decoded) in published {
             let key = try #require(raw["key"] as? String)
             let row = try #require(
-                try DescriptorCoverageTests.rows(inSection: section).first { $0.key == key },
+                decoded.first { $0.key == key },
                 "\(section).\(key) did not decode"
             )
             let text = raw["info"] as? String
@@ -695,20 +697,29 @@ struct DescriptorRowInfoTests {
         #expect(options.map(\.label) == model.options.map(\.label))
     }
 
-    /// Every `settings.get` row as its golden wrote it, beside its section id.
-    /// Raw rather than decoded, because whether a key was published at all is
-    /// the one thing a decoded optional cannot say.
-    private static func publishedRows() throws -> [(section: String, row: [String: Any])] {
+    /// Every `settings.get` row as its golden wrote it, beside its section id
+    /// and its own record decoded. Raw rather than decoded, because whether a
+    /// key was published at all is the one thing a decoded optional cannot say;
+    /// paired with its own record rather than looked up by section, because the
+    /// voice section publishes one golden per engine and a row only Live
+    /// publishes is only in Live's.
+    private static func publishedRows() throws -> [PublishedRow] {
         try ManagementFixtures.load(.success, from: .management)
             .filter { (try? $0.string("method")) == ManagementMethod.settingsGet.rawValue }
-            .flatMap { fixture -> [(section: String, row: [String: Any])] in
+            .flatMap { fixture -> [PublishedRow] in
                 let result = try #require(try fixture.object("response")["result"] as? [String: Any])
                 let section = try #require(result["id"] as? String)
                 let rows = try #require(result["rows"] as? [[String: Any]])
+                let decoded = try JSONDecoder().decode(
+                    ManagementSettingsSectionRows.self,
+                    from: try JSONSerialization.data(withJSONObject: result)
+                ).rows
 
-                return rows.map { (section: section, row: $0) }
+                return rows.map { (section: section, row: $0, decoded: decoded) }
             }
     }
+
+    private typealias PublishedRow = (section: String, row: [String: Any], decoded: [ManagementSettingRow])
 
     /// A component with no caller is the same defect as a design token no view
     /// applies. Both doors into a provider's Model row draw their label through

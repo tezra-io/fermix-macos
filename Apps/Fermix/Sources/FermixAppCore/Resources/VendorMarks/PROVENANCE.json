@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "recorded_on": "2026-09-20",
+  "recorded_on": "2026-10-04",
   "contract": "MILESTONE_34_UNIFIED_MACOS_APP_IMPLEMENTATION.md section 7",
   "policy": {
     "sources": "A mark ships only when it was retrieved from the source recorded beside it and shipped byte for byte. Nothing here is redrawn, traced, recolored, or reconstructed from a screenshot. Three source kinds appear, and each record says which it is: a vendor's own host, fermix's checked-in plugin catalog, and fermix's own first-party artwork.",
@@ -18,9 +18,9 @@
     "plugins": "apps/fermix_core/priv/plugins/index.json and catalog.json (the static catalog and the bundled set)",
     "features": "apps/fermix_web/lib/fermix_web_web/live/setup_live (the three native driver logos)",
     "roster": "ROSTER.json",
-    "roster_sha256": "8bf60bfa0901c025fe62256c88a3c11013eea791ba76e9c78d156effed41c2f5",
+    "roster_sha256": "4c9317784636d82022ae5319dc2d40459cd971fb9b9ede202e3f1419e909a33d",
     "provider_count": 8,
-    "channel_count": 5,
+    "channel_count": 6,
     "plugin_count": 13,
     "feature_count": 3,
     "channel_exclusions": {
@@ -72,6 +72,25 @@
       "notes": "The branding page's Color and White symbol download links are transposed relative to the archives they serve: the link labelled Color delivers Discord_Symbol_White and the link labelled White delivers Discord_Symbol_Color. Each asset here records the URL that actually contains its member, so the fetch script verifies content rather than the page's label.",
       "plate": "neutral",
       "origin": "vendor"
+    },
+    {
+      "key": "imessage",
+      "kind": "channel",
+      "display_name": "iMessage",
+      "accessibility_label": "iMessage",
+      "treatment": "vendor_text_with_symbol",
+      "origin": "vendor",
+      "source_url": "https://developer.apple.com/design/human-interface-guidelines/",
+      "source_retrieved_on": "2026-10-04",
+      "usage_terms": "Apple publishes no brand kit for Messages or iMessage. The Human Interface Guidelines and the Apple trademark guidelines permit naming the service in text and forbid reproducing Apple's app icons or redrawing them.",
+      "permitted_treatment": "The service is named in text beside the neutral channel symbol. No Apple icon, glyph or recolored derivative is shipped.",
+      "dark_mode_policy": "Text and the SF Symbol take the surface's own foreground color in both appearances; there is no vendor artwork to keep legible.",
+      "fallback": {
+        "sf_symbol": "bubble.left.and.bubble.right",
+        "reason": "no_published_brand_kit",
+        "detail": "Apple offers no downloadable Messages or iMessage mark for third parties and its trademark guidelines forbid reproducing the app icon, so the channel renders as its name beside the neutral channel symbol."
+      },
+      "notes": "Added with the iMessage channel (engine M54). The channel runs only on a Mac through the signed Fermix Messages helper; the mark policy is the same on every surface."
     },
     {
       "key": "signal",

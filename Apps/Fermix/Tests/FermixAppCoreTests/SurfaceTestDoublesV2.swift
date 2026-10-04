@@ -283,6 +283,20 @@ extension FakeDaemonGateway {
         try answer(.computerUsePermissionsGet, "computer_use_permissions_get")
     }
 
+    // MARK: - The iMessage channel
+
+    func imessagePermissions() async throws -> ManagementIMessagePermissions {
+        try answer(.imessagePermissionsGet, "imessage_permissions_get")
+    }
+
+    func startIMessageGrant(service: ManagementIMessageGrantService) async throws -> ManagementJob {
+        try answer(.imessageGrantStart, "imessage_grant_start")
+    }
+
+    func confirmIMessagePolicy() async throws -> ManagementJob {
+        try answer(.imessagePolicyConfirm, "imessage_policy_confirm")
+    }
+
     // MARK: - The phone channel
 
     func mobileStatus() async throws -> ManagementMobileStatus {

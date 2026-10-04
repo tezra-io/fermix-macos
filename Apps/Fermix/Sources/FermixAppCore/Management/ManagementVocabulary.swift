@@ -44,8 +44,8 @@ extension ManagementVocabulary {
 /// Every published management method.
 ///
 /// The eleven the engine serves today have a minimum protocol version of 1; the
-/// thirty-one M34 §7.3 adds and the seven the phone channel added have a
-/// minimum of 2. The minimum is read from the contract
+/// thirty-one M34 §7.3 adds, the seven the phone channel added and the three
+/// the iMessage channel added have a minimum of 2. The minimum is read from the contract
 /// (`ManagementContract.minimumVersion(for:)`), never restated here: one fact,
 /// in the checksum-pinned artifact.
 public enum ManagementMethod: String, CaseIterable, Sendable {
@@ -102,6 +102,11 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case mobilePairCancel = "mobile.pair.cancel"
     case mobileDevicesList = "mobile.devices.list"
     case mobileDevicesRevoke = "mobile.devices.revoke"
+    // The iMessage channel (engine 053e8007, 2026-10-04): the helper's probe,
+    // and the two jobs that wait on a person.
+    case imessagePermissionsGet = "imessage.permissions.get"
+    case imessageGrantStart = "imessage.grant.start"
+    case imessagePolicyConfirm = "imessage.policy.confirm"
 
     /// The method name in a form the request-id pattern accepts.
     public var identifierSlug: String { rawValue.replacingOccurrences(of: ".", with: "-") }

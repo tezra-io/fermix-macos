@@ -85,6 +85,9 @@ public protocol DaemonQuerying: Sendable {
     func startComputerUseGrant() async throws -> ManagementJob
     func startBrowserInstall() async throws -> ManagementJob
     func computerUsePermissions() async throws -> ManagementComputerUsePermissions
+    func imessagePermissions() async throws -> ManagementIMessagePermissions
+    func startIMessageGrant(service: ManagementIMessageGrantService) async throws -> ManagementJob
+    func confirmIMessagePolicy() async throws -> ManagementJob
     func mobileStatus() async throws -> ManagementMobileStatus
     func startPairing() async throws -> ManagementPairingStart
     func pairingSession(id: String) async throws -> ManagementPairingSession
