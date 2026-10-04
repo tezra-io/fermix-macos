@@ -724,6 +724,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case channelStatusOff = "channel.status.off"
     case channelStatusNeedsSetup = "channel.status.needsSetup"
     case channelStatusConnected = "channel.status.connected"
+    case channelStatusUnavailable = "channel.status.unavailable"
     case channelSetUp = "channel.setUp"
     case channelSheetFooter = "channel.sheetFooter"
     case channelManage = "channel.manage"

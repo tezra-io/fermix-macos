@@ -318,8 +318,20 @@ def check_roster(record: dict, roster: dict) -> None:
     marks = record["marks"]
     for kind in KINDS:
         declared_count = f"{kind}_count"
-        keys = sorted(m["key"] for m in marks if m["kind"] == kind)
         expected = sorted(roster[f"{kind}s"])
+        # Fermix's own surfaces are not vendors and never appear in the roster the
+        # engine publishes; a first-party record outside it must say so in a
+        # roster_note, and never counts toward the roster's declared count.
+        own = sorted(
+            m["key"] for m in marks
+            if m["kind"] == kind and m["origin"] == "first_party" and m["key"] not in expected
+        )
+        for key in own:
+            mark = next(m for m in marks if m["kind"] == kind and m["key"] == key)
+            note = mark.get("roster_note")
+            if not isinstance(note, str) or not note.strip():
+                raise Failure(f"{key}: a first-party {kind} outside the roster records no roster_note")
+        keys = sorted(m["key"] for m in marks if m["kind"] == kind and m["key"] not in own)
         if keys != expected:
             missing = sorted(set(expected) - set(keys))
             extra = sorted(set(keys) - set(expected))

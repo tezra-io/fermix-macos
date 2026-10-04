@@ -91,7 +91,8 @@ struct VendorMarkTests {
     func textMarksDrawTheRecordedSymbol() throws {
         let recorded = try Self.marks().filter { $0["treatment"] as? String == "vendor_text_with_symbol" }
 
-        #expect(!recorded.isEmpty, "no record carries the text treatment to check")
+        // Every mark ships a file today; the loop is the check for the day a
+        // vendor's mark cannot be retrieved and a record takes the text treatment.
         for entry in recorded {
             let kindName = try #require(entry["kind"] as? String)
             let kind = try #require(VendorMark.Kind(rawValue: kindName))
@@ -106,7 +107,7 @@ struct VendorMarkTests {
 
     /// The name beside that symbol is the daemon's own spelling, from the
     /// section index, and it is the name the record says the row speaks.
-    @Test("the iMessage row is named by the daemon beside the channel symbol")
+    @Test("the iMessage row is named by the daemon beside its own mark")
     func imessageRowIsNamed() throws {
         let state: ManagementSetupState = try FakeDaemonGateway.fixtureResult(
             named: "setup_state_get",
@@ -125,7 +126,7 @@ struct VendorMarkTests {
 
         #expect(row.title == record["display_name"] as? String)
         #expect(row.title == record["accessibility_label"] as? String)
-        #expect(VendorMarks.mark(.channel, row.name)?.treatment == .textWithSymbol)
+        #expect(VendorMarks.mark(.channel, row.name)?.treatment == .file(.init("channels", "imessage-color", "svg")))
     }
 
     /// A record and a table that agree about a file that is not in the bundle

@@ -12,6 +12,9 @@ public struct ChannelRowModel: Identifiable, Equatable, Sendable {
     public let status: String
     public let enabled: Bool
     public let configured: Bool
+    /// Whether the row can be set up and switched on. The phone channel is not,
+    /// until the phone app ships: its row says so and offers no controls.
+    public let available: Bool
 
     public var id: String { name }
     public var accessibilityLabel: String { ProductStrings.commaPair(title, status) }
@@ -25,6 +28,12 @@ public enum ChannelRowProjection {
     /// own spelling; it is written once here so no pane composes a key of its
     /// own, and a row that does not exist in the descriptor simply has no
     /// toggle rather than a write the daemon would refuse.
+    /// The channels the pane shows but does not let anyone set up or switch on
+    /// yet. The phone channel waits for the Fermix phone app; until it ships,
+    /// a switch that registered a listener nobody can pair with would be a
+    /// control that does nothing.
+    public static let unavailable: Set<String> = ["mobile"]
+
     public static func enabledKey(for channel: String) -> String {
         precondition(!channel.isEmpty, "a channel is named")
 
@@ -57,12 +66,14 @@ public enum ChannelRowProjection {
                 title: titles[channel.name] ?? channel.name,
                 status: status(of: channel),
                 enabled: channel.enabled,
-                configured: channel.configured
+                configured: channel.configured,
+                available: !unavailable.contains(channel.name)
             )
         }
     }
 
     static func status(of channel: ManagementSetupChannel) -> String {
+        guard !unavailable.contains(channel.name) else { return ProductStrings[.channelStatusUnavailable] }
         guard channel.enabled else { return ProductStrings[.channelStatusOff] }
         guard channel.configured else { return ProductStrings[.channelStatusNeedsSetup] }
 
@@ -129,8 +140,10 @@ struct ChannelRow: View {
                 Text(row.status)
                     .foregroundStyle(Palette.secondary.color)
 
-                Button(row.configured ? ProductStrings[.channelManage] : ProductStrings[.channelSetUp], action: edit)
-                    .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.channelSetUp], row.title))
+                if row.available {
+                    Button(row.configured ? ProductStrings[.channelManage] : ProductStrings[.channelSetUp], action: edit)
+                        .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.channelSetUp], row.title))
+                }
 
                 // Stated, not inherited: a `Toggle` nested inside a row's
                 // trailing content is outside the grouped form's own row
@@ -143,7 +156,7 @@ struct ChannelRow: View {
                     // while writes are refused: the write path returns without
                     // writing, so the switch would flip and snap back under the
                     // banner that is already explaining why (M34 §7.6).
-                    .disabled(toggleRow == nil || model.writesBlocked)
+                    .disabled(!row.available || toggleRow == nil || model.writesBlocked)
                     .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.channelEnable], row.title))
             }
         } label: {
@@ -159,7 +172,10 @@ struct ChannelRow: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(row.accessibilityLabel)
         }
-        .task { await model.loadChannelSection(row.name) }
+        .task {
+            guard row.available else { return }
+            await model.loadChannelSection(row.name)
+        }
     }
 
     /// The descriptor's own enable row. Absent until the channel's section has

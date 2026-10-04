@@ -716,6 +716,7 @@
 "channel.status.off" = "Off";
 "channel.status.needsSetup" = "Needs setup";
 "channel.status.connected" = "Connected";
+"channel.status.unavailable" = "Available with the phone app";
 "channel.setUp" = "Set up…";
 "channel.sheetFooter" = "Saved as you type. Turn the channel on with the switch beside it when you are done.";
 "channel.manage" = "Change…";

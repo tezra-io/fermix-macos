@@ -76,21 +76,51 @@
     {
       "key": "imessage",
       "kind": "channel",
+      "origin": "first_party",
       "display_name": "iMessage",
       "accessibility_label": "iMessage",
-      "treatment": "vendor_text_with_symbol",
-      "origin": "vendor",
-      "source_url": "https://developer.apple.com/design/human-interface-guidelines/",
+      "treatment": "vendor_mark",
+      "plate": "neutral",
+      "source_url": "https://github.com/tezra-io/fermix",
       "source_retrieved_on": "2026-10-04",
-      "usage_terms": "Apple publishes no brand kit for Messages or iMessage. The Human Interface Guidelines and the Apple trademark guidelines permit naming the service in text and forbid reproducing Apple's app icons or redrawing them.",
-      "permitted_treatment": "The service is named in text beside the neutral channel symbol. No Apple icon, glyph or recolored derivative is shipped.",
-      "dark_mode_policy": "Text and the SF Symbol take the surface's own foreground color in both appearances; there is no vendor artwork to keep legible.",
-      "fallback": {
-        "sf_symbol": "bubble.left.and.bubble.right",
-        "reason": "no_published_brand_kit",
-        "detail": "Apple offers no downloadable Messages or iMessage mark for third parties and its trademark guidelines forbid reproducing the app icon, so the channel renders as its name beside the neutral channel symbol."
-      },
-      "notes": "Added with the iMessage channel (engine M54). The channel runs only on a Mac through the signed Fermix Messages helper; the mark policy is the same on every surface."
+      "usage_terms": "Fermix's own artwork, drawn for this surface; no vendor terms apply.",
+      "permitted_treatment": "Ship the file as it is on the app's own tile; scale uniformly.",
+      "dark_mode_policy": "One coloured glyph on transparency, legible on both appearances; no variant is needed.",
+      "assets": [
+        {
+          "role": "color",
+          "path": "channels/imessage-color.svg",
+          "sha256": "38155501a57a8a90d99570fd37316791b0fd600eb87aaef2ff77dccb08f72e65",
+          "asset_url": "https://github.com/tezra-io/fermix/blob/dev/apps/fermix_web/lib/fermix_web_web/live/setup_live/imessage_logo.svg",
+          "retrieved_on": "2026-10-04"
+        }
+      ],
+      "notes": "Added with the iMessage channel (engine M54). Apple publishes no brand kit for Messages and its trademark guidelines forbid reproducing the app icon, so the mark is Fermix's own speech-bubble drawing, never Apple's icon or a redraw of it."
+    },
+    {
+      "key": "mobile",
+      "kind": "channel",
+      "origin": "first_party",
+      "display_name": "Phone",
+      "accessibility_label": "Phone",
+      "treatment": "vendor_mark",
+      "plate": "neutral",
+      "source_url": "https://github.com/tezra-io/fermix",
+      "source_retrieved_on": "2026-10-04",
+      "usage_terms": "Fermix's own artwork, drawn for this surface; no vendor terms apply.",
+      "permitted_treatment": "Ship the file as it is on the app's own tile; scale uniformly.",
+      "dark_mode_policy": "One coloured glyph on transparency, legible on both appearances; no variant is needed.",
+      "assets": [
+        {
+          "role": "color",
+          "path": "channels/phone-color.svg",
+          "sha256": "559708910e5f18e6708bd28bd8ce90c69974a92797dd5a9d66e96242eb338d68",
+          "asset_url": "https://github.com/tezra-io/fermix/blob/dev/apps/fermix_web/lib/fermix_web_web/live/setup_live/phone_logo.svg",
+          "retrieved_on": "2026-10-04"
+        }
+      ],
+      "notes": "The phone channel row of the Channels pane (setup.state.get names it mobile). Fermix's own phone app, so Fermix's own mark.",
+      "roster_note": "Not a vendor: the phone is Fermix's own companion app, so it is absent from the roster's channel set, which lists the messaging vendors the setup form map publishes."
     },
     {
       "key": "signal",

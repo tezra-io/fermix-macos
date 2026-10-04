@@ -4,6 +4,8 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Channels: iMessage and Phone show their own marks instead of the generic channel symbol.
+- Channels: the Phone row says it is available with the phone app and cannot be switched on until that app ships.
 - Channels: iMessage joins the Channels pane on a Mac, with the account choice, your handle and the guest list; the two macOS permissions and the recipient confirmation still come from the setup page until the Permissions rows arrive.
 - Browser: a website's upload field in your own tab opens the Mac's file chooser, so you can attach a file or a folder. A task's tab never opens it.
 - Browser: a link to another app, such as an email address, asks before that app opens when you click it in your own tab, and a task's tab never opens another app.

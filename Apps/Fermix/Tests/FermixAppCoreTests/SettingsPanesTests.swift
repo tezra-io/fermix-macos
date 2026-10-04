@@ -431,6 +431,22 @@ struct SettingsPanesTests {
         #expect(ChannelRowProjection.status(of: live) == ProductStrings[.channelStatusConnected])
     }
 
+    /// The phone channel waits for the phone app: its row says so whatever the
+    /// daemon reports, and it is the one row that cannot be set up or switched on.
+    @Test("the phone row is unavailable until the phone app ships")
+    func phoneRowIsUnavailable() throws {
+        let phone = try channel(name: "mobile", enabled: true, configured: true)
+        let rows = ChannelRowProjection.rows(
+            [phone, try channel(name: "telegram", enabled: true, configured: true)],
+            titledBy: [ManagementSettingsSection(id: "channels.mobile", pane: .channels, title: "Phone")]
+        )
+
+        #expect(ChannelRowProjection.status(of: phone) == ProductStrings[.channelStatusUnavailable])
+        #expect(rows.first { $0.name == "mobile" }?.available == false)
+        #expect(rows.first { $0.name == "mobile" }?.title == "Phone")
+        #expect(rows.first { $0.name == "telegram" }?.available == true)
+    }
+
     /// A provider's own rows have exactly one home (M34 §5.1).
     ///
     /// The primary's are the pane's first section — the model in use, its
