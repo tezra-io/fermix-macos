@@ -9,7 +9,7 @@ Apps/Fermix/Sources/Fermix           # the GUI executable
 Apps/Fermix/Sources/FermixAgent      # the background agent launchd runs (SMAppService)
 Apps/Fermix/Tests/FermixAppCoreTests # swift-testing; run through script/swift_test.sh (plain swift test misses the framework paths)
 scripts/                             # stage_app.sh, sign_app.sh, verify_staged_app.sh, package_release.sh, dev_e2e.sh, the gates
-docs/                                # ignored except the tracked runbooks, SHIPPING.md and the design redlines
+docs/                                # the two runbooks and SHIPPING.md; docs/design links into the private docs repo
 ```
 
 ## The contract with the engine
@@ -35,7 +35,7 @@ The app runs the engine it pins, never the newest engine tag, so an engine fix r
 Never push to `main` without a PR, never tag unasked, and no AI attribution anywhere.
 
 ## Working rules
-- Design docs do not live in this repo. They live in the private repo `tezra-io/fermix-design-docs`, checked out beside this one, in its `fermix-macos/` folder; `docs/design` here is only a link there, made by that repo's `scripts/link.sh`. Every design doc or spec you are asked for is written there; commit only its files in that repo and push to `origin main`. Never commit a design doc here.
+- Docs do not live in this repo. Every design doc, spec, milestone, plan, research note, write-up and lessons file lives in the private repo `tezra-io/fermix-design-docs`, checked out beside this one, in its `fermix-macos/` folder; `docs/design` here is only a link there, made by that repo's `scripts/link.sh`. Every doc you are asked for is written there; commit only its files in that repo and push to `origin main`. Never commit a doc here, and never keep one as an ignored file under `docs/`: a doc that is not pushed there exists on one Mac. The only docs tracked here are the two runbooks and `docs/SHIPPING.md`, which the scripts and this file cite.
 - Copy: sentence case, no em dashes, no exclamation marks, no version numbers; every string through `ProductStrings` and `Localizable.strings`; the copy deck is `docs/design/M34_DESIGN_SYSTEM_REDLINES.md` (`docs/design` is a link into a checkout of the private `tezra-io/fermix-design-docs` repo, made by its `scripts/link.sh`).
 - `CHANGELOG.md` at the repo root is the release notes, kept as the work lands rather than reconstructed at release time: every PR that changes what a person sees or does adds a line under Unreleased, in the copy rules' voice, saying what changed and why it matters, never a commit hash or a file name. The release chore PR moves those lines under `## X.Y.Z (YYYY-MM-DD)`, and that section is the GitHub Release's body: the rail reads it with `scripts/changelog_section.sh` and refuses a tag whose version has no section.
 - Vendor marks ship only from the vendor's own host, byte for byte, with the provenance record in `VendorMarks/PROVENANCE.json`; nothing is redrawn or recoloured, and a vendor with no retrievable mark renders as text.
