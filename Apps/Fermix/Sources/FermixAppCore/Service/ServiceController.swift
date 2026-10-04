@@ -190,12 +190,16 @@ public struct ReturnOrBackstop: ApprovalReadSchedule {
     /// step is on screen, and nothing otherwise.
     public static let backstop: TimeInterval = 3
 
-    public init() {}
+    private let backstop: TimeInterval
+
+    public init(backstop: TimeInterval = ReturnOrBackstop.backstop) {
+        self.backstop = backstop
+    }
 
     public func nextRead() async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(Self.backstop * 1_000_000_000))
+                try await Task.sleep(nanoseconds: UInt64(backstop * 1_000_000_000))
             }
             group.addTask {
                 let returns = NotificationCenter.default.notifications(
