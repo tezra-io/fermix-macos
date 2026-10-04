@@ -332,17 +332,21 @@ public enum CommandTable {
         toolbarHelpKey(of: command).map { ProductStrings[$0] }
     }
 
+    /// The call's symbol, a phone: it sits in the conversation's header,
+    /// where a messaging app puts its call button, and the owner asked for a
+    /// call button there. The pet's dock draws its call control with this one
+    /// too, so the two call buttons are one shape (owner, 2026-10-04).
+    public static let callSymbol = "phone"
+
     /// The SF Symbol a toolbar control draws beside or instead of its label.
     ///
-    /// The call's is a phone: it sits in the conversation's header, where a
-    /// messaging app puts its call button, and the owner asked for a call
-    /// button there. Filled while a call is up (`fillsWhenOn`), so its state
-    /// shows in its shape as well as in its name.
+    /// The call's is `callSymbol`, filled while a call is up (`fillsWhenOn`),
+    /// so its state shows in its shape as well as in its name.
     public static func symbol(of command: AppCommand) -> String? {
         switch command {
         case .runNetworkChecks: return "globe"
         case .showBrowser: return "safari"
-        case .toggleVoiceCall: return "phone"
+        case .toggleVoiceCall: return callSymbol
         case .pauseLogs: return "pause.circle"
         case .exportLogs, .exportSupportBundle: return "square.and.arrow.up"
         default: return nil

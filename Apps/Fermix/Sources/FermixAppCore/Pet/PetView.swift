@@ -136,31 +136,19 @@ private struct ControlDock: View {
 
     var body: some View {
         HStack(spacing: Spacing.s) {
-            PetControlButton(
-                systemName: model.callActive ? "mic.fill" : "mic",
-                tint: model.callActive ? Palette.accent.color : Palette.ink.color,
-                label: model.callActionTitle
-            ) {
+            PetControlButton(symbol: .call(model), label: model.callActionTitle) {
                 model.toggleCall()
             }
             .disabled(!model.callActionEnabled)
 
             if model.showsInterrupt {
-                PetControlButton(
-                    systemName: "stop.circle",
-                    tint: Palette.ink.color,
-                    label: model.interruptActionTitle
-                ) {
+                PetControlButton(symbol: .interrupt, label: model.interruptActionTitle) {
                     model.interrupt()
                 }
             }
 
             if model.callActive {
-                PetControlButton(
-                    systemName: model.muted ? "mic.slash.fill" : "mic.slash",
-                    tint: model.muted ? Palette.warning.color : Palette.ink.color,
-                    label: model.muteActionTitle
-                ) {
+                PetControlButton(symbol: .mute(model), label: model.muteActionTitle) {
                     model.toggleMute()
                 }
             }
@@ -174,18 +162,46 @@ private struct ControlDock: View {
     }
 }
 
+/// How one of the dock's controls draws: its symbol, whether the symbol takes
+/// its filled form, and its tint. A value, so each state's drawing is proven
+/// without a window.
+struct PetDockSymbol: Equatable, Sendable {
+    let name: String
+    let filled: Bool
+    let tint: ThemedColor
+
+    /// The call control is the chat toolbar's call button (owner, 2026-10-04:
+    /// the call button in the phone's colours): the one phone symbol, filled
+    /// exactly while the toolbar's is, when a click would end a start or a
+    /// call, and in ink like it, never the accent. The mascot is what shows
+    /// that the call is live.
+    @MainActor
+    static func call(_ pet: PetFeatureModel) -> PetDockSymbol {
+        PetDockSymbol(name: CommandTable.callSymbol, filled: pet.callAction == .end, tint: Palette.ink)
+    }
+
+    /// The slashed microphone, filled and in the warning tint while muted.
+    @MainActor
+    static func mute(_ pet: PetFeatureModel) -> PetDockSymbol {
+        PetDockSymbol(name: "mic.slash", filled: pet.muted, tint: pet.muted ? Palette.warning : Palette.ink)
+    }
+
+    static let interrupt = PetDockSymbol(name: "stop.circle", filled: false, tint: Palette.ink)
+}
+
 private struct PetControlButton: View {
-    let systemName: String
-    let tint: Color
+    let symbol: PetDockSymbol
     let label: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName)
+            // The fill is a variant of the one name, as the toolbar draws it.
+            Image(systemName: symbol.name)
+                .symbolVariant(symbol.filled ? .fill : .none)
                 .font(.system(size: 14, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(tint)
+                .foregroundStyle(symbol.tint.color)
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }

@@ -302,6 +302,7 @@ struct ChatCallBoxTests {
     func toolbarCarriesTheCall() {
         #expect(CommandTable.toolbar(for: .chat).secondary == [.showBrowser, .toggleVoiceCall])
         #expect(CommandTable.symbol(of: .toggleVoiceCall) == "phone")
+        #expect(CommandTable.symbol(of: .toggleVoiceCall) == CommandTable.callSymbol)
         #expect(CommandTable.fillsWhenOn(.toggleVoiceCall))
         #expect(!CommandTable.fillsWhenOn(.pauseLogs))
         #expect(CommandTable.toolbarTitle(of: .toggleVoiceCall, isOn: false) == "Begin voice call")

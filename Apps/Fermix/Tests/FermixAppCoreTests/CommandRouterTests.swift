@@ -488,6 +488,32 @@ struct CommandRouterTests {
         #expect(harness.presentation.isShowing)
         #expect(harness.settings.selectedPane == .voice)
     }
+
+    /// The pet's dock draws the toolbar's phone, so the two fill together: at
+    /// rest, filled through a start and a call, at rest while the last call
+    /// ends and once it has.
+    @Test("the dock's phone fills exactly when the toolbar's does")
+    func dockPhoneFollowsTheToolbar() async throws {
+        let harness = try RouterHarness()
+        try await harness.readVoice("ready")
+        let call = harness.voiceCall
+
+        func agree(_ phase: String) {
+            let dock = PetDockSymbol.call(harness.surfaces.pet)
+            #expect(dock.name == CommandTable.symbol(of: .toggleVoiceCall), "\(phase)")
+            #expect(dock.filled == harness.router.isOn(.toggleVoiceCall), "\(phase)")
+        }
+
+        agree("idle")
+        call.callStarting()
+        agree("starting")
+        call.callStarted()
+        agree("active")
+        call.callStopping()
+        agree("stopping")
+        call.callEnded()
+        agree("ended")
+    }
 }
 
 /// The real router over the real surfaces, with the daemon, the windows, the

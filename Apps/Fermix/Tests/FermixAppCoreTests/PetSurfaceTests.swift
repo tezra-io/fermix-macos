@@ -287,6 +287,56 @@ struct PetSurfaceTests {
         #expect(failed.call.voice.phase == .starting)
     }
 
+    // MARK: - The dock
+
+    /// The dock's call control is the chat toolbar's call button in small:
+    /// the one phone symbol, filled while a click ends a call, as the
+    /// toolbar's is, and in ink rather than the accent (owner, 2026-10-04).
+    @Test("the dock's call control is the toolbar's phone, filled while it ends a call, in ink")
+    func dockCallControlIsThePhone() throws {
+        let harness = try harness()
+        let rest = PetDockSymbol(name: "phone", filled: false, tint: Palette.ink)
+        let ending = PetDockSymbol(name: "phone", filled: true, tint: Palette.ink)
+
+        #expect(PetDockSymbol.call(harness.model) == rest)
+        #expect(PetDockSymbol.call(harness.model).name == CommandTable.symbol(of: .toggleVoiceCall))
+        #expect(harness.model.callActionTitle == "Begin voice call")
+
+        harness.call.voiceNegotiated()
+        harness.call.callStarting()
+        #expect(PetDockSymbol.call(harness.model) == ending)
+        #expect(harness.model.callActionTitle == "End voice call")
+
+        harness.call.callStarted()
+        _ = harness.call.apply(.state(.speaking), audioIsPlaying: false)
+        #expect(PetDockSymbol.call(harness.model) == ending)
+
+        // A call that is ending has its next click begin the next call, so
+        // the phone is at rest again, as the toolbar's is.
+        harness.call.callStopping()
+        #expect(PetDockSymbol.call(harness.model) == rest)
+        #expect(harness.model.callActionTitle == "Begin voice call")
+
+        let dock = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
+        #expect(!dock.contains("Palette.accent"), "the dock draws the accent again")
+        #expect(dock.contains("PetControlButton(symbol: .call(model)"))
+    }
+
+    /// Mute and interrupt keep their drawing: the slashed microphone, filled
+    /// and in the warning tint while muted, and the stop.
+    @Test("mute keeps its slashed microphone and its warning tint, and interrupt its stop")
+    func dockMuteAndInterruptKeepTheirSymbols() throws {
+        let harness = try harness()
+        harness.call.beginTestCall()
+
+        #expect(PetDockSymbol.mute(harness.model) == PetDockSymbol(name: "mic.slash", filled: false, tint: Palette.ink))
+
+        harness.call.voiceMuted(true)
+        #expect(PetDockSymbol.mute(harness.model) == PetDockSymbol(name: "mic.slash", filled: true, tint: Palette.warning))
+
+        #expect(PetDockSymbol.interrupt == PetDockSymbol(name: "stop.circle", filled: false, tint: Palette.ink))
+    }
+
     /// The speaking tail is the one place the visual mode outlives the daemon's
     /// state, and it must keep its word: the status the daemon last reported is
     /// not what the pet is doing while audio is still leaving the speaker.
