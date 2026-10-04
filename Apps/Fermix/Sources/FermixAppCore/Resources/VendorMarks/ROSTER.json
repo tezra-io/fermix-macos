@@ -12,7 +12,7 @@
     "channels": {
       "path": "apps/fermix_web/lib/fermix_web_web/live/setup_live.ex",
       "symbol": "the channels form map",
-      "sha256": "d38741764becc2eb7870ecb9c0e26d614d7a57bf4bf6a06ffb39bcbcf6e5981c"
+      "sha256": "61f225964af9cffd6ab4493594b49d3092f80cbb7339c784ad0ef8bd5d00475f"
     },
     "plugins": {
       "path": "apps/fermix_core/priv/plugins/index.json",

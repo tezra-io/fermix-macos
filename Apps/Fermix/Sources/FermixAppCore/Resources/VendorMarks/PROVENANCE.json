@@ -18,7 +18,7 @@
     "plugins": "apps/fermix_core/priv/plugins/index.json and catalog.json (the static catalog and the bundled set)",
     "features": "apps/fermix_web/lib/fermix_web_web/live/setup_live (the three native driver logos)",
     "roster": "ROSTER.json",
-    "roster_sha256": "4c9317784636d82022ae5319dc2d40459cd971fb9b9ede202e3f1419e909a33d",
+    "roster_sha256": "fe93723cbef433f63b7362f0085aa622780fcf1b9c4c9b383032933120adc60f",
     "provider_count": 8,
     "channel_count": 6,
     "plugin_count": 13,
@@ -80,22 +80,22 @@
       "display_name": "iMessage",
       "accessibility_label": "iMessage",
       "treatment": "vendor_mark",
-      "plate": "neutral",
+      "plate": "bleed",
       "source_url": "https://github.com/tezra-io/fermix",
       "source_retrieved_on": "2026-10-04",
       "usage_terms": "Fermix's own artwork, drawn for this surface; no vendor terms apply.",
-      "permitted_treatment": "Ship the file as it is on the app's own tile; scale uniformly.",
-      "dark_mode_policy": "One coloured glyph on transparency, legible on both appearances; no variant is needed.",
+      "permitted_treatment": "Ship the file as it is; it carries its own ground and fills the tile.",
+      "dark_mode_policy": "An opaque gradient tile with a white glyph, the same on both appearances.",
       "assets": [
         {
           "role": "color",
           "path": "channels/imessage-color.svg",
-          "sha256": "38155501a57a8a90d99570fd37316791b0fd600eb87aaef2ff77dccb08f72e65",
+          "sha256": "19c4d28a8dc0be9e3457fec0d11c1e9bd8428708dffd79a8983aa7419b4f35b4",
           "asset_url": "https://github.com/tezra-io/fermix/blob/dev/apps/fermix_web/lib/fermix_web_web/live/setup_live/imessage_logo.svg",
           "retrieved_on": "2026-10-04"
         }
       ],
-      "notes": "Added with the iMessage channel (engine M54). Apple publishes no brand kit for Messages and its trademark guidelines forbid reproducing the app icon, so the mark is Fermix's own speech-bubble drawing, never Apple's icon or a redraw of it."
+      "notes": "Added with the iMessage channel (engine M54). Apple publishes no brand kit for Messages, so the mark is Fermix's own drawing in the style of the Messages icon: a green gradient squircle and a white speech bubble, never Apple's icon file."
     },
     {
       "key": "mobile",
@@ -104,17 +104,17 @@
       "display_name": "Phone",
       "accessibility_label": "Phone",
       "treatment": "vendor_mark",
-      "plate": "neutral",
+      "plate": "bleed",
       "source_url": "https://github.com/tezra-io/fermix",
       "source_retrieved_on": "2026-10-04",
       "usage_terms": "Fermix's own artwork, drawn for this surface; no vendor terms apply.",
-      "permitted_treatment": "Ship the file as it is on the app's own tile; scale uniformly.",
-      "dark_mode_policy": "One coloured glyph on transparency, legible on both appearances; no variant is needed.",
+      "permitted_treatment": "Ship the file as it is; it carries its own ground and fills the tile.",
+      "dark_mode_policy": "An opaque gradient tile with a white glyph, the same on both appearances.",
       "assets": [
         {
           "role": "color",
           "path": "channels/phone-color.svg",
-          "sha256": "559708910e5f18e6708bd28bd8ce90c69974a92797dd5a9d66e96242eb338d68",
+          "sha256": "1d4e49f0488e4367fcf20309623d3f7516bca7956ef5ebd20de8ab584ee850c4",
           "asset_url": "https://github.com/tezra-io/fermix/blob/dev/apps/fermix_web/lib/fermix_web_web/live/setup_live/phone_logo.svg",
           "retrieved_on": "2026-10-04"
         }
