@@ -24,7 +24,7 @@ scripts/                          staging, signing, verification, release and de
                                   notarize.yml (reusable signing), release.yml (the rail)
 Casks/                            Homebrew cask template, rendered at release
 CHANGELOG.md                      the release notes, kept as the work lands
-docs/                             runbooks, SHIPPING.md and the design redlines
+docs/design                       a link into the private docs repo: runbooks, SHIPPING.md, specs
 ```
 
 ## Testing locally with the latest engine
@@ -60,8 +60,8 @@ that checkout: it builds exactly what is there, uncommitted work included. Set
 `FERMIX_REPO` if your checkout is not at `~/projects/fermix`.
 
 The app opens on Chat; `open fermix-dev://settings/providers` and the other
-`fermix-dev://` routes open a surface directly. `docs/E2E_RUNBOOK.md` is the full
-acceptance session, and `docs/SHIPPING.md` the release plan.
+`fermix-dev://` routes open a surface directly. `docs/design/E2E_RUNBOOK.md` is the full
+acceptance session, and `docs/design/SHIPPING.md` the release plan.
 
 ## Building and the gates
 

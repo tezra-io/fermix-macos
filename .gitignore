@@ -34,7 +34,7 @@ dist-e2e/
 # BEAM crash dumps from local engine smokes
 erl_crash.dump
 
-# Machine-local analysis, handoff and task output. The runbooks and the copy
-# deck under docs/ are tracked; a new document there needs an explicit add.
+# Machine-local analysis, handoff and task output. No doc is tracked here:
+# docs/design is a link into the private docs repo, where every doc lives.
 docs/
 output/

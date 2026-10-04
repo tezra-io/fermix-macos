@@ -2,7 +2,7 @@
 #
 # One-command dev loop for the Fermix app with its engine embedded and
 # RUNNING — the "click around a live app" setup, not the Stage 0 acceptance
-# session (docs/E2E_RUNBOOK.md owns that).
+# session (docs/design/E2E_RUNBOOK.md owns that).
 #
 #   scripts/dev_e2e.sh up          build engine + stage + sign + verify,
 #                                  point the app at the dev home, open the app,
