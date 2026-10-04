@@ -438,7 +438,8 @@ struct SettingsPanesTests {
         let phone = try channel(name: "mobile", enabled: true, configured: true)
         let rows = ChannelRowProjection.rows(
             [phone, try channel(name: "telegram", enabled: true, configured: true)],
-            titledBy: [ManagementSettingsSection(id: "channels.mobile", pane: .channels, title: "Phone")]
+            titledBy: [ManagementSettingsSection(id: "channels.mobile", pane: .channels, title: "Phone")],
+            imessage: .unanswered
         )
 
         #expect(ChannelRowProjection.status(of: phone) == ProductStrings[.channelStatusUnavailable])
@@ -527,7 +528,8 @@ struct SettingsPanesTests {
     func channelTitles() throws {
         let rows = ChannelRowProjection.rows(
             [try channel(name: "whatsapp", enabled: true, configured: true)],
-            titledBy: [ManagementSettingsSection(id: "channels.whatsapp", pane: .channels, title: "WhatsApp")]
+            titledBy: [ManagementSettingsSection(id: "channels.whatsapp", pane: .channels, title: "WhatsApp")],
+            imessage: .unanswered
         )
 
         #expect(rows.first?.title == "WhatsApp")
@@ -541,7 +543,8 @@ struct SettingsPanesTests {
     func channelWithoutSection() throws {
         let rows = ChannelRowProjection.rows(
             [try channel(name: "whatsapp", enabled: true, configured: true)],
-            titledBy: []
+            titledBy: [],
+            imessage: .unanswered
         )
 
         #expect(rows.first?.title == "whatsapp")
@@ -1432,12 +1435,13 @@ struct SettingsPanesTests {
 
         let drawn = PermissionVisibility.rights(
             model.permissions.rows,
-            requiresNewerEngine: model.requiresNewerEngine
+            requiresNewerEngine: model.requiresNewerEngine,
+            showsMessages: true
         )
         #expect(drawn.allSatisfy { !$0.right.readByDaemon })
         #expect(drawn.contains { $0.right == .microphone }, "a local right still answers for itself")
         #expect(
-            PermissionVisibility.rights(model.permissions.rows, requiresNewerEngine: false).count
+            PermissionVisibility.rights(model.permissions.rows, requiresNewerEngine: false, showsMessages: true).count
                 == PermissionRight.allCases.count
         )
     }

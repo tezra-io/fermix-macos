@@ -121,7 +121,8 @@ struct VendorMarkTests {
             try Self.marks().first { $0["kind"] as? String == "channel" && $0["key"] as? String == "imessage" }
         )
         let row = try #require(
-            ChannelRowProjection.rows(state.channels, titledBy: inventory.sections).first { $0.name == "imessage" }
+            ChannelRowProjection.rows(state.channels, titledBy: inventory.sections, imessage: .unanswered)
+                .first { $0.name == "imessage" }
         )
 
         #expect(row.title == record["display_name"] as? String)

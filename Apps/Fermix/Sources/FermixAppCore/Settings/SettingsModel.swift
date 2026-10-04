@@ -435,6 +435,22 @@ public final class SettingsModel: ObservableObject {
         noteRequiresNewerEngine()
     }
 
+    /// Whether the daemon publishes the iMessage channel at all. Only a Mac
+    /// engine that has the channel does, and only that engine serves its probe.
+    public var publishesIMessage: Bool {
+        setupState.value?.channels.contains { $0.name == IMessageChannelStatus.channel } ?? false
+    }
+
+    /// Reads the iMessage helper's probe through the one ledger, where the
+    /// daemon publishes the channel. An engine without it is never asked for a
+    /// method it does not have, and a refusal here says nothing about whether
+    /// the other panes can be served.
+    public func refreshIMessagePermissions() async {
+        guard publishesIMessage else { return }
+
+        await permissions.refreshIMessage()
+    }
+
     /// Probes what is already installed on this Mac. Detections change the verb
     /// a row leads with; they never add a row or a screen.
     ///

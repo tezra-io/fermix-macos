@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// One channel row: where it stands, and whether it can be switched on.
@@ -53,7 +54,8 @@ public enum ChannelRowProjection {
     /// it is the only fact available when the two answers disagree.
     public static func rows(
         _ channels: [ManagementSetupChannel],
-        titledBy sections: [ManagementSettingsSection]
+        titledBy sections: [ManagementSettingsSection],
+        imessage: IMessageChannelFacts
     ) -> [ChannelRowModel] {
         let titles = Dictionary(
             sections.compactMap { section in section.channelName.map { ($0, section.title) } },
@@ -64,12 +66,21 @@ public enum ChannelRowProjection {
             ChannelRowModel(
                 name: channel.name,
                 title: titles[channel.name] ?? channel.name,
-                status: status(of: channel),
+                status: status(of: channel, imessage: imessage),
                 enabled: channel.enabled,
                 configured: channel.configured,
                 available: !unavailable.contains(channel.name)
             )
         }
+    }
+
+    /// A switched-on iMessage row reads the helper's probe and nothing else
+    /// (M54 §10.1); every other row, and iMessage switched off, reads the
+    /// snapshot's own two facts.
+    static func status(of channel: ManagementSetupChannel, imessage: IMessageChannelFacts) -> String {
+        guard channel.name == IMessageChannelStatus.channel, channel.enabled else { return status(of: channel) }
+
+        return IMessageChannelStatus.status(imessage.probe, refusal: imessage.refusal)
     }
 
     static func status(of channel: ManagementSetupChannel) -> String {
@@ -81,15 +92,119 @@ public enum ChannelRowProjection {
     }
 }
 
+/// What the iMessage row's status is read from: the helper's probe, and the
+/// daemon's sentence for a confirmation it refused, both from the one ledger.
+public struct IMessageChannelFacts: Equatable, Sendable {
+    public let probe: SettingsReadState<ManagementIMessagePermissions>
+    public let refusal: String?
+
+    public init(probe: SettingsReadState<ManagementIMessagePermissions>, refusal: String?) {
+        self.probe = probe
+        self.refusal = refusal
+    }
+
+    /// Nothing read yet.
+    public static let unanswered = IMessageChannelFacts(probe: .unread, refusal: nil)
+}
+
+/// The iMessage row's truthful status (M54 §10.1).
+///
+/// `imessage.permissions.get` is the single source: the row reads Connected
+/// only when the helper is installed, Full Disk Access is granted, the
+/// Messages database is readable, Automation is granted, the confirmed
+/// recipients are exactly the saved ones, Messages is signed in and Fermix runs
+/// in the logged-in session. Otherwise it names the first thing missing, in
+/// that order, which is the order a person fixes them in.
+public enum IMessageChannelStatus {
+    /// The channel's wire identifier, as `setup.state.get` publishes it.
+    public static let channel = "imessage"
+
+    /// One thing the probe says is missing.
+    public enum Gap: Equatable, Sendable {
+        case helperNotInstalled
+        case fullDiskAccess
+        case messagesData
+        case automation
+        case confirmation
+        case signIn
+        case userSession
+
+        var titleKey: ProductStringKey {
+            switch self {
+            case .helperNotInstalled: return .channelStatusHelperNotInstalled
+            case .fullDiskAccess: return .channelStatusNeedsFullDiskAccess
+            case .messagesData: return .channelStatusMessagesDataUnreadable
+            case .automation: return .channelStatusNeedsMessagesAutomation
+            case .confirmation: return .channelStatusAwaitingConfirmation
+            case .signIn: return .channelStatusMessagesNotSignedIn
+            case .userSession: return .channelStatusNeedsUserSession
+            }
+        }
+    }
+
+    /// The first gap, or nil where nothing is missing.
+    public static func firstGap(in probe: ManagementIMessagePermissions) -> Gap? {
+        guard probe.installed else { return .helperNotInstalled }
+        guard probe.fullDiskAccess == .granted else { return .fullDiskAccess }
+        guard probe.db == .readable else { return .messagesData }
+        guard probe.automation == .granted else { return .automation }
+        guard IMessageRights.recipientsConfirmed(probe) else { return .confirmation }
+        guard probe.signedIn == true else { return .signIn }
+        guard probe.userSession == true else { return .userSession }
+
+        return nil
+    }
+
+    /// The row's status. With no answer the row claims nothing: it is checking,
+    /// or it carries the daemon's own sentence for why the probe could not run.
+    /// A refused confirmation is the daemon's sentence where "Awaiting
+    /// confirmation" would stand, and never stands over an earlier gap.
+    public static func status(
+        _ probe: SettingsReadState<ManagementIMessagePermissions>,
+        refusal: String?
+    ) -> String {
+        switch probe {
+        case .loaded(let answer):
+            return sentence(for: firstGap(in: answer), refusal: refusal)
+        case .unavailable(let sentence):
+            return sentence
+        case .requiresNewerEngine:
+            return ProductStrings[.daemonErrorRequiresNewerEngine]
+        case .unread, .loading:
+            return ProductStrings[.channelStatusChecking]
+        }
+    }
+
+    private static func sentence(for gap: Gap?, refusal: String?) -> String {
+        guard let gap else { return ProductStrings[.channelStatusConnected] }
+        guard gap == .confirmation, let refusal else { return ProductStrings[gap.titleKey] }
+
+        return refusal
+    }
+}
+
 /// Channels: a hand-built list over daemon-supplied credential rows (M34 §5.2).
 ///
-/// The list, the status words and the enable toggle are the app's; every field
+/// The list, the status words and the enable toggle are the app's, and the
+/// iMessage row's status is projected from the helper's probe (M54 §10.1); every field
 /// inside a channel's sheet comes from `settings.get {channels.<name>}` and
 /// nothing is enumerated in Swift, which is what stops this pane and the browser
 /// door from disagreeing about what a channel needs.
 struct ChannelsPane: View {
     @ObservedObject var model: SettingsModel
+    /// The one ledger, whose iMessage probe is the iMessage row's status.
+    @ObservedObject var permissions: PermissionLedger
+    /// The Fermix Messages install the iMessage switch runs before its write.
+    /// Owned here rather than by the row, so it outlives the row scrolling out
+    /// of view.
+    @StateObject private var imessageInstall: JobRunner
     @State private var editing: ChannelRowModel?
+
+    init(model: SettingsModel) {
+        self.model = model
+        self.permissions = model.permissions
+        _imessageInstall = StateObject(wrappedValue: model.makeJobRunner())
+    }
 
     var body: some View {
         SettingsPaneForm(title: SettingsPane.channels.title) {
@@ -103,12 +218,20 @@ struct ChannelsPane: View {
         .sheet(item: $editing) { row in
             ChannelSheet(row: row, model: model) { editing = nil }
         }
+        // The probe never prompts. It is read once the daemon has said the
+        // channel exists, and again on every return to the app, which is when
+        // a person comes back from System Settings.
+        .task(id: model.publishesIMessage) { await model.refreshIMessagePermissions() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await model.refreshIMessagePermissions() }
+        }
     }
 
     private var rows: [ChannelRowModel] {
         ChannelRowProjection.rows(
             model.setupState.value?.channels ?? [],
-            titledBy: model.sections(for: .channels)
+            titledBy: model.sections(for: .channels),
+            imessage: IMessageChannelFacts(probe: permissions.imessage, refusal: permissions.imessageRefusal)
         )
     }
 
@@ -122,19 +245,58 @@ struct ChannelsPane: View {
     private var channels: some View {
         Section(ProductStrings[.settingsChannelsSection]) {
             ForEach(rows) { row in
-                ChannelRow(row: row, model: model) { editing = row }
+                ChannelRow(row: row, model: model, install: imessageInstall) { editing = row }
             }
         }
     }
 }
 
 /// One channel: its status, its switch, and the way into its credentials.
+///
+/// The iMessage row's switch installs Fermix Messages before its write
+/// (M54 §10.2), so that row also draws the install's progress, its Cancel and
+/// the daemon's sentence for a run that ended badly, as the Meetings switch
+/// does.
 struct ChannelRow: View {
     let row: ChannelRowModel
     @ObservedObject var model: SettingsModel
+    @ObservedObject var install: JobRunner
     let edit: () -> Void
 
     var body: some View {
+        if installsHelper {
+            VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+                content
+
+                if install.isRunning || install.failure != nil {
+                    installRun
+                }
+            }
+        } else {
+            content
+        }
+    }
+
+    /// Whether this row's switch runs the helper install. Only iMessage's does.
+    private var installsHelper: Bool { row.name == IMessageChannelStatus.channel }
+
+    /// The install under the switch, with the one control that stops it.
+    private var installRun: some View {
+        HStack(spacing: Spacing.s) {
+            JobProgress(runner: install)
+
+            if install.isRunning {
+                Spacer(minLength: 0)
+
+                Button(ProductStrings[.settingsJobCancel]) {
+                    Task { await install.cancelJob() }
+                }
+                .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.settingsJobCancel], row.title))
+            }
+        }
+    }
+
+    private var content: some View {
         LabeledContent {
             HStack(spacing: Spacing.xs) {
                 Text(row.status)
@@ -155,8 +317,12 @@ struct ChannelRow: View {
                     // Until the daemon has named the enable row, and never
                     // while writes are refused: the write path returns without
                     // writing, so the switch would flip and snap back under the
-                    // banner that is already explaining why (M34 §7.6).
-                    .disabled(!row.available || toggleRow == nil || model.writesBlocked)
+                    // banner that is already explaining why (M34 §7.6). Nor
+                    // while the switch's own install runs.
+                    .disabled(
+                        !row.available || toggleRow == nil || model.writesBlocked
+                            || (installsHelper && install.isRunning)
+                    )
                     .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.channelEnable], row.title))
             }
         } label: {
@@ -192,6 +358,11 @@ struct ChannelRow: View {
             guard let toggleRow else { return }
 
             Task {
+                guard !installsHelper else {
+                    await model.setIMessageEnabled(isOn, on: install)
+                    return
+                }
+
                 await model.apply(
                     section: ChannelRowProjection.sectionId(for: row.name),
                     key: toggleRow.key,

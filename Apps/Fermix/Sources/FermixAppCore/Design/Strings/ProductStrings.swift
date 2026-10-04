@@ -725,6 +725,17 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case channelStatusNeedsSetup = "channel.status.needsSetup"
     case channelStatusConnected = "channel.status.connected"
     case channelStatusUnavailable = "channel.status.unavailable"
+    /// The iMessage row's status from the helper's probe (M54 §10.1): the
+    /// probe not answered yet, then the first thing missing, in the order a
+    /// person fixes them.
+    case channelStatusChecking = "channel.status.checking"
+    case channelStatusHelperNotInstalled = "channel.status.helperNotInstalled"
+    case channelStatusNeedsFullDiskAccess = "channel.status.needsFullDiskAccess"
+    case channelStatusMessagesDataUnreadable = "channel.status.messagesDataUnreadable"
+    case channelStatusNeedsMessagesAutomation = "channel.status.needsMessagesAutomation"
+    case channelStatusAwaitingConfirmation = "channel.status.awaitingConfirmation"
+    case channelStatusMessagesNotSignedIn = "channel.status.messagesNotSignedIn"
+    case channelStatusNeedsUserSession = "channel.status.needsUserSession"
     case channelSetUp = "channel.setUp"
     case channelSheetFooter = "channel.sheetFooter"
     case channelManage = "channel.manage"
@@ -745,14 +756,24 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case permissionScreenRecordingTitle = "permission.screenRecording.title"
     case permissionInputControlTitle = "permission.inputControl.title"
     case permissionBackgroundServiceTitle = "permission.backgroundService.title"
+    /// The iMessage helper's three rights (M54 §10.2).
+    case permissionMessagesDataTitle = "permission.messagesData.title"
+    case permissionMessagesAutomationTitle = "permission.messagesAutomation.title"
+    case permissionMessagesRecipientsTitle = "permission.messagesRecipients.title"
     case permissionPrincipalApp = "permission.principal.app"
     case permissionPrincipalComputerUse = "permission.principal.computerUse"
     case permissionPrincipalAgent = "permission.principal.agent"
+    case permissionPrincipalMessages = "permission.principal.messages"
     case permissionStateGranted = "permission.state.granted"
     case permissionStateNotGranted = "permission.state.notGranted"
     case permissionStateRequiresApproval = "permission.state.requiresApproval"
     case permissionStateUnknown = "permission.state.unknown"
+    /// The recipients row is confirmed, or waits for the owner, rather than
+    /// granted.
+    case permissionStateConfirmed = "permission.state.confirmed"
+    case permissionStateAwaitingConfirmation = "permission.state.awaitingConfirmation"
     case permissionActionGrant = "permission.action.grant"
+    case permissionActionConfirm = "permission.action.confirm"
     case permissionActionOpenSettings = "permission.action.openSettings"
     case permissionActionOpenLoginItems = "permission.action.openLoginItems"
     case permissionsRightsSection = "permissions.rightsSection"

@@ -88,6 +88,59 @@ extension SettingsModel {
         await start(runner) { try await self.gateway.startComputerUseGrant() }
     }
 
+    /// The iMessage switch, both ways (M54 §10.2), by the rule the Meetings
+    /// switch follows.
+    ///
+    /// Turning it on asks the helper's probe first, and where Fermix Messages
+    /// is not on this Mac installs it before the write: the channel turned on
+    /// over a missing helper is a switch that reads on and receives nothing. A
+    /// refused or cancelled install writes nothing, so the switch stays off and
+    /// the daemon's own sentence stands under it. The probe is read again once
+    /// the install ends, whichever way, because the install is what it reports.
+    ///
+    /// Turning it off is the plain write every other switch makes. Nothing is
+    /// uninstalled and nothing is asked.
+    public func setIMessageEnabled(_ isOn: Bool, on runner: JobRunner) async {
+        let section = ChannelRowProjection.sectionId(for: IMessageChannelStatus.channel)
+        let key = ChannelRowProjection.enabledKey(for: IMessageChannelStatus.channel)
+
+        guard isOn else {
+            await apply(section: section, key: key, value: .flag(false))
+            return
+        }
+
+        await permissions.refreshIMessage()
+        if IMessageEnable.installsFirst(permissions.imessage) {
+            await startCapabilityInstall(.imessageHelper, on: runner)
+            await runner.drainPendingWork()
+            await permissions.refreshIMessage()
+            guard runner.completed else { return }
+        }
+
+        await apply(section: section, key: key, value: .flag(true))
+    }
+
+    /// One iMessage grant, then the probe its end changes. The owner of the run
+    /// re-reads it, as the notetaker's sign-in does: a Full Disk Access grant
+    /// lands in System Settings, and a view watching the runner would read it
+    /// only if it happened to observe the end.
+    public func startIMessageGrant(_ service: ManagementIMessageGrantService, on runner: JobRunner) async {
+        await start(runner) { try await self.gateway.startIMessageGrant(service: service) }
+        await runner.drainPendingWork()
+        await permissions.refreshIMessage()
+    }
+
+    /// The recipient confirmation, then the probe. A refusal the daemon names,
+    /// such as an owner that is this Mac's own address, is recorded on the
+    /// ledger, because the probe carries no field that says so and the Channels
+    /// row shows it as its status.
+    public func confirmIMessageRecipients(on runner: JobRunner) async {
+        await start(runner) { try await self.gateway.confirmIMessagePolicy() }
+        await runner.drainPendingWork()
+        permissions.noteIMessageConfirmation(runner.job)
+        await permissions.refreshIMessage()
+    }
+
     public func startPluginInstall(name: String, on runner: JobRunner) async {
         precondition(!name.isEmpty, "a plugin is installed by name")
 
@@ -137,5 +190,17 @@ extension SettingsModel {
             log.error("job list refused: \(ManagementMessage.sentence(for: error), privacy: .public)")
             noteReconcile(error)
         }
+    }
+}
+
+/// Whether turning iMessage on has to install Fermix Messages first.
+///
+/// Only a probe that answered `installed: true` skips the install. A probe
+/// that has not answered is not an installed helper, and the install is safe
+/// to run over one that is there: the engine's install short-circuits an
+/// installed helper.
+public enum IMessageEnable {
+    public static func installsFirst(_ probe: SettingsReadState<ManagementIMessagePermissions>) -> Bool {
+        probe.value?.installed != true
     }
 }

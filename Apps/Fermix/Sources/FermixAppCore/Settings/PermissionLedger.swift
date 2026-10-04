@@ -5,12 +5,20 @@ import Foundation
 ///
 /// The principal is on the row because one consent never implies another: the
 /// microphone is the GUI's, screen capture and input control belong to the
-/// separate signed helper, and the background item is the agent's.
+/// separate signed helper, the background item is the agent's, and the three
+/// iMessage rights belong to Fermix Messages (M54 §10.2).
 public enum PermissionRight: String, CaseIterable, Sendable {
     case microphone
     case screenRecording
     case inputControl
     case backgroundService
+    /// Full Disk Access, which is what lets the helper read the Messages
+    /// database.
+    case messagesData
+    case messagesAutomation
+    /// Who Fermix may message: the recipients the owner confirmed in the
+    /// helper's own dialog.
+    case messagesRecipients
 
     public var titleKey: ProductStringKey {
         switch self {
@@ -18,6 +26,9 @@ public enum PermissionRight: String, CaseIterable, Sendable {
         case .screenRecording: return .permissionScreenRecordingTitle
         case .inputControl: return .permissionInputControlTitle
         case .backgroundService: return .permissionBackgroundServiceTitle
+        case .messagesData: return .permissionMessagesDataTitle
+        case .messagesAutomation: return .permissionMessagesAutomationTitle
+        case .messagesRecipients: return .permissionMessagesRecipientsTitle
         }
     }
 
@@ -26,13 +37,33 @@ public enum PermissionRight: String, CaseIterable, Sendable {
         case .microphone: return .permissionPrincipalApp
         case .screenRecording, .inputControl: return .permissionPrincipalComputerUse
         case .backgroundService: return .permissionPrincipalAgent
+        case .messagesData, .messagesAutomation, .messagesRecipients: return .permissionPrincipalMessages
         }
     }
 
-    /// Whether the daemon is what answers for this right. The helper's two come
-    /// from `computer_use.permissions.get`, which is protocol v2; the other two
-    /// this process reads for itself.
-    public var readByDaemon: Bool { self == .screenRecording || self == .inputControl }
+    /// The word a state reads as on this row. A recipient record is confirmed
+    /// or waiting for the owner rather than granted, so that row says so.
+    public func stateTitleKey(_ state: PermissionState) -> ProductStringKey {
+        guard self == .messagesRecipients else { return state.titleKey }
+
+        switch state {
+        case .granted: return .permissionStateConfirmed
+        case .notGranted, .requiresApproval: return .permissionStateAwaitingConfirmation
+        case .unknown: return state.titleKey
+        }
+    }
+
+    /// Whether the daemon is what answers for this right. The computer-use
+    /// helper's two come from `computer_use.permissions.get` and the iMessage
+    /// helper's three from `imessage.permissions.get`, both protocol v2; the
+    /// other two this process reads for itself.
+    public var readByDaemon: Bool { self != .microphone && self != .backgroundService }
+
+    /// Whether this is one of the iMessage helper's rights, which a Mac that
+    /// has never used the channel does not see.
+    public var isMessages: Bool {
+        self == .messagesData || self == .messagesAutomation || self == .messagesRecipients
+    }
 }
 
 /// What a right is, right now. `unknown` is a real answer: nothing prompts on
@@ -69,6 +100,12 @@ public enum PermissionAction: Equatable, Sendable {
     case requestMicrophone
     /// Runs the daemon's grant job, which raises the helper's dialogs.
     case grantComputerUse
+    /// Runs `imessage.grant.start` for one service: the Automation prompt, or
+    /// the Full Disk Access pane with Fermix Messages revealed.
+    case grantIMessage(ManagementIMessageGrantService)
+    /// Runs `imessage.policy.confirm`, which shows the helper's own dialog
+    /// naming every recipient.
+    case confirmIMessageRecipients
     case openSystemSettings(String)
     case openLoginItems
 }
@@ -82,7 +119,7 @@ public struct PermissionRowModel: Identifiable, Equatable, Sendable {
     public var id: String { right.rawValue }
     public var title: String { ProductStrings[right.titleKey] }
     public var principal: String { ProductStrings[right.principalKey] }
-    public var stateWord: String { ProductStrings[state.titleKey] }
+    public var stateWord: String { ProductStrings[right.stateTitleKey(state)] }
 
     /// Status is never colour alone: the word carries it and VoiceOver reads
     /// the principal beside it.
@@ -95,14 +132,111 @@ public struct PermissionRowModel: Identifiable, Equatable, Sendable {
 /// so the helper's two rights have no answer. They are dropped rather than drawn
 /// as `Unknown` with no action beside a pane-level notice that already says why
 /// (M34 §7.1: a v2 surface renders the named state, never an empty pane).
+///
+/// The iMessage rights are drawn only where `showsMessages` says the channel
+/// is in use, so a Mac that never used iMessage sees nothing new (M54 §10.2).
 public enum PermissionVisibility {
     public static func rights(
         _ rows: [PermissionRowModel],
-        requiresNewerEngine: Bool
+        requiresNewerEngine: Bool,
+        showsMessages: Bool
     ) -> [PermissionRowModel] {
-        guard requiresNewerEngine else { return rows }
+        rows.filter { row in
+            guard !(requiresNewerEngine && row.right.readByDaemon) else { return false }
 
-        return rows.filter { !$0.right.readByDaemon }
+            return showsMessages || !row.right.isMessages
+        }
+    }
+
+    /// Whether the iMessage rights belong on screen: the channel is switched
+    /// on, or its helper is on this Mac. Either is the owner having started.
+    public static func showsMessages(
+        channels: [ManagementSetupChannel],
+        probe: ManagementIMessagePermissions?
+    ) -> Bool {
+        guard probe?.installed != true else { return true }
+
+        return channels.contains { $0.name == IMessageChannelStatus.channel && $0.enabled }
+    }
+}
+
+/// The three iMessage rights, from the helper's non-prompting probe
+/// (M54 §10.2).
+///
+/// Each row offers the one act that clears it, by the rule the computer-use
+/// rows follow: the daemon's job where the helper is installed to be asked,
+/// and the System Settings pane where it is not. Automation that was denied is
+/// the one exception: macOS raises its prompt once, so a denial is cleared in
+/// the pane rather than by asking again. Nothing here prompts.
+public enum IMessageRights {
+    public static func rows(_ probe: ManagementIMessagePermissions?) -> [PermissionRowModel] {
+        [
+            PermissionRowModel(right: .messagesData, state: dataState(probe), action: dataAction(probe)),
+            PermissionRowModel(
+                right: .messagesAutomation,
+                state: automationState(probe),
+                action: automationAction(probe)
+            ),
+            PermissionRowModel(
+                right: .messagesRecipients,
+                state: recipientsState(probe),
+                action: recipientsAction(probe)
+            )
+        ]
+    }
+
+    private static func dataState(_ probe: ManagementIMessagePermissions?) -> PermissionState {
+        switch probe?.fullDiskAccess {
+        case .granted?: return .granted
+        case .denied?: return .notGranted
+        case .unrecognized?, nil: return .unknown
+        }
+    }
+
+    private static func dataAction(_ probe: ManagementIMessagePermissions?) -> PermissionAction? {
+        guard let probe, probe.fullDiskAccess != .granted else { return nil }
+
+        return probe.installed
+            ? .grantIMessage(.fullDiskAccess)
+            : .openSystemSettings(PermissionLedger.fullDiskAccessPane)
+    }
+
+    /// `not_determined` has not been asked, and `unknown` (Messages is not
+    /// running) cannot be read, so both are the state nobody has an answer to.
+    private static func automationState(_ probe: ManagementIMessagePermissions?) -> PermissionState {
+        switch probe?.automation {
+        case .granted?: return .granted
+        case .denied?: return .notGranted
+        case .notDetermined?, .unknown?, .unrecognized?, nil: return .unknown
+        }
+    }
+
+    private static func automationAction(_ probe: ManagementIMessagePermissions?) -> PermissionAction? {
+        guard let probe, probe.automation != .granted else { return nil }
+        guard probe.installed, probe.automation != .denied else {
+            return .openSystemSettings(PermissionLedger.automationPane)
+        }
+
+        return .grantIMessage(.automation)
+    }
+
+    /// Confirmed only when the helper's record is exactly the saved recipients;
+    /// anything else is the daemon's "Awaiting confirmation".
+    private static func recipientsState(_ probe: ManagementIMessagePermissions?) -> PermissionState {
+        guard let probe else { return .unknown }
+
+        return recipientsConfirmed(probe) ? .granted : .notGranted
+    }
+
+    /// A helper that is not installed holds no record to confirm.
+    private static func recipientsAction(_ probe: ManagementIMessagePermissions?) -> PermissionAction? {
+        guard let probe, probe.installed, !recipientsConfirmed(probe) else { return nil }
+
+        return .confirmIMessageRecipients
+    }
+
+    static func recipientsConfirmed(_ probe: ManagementIMessagePermissions) -> Bool {
+        probe.policy == .confirmed && probe.policyMatchesConfig == true
     }
 }
 
@@ -138,17 +272,26 @@ public struct SystemMicrophoneAuthorization: MicrophoneAuthorizationReading {
     }
 }
 
-/// The one ledger behind Permissions, Voice and Computer (M34 §5.9).
+/// The one ledger behind Permissions, Voice, Computer and the iMessage row on
+/// Channels (M34 §5.9, M54 §10).
 ///
-/// One model so the three surfaces cannot disagree about a right. Nothing here
-/// prompts on render: the microphone status is read, the helper's two rights are
-/// read from the daemon's non-prompting probe, and the grant is an explicit
+/// One model so the surfaces cannot disagree about a right. Nothing here
+/// prompts on render: the microphone status is read, each helper's rights are
+/// read from the daemon's non-prompting probe, and every grant is an explicit
 /// action.
 @MainActor
 public final class PermissionLedger: ObservableObject {
     @Published public private(set) var rows: [PermissionRowModel] = []
     /// The daemon's answer for the helper's two rights, where it has answered.
     @Published public private(set) var computerUse: SettingsReadState<ManagementComputerUsePermissions> = .unread
+    /// The iMessage helper's probe, where the daemon has answered. The Channels
+    /// row's status reads it too, so the two surfaces cannot disagree.
+    @Published public private(set) var imessage: SettingsReadState<ManagementIMessagePermissions> = .unread
+    /// The daemon's sentence for the last recipient confirmation it refused,
+    /// such as an owner that is the address Messages on this Mac is signed in
+    /// as. The probe carries no such field, so the refusal is held until the
+    /// next confirmation runs.
+    @Published public private(set) var imessageRefusal: String?
 
     private let gateway: any DaemonQuerying
     private let services: ServiceController
@@ -178,8 +321,9 @@ public final class PermissionLedger: ObservableObject {
         self.rows = project()
     }
 
-    /// Re-reads every right. Called on pane open and on Refresh, never on
-    /// render: the helper's probe is a daemon round trip.
+    /// Re-reads every right but the iMessage helper's, which `refreshIMessage()`
+    /// reads only where the channel exists. Called on pane open and on Refresh,
+    /// never on render: the helper's probe is a daemon round trip.
     public func refresh() async {
         // By the rule `SettingsModel.beginRead` states: an answer already drawn
         // stays on screen while it is re-read.
@@ -195,6 +339,33 @@ public final class PermissionLedger: ObservableObject {
 
         agentRegistration = await services.registrations().agent
         publishRows()
+    }
+
+    /// Re-reads the iMessage helper's probe. Never prompts; called where the
+    /// channel is published, on pane open, on the app regaining focus, and by
+    /// the owner of every iMessage job once it ends.
+    public func refreshIMessage() async {
+        if imessage.value == nil { publishIMessage(.loading) }
+        do {
+            publishIMessage(.loaded(try await gateway.imessagePermissions()))
+        } catch {
+            publishIMessage(.failure(error))
+            log.error(
+                "imessage permissions unavailable: \(ManagementMessage.sentence(for: error), privacy: .public)"
+            )
+        }
+
+        publishRows()
+    }
+
+    /// Records how a recipient confirmation ended. A refusal keeps the daemon's
+    /// own sentence; anything else, Cancel in the helper's dialog included,
+    /// clears it, and the probe says where the record stands.
+    public func noteIMessageConfirmation(_ job: ManagementJob?) {
+        let refused = job?.failure.flatMap { $0.code == .refused ? $0.sentence : nil }
+        guard refused != imessageRefusal else { return }
+
+        imessageRefusal = refused
     }
 
     /// Re-reads only what this process can answer for itself, which is what a
@@ -247,6 +418,14 @@ public final class PermissionLedger: ObservableObject {
         computerUse = answer
     }
 
+    /// The iMessage probe, by the same rule: re-read on focus, and nearly
+    /// always the answer already drawn.
+    private func publishIMessage(_ answer: SettingsReadState<ManagementIMessagePermissions>) {
+        guard answer != imessage else { return }
+
+        imessage = answer
+    }
+
     /// Publishes the projection only where it changed. The Voice pane asks for
     /// it each time it appears, and an unchanged ledger redrawing every pane
     /// that observes it is the cost this avoids.
@@ -281,7 +460,7 @@ public final class PermissionLedger: ObservableObject {
                 state: backgroundState,
                 action: agentRegistration == .requiresApproval ? .openLoginItems : nil
             )
-        ]
+        ] + IMessageRights.rows(imessage.value)
     }
 
     private var microphoneAction: PermissionAction? {
@@ -323,4 +502,8 @@ public final class PermissionLedger: ObservableObject {
     public static let microphonePane = "com.apple.preference.security?Privacy_Microphone"
     public static let screenRecordingPane = "com.apple.preference.security?Privacy_ScreenCapture"
     public static let accessibilityPane = "com.apple.preference.security?Privacy_Accessibility"
+    /// The iMessage rows' two, read from outside the ledger's actor by the
+    /// projection that builds those rows.
+    public nonisolated static let fullDiskAccessPane = "com.apple.preference.security?Privacy_AllFiles"
+    public nonisolated static let automationPane = "com.apple.preference.security?Privacy_Automation"
 }
