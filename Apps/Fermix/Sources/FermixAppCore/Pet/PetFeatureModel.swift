@@ -11,6 +11,14 @@ public enum PetMetrics {
     public static let mascotSize = CGSize(width: 116, height: 116)
 }
 
+/// Where the pet is drawn: its own floating window, or the chat's call box.
+/// The façade reads it for the one thing the two differ in, a click on the
+/// mascot.
+public enum PetHost: Sendable {
+    case floatingWindow
+    case callBox
+}
+
 /// Showing and hiding the optional floating pet window, behind a seam.
 ///
 /// The pet asks for the window; the coordinator decides what a window is. That
@@ -113,7 +121,8 @@ public final class PetFeatureModel: ObservableObject {
 
     public var interruptActionTitle: String { ProductStrings[.petInterrupt] }
 
-    /// The mascot's tooltip on the floating window.
+    /// The call control's tooltip, which the floating pet's mascot carries
+    /// too while its click is the control's.
     ///
     /// That window draws the mascot and the controls and has room for no
     /// sentence, so a failure would otherwise be readable only by opening the
@@ -124,6 +133,27 @@ public final class PetFeatureModel: ObservableObject {
         if call.voice.status.carriesItsOwnSentence { return statusText }
 
         return callUnavailableReason ?? callActionTitle
+    }
+
+    /// Whether a click on the mascot is the call control's click, the one
+    /// rule both hosts read (owner, 2026-10-04: a click on the pet never
+    /// closes the call).
+    ///
+    /// On the floating window it is, through the gate, while the gate's click
+    /// would not end anything: it begins a call, sets voice up, or begins the
+    /// next call while the last one ends. Through a start and a call it does
+    /// nothing, because ending is an explicit control's: the dock's call
+    /// button, the toolbar's, the View menu's or the status item's. The chat's
+    /// box exists only around a call, so its mascot takes no click at all,
+    /// and the toolbar's button is the way to the next call.
+    public func mascotClickBegins(in host: PetHost) -> Bool {
+        host == .floatingWindow && gate.action != .end
+    }
+
+    /// The mascot's tooltip: the call control's while the click is the
+    /// control's, and otherwise what the call is doing, or why it failed.
+    public func mascotHelpText(in host: PetHost) -> String {
+        mascotClickBegins(in: host) ? callHelpText : statusText
     }
 
     public var cancelTaskActionTitle: String { ProductStrings[.petCancelTask] }
@@ -233,6 +263,14 @@ public final class PetFeatureModel: ObservableObject {
 
     /// The call control's click, through the gate the menus use.
     public func toggleCall() {
+        gate.toggleCall()
+    }
+
+    /// A click on the mascot, which is the call control's only where
+    /// `mascotClickBegins` says it is.
+    public func mascotClicked(in host: PetHost) {
+        guard mascotClickBegins(in: host) else { return }
+
         gate.toggleCall()
     }
 

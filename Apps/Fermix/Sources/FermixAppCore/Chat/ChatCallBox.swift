@@ -30,7 +30,9 @@ enum ChatCallBoxState: Equatable {
 /// mascot and the dock of its call controls, on the dock's own glass. The
 /// mascot's animation is the call's status, so the box carries no status word,
 /// no caption, no task and no cost: those are the Pet page's. A failure keeps
-/// the box with the mascot still, the failure's sentence and Dismiss.
+/// the box with the mascot still, the failure's sentence and Dismiss. The
+/// mascot takes no click (owner, 2026-10-04): the dock's button and the
+/// toolbar's end the call, and the toolbar's begins the next one.
 ///
 /// It stands at the body's extreme right, in the margin a wide window leaves
 /// beside the centred reading column, overlapping nothing; only where that
@@ -87,16 +89,6 @@ struct ChatCallBox: View {
         return box + inset > margin
     }
 
-    /// The mascot's click ends what is up and begins nothing: beside a failure
-    /// it is not a call control, and the toolbar's button is the way to the
-    /// next call (redlines decision 34).
-    @MainActor
-    static func endCall(through pet: PetFeatureModel) {
-        guard pet.callAction == .end else { return }
-
-        pet.toggleCall()
-    }
-
     // MARK: - The drawing
 
     private func box(_ state: ChatCallBoxState) -> some View {
@@ -111,7 +103,7 @@ struct ChatCallBox: View {
                 animates: Self.animates(live: live, windowVisible: call.mainWindowVisible, reduceMotion: reduceMotion),
                 playsIntro: Self.playsIntro(live: live, introPlayed: call.introPlayed, reduceMotion: reduceMotion),
                 dock: live ? .shown : .absent,
-                mascotClick: { Self.endCall(through: pet) }
+                host: .callBox
             )
             .id(call.voice.attempt)
             .onAppear { call.introShown() }

@@ -23,10 +23,10 @@ struct PetView: View {
             animates: model.windowVisible && !reduceMotion,
             playsIntro: !reduceMotion,
             dock: shouldShowControls ? .shown : .hidden,
-            // The whole of the mascot's frame is this one button: a click
-            // starts the call or ends it (owner, 2026-09-25: "the click on
-            // the mascot leads to enabling or disabling it").
-            mascotClick: { model.toggleCall() }
+            // The whole of the mascot's frame begins a call while none is up
+            // and never ends one (owner, 2026-10-04): the façade's rule for
+            // this host.
+            host: .floatingWindow
         )
         .padding(.horizontal, Spacing.xs)
         .padding(.vertical, Spacing.xxs)
@@ -73,9 +73,10 @@ struct PetView: View {
 ///
 /// One view, two hosts: the floating window (`PetView`) and the chat's call box
 /// (`ChatCallBox`). Each host decides what is its own: whether the mascot may
-/// move (its own window's visibility), whether the intro plays, whether the
-/// dock shows, and what a click on the mascot does. The mascot draws and never
-/// takes the click, so the whole of its frame is that one action.
+/// move (its own window's visibility), whether the intro plays and whether the
+/// dock shows. What a click on the mascot does is the façade's one rule, read
+/// for the host that draws it, so the two cannot drift. The animation never
+/// takes the click, so the whole of the mascot's frame is that one action.
 struct PetCompanion: View {
     /// Whether the dock of call controls is drawn.
     enum Dock: Equatable {
@@ -90,7 +91,8 @@ struct PetCompanion: View {
     let animates: Bool
     let playsIntro: Bool
     let dock: Dock
-    let mascotClick: () -> Void
+    /// Which host draws it, which the façade reads for the mascot's click.
+    let host: PetHost
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.mascot) private var mascot
@@ -101,8 +103,8 @@ struct PetCompanion: View {
                 mascotView
                     .frame(width: PetMetrics.mascotSize.width, height: PetMetrics.mascotSize.height)
                     .contentShape(Rectangle())
-                    .onTapGesture { mascotClick() }
-                    .help(model.callHelpText)
+                    .onTapGesture { model.mascotClicked(in: host) }
+                    .help(model.mascotHelpText(in: host))
             }
             .frame(width: PetMetrics.stageSize.width, height: PetMetrics.stageSize.height)
 

@@ -199,14 +199,92 @@ struct PetSurfaceTests {
     func floatingPetTooltipCarriesTheFailure() async throws {
         let harness = try harness()
 
-        #expect(harness.model.callHelpText == harness.model.callActionTitle)
+        #expect(harness.model.mascotHelpText(in: .floatingWindow) == harness.model.callActionTitle)
 
         harness.engine.permissionError = CaptureError.noInputDevice
         harness.model.toggleCall()
         harness.negotiate()
         await harness.settle()
 
-        #expect(harness.model.callHelpText == ProductStrings[.voiceErrorNoInputDevice])
+        #expect(harness.model.mascotHelpText(in: .floatingWindow) == ProductStrings[.voiceErrorNoInputDevice])
+    }
+
+    // MARK: - The mascot's click
+
+    /// With no call up, the floating pet's mascot is the call control's click,
+    /// through the gate (owner, 2026-10-04: a tap on the pet goes to
+    /// listening).
+    @Test("a click on the floating pet's mascot begins a call while none is up")
+    func floatingMascotBegins() throws {
+        let harness = try harness()
+
+        #expect(harness.model.mascotClickBegins(in: .floatingWindow))
+        #expect(harness.model.mascotHelpText(in: .floatingWindow) == "Begin voice call")
+
+        harness.model.mascotClicked(in: .floatingWindow)
+
+        #expect(harness.call.voice.phase == .starting)
+    }
+
+    /// The owner's rule of 2026-10-04: a click on the pet never closes the
+    /// call. Through the start and the call the mascot does nothing, and its
+    /// tooltip is what the call is doing; the dock's call button still ends it.
+    @Test("a click on the floating pet's mascot never ends a start or a call")
+    func floatingMascotNeverEnds() throws {
+        let harness = try harness()
+        harness.call.voiceNegotiated()
+
+        harness.model.mascotClicked(in: .floatingWindow)
+        #expect(harness.call.voice.phase == .starting)
+        #expect(!harness.model.mascotClickBegins(in: .floatingWindow))
+        #expect(harness.model.mascotHelpText(in: .floatingWindow) == ProductStrings[.voiceStatusConnecting])
+
+        harness.model.mascotClicked(in: .floatingWindow)
+        #expect(harness.call.voice.phase == .starting)
+
+        harness.call.callStarted()
+        _ = harness.call.apply(.state(.listening), audioIsPlaying: false)
+        #expect(!harness.model.mascotClickBegins(in: .floatingWindow))
+        #expect(harness.model.mascotHelpText(in: .floatingWindow) == ProductStrings[.voiceStatusListening])
+        #expect(harness.model.mascotHelpText(in: .floatingWindow) == harness.model.statusText)
+
+        harness.model.mascotClicked(in: .floatingWindow)
+        #expect(harness.call.voice.phase == .active)
+
+        // Ending is an explicit control's: the dock's button, the toolbar's,
+        // the View menu's or the status item's, all through the gate.
+        harness.model.toggleCall()
+        #expect(harness.call.voice.phase == .stopping)
+    }
+
+    /// Outside a call the mascot's click is the call control's, whatever the
+    /// gate makes of it: Settings, Voice where voice is not set up, nothing
+    /// where it is degraded, and the next call after a failure.
+    @Test("outside a call the floating pet's mascot clicks through the gate")
+    func floatingMascotClicksThroughTheGate() async throws {
+        let setUp = try harness()
+        setUp.readiness.voiceReadiness = .setupRequired
+        #expect(setUp.model.mascotHelpText(in: .floatingWindow) == "Set up voice")
+        setUp.model.mascotClicked(in: .floatingWindow)
+        #expect(setUp.voiceSetUps.count == 1)
+        #expect(setUp.call.voice.phase == .idle)
+
+        let degraded = try harness()
+        degraded.readiness.voiceReadiness = .degraded
+        #expect(degraded.model.mascotHelpText(in: .floatingWindow) == "Voice is not available right now")
+        degraded.model.mascotClicked(in: .floatingWindow)
+        #expect(degraded.call.voice.phase == .idle)
+
+        let failed = try harness()
+        failed.engine.permissionError = CaptureError.noInputDevice
+        failed.model.mascotClicked(in: .floatingWindow)
+        failed.negotiate()
+        await failed.settle()
+        #expect(failed.model.mascotClickBegins(in: .floatingWindow))
+        #expect(failed.model.mascotHelpText(in: .floatingWindow) == ProductStrings[.voiceErrorNoInputDevice])
+
+        failed.model.mascotClicked(in: .floatingWindow)
+        #expect(failed.call.voice.phase == .starting)
     }
 
     /// The speaking tail is the one place the visual mode outlives the daemon's
@@ -259,9 +337,10 @@ struct PetSurfaceTests {
 
         #expect(text.contains(".simultaneousGesture(WindowDragGesture())"))
         #expect(text.contains(".allowsWindowActivationEvents(true)"))
-        // The click is still the mascot's, beside the drag rather than under it.
-        #expect(text.contains(".onTapGesture { mascotClick() }"))
-        #expect(text.contains("mascotClick: { model.toggleCall() }"))
+        // The click is still the mascot's, beside the drag rather than under it,
+        // and what it does is the façade's rule for this host.
+        #expect(text.contains(".onTapGesture { model.mascotClicked(in: host) }"))
+        #expect(text.contains("host: .floatingWindow"))
     }
 
     /// The mascot draws no ground on either screen that draws it.

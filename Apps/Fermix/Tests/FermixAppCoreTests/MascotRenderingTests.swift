@@ -69,10 +69,10 @@ struct MascotAnimationTests {
         #expect(!pet.contains("playsIntro: model.windowVisible"))
     }
 
-    /// The companion's click is the call. The animation publishes no listeners,
-    /// and a view that took the click would swallow it before the tap below it
-    /// saw it.
-    @Test("the animation takes no click, so the mascot's click is the call")
+    /// The companion's click is the façade's rule for its host. The animation
+    /// publishes no listeners, and a view that took the click would swallow it
+    /// before the tap below it saw it.
+    @Test("the animation takes no click, so the mascot's click is the façade's")
     func animationTakesNoClick() throws {
         let adapter = try SparkleAdapterSource.everySwiftFileUnderSources()
             .filter { $0.path.contains("/FermixRive/") }
@@ -81,8 +81,8 @@ struct MascotAnimationTests {
         #expect(adapter.contains { $0.text.contains(".allowsHitTesting(false)") })
 
         let pet = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
-        #expect(pet.contains(".onTapGesture { mascotClick() }"))
-        #expect(pet.contains("mascotClick: { model.toggleCall() }"))
+        #expect(pet.contains(".onTapGesture { model.mascotClicked(in: host) }"))
+        #expect(pet.contains("host: .floatingWindow"))
     }
 }
 
