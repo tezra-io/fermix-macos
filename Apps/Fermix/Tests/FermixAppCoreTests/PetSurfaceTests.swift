@@ -289,43 +289,97 @@ struct PetSurfaceTests {
 
     // MARK: - The dock
 
-    /// The dock's call control is the chat toolbar's call button in small:
-    /// the one phone symbol, filled while a click ends a call, as the
-    /// toolbar's is, and in ink rather than the accent (owner, 2026-10-04).
-    @Test("the dock's call control is the toolbar's phone, filled while it ends a call, in ink")
-    func dockCallControlIsThePhone() throws {
+    /// The dock's call control is a stop (owner, 2026-10-04: "I prefer it was
+    /// a stop button"): one control, the filled square in ink, in both hosts.
+    /// It ends a start or a call, is dimmed while the call ends, and once the
+    /// call is over it is the chat box's Close; the floating window has
+    /// nothing to close, so there it offers nothing. It never begins a call.
+    @Test("the dock's one control is the stop: it ends a call in both hosts, and closes only the chat's box")
+    func dockControlIsTheStop() throws {
         let harness = try harness()
-        let rest = PetDockSymbol(name: "phone", filled: false, tint: Palette.ink)
-        let ending = PetDockSymbol(name: "phone", filled: true, tint: Palette.ink)
+        let model = harness.model
 
-        #expect(PetDockSymbol.call(harness.model) == rest)
-        #expect(PetDockSymbol.call(harness.model).name == CommandTable.symbol(of: .toggleVoiceCall))
-        #expect(harness.model.callActionTitle == "Begin voice call")
+        func offers(_ box: PetStopAction?, _ window: PetStopAction?, _ phase: String) {
+            #expect(model.stopAction(in: .callBox) == box, "\(phase)")
+            #expect(model.stopAction(in: .floatingWindow) == window, "\(phase)")
+        }
+
+        #expect(PetDockSymbol.stop == PetDockSymbol(name: "stop", filled: true, tint: Palette.ink))
+        offers(nil, nil, "idle")
 
         harness.call.voiceNegotiated()
         harness.call.callStarting()
-        #expect(PetDockSymbol.call(harness.model) == ending)
-        #expect(harness.model.callActionTitle == "End voice call")
+        offers(.end, .end, "starting")
 
         harness.call.callStarted()
         _ = harness.call.apply(.state(.speaking), audioIsPlaying: false)
-        #expect(PetDockSymbol.call(harness.model) == ending)
+        offers(.end, .end, "active")
 
-        // A call that is ending has its next click begin the next call, so
-        // the phone is at rest again, as the toolbar's is.
         harness.call.callStopping()
-        #expect(PetDockSymbol.call(harness.model) == rest)
-        #expect(harness.model.callActionTitle == "Begin voice call")
+        offers(.ending, .ending, "stopping")
+
+        harness.call.callEnded()
+        offers(.close, nil, "ended")
+
+        harness.call.dismissEnded()
+        offers(nil, nil, "closed")
+
+        harness.call.beginTestCall()
+        harness.call.voiceFailed(.socketPathUnavailable)
+        offers(.close, nil, "failed")
+
+        #expect(model.stopActionTitle(.end) == ProductStrings[.petCallEnd])
+        #expect(model.stopActionTitle(.ending) == ProductStrings[.petCallEnd])
+        #expect(model.stopActionTitle(.close) == "Close")
+        for action in [PetStopAction.end, .ending, .close] {
+            let title = model.stopActionTitle(action)
+            #expect(ProductCopyRules.violations(in: title).isEmpty, "\(title)")
+            #expect(!title.localizedCaseInsensitiveContains("stop"), "\(title) says Stop, the service's word")
+        }
 
         let dock = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
         #expect(!dock.contains("Palette.accent"), "the dock draws the accent again")
-        #expect(dock.contains("PetControlButton(symbol: .call(model)"))
+        #expect(!dock.contains("callSymbol"), "the dock draws the toolbar's phone again")
+        #expect(dock.contains("PetControlButton(symbol: .stop"))
+        #expect(dock.contains(".disabled(action == .ending)"))
     }
 
-    /// Mute and interrupt keep their drawing: the slashed microphone, filled
-    /// and in the warning tint while muted, and the stop.
-    @Test("mute keeps its slashed microphone and its warning tint, and interrupt its stop")
-    func dockMuteAndInterruptKeepTheirSymbols() throws {
+    /// The stop never begins a call: a click on it with nothing to end or
+    /// close changes nothing, on either host.
+    @Test("a click on the stop with nothing to end or close does nothing")
+    func stopNeverBegins() throws {
+        let harness = try harness()
+        harness.call.voiceNegotiated()
+
+        harness.model.stopClicked(in: .floatingWindow)
+        harness.model.stopClicked(in: .callBox)
+        #expect(harness.call.voice.phase == .idle)
+
+        harness.call.beginTestCall()
+        harness.model.stopClicked(in: .floatingWindow)
+        #expect(harness.call.voice.phase == .stopping)
+
+        // The floating window has nothing to close once the call is over.
+        harness.call.callEnded()
+        harness.model.stopClicked(in: .floatingWindow)
+        #expect(harness.call.voice.phase == .ended(.normal(settled: nil)))
+    }
+
+    /// The floating window's dock comes with a call: at rest its one control
+    /// has nothing to do, so the pointer reveals no empty dock, and the
+    /// hidden dock keeps the stop's room so a call that begins moves nothing.
+    @Test("the floating window's dock rests hidden and keeps the stop's room")
+    func floatingDockRestsHidden() throws {
+        let text = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
+
+        #expect(text.contains("guard model.stopAction(in: .floatingWindow) != nil else { return false }"))
+        #expect(text.contains(".hidden()"))
+    }
+
+    /// Mute keeps its drawing, and interrupt is the silenced speaker: never
+    /// the stop's square, so the two cannot be confused.
+    @Test("mute keeps its slashed microphone and its warning tint, and interrupt is the silenced speaker")
+    func dockMuteAndInterruptSymbols() throws {
         let harness = try harness()
         harness.call.beginTestCall()
 
@@ -334,7 +388,9 @@ struct PetSurfaceTests {
         harness.call.voiceMuted(true)
         #expect(PetDockSymbol.mute(harness.model) == PetDockSymbol(name: "mic.slash", filled: true, tint: Palette.warning))
 
-        #expect(PetDockSymbol.interrupt == PetDockSymbol(name: "stop.circle", filled: false, tint: Palette.ink))
+        #expect(PetDockSymbol.interrupt == PetDockSymbol(name: "speaker.slash", filled: false, tint: Palette.ink))
+        #expect(!PetDockSymbol.interrupt.name.hasPrefix("stop"))
+        #expect(harness.model.interruptActionTitle == "Interrupt reply")
     }
 
     /// The speaking tail is the one place the visual mode outlives the daemon's

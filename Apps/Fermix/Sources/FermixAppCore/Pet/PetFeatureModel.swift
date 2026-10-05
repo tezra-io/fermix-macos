@@ -12,11 +12,26 @@ public enum PetMetrics {
 }
 
 /// Where the pet is drawn: its own floating window, or the chat's call box.
-/// The façade reads it for the one thing the two differ in, a click on the
-/// mascot.
+/// The façade reads it for what the two differ in: a click on the mascot, and
+/// what the dock's stop offers once a call is over.
 public enum PetHost: Sendable {
     case floatingWindow
     case callBox
+}
+
+/// What the dock's one call control does, a stop (owner, 2026-10-04: "I
+/// prefer it was a stop button"). It never begins a call: the mascot's click,
+/// the chat toolbar's phone and the menus do that.
+public enum PetStopAction: Equatable, Sendable {
+    /// A start or a call is up: the click ends it, through the gate.
+    case end
+    /// The call is ending: dimmed, because the gate's next click would begin
+    /// the next call, which is never the stop's to do.
+    case ending
+    /// The chat's box once a call is over, ended or failed: the click puts the
+    /// box away (owner, 2026-10-04: the pet stays idle "so that there will be
+    /// a stop button which I can click to close").
+    case close
 }
 
 /// Showing and hiding the optional floating pet window, behind a seam.
@@ -121,6 +136,27 @@ public final class PetFeatureModel: ObservableObject {
 
     public var interruptActionTitle: String { ProductStrings[.petInterrupt] }
 
+    /// What the dock's stop does in `host`, or nil where it has nothing to
+    /// do: with no call up, and on the floating window once a call is over,
+    /// where there is nothing to close. Only the chat's box outlives a call.
+    public func stopAction(in host: PetHost) -> PetStopAction? {
+        switch call.voice.phase {
+        case .starting, .active: return .end
+        case .stopping: return .ending
+        case .ended: return host == .callBox ? .close : nil
+        case .idle: return nil
+        }
+    }
+
+    /// The stop's title: the call control's own while it ends a call, and
+    /// Close once it puts the box away. Never Stop, the service's word.
+    public func stopActionTitle(_ action: PetStopAction) -> String {
+        switch action {
+        case .end, .ending: return ProductStrings[.petCallEnd]
+        case .close: return ProductStrings[.petClose]
+        }
+    }
+
     /// The call control's tooltip, which the floating pet's mascot carries
     /// too while its click is the control's.
     ///
@@ -142,10 +178,10 @@ public final class PetFeatureModel: ObservableObject {
     /// On the floating window it is, through the gate, while the gate's click
     /// would not end anything: it begins a call, sets voice up, or begins the
     /// next call while the last one ends. Through a start and a call it does
-    /// nothing, because ending is an explicit control's: the dock's call
-    /// button, the toolbar's, the View menu's or the status item's. The chat's
-    /// box exists only around a call, so its mascot takes no click at all,
-    /// and the toolbar's button is the way to the next call.
+    /// nothing, because ending is an explicit control's: the dock's stop, the
+    /// toolbar's phone, the View menu's or the status item's. The chat's
+    /// box's mascot takes no click at all, and the toolbar's phone is the way
+    /// to the next call.
     public func mascotClickBegins(in host: PetHost) -> Bool {
         host == .floatingWindow && gate.action != .end
     }
@@ -272,6 +308,16 @@ public final class PetFeatureModel: ObservableObject {
         guard mascotClickBegins(in: host) else { return }
 
         gate.toggleCall()
+    }
+
+    /// The stop's click: it ends a start or a call through the gate, as every
+    /// call control does, or puts the chat's box away once the call is over.
+    public func stopClicked(in host: PetHost) {
+        switch stopAction(in: host) {
+        case .end: gate.toggleCall()
+        case .close: call.dismissEnded()
+        case .ending, nil: return
+        }
     }
 
     public func toggleMute() {

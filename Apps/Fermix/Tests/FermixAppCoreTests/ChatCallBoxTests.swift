@@ -69,20 +69,54 @@ struct ChatCallBoxTests {
         #expect(state(harness) == .live)
     }
 
-    /// The bill a normal end settles stays on the Pet page; the box simply
-    /// goes with the call.
-    @Test("a normal end removes the box, and the bill stays on the Pet page")
-    func normalEndRemovesTheBox() throws {
+    /// The owner's direction of 2026-10-04: after a call the pet stays in its
+    /// idle pose "so that there will be a stop button which I can click to
+    /// close". The box keeps the pet and its dock, whose one control is now
+    /// Close, and says nothing: the bill a normal end settles is the Pet
+    /// page's.
+    @Test("a normal end keeps the box, with the idle pet, the dock's Close and no sentence")
+    func normalEndKeepsTheBox() throws {
         let harness = try liveCall()
         deliver(harness, .state(.listening))
         harness.call.callStopping()
         deliver(harness, .usage(RealtimeUsage(voiceCostCents: 2.05, accounting: "complete")), .state(.idle))
 
-        #expect(state(harness) == nil)
+        #expect(state(harness) == .ended)
+        #expect(harness.model.expression == .idle)
+        #expect(harness.model.stopAction(in: .callBox) == .close)
+        #expect(harness.model.stopActionTitle(.close) == "Close")
         #expect(harness.model.settledBillText != nil)
     }
 
-    @Test("a failure keeps the box with its one sentence, the vendor's detail after it")
+    /// The dock's stop ends the call through the gate, like every call
+    /// control; the box stays through the end and after it, and Close is
+    /// what puts it away.
+    @Test("the dock's stop ends the call, the box stays, and Close puts it away")
+    func stopEndsAndCloseRemoves() throws {
+        let harness = try liveCall()
+        deliver(harness, .state(.listening))
+        #expect(harness.model.stopAction(in: .callBox) == .end)
+        #expect(harness.model.stopActionTitle(.end) == "End voice call")
+
+        harness.model.stopClicked(in: .callBox)
+        #expect(harness.call.voice.phase == .stopping)
+        #expect(state(harness) == .live)
+        // Dimmed while it ends: the gate's next click would begin a call.
+        #expect(harness.model.stopAction(in: .callBox) == .ending)
+        harness.model.stopClicked(in: .callBox)
+        #expect(harness.call.voice.phase == .stopping)
+
+        harness.call.callEnded()
+        #expect(state(harness) == .ended)
+        #expect(harness.model.expression == .idle)
+
+        harness.model.stopClicked(in: .callBox)
+        #expect(harness.call.voice.phase == .idle)
+        #expect(state(harness) == nil)
+        #expect(harness.model.stopAction(in: .callBox) == nil)
+    }
+
+    @Test("a failure keeps the box with its one sentence, the vendor's detail after it, and Close")
     func failureKeepsTheBox() throws {
         let harness = try liveCall()
         deliver(
@@ -96,6 +130,7 @@ struct ChatCallBoxTests {
         )
 
         #expect(state(harness) == .failed("The call reached its cost limit. The voice session reached its spending limit."))
+        #expect(harness.model.stopAction(in: .callBox) == .close)
     }
 
     /// A version refusal or a socket that never opened is a start that failed
@@ -109,8 +144,8 @@ struct ChatCallBoxTests {
         #expect(state(harness) == .failed(ProductStrings[.voiceStatusUpdateRequired]))
     }
 
-    @Test("Dismiss puts a failure away, and the next call replaces it")
-    func dismissAndTheNextCall() throws {
+    @Test("Close puts a failure away, and the next call replaces it")
+    func closeAndTheNextCall() throws {
         let harness = try liveCall()
         deliver(harness, .error(RealtimeServerError(reason: "provider_disconnected", kind: .providerDisconnected)))
         #expect(state(harness) == .failed(ProductStrings[.voiceErrorProviderDisconnected]))
@@ -119,7 +154,8 @@ struct ChatCallBoxTests {
         #expect(state(harness) == .live)
 
         harness.call.voiceFailed(.socketPathUnavailable)
-        harness.call.dismissEnded()
+        harness.model.stopClicked(in: .callBox)
+        #expect(harness.call.voice.phase == .idle)
         #expect(state(harness) == nil)
     }
 
@@ -216,7 +252,10 @@ struct ChatCallBoxTests {
         for line in ["statusText", "captionLine", "taskStatusText", "voiceCostText", "settledBillText", "cancelTask"] {
             #expect(!box.contains(line), "the box draws \(line)")
         }
-        #expect(box.contains("ProductStrings[.voiceDismiss]"))
+        // Its one control is the dock's: the stop, which is Close once the
+        // call is over.
+        #expect(!box.contains("Button("), "the box draws a button of its own beside the dock's")
+        #expect(box.contains("dock: .shown"))
 
         let page = try Self.text(of: "Pet/PetSurfaceView.swift")
         for line in ["model.captionLine", "model.taskStatusText", "model.voiceCostText", "model.settledBillText"] {

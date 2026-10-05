@@ -403,8 +403,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case voiceReadinessSetUp = "voice.readiness.setUp"
     case voiceReadinessDegraded = "voice.readiness.degraded"
     case voiceReadinessUnknown = "voice.readiness.unknown"
-    /// Puts away a failed call's sentence in the chat's call box.
-    case voiceDismiss = "voice.dismiss"
 
     // Companion chat
     case companionConnectionEngineHasNoChat = "companion.connection.engineHasNoChat"
@@ -520,6 +518,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     // Pet
     case petCallBegin = "pet.callBegin"
     case petCallEnd = "pet.callEnd"
+    /// The dock's stop in the chat's call box once a call is over, ended or
+    /// failed: it puts the box away.
+    case petClose = "pet.close"
     case petMute = "pet.mute"
     case petUnmute = "pet.unmute"
     case petInterrupt = "pet.interrupt"

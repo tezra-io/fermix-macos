@@ -489,19 +489,20 @@ struct CommandRouterTests {
         #expect(harness.settings.selectedPane == .voice)
     }
 
-    /// The pet's dock draws the toolbar's phone, so the two fill together: at
-    /// rest, filled through a start and a call, at rest while the last call
-    /// ends and once it has.
-    @Test("the dock's phone fills exactly when the toolbar's does")
-    func dockPhoneFollowsTheToolbar() async throws {
+    /// The pet's dock ends a call with its stop exactly while the toolbar's
+    /// phone is filled, in both hosts: through a start and a call, and never
+    /// at rest, while the last call ends or once it has.
+    @Test("the dock's stop ends a call exactly while the toolbar's phone is filled")
+    func dockStopEndsWhenTheToolbarDoes() async throws {
         let harness = try RouterHarness()
         try await harness.readVoice("ready")
         let call = harness.voiceCall
 
         func agree(_ phase: String) {
-            let dock = PetDockSymbol.call(harness.surfaces.pet)
-            #expect(dock.name == CommandTable.symbol(of: .toggleVoiceCall), "\(phase)")
-            #expect(dock.filled == harness.router.isOn(.toggleVoiceCall), "\(phase)")
+            for host in [PetHost.floatingWindow, .callBox] {
+                let ends = harness.surfaces.pet.stopAction(in: host) == .end
+                #expect(ends == harness.router.isOn(.toggleVoiceCall), "\(phase), \(host)")
+            }
         }
 
         agree("idle")

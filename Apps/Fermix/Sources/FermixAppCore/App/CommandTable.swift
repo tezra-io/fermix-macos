@@ -334,8 +334,9 @@ public enum CommandTable {
 
     /// The call's symbol, a phone: it sits in the conversation's header,
     /// where a messaging app puts its call button, and the owner asked for a
-    /// call button there. The pet's dock draws its call control with this one
-    /// too, so the two call buttons are one shape (owner, 2026-10-04).
+    /// call button there. The toolbar's alone: the pet's dock ends a call with
+    /// a stop and draws no phone (owner, 2026-10-04: "I prefer it was a stop
+    /// button").
     public static let callSymbol = "phone"
 
     /// The SF Symbol a toolbar control draws beside or instead of its label.

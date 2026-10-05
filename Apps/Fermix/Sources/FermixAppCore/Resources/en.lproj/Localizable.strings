@@ -366,7 +366,6 @@
 "voice.readiness.setUp" = "Set up voice";
 "voice.readiness.degraded" = "Voice is not available right now";
 "voice.readiness.unknown" = "Checking voice";
-"voice.dismiss" = "Dismiss";
 
 /* MARK: Companion chat */
 "companion.connection.engineHasNoChat" = "The Fermix engine on this Mac has no chat yet";
@@ -447,6 +446,7 @@
 /* MARK: Pet */
 "pet.callBegin" = "Begin voice call";
 "pet.callEnd" = "End voice call";
+"pet.close" = "Close";
 "pet.mute" = "Mute microphone";
 "pet.unmute" = "Unmute microphone";
 "pet.interrupt" = "Interrupt reply";

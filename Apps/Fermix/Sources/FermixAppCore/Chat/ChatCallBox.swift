@@ -2,21 +2,27 @@ import SwiftUI
 
 /// What the call box shows, by the call's phase.
 enum ChatCallBoxState: Equatable {
-    /// From the click until the call's last frame: the pet and its dock.
+    /// From the click until the call's last frame: the pet and its dock,
+    /// whose stop ends the call.
     case live
-    /// The call, or the start of one, failed: the still pet and the one
-    /// sentence the model kept for the failure, which carries the vendor's
-    /// detail after it where the daemon sent one.
+    /// The call ended: the still pet in its idle pose and the dock, whose
+    /// stop is now Close, until the person closes it (owner, 2026-10-04). The
+    /// box says nothing: the call's bill is the Pet page's.
+    case ended
+    /// The call, or the start of one, failed: the still pet, the dock's Close,
+    /// and the one sentence the model kept for the failure, which carries the
+    /// vendor's detail after it where the daemon sent one.
     case failed(String)
 
-    /// Nothing with no call, and nothing once a call ends normally: its bill
-    /// stays on the Pet page, and the box goes with the call.
+    /// Nothing with no call, which is where Close leaves an ended one.
     init?(voice: VoiceState) {
         switch voice.phase {
-        case .idle, .ended(.normal):
+        case .idle:
             return nil
         case .starting, .active, .stopping:
             self = .live
+        case .ended(.normal):
+            self = .ended
         case .ended(.failed(_, let sentence)):
             self = .failed(sentence)
         }
@@ -29,10 +35,11 @@ enum ChatCallBoxState: Equatable {
 /// It is the pet, as the floating window draws it (`PetCompanion`): the
 /// mascot and the dock of its call controls, on the dock's own glass. The
 /// mascot's animation is the call's status, so the box carries no status word,
-/// no caption, no task and no cost: those are the Pet page's. A failure keeps
-/// the box with the mascot still, the failure's sentence and Dismiss. The
-/// mascot takes no click (owner, 2026-10-04): the dock's button and the
-/// toolbar's end the call, and the toolbar's begins the next one.
+/// no caption, no task and no cost: those are the Pet page's. The dock's stop
+/// ends the call, and the box stays once it is over, the mascot still in its
+/// idle pose, until the same control, then Close, puts it away (owner,
+/// 2026-10-04); a failure keeps its sentence under the dock. The mascot takes
+/// no click: the toolbar's phone begins the next call.
 ///
 /// It stands at the body's extreme right, in the margin a wide window leaves
 /// beside the centred reading column, overlapping nothing; only where that
@@ -65,7 +72,8 @@ struct ChatCallBox: View {
     // MARK: - The rules
 
     /// The mascot moves while a call is live, in a window on screen, and never
-    /// under Reduce Motion; a new pose still lands while it is parked.
+    /// under Reduce Motion; a new pose still lands while it is parked, which
+    /// is how the idle pose reaches the box once the call is over.
     static func animates(live: Bool, windowVisible: Bool, reduceMotion: Bool) -> Bool {
         live && windowVisible && !reduceMotion
     }
@@ -102,7 +110,9 @@ struct ChatCallBox: View {
                 model: pet,
                 animates: Self.animates(live: live, windowVisible: call.mainWindowVisible, reduceMotion: reduceMotion),
                 playsIntro: Self.playsIntro(live: live, introPlayed: call.introPlayed, reduceMotion: reduceMotion),
-                dock: live ? .shown : .absent,
+                // In every state the box has: the stop ends the call, then
+                // closes the box, in one place.
+                dock: .shown,
                 host: .callBox
             )
             .id(call.voice.attempt)
@@ -117,9 +127,6 @@ struct ChatCallBox: View {
                     .multilineTextAlignment(.center)
                     .frame(width: PetMetrics.stageSize.width)
                     .fixedSize(horizontal: false, vertical: true)
-
-                Button(ProductStrings[.voiceDismiss]) { call.dismissEnded() }
-                    .buttonStyle(SecondaryButtonStyle(.row))
             }
         }
         .padding(Spacing.s)

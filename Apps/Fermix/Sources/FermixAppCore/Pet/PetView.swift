@@ -63,8 +63,13 @@ struct PetView: View {
         }
     }
 
+    /// The dock comes with a call. Its one control is the stop, which has
+    /// nothing to do on this window with no call up, so the pointer reveals
+    /// no empty dock at rest.
     private var shouldShowControls: Bool {
-        hovered || model.callActive || model.visualMode == .speaking
+        guard model.stopAction(in: .floatingWindow) != nil else { return false }
+
+        return hovered || model.callActive || model.visualMode == .speaking
     }
 }
 
@@ -74,9 +79,10 @@ struct PetView: View {
 /// One view, two hosts: the floating window (`PetView`) and the chat's call box
 /// (`ChatCallBox`). Each host decides what is its own: whether the mascot may
 /// move (its own window's visibility), whether the intro plays and whether the
-/// dock shows. What a click on the mascot does is the façade's one rule, read
-/// for the host that draws it, so the two cannot drift. The animation never
-/// takes the click, so the whole of the mascot's frame is that one action.
+/// dock shows. What a click on the mascot does, and what the dock's stop
+/// offers, are the façade's rules, read for the host that draws it, so the two
+/// cannot drift. The animation never takes the click, so the whole of the
+/// mascot's frame is that one action.
 struct PetCompanion: View {
     /// Whether the dock of call controls is drawn.
     enum Dock: Equatable {
@@ -91,7 +97,8 @@ struct PetCompanion: View {
     let animates: Bool
     let playsIntro: Bool
     let dock: Dock
-    /// Which host draws it, which the façade reads for the mascot's click.
+    /// Which host draws it, which the façade reads for the mascot's click and
+    /// the dock's stop.
     let host: PetHost
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -109,7 +116,7 @@ struct PetCompanion: View {
             .frame(width: PetMetrics.stageSize.width, height: PetMetrics.stageSize.height)
 
             if dock != .absent {
-                ControlDock(model: model)
+                ControlDock(model: model, host: host)
                     .opacity(dock == .shown ? 1 : 0)
                     .animation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade), value: dock)
             }
@@ -133,13 +140,11 @@ struct PetCompanion: View {
 
 private struct ControlDock: View {
     @ObservedObject var model: PetFeatureModel
+    let host: PetHost
 
     var body: some View {
         HStack(spacing: Spacing.s) {
-            PetControlButton(symbol: .call(model), label: model.callActionTitle) {
-                model.toggleCall()
-            }
-            .disabled(!model.callActionEnabled)
+            stop
 
             if model.showsInterrupt {
                 PetControlButton(symbol: .interrupt, label: model.interruptActionTitle) {
@@ -160,6 +165,21 @@ private struct ControlDock: View {
             Capsule().stroke(Palette.hairline(.standard).color, lineWidth: Stroke.hairline)
         )
     }
+
+    /// The one call control, the stop. Where it has nothing to do it keeps its
+    /// place unseen, so the floating window's dock, hidden at rest, keeps the
+    /// room it takes once a call is up, and revealing it moves nothing.
+    @ViewBuilder private var stop: some View {
+        if let action = model.stopAction(in: host) {
+            PetControlButton(symbol: .stop, label: model.stopActionTitle(action)) {
+                model.stopClicked(in: host)
+            }
+            .disabled(action == .ending)
+        } else {
+            PetControlButton(symbol: .stop, label: model.stopActionTitle(.end)) {}
+                .hidden()
+        }
+    }
 }
 
 /// How one of the dock's controls draws: its symbol, whether the symbol takes
@@ -170,15 +190,12 @@ struct PetDockSymbol: Equatable, Sendable {
     let filled: Bool
     let tint: ThemedColor
 
-    /// The call control is the chat toolbar's call button (owner, 2026-10-04:
-    /// the call button in the phone's colours): the one phone symbol, filled
-    /// exactly while the toolbar's is, when a click would end a start or a
-    /// call, and in ink like it, never the accent. The mascot is what shows
-    /// that the call is live.
-    @MainActor
-    static func call(_ pet: PetFeatureModel) -> PetDockSymbol {
-        PetDockSymbol(name: CommandTable.callSymbol, filled: pet.callAction == .end, tint: Palette.ink)
-    }
+    /// The stop, the filled square, in ink in every state and never the
+    /// accent: it ends a call, and in the chat's box it closes the box once
+    /// the call is over (owner, 2026-10-04: "I prefer it was a stop button").
+    /// The dock draws no phone: the chat toolbar's begins a call, and the
+    /// dock's control never does. The mascot is what shows the call is live.
+    static let stop = PetDockSymbol(name: "stop", filled: true, tint: Palette.ink)
 
     /// The slashed microphone, filled and in the warning tint while muted.
     @MainActor
@@ -186,7 +203,9 @@ struct PetDockSymbol: Equatable, Sendable {
         PetDockSymbol(name: "mic.slash", filled: pet.muted, tint: pet.muted ? Palette.warning : Palette.ink)
     }
 
-    static let interrupt = PetDockSymbol(name: "stop.circle", filled: false, tint: Palette.ink)
+    /// The silenced speaker, which cuts the reply off: never the stop's
+    /// square, so the two cannot be confused.
+    static let interrupt = PetDockSymbol(name: "speaker.slash", filled: false, tint: Palette.ink)
 }
 
 private struct PetControlButton: View {
