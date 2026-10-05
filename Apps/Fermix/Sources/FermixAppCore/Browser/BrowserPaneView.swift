@@ -358,10 +358,6 @@ private struct BrowserNavigationRow: View {
 
     @State private var draft = ""
     @FocusState private var addressFocused: Bool
-    /// The app a file tab offers its file to, asked once as the row appears:
-    /// the row is built again for each tab. The control decides again when
-    /// it is clicked, from the file as it is then.
-    @State private var fileApp: WorkspaceApplication?
 
     var body: some View {
         HStack(spacing: Spacing.xxs) {
@@ -386,7 +382,6 @@ private struct BrowserNavigationRow: View {
         }
         .onAppear {
             draft = shownAddress
-            fileApp = tab.file.flatMap(browser.documentApplication(for:))
             // A blank tab is opened to be typed into; a file tab is opened
             // to be read, before or after its file loads.
             if tab.url == nil, tab.profile != .file { addressFocused = true }
@@ -400,17 +395,15 @@ private struct BrowserNavigationRow: View {
     }
 
     private var shownAddress: String {
-        guard let file = tab.file else { return tab.url?.absoluteString ?? "" }
-
-        return BrowserText.address(of: file)
+        tab.url?.absoluteString ?? ""
     }
 
-    /// A file tab's way out: its file in the app its type goes to, where it
-    /// may go to one, which a script never may, and its file selected in
-    /// Finder.
+    /// A file tab's way out: its file in the app the tab offers it to, where
+    /// it offers one, which it never does for text, markup or a script, and
+    /// its file selected in Finder.
     @ViewBuilder
     private var fileActions: some View {
-        if let fileApp {
+        if let fileApp = tab.fileApp {
             control(named: BrowserText.openIn(fileApp.name), symbol: "arrow.up.forward.app", enabled: true) {
                 browser.openFileInApp()
             }
@@ -419,35 +412,52 @@ private struct BrowserNavigationRow: View {
     }
 
     /// The address capsule: the page's address, with the lock while every
-    /// resource on it came over a secure connection, or a file tab's path,
-    /// with none, and a field that loads what is typed on Return.
+    /// resource on it came over a secure connection, in a field that loads
+    /// what is typed on Return. A file tab's is its path, to read and copy
+    /// and never to type into, since the tab loads nothing else.
     private var address: some View {
         HStack(spacing: Spacing.xxs) {
-            if tab.hasOnlySecureContent, tab.profile != .file {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: BrowserPaneMetrics.lockSymbolSize, weight: .semibold))
-                    .foregroundStyle(Palette.secondary.color)
-                    .accessibilityLabel(ProductStrings[.browserSecure])
+            if let file = tab.file {
+                Text(BrowserText.address(of: file))
+                    .fermixType(Typography.style(.callout))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(ProductStrings[.browserAddress])
+                    .accessibilityValue(BrowserText.address(of: file))
+            } else {
+                webAddress
             }
-
-            TextField(ProductStrings[.browserAddressPrompt], text: $draft)
-                .textFieldStyle(.plain)
-                .fermixType(Typography.style(.callout))
-                .focused($addressFocused)
-                .accessibilityLabel(ProductStrings[.browserAddress])
-                .onSubmit {
-                    browser.load(address: draft)
-                    addressFocused = false
-                }
-                .onExitCommand {
-                    draft = shownAddress
-                    addressFocused = false
-                }
         }
         .padding(.horizontal, Spacing.s)
         .frame(maxWidth: .infinity, minHeight: HitTarget.rowAction)
         .background(ButtonRecipe.shape.fill(ButtonRecipe.secondaryFill.color))
         .overlay(ButtonRecipe.shape.strokeBorder(ButtonRecipe.secondaryBorder.color, lineWidth: Stroke.hairline))
+    }
+
+    @ViewBuilder
+    private var webAddress: some View {
+        if tab.hasOnlySecureContent {
+            Image(systemName: "lock.fill")
+                .font(.system(size: BrowserPaneMetrics.lockSymbolSize, weight: .semibold))
+                .foregroundStyle(Palette.secondary.color)
+                .accessibilityLabel(ProductStrings[.browserSecure])
+        }
+
+        TextField(ProductStrings[.browserAddressPrompt], text: $draft)
+            .textFieldStyle(.plain)
+            .fermixType(Typography.style(.callout))
+            .focused($addressFocused)
+            .accessibilityLabel(ProductStrings[.browserAddress])
+            .onSubmit {
+                browser.load(address: draft)
+                addressFocused = false
+            }
+            .onExitCommand {
+                draft = shownAddress
+                addressFocused = false
+            }
     }
 
     /// One of the row's symbol capsules, named for VoiceOver and the pointer.

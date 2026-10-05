@@ -109,9 +109,11 @@ public protocol BrowserPage: AnyObject {
 
     func load(_ url: URL)
     /// A file on this Mac, shown as `kind`, on a page of the file profile,
-    /// which loads nothing before its network rule is in place. Reload reads
-    /// the file again.
-    func loadFile(_ url: URL, as kind: BrowserFileKind)
+    /// which loads nothing before its network rule is in place. `readAccess`
+    /// is the file itself, or the folder an HTML file inside the Fermix home
+    /// sits in, so a report's own images and stylesheets show. Reload shows
+    /// the file again, reading text afresh.
+    func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL)
     func back()
     func forward()
     func reload()
@@ -136,9 +138,10 @@ public protocol BrowserPageEvents: AnyObject {
     /// files chosen, or nil for none.
     func pageRequestedFiles(_ request: BrowserFileRequest, answer: @escaping @MainActor ([URL]?) -> Void)
     func pageMetExternalScheme(_ url: URL)
-    /// A person's click on a web link in a file page, whose navigation the
-    /// page has already refused: a file page never loads a web page.
-    func pageRequestedWebPage(_ url: URL)
+    /// A link the page does not load, whose navigation it has already
+    /// refused: a web page a person clicked in a file page, or a file on this
+    /// Mac clicked in any page.
+    func pageHandedOff(_ url: URL)
     func pagePresented(_ dialog: BrowserDialog, answer: @escaping @MainActor (BrowserDialogAnswer) -> Void)
     /// A navigation became a file to save.
     func pageStartedDownload(_ download: any BrowserDownload)
@@ -162,9 +165,9 @@ public protocol BrowserTabDelegate: AnyObject {
     /// belongs to another app on the Mac. Whether that app opens is the tab
     /// owner's rule.
     func externalSchemeMet(_ url: URL, in tab: BrowserTab)
-    /// A web link the person clicked in a file tab, which shows its file and
-    /// nothing else, so the page goes to a tab that loads web pages.
-    func webPageRequested(_ url: URL, from tab: BrowserTab)
+    /// A link the tab does not load, to be opened as the same link from a
+    /// reply would be.
+    func handOffRequested(_ url: URL, from tab: BrowserTab)
     func dialogPresented(
         _ dialog: BrowserDialog,
         in tab: BrowserTab,
@@ -192,6 +195,10 @@ public final class BrowserTab: ObservableObject, Identifiable {
     /// for the person's answer before anything loads, so the page has nothing
     /// to report yet. The coordinator's to set, once; nil for every other tab.
     @Published public internal(set) var file: URL?
+    /// The app a file tab offers its file to, decided by the coordinator as
+    /// the tab opens; nil where it offers none. The offer is decided again
+    /// when the person takes it, from the file as it is then.
+    @Published public internal(set) var fileApp: WorkspaceApplication?
     @Published public private(set) var url: URL?
     @Published public private(set) var title = ""
     @Published public private(set) var isLoading = false
@@ -220,7 +227,9 @@ public final class BrowserTab: ObservableObject, Identifiable {
     public var cookieStore: (any BrowserPageCookies)? { page as? any BrowserPageCookies }
 
     public func load(_ url: URL) { page.load(url) }
-    public func loadFile(_ url: URL, as kind: BrowserFileKind) { page.loadFile(url, as: kind) }
+    public func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL) {
+        page.loadFile(url, as: kind, readAccess: readAccess)
+    }
     public func back() { page.back() }
     public func forward() { page.forward() }
     public func reload() { page.reload() }
@@ -273,8 +282,8 @@ extension BrowserTab: BrowserPageEvents {
         delegate?.externalSchemeMet(url, in: self)
     }
 
-    public func pageRequestedWebPage(_ url: URL) {
-        delegate?.webPageRequested(url, from: self)
+    public func pageHandedOff(_ url: URL) {
+        delegate?.handOffRequested(url, from: self)
     }
 
     /// A page with nobody to ask is answered at once, because WebKit holds the

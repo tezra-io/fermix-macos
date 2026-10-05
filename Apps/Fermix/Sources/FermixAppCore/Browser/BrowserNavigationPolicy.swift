@@ -17,6 +17,9 @@ public struct BrowserNavigation: Equatable, Sendable {
     /// The tab shows a file on this Mac (`BrowserProfile.file`), which loads
     /// its own file and nothing else.
     public let inFileTab: Bool
+    /// The destination is the file the file tab shows, its own load or a move
+    /// within it, rather than another file.
+    public let isTabsOwnFile: Bool
 
     public init(
         scheme: String,
@@ -24,7 +27,8 @@ public struct BrowserNavigation: Equatable, Sendable {
         isDownload: Bool = false,
         isMainFrame: Bool = true,
         isUserInitiated: Bool = true,
-        inFileTab: Bool = false
+        inFileTab: Bool = false,
+        isTabsOwnFile: Bool = false
     ) {
         self.scheme = scheme
         self.targetsNewWindow = targetsNewWindow
@@ -32,6 +36,7 @@ public struct BrowserNavigation: Equatable, Sendable {
         self.isMainFrame = isMainFrame
         self.isUserInitiated = isUserInitiated
         self.inFileTab = inFileTab
+        self.isTabsOwnFile = isTabsOwnFile
     }
 }
 
@@ -47,9 +52,10 @@ public enum BrowserNavigationDecision: Equatable, Sendable {
     /// A file to save, handed to the tab, whose owner rules on it: the
     /// person's is saved where they choose, and a task's never is.
     case download
-    /// A web page from a file tab, which never loads one: the tab stays put,
-    /// and the page opens in a new tab of the shared profile, in front.
-    case sharedTab
+    /// A link this tab does not load, opened as the same link from a reply
+    /// would be: a web page from a file tab, or a file on this Mac from any
+    /// tab. The tab stays put.
+    case handOff
     /// Nothing happens.
     case cancel
 }
@@ -58,10 +64,10 @@ public enum BrowserNavigationDecision: Equatable, Sendable {
 /// without a web view. The WebKit page asks it and does what it answers.
 public enum BrowserNavigationPolicy {
     /// The schemes a web page is made of. `about` carries blank tabs and
-    /// `srcdoc` frames, `blob` and `data` carry content a page built itself,
-    /// and `file` is left to WebKit's own rule, which refuses a file a web page
-    /// was not given.
-    public static let webSchemes: Set<String> = ["http", "https", "about", "blob", "data", "javascript", "file"]
+    /// `srcdoc` frames, and `blob` and `data` carry content a page built
+    /// itself. A file on this Mac is not a web page: a click on one is handed
+    /// off, and nothing else moves a tab to one.
+    public static let webSchemes: Set<String> = ["http", "https", "about", "blob", "data", "javascript"]
 
     public static func isWeb(_ scheme: String) -> Bool {
         webSchemes.contains(scheme.lowercased())
@@ -73,48 +79,60 @@ public enum BrowserNavigationPolicy {
     public static let downloadSchemes: Set<String> = ["http", "https", "blob", "data"]
 
     /// The schemes a web page is served on. A file tab never loads one: a
-    /// person's click on one opens the page in a tab of the shared profile.
+    /// person's click on one is handed off.
     public static let pageSchemes: Set<String> = ["http", "https"]
-
-    /// The schemes a file tab's own load arrives on: the file itself, and a
-    /// blank page. A link in the file to another file reads the same and is
-    /// WebKit's to refuse, the page having read access to its own file alone.
-    public static let fileSchemes: Set<String> = ["file", "about"]
 
     /// The decision, in order: a download is saved where its scheme is one a
     /// file is saved from, and never where a frame began it, since a hidden
-    /// frame is how a page saves a file nobody asked for; a web page moves the
-    /// tab or opens a new one; anything else belongs to another app, which is
-    /// opened only for a click on the page itself. A frame or a script
-    /// reaching for another app on its own is refused: that is how a page
-    /// would launch an app nobody asked for. A file tab has rules of its own.
+    /// frame is how a page saves a file nobody asked for; a click on a file on
+    /// this Mac is handed off, and nothing else reaches one; a web page moves
+    /// the tab or opens a new one; anything else belongs to another app, which
+    /// is opened only for a click on the page itself. A frame or a script
+    /// reaching for another app or a file on its own is refused: that is how a
+    /// page would launch an app nobody asked for. A file tab has rules of its
+    /// own.
     public static func decide(_ navigation: BrowserNavigation) -> BrowserNavigationDecision {
         guard !navigation.inFileTab else { return decideInFile(navigation) }
         guard !navigation.isDownload else { return isSavable(navigation) ? .download : .cancel }
+        guard !isFile(navigation) else { return isClick(navigation) ? .handOff : .cancel }
         guard !isWeb(navigation.scheme) else { return navigation.targetsNewWindow ? .newTab : .allow }
-        guard navigation.isMainFrame || navigation.targetsNewWindow, navigation.isUserInitiated else { return .cancel }
+        guard isClick(navigation) else { return .cancel }
 
         return .external
     }
 
     /// A file tab shows its file and nothing more, in order: it never saves
-    /// anything; its own load moves it; a person's click on a web link, in the
-    /// tab or asking for a window, opens the page in a tab of the shared
-    /// profile; a click on another app's link is the person's to answer, as in
-    /// any tab of theirs; and everything else, a frame or a move nobody
-    /// clicked among it, goes nowhere.
+    /// anything; its own load moves it; a person's click on a web link or on
+    /// another file, in the tab or asking for a window, is handed off; a click
+    /// on another app's link is the person's to answer, as in any tab of
+    /// theirs; and everything else, a frame, a redirect or a move nobody
+    /// clicked, goes nowhere.
     private static func decideInFile(_ navigation: BrowserNavigation) -> BrowserNavigationDecision {
         let scheme = navigation.scheme.lowercased()
         guard !navigation.isDownload else { return .cancel }
         guard !isOwnLoad(navigation) else { return .allow }
-        guard navigation.isMainFrame || navigation.targetsNewWindow, navigation.isUserInitiated else { return .cancel }
-        guard !pageSchemes.contains(scheme) else { return .sharedTab }
+        guard isClick(navigation) else { return .cancel }
+        guard !isFile(navigation), !pageSchemes.contains(scheme) else { return .handOff }
 
         return isWeb(scheme) ? .cancel : .external
     }
 
+    /// A person's click on the page itself, in the tab or asking for a window
+    /// of its own. A frame or a script moving on its own is never one.
+    private static func isClick(_ navigation: BrowserNavigation) -> Bool {
+        (navigation.isMainFrame || navigation.targetsNewWindow) && navigation.isUserInitiated
+    }
+
+    private static func isFile(_ navigation: BrowserNavigation) -> Bool {
+        navigation.scheme.lowercased() == "file"
+    }
+
+    /// A file tab's own load, in the tab itself: its own file, or a blank
+    /// page.
     private static func isOwnLoad(_ navigation: BrowserNavigation) -> Bool {
-        navigation.isMainFrame && !navigation.targetsNewWindow && fileSchemes.contains(navigation.scheme.lowercased())
+        guard navigation.isMainFrame, !navigation.targetsNewWindow else { return false }
+
+        return navigation.scheme.lowercased() == "about" || (isFile(navigation) && navigation.isTabsOwnFile)
     }
 
     private static func isSavable(_ download: BrowserNavigation) -> Bool {

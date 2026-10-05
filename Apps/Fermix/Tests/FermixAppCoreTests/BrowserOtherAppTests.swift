@@ -52,7 +52,7 @@ struct BrowserOtherAppTests {
     func noAppSaysSo() throws {
         let harness = BrowserHarness()
         Self.personsTab(harness)
-        harness.workspace.installedApp = nil
+        harness.workspace.linkApp = nil
 
         harness.page(0).events?.pageMetExternalScheme(Self.mail)
 

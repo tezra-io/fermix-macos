@@ -454,6 +454,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case browserNoticeNoApp = "browser.notice.noApp"
     /// A file the person opened from a link is not where the link says.
     case browserNoticeFileMissing = "browser.notice.fileMissing"
+    /// A text file that grew past what a file tab shows by the time it was
+    /// read again.
+    case browserNoticeFileTooLarge = "browser.notice.fileTooLarge"
     /// A file the person chose a place for, by its name: on its way, saved,
     /// and stopped short, with the system's own sentence after.
     case browserNoticeDownloadingFormat = "browser.notice.downloadingFormat"

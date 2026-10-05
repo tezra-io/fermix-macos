@@ -95,19 +95,20 @@ public final class BrowserCoordinator {
 
     // MARK: - Opening
 
-    /// A link, in a new tab of the shared profile, in front.
-    public func open(_ url: URL) {
+    /// A link, in a new tab of the shared profile, in front: at the end, or
+    /// beside the tab it came from.
+    public func open(_ url: URL, after opener: BrowserTab? = nil) {
         guard let tab = makePersonTab(.shared) else { return }
 
-        add(tab)
+        add(tab, after: opener)
         tab.load(url)
     }
 
-    /// A file on this Mac, the one place a local file is opened, decided on
-    /// where its link really lands (`BrowserLocalFile`): nothing there opens
-    /// the pane on the sentence that says so; one the pane shows opens in a
-    /// new file tab, in front; a document goes to the app named for its type;
-    /// and everything else is only shown in Finder.
+    /// A file on this Mac a person asked for, from a reply or a page, decided
+    /// on where its link really lands (`BrowserLocalFile`): nothing there
+    /// opens the pane on the sentence that says so; one the pane shows opens
+    /// in a new file tab, in front; a document goes to the app named for its
+    /// type; and everything else is only shown in Finder.
     public func openFile(_ link: URL) {
         guard let file = BrowserLocalFile(link) else {
             model.notice = ProductStrings[.browserNoticeFileMissing]
@@ -116,7 +117,7 @@ public final class BrowserCoordinator {
         }
 
         switch file.opening(workspace) {
-        case .show(let kind): openFileTab(file.url, as: kind)
+        case .show(let kind): openFileTab(file, as: kind)
         case .open(let app): open(file.url, with: app)
         case .reveal: workspace.reveal(file.url)
         }
@@ -221,13 +222,6 @@ public final class BrowserCoordinator {
         guard let file = model.selectedTab?.file else { return }
 
         workspace.reveal(file)
-    }
-
-    /// The app a file tab offers its file to, decided from the file as it is
-    /// now: nil where the file may go to none, a script among them, whose app
-    /// would run it.
-    public func documentApplication(for file: URL) -> WorkspaceApplication? {
-        BrowserLocalFile(file)?.documentApplication(workspace)
     }
 
     /// The person's answer to the dialog over the pane.
@@ -468,19 +462,26 @@ public final class BrowserCoordinator {
     }
 
     /// A file tab is the person's, so no task can ever address it, and it
-    /// comes to the front with the pane open. Inside the Fermix home its file
-    /// loads at once; outside it, only on the person's answer.
-    private func openFileTab(_ file: URL, as kind: BrowserFileKind) {
+    /// comes to the front with the pane open, with the app it offers its file
+    /// to decided now. Inside the Fermix home its file loads at once, an HTML
+    /// file with leave to read its own folder for its images and stylesheets;
+    /// outside it, the one file loads only on the person's answer, and no tab
+    /// is made while something else is asking, since the question could not
+    /// be put.
+    private func openFileTab(_ file: BrowserLocalFile, as kind: BrowserFileKind) {
+        let inside = isInsideHome(file.url)
+        guard inside || nothingIsAsking else { return }
         guard let tab = makePersonTab(.file) else { return }
 
-        tab.file = file
+        tab.file = file.url
+        tab.fileApp = file.documentApplication(workspace)
         add(tab)
-        guard isInsideHome(file) else {
-            askBeforeLoading(file, as: kind, in: tab)
+        guard inside else {
+            askBeforeLoading(file.url, as: kind, in: tab)
             return
         }
 
-        tab.loadFile(file, as: kind)
+        tab.loadFile(file.url, as: kind, readAccess: kind == .html ? file.url.deletingLastPathComponent() : file.url)
     }
 
     private func isInsideHome(_ file: URL) -> Bool {
@@ -505,7 +506,7 @@ public final class BrowserCoordinator {
                 return
             }
 
-            tab.loadFile(file, as: kind)
+            tab.loadFile(file, as: kind, readAccess: file)
         }
     }
 
@@ -514,7 +515,11 @@ public final class BrowserCoordinator {
     /// pane, may ask, and only while nothing else is asking, so a popup never
     /// stacks.
     private func mayAsk(from tab: BrowserTab) -> Bool {
-        model.isOpen && model.selectedTabID == tab.id && model.dialog == nil && !systemPanelShown
+        model.isOpen && model.selectedTabID == tab.id && nothingIsAsking
+    }
+
+    private var nothingIsAsking: Bool {
+        model.dialog == nil && !systemPanelShown
     }
 
     /// Puts up a system panel, which is the pane's one popup until the person
@@ -692,7 +697,7 @@ extension BrowserCoordinator: BrowserTabDelegate {
             if model.selectedTabID == tab.id { model.notice = ProductStrings[.browserNoticeTaskOpenAppRefused] }
             return
         }
-        guard let app = workspace.appName(toOpen: url) else {
+        guard let app = workspace.application(toOpen: url)?.name else {
             model.notice = ProductStrings[.browserNoticeNoApp]
             return
         }
@@ -706,11 +711,19 @@ extension BrowserCoordinator: BrowserTabDelegate {
         }
     }
 
-    /// A file tab never loads a web page, so a link the person clicked in
-    /// one opens as a link from a reply does: in a new tab of the shared
-    /// profile, in front.
-    public func webPageRequested(_ url: URL, from tab: BrowserTab) {
-        open(url)
+    /// A link the tab does not load, whose navigation the page has already
+    /// refused, opened as the same link from a reply would be: a file by the
+    /// file rules, and a web page in a new tab of the shared profile beside
+    /// the tab it came from. A task's tab hands nothing off: a file on this
+    /// Mac is the person's to open.
+    public func handOffRequested(_ url: URL, from tab: BrowserTab) {
+        guard model.host.owner(of: tab.id) == .person else { return }
+        guard !url.isFileURL else {
+            openFile(url)
+            return
+        }
+
+        open(url, after: tab)
     }
 
     /// Shown where the page may ask (`mayAsk`); every other dialog is

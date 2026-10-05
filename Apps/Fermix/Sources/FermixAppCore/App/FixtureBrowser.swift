@@ -119,7 +119,7 @@ final class FixtureBrowserPage: BrowserPage {
     }
 
     /// A file walks the history as a page does, whatever its kind.
-    func loadFile(_ url: URL, as kind: BrowserFileKind) {
+    func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL) {
         load(url)
     }
 
@@ -215,8 +215,9 @@ struct FixtureWorkspaceOpener: WorkspaceLinkOpening {
     func open(_ url: URL) -> Bool { true }
     /// No app is named, so a fixture page never asks to leave for one, and a
     /// file tab offers its file to none.
-    func appName(toOpen url: URL) -> String? { nil }
+    func application(toOpen url: URL) -> WorkspaceApplication? { nil }
     func application(toOpen type: UTType) -> WorkspaceApplication? { nil }
+    func opensWebPages(_ app: WorkspaceApplication) -> Bool { false }
     func open(_ file: URL, withApplicationAt app: URL, failed: @escaping @MainActor (String) -> Void) {}
     /// Finder is another app too.
     func reveal(_ url: URL) {}

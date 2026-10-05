@@ -310,7 +310,7 @@ struct BrowserTextTests {
     /// Whatever the page calls itself: an HTML file's own title, or none.
     @Test("a file tab is named by its file")
     func fileTabTitles() {
-        let file = URL(fileURLWithPath: "/Users/Shared/Fermix/report.html")
+        let file = URL(fileURLWithPath: "/Users/Shared/Fermix/report.html", isDirectory: false)
 
         #expect(BrowserText.tabTitle(title: "Quarterly", url: file, file: file) == "report.html")
         #expect(BrowserText.tabTitle(title: "", url: nil, file: file) == "report.html")
@@ -318,10 +318,10 @@ struct BrowserTextTests {
 
     @Test("a file's address is its path, the home folder written ~")
     func fileAddresses() {
-        let home = URL(fileURLWithPath: NSHomeDirectory())
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
 
-        #expect(BrowserText.address(of: home.appendingPathComponent("Fermix/workspace/notes.md")) == "~/Fermix/workspace/notes.md")
-        #expect(BrowserText.address(of: URL(fileURLWithPath: "/Users/Shared/notes.md")) == "/Users/Shared/notes.md")
+        #expect(BrowserText.address(of: home.appendingPathComponent("Fermix/workspace/notes.md", isDirectory: false)) == "~/Fermix/workspace/notes.md")
+        #expect(BrowserText.address(of: URL(fileURLWithPath: "/Users/Shared/notes.md", isDirectory: false)) == "/Users/Shared/notes.md")
     }
 
     @Test("a file tab's words")

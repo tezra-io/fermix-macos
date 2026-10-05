@@ -27,14 +27,19 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     /// The network rule a file page waits on before it loads anything; nil
     /// for every other page, which is what makes a page a file page.
     private let fileRules: WebKitFileRules?
-    /// The file a file page was last asked to show, which reload reads again.
-    private var shownFile: (url: URL, kind: BrowserFileKind)?
-    /// Whether the network rule is in the page's content controller yet: it
-    /// goes in once, on the first load, and stays.
+    /// The file a file page was last asked to show: the one file it loads,
+    /// and what reload shows again.
+    private var shownFile: (url: URL, kind: BrowserFileKind, readAccess: URL)?
+    /// The page's own content controller, from the configuration it was built
+    /// on, which holds the network rule.
+    private let contentController: WKUserContentController
+    /// Whether the network rule is in the content controller yet: it goes in
+    /// once, on the first load, and stays.
     private var rulesInstalled = false
 
     init(configuration: WKWebViewConfiguration, fileRules: WebKitFileRules?) {
         webView = WKWebView(frame: .zero, configuration: configuration)
+        contentController = configuration.userContentController
         self.fileRules = fileRules
         super.init()
 
@@ -61,59 +66,92 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     func find(_ text: String) { webView.find(text, configuration: WKFindConfiguration()) { _ in } }
     func zoom(_ zoom: BrowserZoom) { webView.pageZoom = zoom.factor(from: webView.pageZoom) }
 
-    /// A file page reads its file again: text it was given as data would
-    /// otherwise come back as it was first read.
+    /// Text a file page was given as data is read again, since WebKit would
+    /// show it as first read; every other page, a file page's image, PDF or
+    /// HTML among them, is WebKit's own reload.
     func reload() {
-        guard let shownFile else {
+        guard let shownFile, shownFile.kind == .text else {
             webView.reload()
             return
         }
 
-        loadFile(shownFile.url, as: shownFile.kind)
+        loadFile(shownFile.url, as: .text, readAccess: shownFile.readAccess)
     }
 
     /// A file, once the network rule is in place and never before it.
-    func loadFile(_ url: URL, as kind: BrowserFileKind) {
+    func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL) {
         guard let fileRules else { preconditionFailure("only a file page loads a file") }
 
-        shownFile = (url, kind)
+        shownFile = (url, kind, readAccess)
         fileRules.whenCompiled { [weak self] compiled in
-            self?.load(url, as: kind, under: compiled)
+            self?.load(url, as: kind, readAccess: readAccess, under: compiled)
         }
     }
 
     /// A rule list that failed to compile loads nothing and says why.
-    private func load(_ file: URL, as kind: BrowserFileKind, under compiled: Result<WKContentRuleList, any Error>) {
+    private func load(
+        _ file: URL,
+        as kind: BrowserFileKind,
+        readAccess: URL,
+        under compiled: Result<WKContentRuleList, any Error>
+    ) {
         switch compiled {
         case .failure(let error):
             events?.pageFailed(error.localizedDescription)
         case .success(let rules):
             install(rules)
-            show(file, as: kind)
+            show(file, as: kind, readAccess: readAccess)
         }
     }
 
     private func install(_ rules: WKContentRuleList) {
         guard !rulesInstalled else { return }
 
-        webView.configuration.userContentController.add(rules)
+        contentController.add(rules)
         rulesInstalled = true
     }
 
     /// Text is read here and given to WebKit as plain text, because WebKit
     /// would save a markdown or YAML file rather than show it. Anything else
-    /// loads from disk, with read access to that one file alone.
-    private func show(_ file: URL, as kind: BrowserFileKind) {
+    /// loads from disk, with read access to what the tab was given.
+    private func show(_ file: URL, as kind: BrowserFileKind, readAccess: URL) {
         guard kind == .text else {
-            webView.loadFileURL(file, allowingReadAccessTo: file)
+            webView.loadFileURL(file, allowingReadAccessTo: readAccess)
             return
         }
 
+        showText(file)
+    }
+
+    /// The size is asked again first: the file may have grown since the pane
+    /// decided to show it, and past the cap nothing is read.
+    private func showText(_ file: URL) {
         do {
+            guard try Self.size(of: file) <= BrowserFileKind.textSizeCap else {
+                events?.pageFailed(ProductStrings[.browserNoticeFileTooLarge])
+                return
+            }
+
             webView.load(try Data(contentsOf: file), mimeType: "text/plain", characterEncodingName: "utf-8", baseURL: file)
         } catch {
             events?.pageFailed(error.localizedDescription)
         }
+    }
+
+    private static func size(of file: URL) throws -> Int {
+        guard let size = try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int else {
+            throw CocoaError(.fileReadUnknown)
+        }
+
+        return size
+    }
+
+    /// Whether a navigation goes to the file the page shows, its own load or
+    /// a move within it, rather than to another file.
+    private func isShownFile(_ url: URL?) -> Bool {
+        guard let url, url.isFileURL, let shownFile else { return false }
+
+        return url.path == shownFile.url.path
     }
 
     /// Every published property the tab shows, each reporting the whole state.
@@ -155,20 +193,22 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
             isDownload: action.shouldPerformDownload,
             isMainFrame: action.targetFrame?.isMainFrame ?? true,
             isUserInitiated: action.navigationType == .linkActivated || action.navigationType == .formSubmitted,
-            inFileTab: showsFile
+            inFileTab: showsFile,
+            isTabsOwnFile: isShownFile(action.request.url)
         )
     }
 
     /// What a refused navigation leaves behind: a link to another app, handed
     /// to the tab, whose owner rules on it. A task's tab never opens the app,
-    /// and the person's asks them first. A web link a person clicked in a file
-    /// page goes to the tab too, which hands it to a tab that loads web pages.
+    /// and the person's asks them first. A link the page does not load, a web
+    /// page from a file page or a file from any page, goes to the tab too, to
+    /// be opened as the same link from a reply would be.
     private func carryOut(_ decision: BrowserNavigationDecision, for url: URL?) {
         guard let url else { return }
 
         switch decision {
         case .external: events?.pageMetExternalScheme(url)
-        case .sharedTab: events?.pageRequestedWebPage(url)
+        case .handOff: events?.pageHandedOff(url)
         case .allow, .newTab, .download, .cancel: return
         }
     }
@@ -179,7 +219,7 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         switch decision {
         case .allow, .newTab: return .allow
         case .download: return .download
-        case .external, .sharedTab, .cancel: return .cancel
+        case .external, .handOff, .cancel: return .cancel
         }
     }
 
@@ -188,7 +228,7 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         switch decision {
         case .allow: return .allow
         case .download: return .download
-        case .newTab, .external, .sharedTab, .cancel: return .cancel
+        case .newTab, .external, .handOff, .cancel: return .cancel
         }
     }
 
@@ -262,7 +302,8 @@ extension WebKitBrowserPage: WKNavigationDelegate {
             scheme: response.response.url?.scheme ?? "about",
             isDownload: isDownload,
             isMainFrame: response.isForMainFrame,
-            inFileTab: showsFile
+            inFileTab: showsFile,
+            isTabsOwnFile: isShownFile(response.response.url)
         )
         decisionHandler(Self.responsePolicy(BrowserNavigationPolicy.decide(navigation)))
     }

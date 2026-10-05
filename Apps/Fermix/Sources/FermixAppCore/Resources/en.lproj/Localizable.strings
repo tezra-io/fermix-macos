@@ -404,6 +404,7 @@
 "browser.notice.taskOpenAppRefused" = "A task cannot open other apps, so that link was not opened.";
 "browser.notice.noApp" = "No app on this Mac opens that link.";
 "browser.notice.fileMissing" = "There is no file at that path.";
+"browser.notice.fileTooLarge" = "This file is too large to show here.";
 "browser.notice.downloadingFormat" = "Downloading “%@”.";
 "browser.notice.downloadSavedFormat" = "Saved “%@”.";
 "browser.notice.downloadFailedFormat" = "“%@” did not finish downloading. %@";

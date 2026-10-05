@@ -31,7 +31,7 @@ public final class ContentLinkOpener {
 
     /// The schemes the pane opens from a link. A page itself may move to more
     /// (`BrowserNavigationPolicy.webSchemes`), but a link a person clicks in a
-    /// reply is a web page or it is another app's.
+    /// reply, a file aside, is a web page or it is another app's.
     public static let paneSchemes: Set<String> = ["http", "https"]
 
     /// Where a link that is not a file goes, by its scheme and the

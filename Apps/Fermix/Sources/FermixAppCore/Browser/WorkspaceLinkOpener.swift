@@ -27,13 +27,15 @@ public protocol WorkspaceLinkOpening {
     /// Services would choose by whatever is at the path when it opens, and a
     /// file swapped in since would be launched or run.
     func open(_ url: URL) -> Bool
-    /// The name of the app on this Mac that would take the link, as Finder
-    /// shows it, or nil where none would.
-    func appName(toOpen url: URL) -> String?
+    /// The app on this Mac that would take the link, or nil where none would.
+    func application(toOpen url: URL) -> WorkspaceApplication?
     /// The app on this Mac that opens a document of `type`, or nil where none
     /// does. Asked of the type the pane decided on, never of the file, so a
     /// file swapped in afterwards cannot change the answer.
     func application(toOpen type: UTType) -> WorkspaceApplication?
+    /// Whether the app opens web pages: a browser given a file runs its
+    /// scripts and reaches the network, which a file tab exists to prevent.
+    func opensWebPages(_ app: WorkspaceApplication) -> Bool
     /// A file, handed to exactly this app as a document: whatever is at the
     /// path by then is a document to that app, never launched or run.
     /// `failed` hears the system's sentence where the app could not take it.
@@ -50,15 +52,29 @@ public struct WorkspaceLinkOpener: WorkspaceLinkOpening {
         NSWorkspace.shared.open(url)
     }
 
-    public func appName(toOpen url: URL) -> String? {
-        NSWorkspace.shared.urlForApplication(toOpen: url).map { FileManager.default.displayName(atPath: $0.path) }
+    public func application(toOpen url: URL) -> WorkspaceApplication? {
+        NSWorkspace.shared.urlForApplication(toOpen: url).map(Self.application(at:))
     }
 
     public func application(toOpen type: UTType) -> WorkspaceApplication? {
-        NSWorkspace.shared.urlForApplication(toOpen: type).map { app in
-            WorkspaceApplication(url: app, name: FileManager.default.displayName(atPath: app.path))
-        }
+        NSWorkspace.shared.urlForApplication(toOpen: type).map(Self.application(at:))
     }
+
+    /// Every app that takes an https link, the default browser and any other.
+    public func opensWebPages(_ app: WorkspaceApplication) -> Bool {
+        NSWorkspace.shared.urlsForApplications(toOpen: Self.webPage)
+            .contains { $0.standardizedFileURL == app.url.standardizedFileURL }
+    }
+
+    private static func application(at url: URL) -> WorkspaceApplication {
+        WorkspaceApplication(url: url, name: FileManager.default.displayName(atPath: url.path))
+    }
+
+    private static let webPage: URL = {
+        guard let url = URL(string: "https://example.com/") else { preconditionFailure("a web address parses") }
+
+        return url
+    }()
 
     public func open(_ file: URL, withApplicationAt app: URL, failed: @escaping @MainActor (String) -> Void) {
         NSWorkspace.shared.open([file], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration()) { _, error in

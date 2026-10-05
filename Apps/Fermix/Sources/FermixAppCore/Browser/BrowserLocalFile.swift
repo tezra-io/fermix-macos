@@ -7,9 +7,10 @@ import UniformTypeIdentifiers
 /// Everything is decided on the file the link lands on, every symbolic link
 /// resolved, never on the link's own name: a `notes.txt` that points at an
 /// app is an app. The rules are an allowlist, in order: what the pane shows
-/// it shows; a document goes to the app that opens its type; and everything
-/// else, from a folder to an app to a type nobody declared, is only ever shown
-/// in Finder, which runs nothing.
+/// it shows; a document of a named family goes to the app that opens its
+/// type, where that app is no browser; and everything else, from a folder to
+/// an app to a type nobody declared, is only ever shown in Finder, which runs
+/// nothing.
 struct BrowserLocalFile {
     /// What opening the file comes to.
     enum Opening: Equatable {
@@ -28,6 +29,24 @@ struct BrowserLocalFile {
         .applicationBundle, .application, .executable, .unixExecutable, .script, .shellScript
     ]
 
+    /// The families of document a file may be handed to an app as: pictures
+    /// WebKit does not draw, sound and film, PDF, rich text, spreadsheets,
+    /// presentations and word processing. Named rather than all content, which
+    /// any app may declare more of: a web archive opens in a browser with its
+    /// scripts on, and a shortcut opens an install sheet. Word processing has
+    /// no family of its own, so its types are named one by one.
+    static let documentTypes: [UTType] = [
+        .image, .audiovisualContent, .pdf, .rtf, .rtfd, .flatRTFD, .spreadsheet, .presentation
+    ] + [
+        "com.microsoft.word.doc", "org.openxmlformats.wordprocessingml.document",
+        "com.apple.iwork.pages.sffpages", "org.oasis-open.opendocument.text"
+    ].compactMap { UTType($0) }
+
+    /// What an app takes as code or as a page, even inside a document family:
+    /// text and markup, an SVG among them, which is a picture written in XML.
+    /// Rich text is the one text handed over, being a word processor's own.
+    static let markupTypes: [UTType] = [.text, .xml, .html, .svg]
+
     /// How much of a file of no known type is read to tell whether it is
     /// text.
     static let sniffLength = 65_536
@@ -38,11 +57,10 @@ struct BrowserLocalFile {
     /// say, which leaves only Finder.
     private let facts: Facts?
 
-    /// Nil where nothing is there. A leading `~` is the person's home folder,
-    /// as a path in a reply writes it.
+    /// Nil for a link that is not to a file, or where nothing is there.
     init?(_ link: URL) {
-        let path = (link.path as NSString).expandingTildeInPath
-        guard let real = FilePlace.resolved(path), FileManager.default.fileExists(atPath: real) else { return nil }
+        guard link.isFileURL else { return nil }
+        guard let real = FilePlace.resolved(link.path), FileManager.default.fileExists(atPath: real) else { return nil }
 
         url = URL(fileURLWithPath: real)
         facts = Facts(of: url)
@@ -61,27 +79,37 @@ struct BrowserLocalFile {
     /// the Mac does not know as content, by its bytes reading as text. Text
     /// past the pane's size is not shown.
     func shownKind() -> BrowserFileKind? {
-        guard let facts, facts.isRegularFile else { return nil }
+        guard let facts, let size = facts.size else { return nil }
 
         let kind = BrowserFileKind(facts.type) ?? (Self.isUntyped(facts.type) && Self.readsAsText(url) ? .text : nil)
-        guard kind != .text || facts.size <= BrowserFileKind.textSizeCap else { return nil }
+        guard kind != .text || size <= BrowserFileKind.textSizeCap else { return nil }
 
         return kind
     }
 
-    /// Rule two: the app a document goes to, named now from its type. Only
-    /// content goes to one, never anything that runs or a file with its
-    /// executable bit set, which Launch Services would run rather than open.
+    /// Rule two: the app a document goes to, named now from its type. Only a
+    /// document family goes to one, never anything that runs or a file with
+    /// its executable bit set, which Launch Services would run rather than
+    /// open, and never to an app that opens web pages, which would run what a
+    /// file tab keeps inert.
     @MainActor
     func documentApplication(_ workspace: any WorkspaceLinkOpening) -> WorkspaceApplication? {
-        guard let facts, facts.type.conforms(to: .content), !Self.runs(facts.type) else { return nil }
-        guard !(facts.isRegularFile && facts.isExecutable) else { return nil }
+        guard let facts, Self.isDocument(facts.type), !(facts.isRegularFile && facts.isExecutable) else { return nil }
+        guard let app = workspace.application(toOpen: facts.type), !workspace.opensWebPages(app) else { return nil }
 
-        return workspace.application(toOpen: facts.type)
+        return app
     }
 
     static func runs(_ type: UTType) -> Bool {
         runnableTypes.contains(where: type.conforms)
+    }
+
+    /// A type of a document family, and neither markup nor anything that
+    /// runs.
+    static func isDocument(_ type: UTType) -> Bool {
+        guard documentTypes.contains(where: type.conforms), !runs(type) else { return false }
+
+        return type.conforms(to: .rtf) || !markupTypes.contains(where: type.conforms)
     }
 
     /// A type the Mac made up for an extension nobody declared (`dyn.*`), or
@@ -105,12 +133,14 @@ struct BrowserLocalFile {
         return (0...cut).contains { String(validating: bytes.dropLast($0), as: UTF8.self) != nil }
     }
 
-    /// What the rules read of a file.
+    /// What the rules read of a file. A regular file whose size cannot be
+    /// read gives no facts at all.
     private struct Facts {
         let type: UTType
         let isRegularFile: Bool
         let isExecutable: Bool
-        let size: Int
+        /// A regular file's size; a directory, a package among them, has none.
+        let size: Int?
 
         init?(of file: URL) {
             let keys: Set<URLResourceKey> = [.contentTypeKey, .isRegularFileKey, .isExecutableKey, .fileSizeKey]
@@ -119,7 +149,8 @@ struct BrowserLocalFile {
             self.type = type
             isRegularFile = values.isRegularFile == true
             isExecutable = values.isExecutable == true
-            size = values.fileSize ?? 0
+            size = isRegularFile ? values.fileSize : nil
+            guard !isRegularFile || size != nil else { return nil }
         }
     }
 }

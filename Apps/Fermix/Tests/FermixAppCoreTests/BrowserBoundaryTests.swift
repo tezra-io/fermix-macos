@@ -180,11 +180,12 @@ struct BrowserTabTests {
     func fileReachesThePage() {
         let page = FakeBrowserPage()
         let tab = BrowserTab(profile: .file, page: page)
-        let file = URL(fileURLWithPath: "/Users/Shared/notes.md")
+        let file = URL(fileURLWithPath: "/Users/Shared/report.html", isDirectory: false)
+        let folder = file.deletingLastPathComponent()
 
-        tab.loadFile(file, as: .text)
+        tab.loadFile(file, as: .html, readAccess: folder)
 
-        #expect(page.files == [FileLoad(url: file, kind: .text)])
+        #expect(page.files == [FileLoad(url: file, kind: .html, readAccess: folder)])
         #expect(page.loaded.isEmpty)
     }
 
@@ -216,13 +217,13 @@ struct BrowserTabTests {
         let site = try #require(URL(string: "https://fermix.ai"))
 
         page.events?.pageMetExternalScheme(mail)
-        page.events?.pageRequestedWebPage(site)
+        page.events?.pageHandedOff(site)
         page.events?.pageStartedDownload(file)
         page.events?.pageAskedToClose()
         page.events?.pageFailed("A server with the specified hostname could not be found.")
 
         #expect(delegate.externals == [mail])
-        #expect(delegate.webPages == [site])
+        #expect(delegate.handOffs == [site])
         #expect(delegate.downloads.map(ObjectIdentifier.init) == [ObjectIdentifier(file)])
         #expect(file.cancels == 0)
         #expect(delegate.failures == ["A server with the specified hostname could not be found."])

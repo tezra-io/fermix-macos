@@ -19,7 +19,9 @@ final class FakeBrowserPage: BrowserPage {
     lazy var view = NSView()
 
     func load(_ url: URL) { loaded.append(url) }
-    func loadFile(_ url: URL, as kind: BrowserFileKind) { files.append(FileLoad(url: url, kind: kind)) }
+    func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL) {
+        files.append(FileLoad(url: url, kind: kind, readAccess: readAccess))
+    }
     func back() { actions.append("back") }
     func forward() { actions.append("forward") }
     func reload() { actions.append("reload") }
@@ -28,10 +30,18 @@ final class FakeBrowserPage: BrowserPage {
     func zoom(_ zoom: BrowserZoom) { actions.append("zoom \(zoom)") }
 }
 
-/// A file a page was asked to show, and as what.
+/// A file a page was asked to show, as what, and what it may read: the file
+/// itself unless a test says otherwise.
 struct FileLoad: Equatable {
     let url: URL
     let kind: BrowserFileKind
+    let readAccess: URL
+
+    init(url: URL, kind: BrowserFileKind, readAccess: URL? = nil) {
+        self.url = url
+        self.kind = kind
+        self.readAccess = readAccess ?? url
+    }
 }
 
 /// A page with a web engine behind it, standing in for `WebKitBrowserPage` in
@@ -55,7 +65,7 @@ final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
     private(set) var readyWaits = 0
 
     func load(_ url: URL) {}
-    func loadFile(_ url: URL, as kind: BrowserFileKind) {}
+    func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL) {}
     func back() {}
     func forward() {}
     func reload() {}
@@ -262,7 +272,7 @@ final class RecordingTabDelegate: BrowserTabDelegate {
     private(set) var openedTabs: [BrowserTab] = []
     private(set) var closeRequests: [BrowserTab] = []
     private(set) var externals: [URL] = []
-    private(set) var webPages: [URL] = []
+    private(set) var handOffs: [URL] = []
     private(set) var dialogs: [BrowserDialog] = []
     private(set) var downloads: [any BrowserDownload] = []
     private(set) var failures: [String] = []
@@ -289,7 +299,7 @@ final class RecordingTabDelegate: BrowserTabDelegate {
 
     func externalSchemeMet(_ url: URL, in tab: BrowserTab) { externals.append(url) }
 
-    func webPageRequested(_ url: URL, from tab: BrowserTab) { webPages.append(url) }
+    func handOffRequested(_ url: URL, from tab: BrowserTab) { handOffs.append(url) }
 
     func dialogPresented(
         _ dialog: BrowserDialog,
@@ -366,16 +376,19 @@ final class FakeDownload: BrowserDownload {
 /// The Mac's own opener for content links, recorded rather than opened.
 @MainActor
 final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
-    static let preview = WorkspaceApplication(url: URL(fileURLWithPath: "/System/Applications/Preview.app"), name: "Preview")
+    static let preview = WorkspaceApplication(url: URL(fileURLWithPath: "/System/Applications/Preview.app", isDirectory: true), name: "Preview")
+    static let mail = WorkspaceApplication(url: URL(fileURLWithPath: "/System/Applications/Mail.app", isDirectory: true), name: "Mail")
 
     var succeeds = true
     /// The app this Mac would open any link in, or nil for none.
-    var installedApp: String? = "Mail"
+    var linkApp: WorkspaceApplication? = RecordingWorkspaceOpener.mail
     /// The app this Mac would open any document in, or nil for none.
     var documentApp: WorkspaceApplication? = RecordingWorkspaceOpener.preview
     /// The system's sentence the named app answers a file with, or nil where
     /// it takes it.
     var appFailure: String?
+    /// The apps that open web pages on this Mac.
+    var webBrowsers: [URL] = []
     private(set) var opened: [URL] = []
     /// Every type an app was asked for, in order.
     private(set) var typesAsked: [UTType] = []
@@ -389,12 +402,14 @@ final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
         return succeeds
     }
 
-    func appName(toOpen url: URL) -> String? { installedApp }
+    func application(toOpen url: URL) -> WorkspaceApplication? { linkApp }
 
     func application(toOpen type: UTType) -> WorkspaceApplication? {
         typesAsked.append(type)
         return documentApp
     }
+
+    func opensWebPages(_ app: WorkspaceApplication) -> Bool { webBrowsers.contains(app.url) }
 
     func open(_ file: URL, withApplicationAt app: URL, failed: @escaping @MainActor (String) -> Void) {
         openedWith.append(AppOpen(file: file, app: app))

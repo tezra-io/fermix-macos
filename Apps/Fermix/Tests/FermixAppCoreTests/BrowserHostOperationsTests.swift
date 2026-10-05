@@ -457,7 +457,7 @@ private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, Browser
     private(set) var clearCalls = 0
 
     func load(_ url: URL) {}
-    func loadFile(_ url: URL, as kind: BrowserFileKind) {}
+    func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL) {}
     func back() {}
     func forward() {}
     func reload() {}
