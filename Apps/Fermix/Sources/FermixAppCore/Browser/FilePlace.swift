@@ -9,7 +9,24 @@ import Foundation
 /// It is decided on where both really are rather than how they are spelled,
 /// as the engine decides it on its side (`Browser.Upload`): a symbolic link
 /// inside the root that points out of it passes a test of the text.
-enum FilePlace {
+public enum FilePlace {
+    /// Up to `limit` bytes of the regular file at `path`, or nil where there
+    /// is none there now. Read from one descriptor, opened without following a
+    /// final link and without waiting on a pipe, then checked to be a regular
+    /// file, so what is read is what was checked and nothing more: a file
+    /// swapped since the pane decided for a link to `/dev/zero`, a pipe that
+    /// never writes or a file that grew cannot hold the main thread.
+    public static func contents(ofRegularFile path: String, upTo limit: Int) -> Data? {
+        let descriptor = open(path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW)
+        guard descriptor >= 0 else { return nil }
+
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var status = stat()
+        guard fstat(descriptor, &status) == 0, status.st_mode & S_IFMT == S_IFREG else { return nil }
+
+        return try? handle.read(upToCount: limit) ?? Data()
+    }
+
     /// Whether `path` falls inside `root`. The root is resolved too, so a root
     /// reached through a link (`/tmp` is `/private/tmp`) still holds its own
     /// files.

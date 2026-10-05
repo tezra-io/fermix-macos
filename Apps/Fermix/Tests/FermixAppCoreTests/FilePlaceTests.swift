@@ -28,6 +28,30 @@ struct FilePlaceTests {
         #expect(!FilePlace.path(root.appendingPathComponent("secret.txt").path, liesUnder: root))
     }
 
+    /// A file tab reads text, and the open decision sniffs an untyped file,
+    /// through one descriptor: the cap is the read's own, and a path that is
+    /// a link, a pipe or a folder by the time it is read gives nothing, never
+    /// a read that runs forever or waits forever.
+    @Test("a regular file is read up to the limit, and a link, a pipe or a folder gives nothing")
+    func contentsOfRegularFile() throws {
+        let temporary = try TemporaryDirectory()
+        defer { temporary.remove() }
+        let file = temporary.url.appendingPathComponent("notes.txt", isDirectory: false)
+        try Data("0123456789".utf8).write(to: file)
+        let link = temporary.url.appendingPathComponent("zero", isDirectory: false)
+        try Self.link(link, to: URL(fileURLWithPath: "/dev/zero", isDirectory: false))
+        let pipe = temporary.url.appendingPathComponent("pipe", isDirectory: false)
+        #expect(mkfifo(pipe.path, 0o600) == 0)
+        let folder = try Self.directory("folder", in: temporary.url)
+
+        #expect(FilePlace.contents(ofRegularFile: file.path, upTo: 4) == Data("0123".utf8))
+        #expect(FilePlace.contents(ofRegularFile: file.path, upTo: 64) == Data("0123456789".utf8))
+        #expect(FilePlace.contents(ofRegularFile: link.path, upTo: 64) == nil)
+        #expect(FilePlace.contents(ofRegularFile: pipe.path, upTo: 64) == nil)
+        #expect(FilePlace.contents(ofRegularFile: folder.path, upTo: 64) == nil)
+        #expect(FilePlace.contents(ofRegularFile: temporary.url.appendingPathComponent("missing").path, upTo: 64) == nil)
+    }
+
     @Test("a root reached through a link still holds its own files")
     func linkedRootHoldsItsOwnFiles() throws {
         let temporary = try TemporaryDirectory()

@@ -124,10 +124,7 @@ struct BrowserLocalFile {
     /// may end inside a character, so up to three trailing bytes are let go
     /// there.
     private static func readsAsText(_ file: URL) -> Bool {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return false }
-        defer { try? handle.close() }
-        guard let bytes = try? handle.read(upToCount: sniffLength) ?? Data() else { return false }
-        guard !bytes.contains(0) else { return false }
+        guard let bytes = FilePlace.contents(ofRegularFile: file.path, upTo: sniffLength), !bytes.contains(0) else { return false }
 
         let cut = bytes.count == sniffLength ? 3 : 0
         return (0...cut).contains { String(validating: bytes.dropLast($0), as: UTF8.self) != nil }

@@ -123,27 +123,21 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         showText(file)
     }
 
-    /// The size is asked again first: the file may have grown since the pane
-    /// decided to show it, and past the cap nothing is read.
+    /// The file may have changed since the pane decided to show it, so the
+    /// cap is held by the read itself: one byte past it is read at most, and
+    /// a file that has it is too large. A path that is no longer a regular
+    /// file shows nothing.
     private func showText(_ file: URL) {
-        do {
-            guard try Self.size(of: file) <= BrowserFileKind.textSizeCap else {
-                events?.pageFailed(ProductStrings[.browserNoticeFileTooLarge])
-                return
-            }
-
-            webView.load(try Data(contentsOf: file), mimeType: "text/plain", characterEncodingName: "utf-8", baseURL: file)
-        } catch {
-            events?.pageFailed(error.localizedDescription)
+        guard let text = FilePlace.contents(ofRegularFile: file.path, upTo: BrowserFileKind.textSizeCap + 1) else {
+            events?.pageFailed(ProductStrings[.browserNoticeFileMissing])
+            return
         }
-    }
-
-    private static func size(of file: URL) throws -> Int {
-        guard let size = try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int else {
-            throw CocoaError(.fileReadUnknown)
+        guard text.count <= BrowserFileKind.textSizeCap else {
+            events?.pageFailed(ProductStrings[.browserNoticeFileTooLarge])
+            return
         }
 
-        return size
+        webView.load(text, mimeType: "text/plain", characterEncodingName: "utf-8", baseURL: file)
     }
 
     /// Whether a navigation goes to the file the page shows, its own load or
