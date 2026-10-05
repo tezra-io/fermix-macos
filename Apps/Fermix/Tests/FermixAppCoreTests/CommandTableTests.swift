@@ -203,6 +203,32 @@ struct CommandTableTests {
         #expect(CommandTable.toolbar(for: .chat).more.isEmpty)
     }
 
+    /// The call's control is the one toolbar control whose drawing changes
+    /// with its state: another symbol and a tint while a call is up. Every
+    /// other control draws its one symbol in the toolbar's own ink, on or off,
+    /// and a performer answers what the table does for its state.
+    @Test("only the call's toolbar control changes its symbol and gains a tint while on")
+    func onlyTheCallIsTintedWhenOn() {
+        let router = FakeCommandRouter()
+
+        for command in AppCommand.allCases where command != .toggleVoiceCall {
+            for isOn in [false, true] {
+                let drawn = CommandTable.toolbarSymbol(of: command, isOn: isOn)
+
+                #expect(drawn?.name == CommandTable.symbol(of: command), "\(command.rawValue), on: \(isOn)")
+                #expect(drawn?.tint == nil, "\(command.rawValue) gained a tint, on: \(isOn)")
+
+                router.on = isOn ? [command] : []
+                #expect(router.toolbarSymbol(of: command) == drawn, "\(command.rawValue), on: \(isOn)")
+            }
+        }
+
+        router.on = [.toggleVoiceCall]
+        #expect(router.toolbarSymbol(of: .toggleVoiceCall) == ToolbarSymbol(name: "phone.down.fill", tint: Palette.hangUp))
+        router.on = []
+        #expect(router.toolbarSymbol(of: .toggleVoiceCall) == ToolbarSymbol(name: "phone", tint: nil))
+    }
+
     /// Every command a toolbar draws needs a sentence-case label; the menu's
     /// title-case spelling must never leak into a button.
     @Test("every toolbar command has a sentence-case label of its own")

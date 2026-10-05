@@ -490,9 +490,9 @@ struct CommandRouterTests {
     }
 
     /// The pet's dock ends a call with its stop exactly while the toolbar's
-    /// phone is filled, in both hosts: through a start and a call, and never
-    /// at rest, while the last call ends or once it has.
-    @Test("the dock's stop ends a call exactly while the toolbar's phone is filled")
+    /// call button is the hang-up, in both hosts: through a start and a call,
+    /// and never at rest, while the last call ends or once it has.
+    @Test("the dock's stop ends a call exactly while the toolbar's call button is the hang-up")
     func dockStopEndsWhenTheToolbarDoes() async throws {
         let harness = try RouterHarness()
         try await harness.readVoice("ready")
@@ -514,6 +514,39 @@ struct CommandRouterTests {
         agree("stopping")
         call.callEnded()
         agree("ended")
+    }
+
+    /// The owner's direction of 2026-10-04 ("turns red when the call is on to
+    /// close it"), with no green: the toolbar's call button is the plain phone
+    /// at rest and the hang-up in the system's red while there is a call to
+    /// end, and the dock's stop is red at the same moments, in both hosts.
+    /// One red glyph per surface, only while there is a call to end.
+    @Test("the toolbar's hang-up and the dock's stop are red exactly while there is a call to end")
+    func callControlsAreRedWhileACallIsUp() async throws {
+        let harness = try RouterHarness()
+        try await harness.readVoice("ready")
+        let call = harness.voiceCall
+        let phone = ToolbarSymbol(name: "phone", tint: nil)
+        let hangUp = ToolbarSymbol(name: "phone.down.fill", tint: Palette.hangUp)
+
+        func draws(_ toolbar: ToolbarSymbol, _ phase: String) {
+            #expect(harness.router.toolbarSymbol(of: .toggleVoiceCall) == toolbar, "\(phase)")
+
+            for host in [PetHost.floatingWindow, .callBox] {
+                let stop = harness.surfaces.pet.stopAction(in: host).map(PetDockSymbol.stop)
+                #expect((stop?.tint == Palette.hangUp) == (toolbar == hangUp), "\(phase), \(host)")
+            }
+        }
+
+        draws(phone, "rest")
+        call.callStarting()
+        draws(hangUp, "starting")
+        call.callStarted()
+        draws(hangUp, "active")
+        call.callStopping()
+        draws(phone, "stopping")
+        call.callEnded()
+        draws(phone, "ended")
     }
 }
 

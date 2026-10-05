@@ -124,9 +124,8 @@ struct SurfaceToolbar<Followed: ObservableObject>: ToolbarContent {
         Button {
             router.perform(command)
         } label: {
-            if let symbol = CommandTable.symbol(of: command) {
-                Label(router.toolbarTitle(of: command), systemImage: symbol)
-                    .symbolVariant(CommandTable.fillsWhenOn(command) && router.isOn(command) ? .fill : .none)
+            if let symbol = router.toolbarSymbol(of: command) {
+                symbolLabel(router.toolbarTitle(of: command), symbol)
             } else {
                 Text(router.toolbarTitle(of: command))
             }
@@ -134,6 +133,19 @@ struct SurfaceToolbar<Followed: ObservableObject>: ToolbarContent {
         .disabled(!router.canPerform(command))
         .accessibilityLabel(router.toolbarTitle(of: command))
         .help(helpText(for: command))
+    }
+
+    /// The label with its symbol for the command's state, in the symbol's
+    /// tint where it has one (the call's hang-up) and otherwise in the
+    /// toolbar's own ink.
+    @ViewBuilder
+    private func symbolLabel(_ title: String, _ symbol: ToolbarSymbol) -> some View {
+        if let tint = symbol.tint {
+            Label(title, systemImage: symbol.name)
+                .foregroundStyle(tint.color)
+        } else {
+            Label(title, systemImage: symbol.name)
+        }
     }
 
     /// The help tag a control carries, or nothing. `Text("")` draws no tag, so

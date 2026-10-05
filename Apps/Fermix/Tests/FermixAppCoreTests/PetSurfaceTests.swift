@@ -281,8 +281,8 @@ struct PetSurfaceTests {
     // MARK: - The dock
 
     /// The dock's call control is a stop (owner, 2026-10-04: "I prefer it was
-    /// a stop button"): one control, the filled square in ink, in both hosts.
-    /// It ends a start or a call, is dimmed while the call ends, and once the
+    /// a stop button"): one control, the filled square, in both hosts. It
+    /// ends a start or a call, is dimmed while the call ends, and once the
     /// call is over it is the chat box's Close; the floating window has
     /// nothing to close, so there it offers nothing. It never begins a call.
     @Test("the dock's one control is the stop: it ends a call in both hosts, and closes only the chat's box")
@@ -295,7 +295,6 @@ struct PetSurfaceTests {
             #expect(model.stopAction(in: .floatingWindow) == window, "\(phase)")
         }
 
-        #expect(PetDockSymbol.stop == PetDockSymbol(name: "stop", filled: true, tint: Palette.ink))
         offers(nil, nil, "idle")
 
         harness.call.voiceNegotiated()
@@ -331,8 +330,20 @@ struct PetSurfaceTests {
         let dock = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
         #expect(!dock.contains("Palette.accent"), "the dock draws the accent again")
         #expect(!dock.contains("callSymbol"), "the dock draws the toolbar's phone again")
-        #expect(dock.contains("PetControlButton(symbol: .stop"))
+        #expect(dock.contains("PetControlButton(symbol: .stop(action)"))
         #expect(dock.contains(".disabled(action == .ending)"))
+    }
+
+    /// The stop is the hang-up's red while it ends a call, as the chat
+    /// toolbar's hang-up is (owner, 2026-10-04: "turns red when the call is on
+    /// to close it"), and ink otherwise: dimmed in ink while the call ends,
+    /// and in ink as the chat box's Close. Red means there is a call to end.
+    @Test("the dock's stop is red while it ends a call, and ink while the call ends and as Close")
+    func dockStopIsRedWhileItEnds() {
+        #expect(PetDockSymbol.stop(.end) == PetDockSymbol(name: "stop", filled: true, tint: Palette.hangUp))
+        #expect(PetDockSymbol.stop(.ending) == PetDockSymbol(name: "stop", filled: true, tint: Palette.ink))
+        #expect(PetDockSymbol.stop(.close) == PetDockSymbol(name: "stop", filled: true, tint: Palette.ink))
+        #expect(Palette.hangUp != Palette.ink)
     }
 
     /// The stop never begins a call: a click on it with nothing to end or

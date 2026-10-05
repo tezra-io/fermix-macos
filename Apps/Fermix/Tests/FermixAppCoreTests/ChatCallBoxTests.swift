@@ -327,13 +327,26 @@ struct ChatCallBoxTests {
 
     // MARK: - The toolbar's call button
 
-    @Test("Chat's toolbar carries the call beside Show browser, as a phone filled while a call is up")
-    func toolbarCarriesTheCall() {
+    /// A phone at rest, and while a call is up the hang-up in the system's red
+    /// (owner, 2026-10-04: "turns red when the call is on to close it").
+    @Test("Chat's toolbar carries the call beside Show browser, a phone at rest and the red hang-up while a call is up")
+    func toolbarCarriesTheCall() throws {
         #expect(CommandTable.toolbar(for: .chat).secondary == [.showBrowser, .toggleVoiceCall])
         #expect(CommandTable.symbol(of: .toggleVoiceCall) == "phone")
         #expect(CommandTable.symbol(of: .toggleVoiceCall) == CommandTable.callSymbol)
-        #expect(CommandTable.fillsWhenOn(.toggleVoiceCall))
-        #expect(!CommandTable.fillsWhenOn(.pauseLogs))
+        #expect(CommandTable.hangUpSymbol == "phone.down.fill")
+        #expect(CommandTable.toolbarSymbol(of: .toggleVoiceCall, isOn: false) == ToolbarSymbol(name: "phone", tint: nil))
+        #expect(
+            CommandTable.toolbarSymbol(of: .toggleVoiceCall, isOn: true)
+                == ToolbarSymbol(name: "phone.down.fill", tint: Palette.hangUp)
+        )
+
+        // The toolbar draws the table's answer for the command's state, and
+        // fills nothing of its own.
+        let toolbar = try Self.text(of: "Design/Components/SurfaceToolbar.swift")
+        #expect(toolbar.contains("router.toolbarSymbol(of: command)"))
+        #expect(!toolbar.contains("fillsWhenOn"))
+        #expect(!toolbar.contains("symbolVariant"))
         #expect(CommandTable.toolbarTitle(of: .toggleVoiceCall, isOn: false) == "Begin voice call")
         #expect(CommandTable.toolbarTitle(of: .toggleVoiceCall, isOn: true) == "End voice call")
     }

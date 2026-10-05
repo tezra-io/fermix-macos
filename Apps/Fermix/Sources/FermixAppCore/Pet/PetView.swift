@@ -170,12 +170,12 @@ private struct ControlDock: View {
     /// room it takes once a call is up, and revealing it moves nothing.
     @ViewBuilder private var stop: some View {
         if let action = model.stopAction(in: host) {
-            PetControlButton(symbol: .stop, label: model.stopActionTitle(action)) {
+            PetControlButton(symbol: .stop(action), label: model.stopActionTitle(action)) {
                 model.stopClicked(in: host)
             }
             .disabled(action == .ending)
         } else {
-            PetControlButton(symbol: .stop, label: model.stopActionTitle(.end)) {}
+            PetControlButton(symbol: .stop(.end), label: model.stopActionTitle(.end)) {}
                 .hidden()
         }
     }
@@ -189,12 +189,15 @@ struct PetDockSymbol: Equatable, Sendable {
     let filled: Bool
     let tint: ThemedColor
 
-    /// The stop, the filled square, in ink in every state and never the
-    /// accent: it ends a call, and in the chat's box it closes the box once
-    /// the call is over (owner, 2026-10-04: "I prefer it was a stop button").
-    /// The dock draws no phone: the chat toolbar's begins a call, and the
-    /// dock's control never does. The mascot is what shows the call is live.
-    static let stop = PetDockSymbol(name: "stop", filled: true, tint: Palette.ink)
+    /// The stop, the filled square, never the accent: it ends a call, and in
+    /// the chat's box it closes the box once the call is over (owner,
+    /// 2026-10-04: "I prefer it was a stop button"). It is the hang-up's red
+    /// while it ends a call, as the chat toolbar's hang-up is, and ink while
+    /// the call ends (dimmed) and as Close. The dock draws no phone: the chat
+    /// toolbar's begins a call, and the dock's control never does.
+    static func stop(_ action: PetStopAction) -> PetDockSymbol {
+        PetDockSymbol(name: "stop", filled: true, tint: action == .end ? Palette.hangUp : Palette.ink)
+    }
 
     /// The slashed microphone, filled and in the warning tint while muted.
     @MainActor

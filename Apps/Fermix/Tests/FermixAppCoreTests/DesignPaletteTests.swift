@@ -1,4 +1,6 @@
+import AppKit
 import CoreGraphics
+import SwiftUI
 import Testing
 
 @testable import FermixAppCore
@@ -53,6 +55,24 @@ struct DesignPaletteTests {
             #expect(token.resolved(for: .light).hexString == light, "\(name) light")
             #expect(token.resolved(for: .dark).hexString == dark, "\(name) dark")
         }
+    }
+
+    /// The hang-up is the system's own red, not a value copied from it: it is
+    /// whatever macOS draws beside the window's own controls, in each
+    /// appearance. It is not the redline's error colour, which is muted for
+    /// text and would read as a failure rather than a control.
+    @Test("the hang-up is the system's own red in both appearances")
+    func hangUpIsTheSystemRed() {
+        #expect(Palette.hangUp.color == Color(nsColor: .systemRed))
+        #expect(Palette.hangUp.light == SRGBColor(resolving: .systemRed, in: .aqua))
+        #expect(Palette.hangUp.dark == SRGBColor(resolving: .systemRed, in: .darkAqua))
+
+        for scheme in FermixColorScheme.allCases {
+            let red = Palette.hangUp.resolved(for: scheme)
+            #expect(red.red == 1 && red.green < 0.4 && red.blue < 0.4, "\(scheme): \(red.hexString) is not a red")
+        }
+
+        #expect(Palette.hangUp != Palette.error)
     }
 
     /// Palette v2's one amendment to "chroma 0 neutrals": ground fills carry a
