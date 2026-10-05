@@ -113,8 +113,9 @@ enum ChatText {
     ///
     /// A local path the reply names is a link to its file too (`ReplyPaths`),
     /// `~` read as `home`, which the caller passes so the text alone decides
-    /// what is drawn. A path keeps the reply's own `ink`: it is text the
-    /// reply wrote, and blue on every path read as noise (owner, 2026-10-04).
+    /// what is drawn. A path keeps the reply's own `ink`, because blue on
+    /// every path read as noise, and is underlined in `faint`, because ink
+    /// alone passed for plain text (owner, 2026-10-04).
     static func reply(_ text: String, home: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
@@ -125,8 +126,10 @@ enum ChatText {
             attributed[run.range].foregroundColor = Palette.accentText.color
         }
 
-        return ReplyPaths.linked(attributed, home: home, drawnIn: Palette.ink.color)
+        return ReplyPaths.linked(attributed, home: home, look: pathLook)
     }
+
+    static let pathLook = ReplyPaths.Look(ink: Palette.ink.color, underline: Palette.faint.color)
 
     static func plain(_ text: String) -> AttributedString {
         AttributedString(text)

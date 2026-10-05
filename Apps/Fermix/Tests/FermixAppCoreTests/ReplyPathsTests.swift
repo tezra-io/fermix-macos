@@ -39,6 +39,14 @@ struct ReplyPathsTests {
         reply.runs.first { $0.link != nil && String(reply[$0.range].characters) == text }?.foregroundColor
     }
 
+    /// The underline of the linked stretch with this text, nil for none.
+    private static func underline(of text: String, in reply: AttributedString) -> Text.LineStyle? {
+        reply.runs.first { $0.link != nil && String(reply[$0.range].characters) == text }?.underlineStyle
+    }
+
+    /// A path's underline: thin, solid, in the fainter grey under its ink.
+    private static let pathUnderline = Text.LineStyle(pattern: .solid, color: Palette.faint.color)
+
     // MARK: - Markdown links
 
     /// SwiftUI's parser keeps a path destination as a URL with no scheme,
@@ -74,6 +82,7 @@ struct ReplyPathsTests {
         let linked = try #require(reply.runs.first { $0.link != nil })
         #expect(linked.inlinePresentationIntent == .code)
         #expect(Self.colour(of: "~/.fermix/browser/artifacts/shot.png", in: reply) == Palette.ink.color)
+        #expect(Self.underline(of: "~/.fermix/browser/artifacts/shot.png", in: reply) == Self.pathUnderline)
     }
 
     /// Spaces are allowed inside a code span, which marks where the path
@@ -157,6 +166,9 @@ struct ReplyPathsTests {
         #expect(Self.colour(of: "https://example.com/a/b", in: reply) == Palette.accentText.color)
         #expect(Self.colour(of: "see /a/b/c here", in: reply) == Palette.accentText.color)
         #expect(Self.colour(of: "/Users/me/a.png", in: reply) == Palette.ink.color)
+        #expect(Self.underline(of: "/Users/me/a.png", in: reply) == Self.pathUnderline)
+        #expect(Self.underline(of: "https://example.com/a/b", in: reply) == nil)
+        #expect(Self.underline(of: "see /a/b/c here", in: reply) == nil)
     }
 
     /// The text before the path is not all ASCII either, so the path's place

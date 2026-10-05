@@ -10,32 +10,43 @@ import SwiftUI
 /// here looks at the disk: a reply is drawn again as each piece of a turn
 /// arrives, and whether the file is there is for the click to find out.
 enum ReplyPaths {
+    /// How a path that becomes a link is drawn: in `ink`, the reply's own, so
+    /// it reads as the text it is rather than as a blue link, and underlined
+    /// in the fainter `underline`, so it does not pass for plain text either
+    /// (owner, 2026-10-04). Both are set rather than left alone, because
+    /// SwiftUI draws a link with no colour of its own in the window's tint.
+    struct Look {
+        let ink: Color
+        let underline: Color
+    }
+
     /// Every path in a parsed reply, as a `file://` link. A bare path is read
     /// in plain text only: inside a link it is part of that link, and inside
-    /// code it counts only as the whole span.
-    ///
-    /// A markdown link keeps the colour it was given. A path that becomes a
-    /// link here is drawn in `colour`, the reply's own, set rather than left
-    /// alone because SwiftUI draws a link with no colour in the window's tint.
-    static func linked(_ reply: AttributedString, home: String, drawnIn colour: Color) -> AttributedString {
+    /// code it counts only as the whole span. A markdown link keeps the look
+    /// it was given; a path that becomes a link here takes `look`.
+    static func linked(_ reply: AttributedString, home: String, look: Look) -> AttributedString {
         var linked = reply
         for run in reply.runs {
             if let link = run.link {
                 guard let file = fileLink(link, home: home) else { continue }
                 linked[run.range].link = file
             } else if let file = codePath(run, in: reply, home: home) {
-                linked[run.range].link = file
-                linked[run.range].foregroundColor = colour
+                link(run.range, to: file, in: &linked, look: look)
             }
         }
         let text = String(reply.characters)
         for path in barePaths(in: text) {
             guard let range = Range(path, in: reply), reply[range].runs.allSatisfy(isPlain) else { continue }
-            linked[range].link = fileURL(String(withoutLineReference(text[path])), home: home)
-            linked[range].foregroundColor = colour
+            link(range, to: fileURL(String(withoutLineReference(text[path])), home: home), in: &linked, look: look)
         }
 
         return linked
+    }
+
+    private static func link(_ range: Range<AttributedString.Index>, to file: URL, in reply: inout AttributedString, look: Look) {
+        reply[range].link = file
+        reply[range].foregroundColor = look.ink
+        reply[range].underlineStyle = Text.LineStyle(pattern: .solid, color: look.underline)
     }
 
     /// The file a code span names when it is a path from end to end, a line
