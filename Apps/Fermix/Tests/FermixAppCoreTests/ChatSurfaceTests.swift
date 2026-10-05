@@ -282,7 +282,7 @@ struct ChatSurfaceTests {
     /// which opens them in the pane or the person's own browser.
     @Test("reply markdown is inline only, and its links are live")
     func replyText() {
-        let reply = ChatText.reply("See **the notes** at [the site](https://example.com).")
+        let reply = ChatText.reply("See **the notes** at [the site](https://example.com).", home: "/Users/me")
 
         #expect(String(reply.characters) == "See the notes at the site.")
         #expect(reply.runs.compactMap(\.link) == [URL(string: "https://example.com")!])
@@ -296,7 +296,8 @@ struct ChatSurfaceTests {
     @Test("a heading line is drawn in bold and a fenced block as code, and other block marks stay")
     func replyBlocks() {
         let reply = ChatText.reply(
-            "Plan\n### What to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n```text\n/tmp/a.png\n\nx `y`\n```\nDone"
+            "Plan\n### What to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n```text\n/tmp/a.png\n\nx `y`\n```\nDone",
+            home: "/Users/me"
         )
 
         #expect(String(reply.characters) == "Plan\nWhat to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n/tmp/a.png\n\nx `y`\nDone")
