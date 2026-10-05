@@ -98,7 +98,10 @@ public final class WebKitBrowserEngine: BrowserEngine {
     /// A file tab keeps no website data and runs none of the file's own
     /// scripts, here and in every navigation's own preferences
     /// (`WebKitBrowserPage`); its page installs the network rule before it
-    /// loads anything.
+    /// loads anything. It also has no https-first policy: under that policy a
+    /// file that loads from disk (a picture, a PDF, an HTML file) gets no
+    /// response and commits a blank page, with no failure, and a file tab
+    /// never goes to the network for the policy to guard.
     private func configuration(for profile: BrowserProfile) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = profile == .shared ? sharedStore : .nonPersistent()
@@ -109,7 +112,7 @@ public final class WebKitBrowserEngine: BrowserEngine {
         // (the Homebrew cask cannot express a minor release), so on 15.0 and
         // 15.1 the policy is left at WebKit's own default rather than raising
         // the floor for this one property.
-        if #available(macOS 15.2, *) {
+        if #available(macOS 15.2, *), profile != .file {
             configuration.defaultWebpagePreferences.preferredHTTPSNavigationPolicy = .userMediatedFallbackToHTTP
         }
         configuration.preferences.isFraudulentWebsiteWarningEnabled = true
