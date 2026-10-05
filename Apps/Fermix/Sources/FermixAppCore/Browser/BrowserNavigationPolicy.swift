@@ -14,19 +14,24 @@ public struct BrowserNavigation: Equatable, Sendable {
     public let isMainFrame: Bool
     /// A person clicked or submitted something; a script did not do it alone.
     public let isUserInitiated: Bool
+    /// The tab shows a file on this Mac (`BrowserProfile.file`), which loads
+    /// its own file and nothing else.
+    public let inFileTab: Bool
 
     public init(
         scheme: String,
         targetsNewWindow: Bool = false,
         isDownload: Bool = false,
         isMainFrame: Bool = true,
-        isUserInitiated: Bool = true
+        isUserInitiated: Bool = true,
+        inFileTab: Bool = false
     ) {
         self.scheme = scheme
         self.targetsNewWindow = targetsNewWindow
         self.isDownload = isDownload
         self.isMainFrame = isMainFrame
         self.isUserInitiated = isUserInitiated
+        self.inFileTab = inFileTab
     }
 }
 
@@ -42,6 +47,9 @@ public enum BrowserNavigationDecision: Equatable, Sendable {
     /// A file to save, handed to the tab, whose owner rules on it: the
     /// person's is saved where they choose, and a task's never is.
     case download
+    /// A web page from a file tab, which never loads one: the tab stays put,
+    /// and the page opens in a new tab of the shared profile, in front.
+    case sharedTab
     /// Nothing happens.
     case cancel
 }
@@ -64,19 +72,49 @@ public enum BrowserNavigationPolicy {
     /// app's, `file`, `about`, `javascript`) is nothing a website offers.
     public static let downloadSchemes: Set<String> = ["http", "https", "blob", "data"]
 
+    /// The schemes a web page is served on. A file tab never loads one: a
+    /// person's click on one opens the page in a tab of the shared profile.
+    public static let pageSchemes: Set<String> = ["http", "https"]
+
+    /// The schemes a file tab's own load arrives on: the file itself, and a
+    /// blank page. A link in the file to another file reads the same and is
+    /// WebKit's to refuse, the page having read access to its own file alone.
+    public static let fileSchemes: Set<String> = ["file", "about"]
+
     /// The decision, in order: a download is saved where its scheme is one a
     /// file is saved from, and never where a frame began it, since a hidden
     /// frame is how a page saves a file nobody asked for; a web page moves the
     /// tab or opens a new one; anything else belongs to another app, which is
     /// opened only for a click on the page itself. A frame or a script
     /// reaching for another app on its own is refused: that is how a page
-    /// would launch an app nobody asked for.
+    /// would launch an app nobody asked for. A file tab has rules of its own.
     public static func decide(_ navigation: BrowserNavigation) -> BrowserNavigationDecision {
+        guard !navigation.inFileTab else { return decideInFile(navigation) }
         guard !navigation.isDownload else { return isSavable(navigation) ? .download : .cancel }
         guard !isWeb(navigation.scheme) else { return navigation.targetsNewWindow ? .newTab : .allow }
         guard navigation.isMainFrame || navigation.targetsNewWindow, navigation.isUserInitiated else { return .cancel }
 
         return .external
+    }
+
+    /// A file tab shows its file and nothing more, in order: it never saves
+    /// anything; its own load moves it; a person's click on a web link, in the
+    /// tab or asking for a window, opens the page in a tab of the shared
+    /// profile; a click on another app's link is the person's to answer, as in
+    /// any tab of theirs; and everything else, a frame or a move nobody
+    /// clicked among it, goes nowhere.
+    private static func decideInFile(_ navigation: BrowserNavigation) -> BrowserNavigationDecision {
+        let scheme = navigation.scheme.lowercased()
+        guard !navigation.isDownload else { return .cancel }
+        guard !isOwnLoad(navigation) else { return .allow }
+        guard navigation.isMainFrame || navigation.targetsNewWindow, navigation.isUserInitiated else { return .cancel }
+        guard !pageSchemes.contains(scheme) else { return .sharedTab }
+
+        return isWeb(scheme) ? .cancel : .external
+    }
+
+    private static func isOwnLoad(_ navigation: BrowserNavigation) -> Bool {
+        navigation.isMainFrame && !navigation.targetsNewWindow && fileSchemes.contains(navigation.scheme.lowercased())
     }
 
     private static func isSavable(_ download: BrowserNavigation) -> Bool {

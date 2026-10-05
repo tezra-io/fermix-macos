@@ -452,6 +452,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// A task's tab in front reached for another app, which a task never opens.
     case browserNoticeTaskOpenAppRefused = "browser.notice.taskOpenAppRefused"
     case browserNoticeNoApp = "browser.notice.noApp"
+    /// A file the person opened from a link is not where the link says.
+    case browserNoticeFileMissing = "browser.notice.fileMissing"
     /// A file the person chose a place for, by its name: on its way, saved,
     /// and stopped short, with the system's own sentence after.
     case browserNoticeDownloadingFormat = "browser.notice.downloadingFormat"
@@ -478,6 +480,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case browserSecure = "browser.secure"
     case browserOpenInBrowser = "browser.openInBrowser"
     case browserHide = "browser.hide"
+    /// A file tab: the mark that says so, its file in the app on the Mac that
+    /// opens it, named, and its file selected in Finder.
+    case browserFileTab = "browser.fileTab"
+    case browserOpenInAppFormat = "browser.openInAppFormat"
+    case browserShowInFinder = "browser.showInFinder"
     /// A page's own dialog, titled by the website that raised it.
     case browserDialogTitleFormat = "browser.dialog.titleFormat"
     case browserDialogThisPage = "browser.dialog.thisPage"
@@ -487,7 +494,12 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// another app: titled by the app, saying which website asks.
     case browserOpenAppTitleFormat = "browser.openApp.titleFormat"
     case browserOpenAppMessageFormat = "browser.openApp.messageFormat"
+    /// The Open of both the pane's own questions.
     case browserOpenAppOpen = "browser.openApp.open"
+    /// The pane's own question before a file outside the Fermix home loads:
+    /// titled by the file, saying why it asks.
+    case browserOpenFileTitleFormat = "browser.openFile.titleFormat"
+    case browserOpenFileMessage = "browser.openFile.message"
     /// A task's tab: the mark that says so, its close control, which cancels
     /// the task instead, and that control while the cancel is on its way.
     case browserTaskTab = "browser.taskTab"

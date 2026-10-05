@@ -13,6 +13,10 @@ import Foundation
 /// beside them, as a link opened in a browser lands in the window already
 /// there. Closing the last tab closes the pane.
 ///
+/// A file on this Mac opens here too (plan §8.2), in a file tab beside the
+/// web tabs, or in the app that opens it, or only in Finder where opening it
+/// would run it (`openFile`).
+///
 /// The host's side of the daemon's `browser_host` wire runs through here too:
 /// a task's tabs, their release, the availability the host reports and its
 /// part of a quit, each decided by `BrowserHostReducer` and carried out here.
@@ -28,6 +32,10 @@ public final class BrowserCoordinator {
     private let makeEngine: BrowserEngineMaking
     private let profile: WebsiteProfileRecord
     private let workspace: any WorkspaceLinkOpening
+    /// The Fermix home, inside which a file the person opens loads without a
+    /// question. Resolved per open from the bootstrap record, as the host's
+    /// roots are; a home that cannot be resolved has nothing inside it.
+    private let home: () throws -> URL
     private let session: any SessionAvailabilityReporting
     /// The quit's bound. A run-loop timer in the product, because main-actor
     /// work can starve while AppKit holds a termination.
@@ -64,6 +72,7 @@ public final class BrowserCoordinator {
         makeEngine: @escaping BrowserEngineMaking,
         profile: WebsiteProfileRecord,
         workspace: any WorkspaceLinkOpening,
+        home: @escaping () throws -> URL,
         session: any SessionAvailabilityReporting,
         deadlines: any DeadlineScheduling,
         paneShown: @escaping (Bool) -> Void,
@@ -73,6 +82,7 @@ public final class BrowserCoordinator {
         self.makeEngine = makeEngine
         self.profile = profile
         self.workspace = workspace
+        self.home = home
         self.session = session
         self.deadlines = deadlines
         self.paneShown = paneShown
@@ -93,6 +103,26 @@ public final class BrowserCoordinator {
         tab.load(url)
     }
 
+    /// A file on this Mac, the one place a local file is opened, decided on
+    /// where its link really lands (`BrowserLocalFile`): nothing there opens
+    /// the pane on the sentence that says so; a folder goes to Finder;
+    /// anything that runs is only shown in Finder, never opened; a file the
+    /// pane does not show goes to the app that opens it; and one it shows
+    /// opens in a new file tab, in front.
+    public func openFile(_ link: URL) {
+        guard let file = BrowserLocalFile(link) else {
+            model.notice = ProductStrings[.browserNoticeFileMissing]
+            showPane()
+            return
+        }
+
+        switch file.opening {
+        case .folder, .defaultApp: openOutside(file.url)
+        case .reveal: workspace.reveal(file.url)
+        case .show(let kind): openFileTab(file.url, as: kind)
+        }
+    }
+
     /// A blank tab, with the caret in the address field.
     public func newTab(profile: BrowserProfile) {
         guard let tab = makePersonTab(profile) else { return }
@@ -106,13 +136,14 @@ public final class BrowserCoordinator {
     }
 
     /// What the person typed in the address field, in the tab in front, or in
-    /// a new tab where none is.
+    /// a new tab where none is or where the tab in front shows a file, which
+    /// never loads a web page.
     public func load(address: String) {
         guard let url = BrowserAddress.url(from: address) else {
             model.notice = ProductStrings[.browserNoticeNotAnAddress]
             return
         }
-        guard let tab = model.selectedTab else {
+        guard let tab = model.selectedTab, tab.profile != .file else {
             open(url)
             return
         }
@@ -158,13 +189,15 @@ public final class BrowserCoordinator {
     }
 
     /// Hides the pane and keeps its tabs. A dialog waiting over the pane is
-    /// answered as dismissed, because nobody can see it to answer it.
+    /// answered as dismissed, because nobody can see it to answer it. The
+    /// pane is closed first: a dismissed file question closes its tab, which
+    /// may be the last, and that close finds the pane already going.
     public func closePane() {
         guard model.isOpen else { return }
 
+        model.isOpen = false
         answer(.dismissed)
         model.notice = nil
-        model.isOpen = false
         paneShown(false)
         placePages()
     }
@@ -174,6 +207,26 @@ public final class BrowserCoordinator {
         guard let url = model.selectedTab?.url else { return }
 
         openOutside(url)
+    }
+
+    /// The file in front, in the app on this Mac that opens it.
+    public func openFileInApp() {
+        guard let file = model.selectedTab?.file else { return }
+
+        openOutside(file)
+    }
+
+    /// The file in front, selected in a Finder window.
+    public func showInFinder() {
+        guard let file = model.selectedTab?.file else { return }
+
+        workspace.reveal(file)
+    }
+
+    /// The app on this Mac that opens a file, by the name Finder shows, or
+    /// nil where none does.
+    public func appName(toOpen file: URL) -> String? {
+        workspace.appName(toOpen: file)
     }
 
     /// The person's answer to the dialog over the pane.
@@ -375,10 +428,55 @@ public final class BrowserCoordinator {
         unplace(tab)
     }
 
+    /// Where no app takes it, the pane says so, and opens to say it: a file
+    /// opened from a reply arrives with the pane closed.
     private func openOutside(_ url: URL) {
         guard !workspace.open(url) else { return }
 
         model.notice = ProductStrings[.browserNoticeNoApp]
+        showPane()
+    }
+
+    /// A file tab is the person's, so no task can ever address it, and it
+    /// comes to the front with the pane open. Inside the Fermix home its file
+    /// loads at once; outside it, only on the person's answer.
+    private func openFileTab(_ file: URL, as kind: BrowserFileKind) {
+        guard let tab = makePersonTab(.file) else { return }
+
+        tab.file = file
+        add(tab)
+        guard isInsideHome(file) else {
+            askBeforeLoading(file, as: kind, in: tab)
+            return
+        }
+
+        tab.loadFile(file, as: kind)
+    }
+
+    private func isInsideHome(_ file: URL) -> Bool {
+        guard let home = try? home() else { return false }
+
+        return FilePlace.path(file.path, liesUnder: home)
+    }
+
+    /// The pane's one dialog, over the file's own tab, before anything
+    /// loads. Open loads it; any other answer closes the tab, unless the tab
+    /// is already going, its record gone with the close that answered.
+    private func askBeforeLoading(_ file: URL, as kind: BrowserFileKind, in tab: BrowserTab) {
+        let question = BrowserDialog(
+            kind: .openFile(name: file.lastPathComponent),
+            message: ProductStrings[.browserOpenFileMessage],
+            origin: ""
+        )
+        dialogPresented(question, in: tab) { [weak self] answer in
+            guard let self else { return }
+            guard answer == .confirmed else {
+                if model.host.owner(of: tab.id) != nil { close(tab) }
+                return
+            }
+
+            tab.loadFile(file, as: kind)
+        }
     }
 
     /// The one rule for asking the person anything, whether a page's dialog,
@@ -576,6 +674,13 @@ extension BrowserCoordinator: BrowserTabDelegate {
 
             self?.openOutside(url)
         }
+    }
+
+    /// A file tab never loads a web page, so a link the person clicked in
+    /// one opens as a link from a reply does: in a new tab of the shared
+    /// profile, in front.
+    public func webPageRequested(_ url: URL, from tab: BrowserTab) {
+        open(url)
     }
 
     /// Shown where the page may ask (`mayAsk`); every other dialog is

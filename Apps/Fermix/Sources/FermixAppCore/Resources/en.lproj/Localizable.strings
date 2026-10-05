@@ -403,6 +403,7 @@
 "browser.notice.profileUnavailable" = "The browser’s website data could not be read, so it cannot open pages.";
 "browser.notice.taskOpenAppRefused" = "A task cannot open other apps, so that link was not opened.";
 "browser.notice.noApp" = "No app on this Mac opens that link.";
+"browser.notice.fileMissing" = "There is no file at that path.";
 "browser.notice.downloadingFormat" = "Downloading “%@”.";
 "browser.notice.downloadSavedFormat" = "Saved “%@”.";
 "browser.notice.downloadFailedFormat" = "“%@” did not finish downloading. %@";
@@ -421,6 +422,9 @@
 "browser.secure" = "Secure connection";
 "browser.openInBrowser" = "Open in your browser";
 "browser.hide" = "Hide browser";
+"browser.fileTab" = "File";
+"browser.openInAppFormat" = "Open in %@";
+"browser.showInFinder" = "Show in Finder";
 "browser.dialog.titleFormat" = "%@ says";
 "browser.dialog.thisPage" = "This page";
 "browser.dialog.ok" = "OK";
@@ -428,6 +432,8 @@
 "browser.openApp.titleFormat" = "Open %@?";
 "browser.openApp.messageFormat" = "%@ wants to open this app.";
 "browser.openApp.open" = "Open";
+"browser.openFile.titleFormat" = "Open “%@”?";
+"browser.openFile.message" = "This file is outside your Fermix home.";
 "browser.taskTab" = "A task is using this tab";
 "browser.cancelTask" = "Cancel task";
 "browser.cancellingTask" = "Cancelling task";

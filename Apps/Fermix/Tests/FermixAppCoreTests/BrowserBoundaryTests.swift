@@ -176,6 +176,18 @@ struct BrowserTabTests {
         #expect(page.actions == ["back", "forward", "reload", "stop", "find mascot", "zoom larger"])
     }
 
+    @Test("a file reaches the page, with what it shows as")
+    func fileReachesThePage() {
+        let page = FakeBrowserPage()
+        let tab = BrowserTab(profile: .file, page: page)
+        let file = URL(fileURLWithPath: "/Users/Shared/notes.md")
+
+        tab.loadFile(file, as: .text)
+
+        #expect(page.files == [FileLoad(url: file, kind: .text)])
+        #expect(page.loaded.isEmpty)
+    }
+
     /// A page's own window keeps the opener's website data: a sign-in window
     /// opened from a private tab stays private.
     @Test("a page's own window is a tab of the opener's profile")
@@ -201,12 +213,16 @@ struct BrowserTabTests {
         let mail = try #require(URL(string: "mailto:hello@fermix.ai"))
         let file = FakeDownload()
 
+        let site = try #require(URL(string: "https://fermix.ai"))
+
         page.events?.pageMetExternalScheme(mail)
+        page.events?.pageRequestedWebPage(site)
         page.events?.pageStartedDownload(file)
         page.events?.pageAskedToClose()
         page.events?.pageFailed("A server with the specified hostname could not be found.")
 
         #expect(delegate.externals == [mail])
+        #expect(delegate.webPages == [site])
         #expect(delegate.downloads.map(ObjectIdentifier.init) == [ObjectIdentifier(file)])
         #expect(file.cancels == 0)
         #expect(delegate.failures == ["A server with the specified hostname could not be found."])

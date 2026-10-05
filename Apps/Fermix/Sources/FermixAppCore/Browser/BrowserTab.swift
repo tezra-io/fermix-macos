@@ -49,9 +49,10 @@ public enum BrowserZoom: Sendable {
     }
 }
 
-/// A JavaScript dialog a page raised: `alert`, `confirm` or `prompt`. Or the
-/// pane's own question before a link in the person's tab opens another app,
-/// which takes the same one place over the pane.
+/// A JavaScript dialog a page raised: `alert`, `confirm` or `prompt`. Or one
+/// of the pane's own questions, before a link in the person's tab opens
+/// another app or before a file outside the Fermix home loads, which take the
+/// same one place over the pane.
 public struct BrowserDialog: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case alert
@@ -59,6 +60,9 @@ public struct BrowserDialog: Equatable, Sendable {
         case prompt(defaultText: String)
         /// Whether the app on this Mac named here may open the page's link.
         case openApp(name: String)
+        /// Whether the file named here, outside the Fermix home, may load in
+        /// the file tab opened for it.
+        case openFile(name: String)
     }
 
     public let kind: Kind
@@ -104,6 +108,10 @@ public protocol BrowserPage: AnyObject {
     var events: (any BrowserPageEvents)? { get set }
 
     func load(_ url: URL)
+    /// A file on this Mac, shown as `kind`, on a page of the file profile,
+    /// which loads nothing before its network rule is in place. Reload reads
+    /// the file again.
+    func loadFile(_ url: URL, as kind: BrowserFileKind)
     func back()
     func forward()
     func reload()
@@ -128,6 +136,9 @@ public protocol BrowserPageEvents: AnyObject {
     /// files chosen, or nil for none.
     func pageRequestedFiles(_ request: BrowserFileRequest, answer: @escaping @MainActor ([URL]?) -> Void)
     func pageMetExternalScheme(_ url: URL)
+    /// A person's click on a web link in a file page, whose navigation the
+    /// page has already refused: a file page never loads a web page.
+    func pageRequestedWebPage(_ url: URL)
     func pagePresented(_ dialog: BrowserDialog, answer: @escaping @MainActor (BrowserDialogAnswer) -> Void)
     /// A navigation became a file to save.
     func pageStartedDownload(_ download: any BrowserDownload)
@@ -151,6 +162,9 @@ public protocol BrowserTabDelegate: AnyObject {
     /// belongs to another app on the Mac. Whether that app opens is the tab
     /// owner's rule.
     func externalSchemeMet(_ url: URL, in tab: BrowserTab)
+    /// A web link the person clicked in a file tab, which shows its file and
+    /// nothing else, so the page goes to a tab that loads web pages.
+    func webPageRequested(_ url: URL, from tab: BrowserTab)
     func dialogPresented(
         _ dialog: BrowserDialog,
         in tab: BrowserTab,
@@ -164,15 +178,20 @@ public protocol BrowserTabDelegate: AnyObject {
 
 /// One tab of the pane: what its page shows, and what a person can ask of it.
 ///
-/// Its published state is written by its page's reports and by nothing else,
-/// so a view reads it and never sets it. The shape mirrors Apple's `WebPage`,
-/// so a later move to that API is mechanical.
+/// Its page state is written by its page's reports and by nothing else, so a
+/// view reads it and never sets it. The shape mirrors Apple's `WebPage`, so a
+/// later move to that API is mechanical.
 @MainActor
 public final class BrowserTab: ObservableObject, Identifiable {
     public let id = UUID()
     public let profile: BrowserProfile
     public weak var delegate: (any BrowserTabDelegate)?
 
+    /// The file a file tab was opened on, which its chip and address capsule
+    /// name from the moment it opens: a file outside the Fermix home waits
+    /// for the person's answer before anything loads, so the page has nothing
+    /// to report yet. The coordinator's to set, once; nil for every other tab.
+    @Published public internal(set) var file: URL?
     @Published public private(set) var url: URL?
     @Published public private(set) var title = ""
     @Published public private(set) var isLoading = false
@@ -201,6 +220,7 @@ public final class BrowserTab: ObservableObject, Identifiable {
     public var cookieStore: (any BrowserPageCookies)? { page as? any BrowserPageCookies }
 
     public func load(_ url: URL) { page.load(url) }
+    public func loadFile(_ url: URL, as kind: BrowserFileKind) { page.loadFile(url, as: kind) }
     public func back() { page.back() }
     public func forward() { page.forward() }
     public func reload() { page.reload() }
@@ -251,6 +271,10 @@ extension BrowserTab: BrowserPageEvents {
 
     public func pageMetExternalScheme(_ url: URL) {
         delegate?.externalSchemeMet(url, in: self)
+    }
+
+    public func pageRequestedWebPage(_ url: URL) {
+        delegate?.webPageRequested(url, from: self)
     }
 
     /// A page with nobody to ask is answered at once, because WebKit holds the

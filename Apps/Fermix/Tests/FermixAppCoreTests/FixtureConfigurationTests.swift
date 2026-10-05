@@ -313,6 +313,7 @@ struct FixtureConfigurationTests {
             makeEngine: { _ in FixtureBrowserEngine() },
             profile: WebsiteProfileRecord(location: BrowserProfileLocation().location),
             workspace: FixtureWorkspaceOpener(),
+            home: { throw CocoaError(.fileNoSuchFile) },
             session: FakeSessionAvailability(),
             deadlines: ManualDeadlineScheduler(),
             paneShown: { _ in },
@@ -325,6 +326,32 @@ struct FixtureConfigurationTests {
         #expect(browser.model.tabs.map(\.profile) == [.shared, .private])
         #expect(browser.model.tabs.map(\.hasOnlySecureContent) == [true, true])
         #expect(browser.model.selectedTabID == browser.model.tabs.first?.id)
+    }
+
+    /// A file opens in a fake page that draws its name and reads nothing
+    /// from the operator's disk.
+    @MainActor
+    @Test("a file opens in a fixture file tab, named by the file")
+    func fixtureFileTab() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let browser = BrowserCoordinator(
+            makeEngine: { _ in FixtureBrowserEngine() },
+            profile: WebsiteProfileRecord(location: BrowserProfileLocation().location),
+            workspace: FixtureWorkspaceOpener(),
+            home: { place.home },
+            session: FakeSessionAvailability(),
+            deadlines: ManualDeadlineScheduler(),
+            paneShown: { _ in },
+            presentPrimaryWindow: {}
+        )
+
+        browser.openFile(try place.write("notes.md", in: place.home))
+
+        #expect(browser.model.tabs.map(\.profile) == [.file])
+        #expect(browser.model.tabs.map(\.title) == ["notes.md"])
+        #expect(browser.model.tabs.first?.url == browser.model.tabs.first?.file)
+        #expect(browser.model.dialog == nil)
     }
 
     /// The scripted daemon, driven through the real adapter and the session:

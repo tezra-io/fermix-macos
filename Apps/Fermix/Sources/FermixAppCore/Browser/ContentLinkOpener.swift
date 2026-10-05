@@ -4,7 +4,9 @@ import Foundation
 /// every surface that shows the owner's content after it.
 ///
 /// A web page goes where the person's preference says, the pane or their own
-/// browser; any other scheme belongs to an app on the Mac and goes there
+/// browser; a file on this Mac goes to the pane's own rule for files
+/// (`BrowserCoordinator.openFile`) whatever the preference, which is about web
+/// pages; any other scheme belongs to an app on the Mac and goes there
 /// whatever the preference, because the pane has nothing to show for it.
 ///
 /// Provider sign-in and the prior installer never come here. They are not
@@ -32,14 +34,22 @@ public final class ContentLinkOpener {
     /// reply is a web page or it is another app's.
     public static let paneSchemes: Set<String> = ["http", "https"]
 
-    /// Where a link goes, by its scheme and the preference.
+    /// Where a link that is not a file goes, by its scheme and the
+    /// preference.
     public static func destination(of url: URL, preferring preference: LinkDestination) -> LinkDestination {
         guard let scheme = url.scheme?.lowercased(), paneSchemes.contains(scheme) else { return .system }
 
         return preference
     }
 
+    /// A file never goes straight to the Mac: handed to the workspace, a
+    /// script opens in Terminal and runs, and an app launches.
     public func open(_ url: URL) {
+        guard !url.isFileURL else {
+            browser.openFile(url)
+            return
+        }
+
         switch Self.destination(of: url, preferring: preference.linkDestination) {
         case .fermix: browser.open(url)
         case .system: _ = workspace.open(url)

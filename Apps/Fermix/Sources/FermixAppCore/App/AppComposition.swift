@@ -98,7 +98,7 @@ final class AppComposition {
         model = AppModel()
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
-        browser = Self.buildBrowser(environment: environment, location: location, windows: windows)
+        browser = Self.buildBrowser(environment: environment, store: store, location: location, windows: windows)
         browserHost = Self.buildBrowserHost(
             environment: environment,
             store: store,
@@ -295,11 +295,13 @@ final class AppComposition {
     }
 
     /// The browser pane: the engine the executable handed in, the website
-    /// profile's record in this account's support folder, the session's
-    /// availability, and the window's room for the pane. The quit's bound is a
-    /// run-loop timer, which fires while AppKit holds the termination.
+    /// profile's record in this account's support folder, this account's
+    /// Fermix home, the session's availability, and the window's room for the
+    /// pane. The quit's bound is a run-loop timer, which fires while AppKit
+    /// holds the termination.
     private static func buildBrowser(
         environment: AppEnvironment,
+        store: BootstrapStore,
         location: BootstrapLocation,
         windows: WindowCoordinator
     ) -> BrowserCoordinator {
@@ -307,6 +309,10 @@ final class AppComposition {
             makeEngine: environment.makeBrowser,
             profile: WebsiteProfileRecord(location: location),
             workspace: environment.workspace,
+            // Resolved per open from the bootstrap record, as the host's
+            // workspace and browser roots are, so a file opens silently only
+            // under the home the record names now.
+            home: { try store.resolvedHome() },
             session: environment.session,
             deadlines: RunLoopDeadlineScheduler(),
             paneShown: { [windows] open in windows.setBrowserPane(open: open) },

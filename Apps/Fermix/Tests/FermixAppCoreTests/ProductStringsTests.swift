@@ -286,7 +286,7 @@ struct ProductStringsTests {
     /// is named, reviewable, and asserted.
     @Test("the proper nouns are the product, vendor, and macOS surface names")
     func properNouns() {
-        for noun in ["Fermix", "Telegram", "Slack", "Discord", "ChatGPT", "Claude", "Codex", "Terminal", "Setup", "Doctor", "Realtime", "Messages"] {
+        for noun in ["Fermix", "Telegram", "Slack", "Discord", "ChatGPT", "Claude", "Codex", "Terminal", "Setup", "Doctor", "Realtime", "Messages", "Finder"] {
             #expect(ProductCopyRules.properNouns.contains(noun), "\(noun)")
         }
 

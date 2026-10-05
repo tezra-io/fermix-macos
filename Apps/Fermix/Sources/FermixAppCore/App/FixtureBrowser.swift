@@ -70,7 +70,10 @@ enum FixtureWebPage {
         return url
     }
 
+    /// A file is drawn as its name over its path: the fixture reads nothing
+    /// from the operator's disk.
     static func content(of url: URL) -> (title: String, heading: String, body: String) {
+        guard !url.isFileURL else { return (url.lastPathComponent, url.lastPathComponent, url.path) }
         guard url == reserved else {
             return (
                 "Example Domain",
@@ -112,6 +115,11 @@ final class FixtureBrowserPage: BrowserPage {
         history = Array(history.prefix(position + 1)) + [url]
         position = history.count - 1
         show()
+    }
+
+    /// A file walks the history as a page does, whatever its kind.
+    func loadFile(_ url: URL, as kind: BrowserFileKind) {
+        load(url)
     }
 
     func back() {
@@ -206,6 +214,8 @@ struct FixtureWorkspaceOpener: WorkspaceLinkOpening {
     func open(_ url: URL) -> Bool { true }
     /// No app is named, so a fixture page never asks to leave for one.
     func appName(toOpen url: URL) -> String? { nil }
+    /// Finder is another app too.
+    func reveal(_ url: URL) {}
 }
 
 /// The browser host socket, never dialed: the fixture drives its two tabs

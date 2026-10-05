@@ -24,9 +24,15 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     /// when it was made; `didFinish` and `didFail` are what resolve them
     /// (`WebKitBrowserPage+Driving.swift` is the one caller).
     var readyWaiters: [ReadyWaiter] = []
+    /// The network rule a file page waits on before it loads anything; nil
+    /// for every other page, which is what makes a page a file page.
+    private let fileRules: WebKitFileRules?
+    /// The file a file page was last asked to show, which reload reads again.
+    private var shownFile: (url: URL, kind: BrowserFileKind)?
 
-    init(configuration: WKWebViewConfiguration) {
+    init(configuration: WKWebViewConfiguration, fileRules: WebKitFileRules?) {
         webView = WKWebView(frame: .zero, configuration: configuration)
+        self.fileRules = fileRules
         super.init()
 
         // Link previews are off (plan §4.4): a force click would load the
@@ -43,14 +49,62 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     }
 
     var view: NSView { webView }
+    private var showsFile: Bool { fileRules != nil }
 
     func load(_ url: URL) { webView.load(URLRequest(url: url)) }
     func back() { webView.goBack() }
     func forward() { webView.goForward() }
-    func reload() { webView.reload() }
     func stop() { webView.stopLoading() }
     func find(_ text: String) { webView.find(text, configuration: WKFindConfiguration()) { _ in } }
     func zoom(_ zoom: BrowserZoom) { webView.pageZoom = zoom.factor(from: webView.pageZoom) }
+
+    /// A file page reads its file again: text it was given as data would
+    /// otherwise come back as it was first read.
+    func reload() {
+        guard let shownFile else {
+            webView.reload()
+            return
+        }
+
+        loadFile(shownFile.url, as: shownFile.kind)
+    }
+
+    /// A file, once the network rule is in place and never before it.
+    func loadFile(_ url: URL, as kind: BrowserFileKind) {
+        guard let fileRules else { preconditionFailure("only a file page loads a file") }
+
+        shownFile = (url, kind)
+        fileRules.whenCompiled { [weak self] compiled in
+            self?.load(url, as: kind, under: compiled)
+        }
+    }
+
+    /// A rule list that failed to compile loads nothing and says why.
+    private func load(_ file: URL, as kind: BrowserFileKind, under compiled: Result<WKContentRuleList, any Error>) {
+        switch compiled {
+        case .failure(let error):
+            events?.pageFailed(error.localizedDescription)
+        case .success(let rules):
+            webView.configuration.userContentController.add(rules)
+            show(file, as: kind)
+        }
+    }
+
+    /// Text is read here and given to WebKit as plain text, because WebKit
+    /// would save a markdown or YAML file rather than show it. Anything else
+    /// loads from disk, with read access to that one file alone.
+    private func show(_ file: URL, as kind: BrowserFileKind) {
+        guard kind == .text else {
+            webView.loadFileURL(file, allowingReadAccessTo: file)
+            return
+        }
+
+        do {
+            webView.load(try Data(contentsOf: file), mimeType: "text/plain", characterEncodingName: "utf-8", baseURL: file)
+        } catch {
+            events?.pageFailed(error.localizedDescription)
+        }
+    }
 
     /// Every published property the tab shows, each reporting the whole state.
     private func observe() {
@@ -83,25 +137,28 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     }
 
     /// A navigation as the policy reads it.
-    private static func navigation(_ action: WKNavigationAction, targetsNewWindow: Bool) -> BrowserNavigation {
+    private func navigation(_ action: WKNavigationAction, targetsNewWindow: Bool) -> BrowserNavigation {
         BrowserNavigation(
             // A window a script opened with no address is a blank page.
             scheme: action.request.url?.scheme ?? "about",
             targetsNewWindow: targetsNewWindow,
             isDownload: action.shouldPerformDownload,
             isMainFrame: action.targetFrame?.isMainFrame ?? true,
-            isUserInitiated: action.navigationType == .linkActivated || action.navigationType == .formSubmitted
+            isUserInitiated: action.navigationType == .linkActivated || action.navigationType == .formSubmitted,
+            inFileTab: showsFile
         )
     }
 
     /// What a refused navigation leaves behind: a link to another app, handed
     /// to the tab, whose owner rules on it. A task's tab never opens the app,
-    /// and the person's asks them first.
+    /// and the person's asks them first. A web link a person clicked in a file
+    /// page goes to the tab too, which hands it to a tab that loads web pages.
     private func carryOut(_ decision: BrowserNavigationDecision, for url: URL?) {
         guard let url else { return }
 
         switch decision {
         case .external: events?.pageMetExternalScheme(url)
+        case .sharedTab: events?.pageRequestedWebPage(url)
         case .allow, .newTab, .download, .cancel: return
         }
     }
@@ -112,7 +169,7 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         switch decision {
         case .allow, .newTab: return .allow
         case .download: return .download
-        case .external, .cancel: return .cancel
+        case .external, .sharedTab, .cancel: return .cancel
         }
     }
 
@@ -121,7 +178,7 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         switch decision {
         case .allow: return .allow
         case .download: return .download
-        case .newTab, .external, .cancel: return .cancel
+        case .newTab, .external, .sharedTab, .cancel: return .cancel
         }
     }
 
@@ -158,16 +215,18 @@ extension WebKitBrowserPage: WKNavigationDelegate {
     /// `createWebViewWith`, which is where WebKit hands over the configuration
     /// that keeps the new page's link to its opener. A navigation to this
     /// Mac's own loopback address keeps the scheme it was asked with, and
-    /// every other keeps the configuration's HTTPS-first.
+    /// every other keeps the configuration's HTTPS-first. A file page's
+    /// scripts stay off for every navigation, whatever WebKit proposes.
     func webView(
         _ webView: WKWebView,
         decidePolicyFor action: WKNavigationAction,
         preferences: WKWebpagePreferences,
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
-        let decision = BrowserNavigationPolicy.decide(Self.navigation(action, targetsNewWindow: action.targetFrame == nil))
+        let decision = BrowserNavigationPolicy.decide(navigation(action, targetsNewWindow: action.targetFrame == nil))
         carryOut(decision, for: action.request.url)
         Self.keepLoopbackScheme(of: action.request.url, in: preferences)
+        if showsFile { preferences.allowsContentJavaScript = false }
         decisionHandler(Self.actionPolicy(decision), preferences)
     }
 
@@ -181,7 +240,8 @@ extension WebKitBrowserPage: WKNavigationDelegate {
     }
 
     /// A response that is a file rather than a page becomes a download where
-    /// the policy allows one: a frame's is refused without a sentence.
+    /// the policy allows one: a frame's is refused without a sentence, and so
+    /// is any in a file page, which never saves anything.
     func webView(
         _ webView: WKWebView,
         decidePolicyFor response: WKNavigationResponse,
@@ -191,7 +251,8 @@ extension WebKitBrowserPage: WKNavigationDelegate {
         let navigation = BrowserNavigation(
             scheme: response.response.url?.scheme ?? "about",
             isDownload: isDownload,
-            isMainFrame: response.isForMainFrame
+            isMainFrame: response.isForMainFrame,
+            inFileTab: showsFile
         )
         decisionHandler(Self.responsePolicy(BrowserNavigationPolicy.decide(navigation)))
     }
@@ -252,20 +313,21 @@ extension WebKitBrowserPage: WKUIDelegate {
     /// A page's own window, as a tab. The web view is built on the
     /// configuration WebKit hands over, which carries the opener's website data
     /// and its link back to the opener: a sign-in window reports to the page
-    /// that opened it through exactly that link.
+    /// that opened it through exactly that link. A file page never opens one
+    /// (the policy answers it no new tab), so the new page is a web page.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for action: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        let decision = BrowserNavigationPolicy.decide(Self.navigation(action, targetsNewWindow: true))
+        let decision = BrowserNavigationPolicy.decide(navigation(action, targetsNewWindow: true))
         guard decision == .newTab else {
             carryOut(decision, for: action.request.url)
             return nil
         }
 
-        let page = WebKitBrowserPage(configuration: configuration)
+        let page = WebKitBrowserPage(configuration: configuration, fileRules: nil)
         guard events?.pageOpened(page) == true else { return nil }
 
         return page.webView

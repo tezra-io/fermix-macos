@@ -15,20 +15,27 @@ import WebKit
 /// persistent website data store, named by the identifier the core keeps in
 /// the app's support folder, so a website sign-in survives closing the tab and
 /// quitting the app, and is separate from every other browser on the Mac. A
-/// private tab gets a store that is never written to disk.
+/// private tab gets a store that is never written to disk, and so does a file
+/// tab, which also runs none of its file's scripts and loads nothing from the
+/// network (`WebKitFileRules`).
 @MainActor
 public final class WebKitBrowserEngine: BrowserEngine {
     private let websiteProfile: UUID
     /// Opened on the first shared tab, so a person who only ever opens private
     /// tabs never has the persistent store created for them.
     private lazy var sharedStore = WKWebsiteDataStore(forIdentifier: websiteProfile)
+    /// Compiled on the first file tab, so an engine that never shows a file
+    /// never compiles it.
+    private lazy var fileRules = WebKitFileRules()
 
     public init(websiteProfile: UUID) {
         self.websiteProfile = websiteProfile
     }
 
     public func makeTab(profile: BrowserProfile) -> BrowserTab {
-        BrowserTab(profile: profile, page: WebKitBrowserPage(configuration: configuration(for: profile)))
+        let page = WebKitBrowserPage(configuration: configuration(for: profile), fileRules: profile == .file ? fileRules : nil)
+
+        return BrowserTab(profile: profile, page: page)
     }
 
     /// The system's open panel, as a sheet on the pane's window, which is the
@@ -87,9 +94,15 @@ public final class WebKitBrowserEngine: BrowserEngine {
     /// `about:blank` and reports that finished, with no warning.
     /// The fraudulent website warning is WebKit's default and is stated rather
     /// than left implicit, because turning it off would be a decision.
+    ///
+    /// A file tab keeps no website data and runs none of the file's own
+    /// scripts, here and in every navigation's own preferences
+    /// (`WebKitBrowserPage`); its page installs the network rule before it
+    /// loads anything.
     private func configuration(for profile: BrowserProfile) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = profile == .shared ? sharedStore : .nonPersistent()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = profile != .file
         // Unconditional: available since macOS 11.3, well under the floor.
         configuration.upgradeKnownHostsToHTTPS = true
         // `preferredHTTPSNavigationPolicy` is macOS 15.2. The floor stays 15.0

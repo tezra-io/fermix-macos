@@ -10,6 +10,7 @@ import Foundation
 final class FakeBrowserPage: BrowserPage {
     weak var events: (any BrowserPageEvents)?
     private(set) var loaded: [URL] = []
+    private(set) var files: [FileLoad] = []
     private(set) var actions: [String] = []
 
     /// Built on first use, so a test that never shows the page never makes a
@@ -17,12 +18,19 @@ final class FakeBrowserPage: BrowserPage {
     lazy var view = NSView()
 
     func load(_ url: URL) { loaded.append(url) }
+    func loadFile(_ url: URL, as kind: BrowserFileKind) { files.append(FileLoad(url: url, kind: kind)) }
     func back() { actions.append("back") }
     func forward() { actions.append("forward") }
     func reload() { actions.append("reload") }
     func stop() { actions.append("stop") }
     func find(_ text: String) { actions.append("find \(text)") }
     func zoom(_ zoom: BrowserZoom) { actions.append("zoom \(zoom)") }
+}
+
+/// A file a page was asked to show, and as what.
+struct FileLoad: Equatable {
+    let url: URL
+    let kind: BrowserFileKind
 }
 
 /// A page with a web engine behind it, standing in for `WebKitBrowserPage` in
@@ -46,6 +54,7 @@ final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
     private(set) var readyWaits = 0
 
     func load(_ url: URL) {}
+    func loadFile(_ url: URL, as kind: BrowserFileKind) {}
     func back() {}
     func forward() {}
     func reload() {}
@@ -252,6 +261,7 @@ final class RecordingTabDelegate: BrowserTabDelegate {
     private(set) var openedTabs: [BrowserTab] = []
     private(set) var closeRequests: [BrowserTab] = []
     private(set) var externals: [URL] = []
+    private(set) var webPages: [URL] = []
     private(set) var dialogs: [BrowserDialog] = []
     private(set) var downloads: [any BrowserDownload] = []
     private(set) var failures: [String] = []
@@ -277,6 +287,8 @@ final class RecordingTabDelegate: BrowserTabDelegate {
     }
 
     func externalSchemeMet(_ url: URL, in tab: BrowserTab) { externals.append(url) }
+
+    func webPageRequested(_ url: URL, from tab: BrowserTab) { webPages.append(url) }
 
     func dialogPresented(
         _ dialog: BrowserDialog,
@@ -357,6 +369,8 @@ final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
     /// The app this Mac would open any link in, or nil for none.
     var installedApp: String? = "Mail"
     private(set) var opened: [URL] = []
+    /// Every file shown in Finder, in order.
+    private(set) var revealed: [URL] = []
 
     func open(_ url: URL) -> Bool {
         opened.append(url)
@@ -364,6 +378,8 @@ final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
     }
 
     func appName(toOpen url: URL) -> String? { installedApp }
+
+    func reveal(_ url: URL) { revealed.append(url) }
 }
 
 /// The link preference with no host state behind it: the suite never reads or
@@ -397,7 +413,9 @@ struct BrowserHarness {
     let location: BootstrapLocation
     let coordinator: BrowserCoordinator
 
-    init(availability: BrowserAvailability = .available) {
+    /// `home` is the Fermix home a file opens silently under; nil is a home
+    /// that cannot be resolved, which has nothing inside it.
+    init(availability: BrowserAvailability = .available, home: URL? = nil) {
         location = BrowserProfileLocation().location
         session = FakeSessionAvailability(availability)
         coordinator = BrowserCoordinator(
@@ -407,6 +425,10 @@ struct BrowserHarness {
             },
             profile: WebsiteProfileRecord(location: location),
             workspace: workspace,
+            home: {
+                guard let home else { throw CocoaError(.fileNoSuchFile) }
+                return home
+            },
             session: session,
             deadlines: deadlines,
             paneShown: { [record] in record.paneShown.append($0) },
