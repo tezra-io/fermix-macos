@@ -23,9 +23,7 @@ struct PetView: View {
             animates: model.windowVisible && !reduceMotion,
             playsIntro: !reduceMotion,
             dock: shouldShowControls ? .shown : .hidden,
-            // The whole of the mascot's frame begins a call while none is up
-            // and never ends one (owner, 2026-10-04): the façade's rule for
-            // this host.
+            // Its dock's stop has nothing to close once a call is over.
             host: .floatingWindow
         )
         .padding(.horizontal, Spacing.xs)
@@ -79,10 +77,12 @@ struct PetView: View {
 /// One view, two hosts: the floating window (`PetView`) and the chat's call box
 /// (`ChatCallBox`). Each host decides what is its own: whether the mascot may
 /// move (its own window's visibility), whether the intro plays and whether the
-/// dock shows. What a click on the mascot does, and what the dock's stop
-/// offers, are the façade's rules, read for the host that draws it, so the two
-/// cannot drift. The animation never takes the click, so the whole of the
-/// mascot's frame is that one action.
+/// dock shows. A click on the mascot is the call control's in both, through
+/// the gate: it begins a call or ends it (owner, 2026-09-25: "the click on the
+/// mascot leads to enabling or disabling it"; 2026-10-04: the chat's box does
+/// the same). What the dock's stop offers is the façade's rule, read for the
+/// host that draws it, so the two cannot drift. The animation never takes the
+/// click, so the whole of the mascot's frame is that one action.
 struct PetCompanion: View {
     /// Whether the dock of call controls is drawn.
     enum Dock: Equatable {
@@ -97,8 +97,7 @@ struct PetCompanion: View {
     let animates: Bool
     let playsIntro: Bool
     let dock: Dock
-    /// Which host draws it, which the façade reads for the mascot's click and
-    /// the dock's stop.
+    /// Which host draws it, which the façade reads for the dock's stop.
     let host: PetHost
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -110,8 +109,8 @@ struct PetCompanion: View {
                 mascotView
                     .frame(width: PetMetrics.mascotSize.width, height: PetMetrics.mascotSize.height)
                     .contentShape(Rectangle())
-                    .onTapGesture { model.mascotClicked(in: host) }
-                    .help(model.mascotHelpText(in: host))
+                    .onTapGesture { model.toggleCall() }
+                    .help(model.callHelpText)
             }
             .frame(width: PetMetrics.stageSize.width, height: PetMetrics.stageSize.height)
 

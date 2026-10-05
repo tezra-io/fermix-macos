@@ -38,8 +38,9 @@ enum ChatCallBoxState: Equatable {
 /// no caption, no task and no cost: those are the Pet page's. The dock's stop
 /// ends the call, and the box stays once it is over, the mascot still in its
 /// idle pose, until the same control, then Close, puts it away (owner,
-/// 2026-10-04); a failure keeps its sentence under the dock. The mascot takes
-/// no click: the toolbar's phone begins the next call.
+/// 2026-10-04); a failure keeps its sentence under the dock. The mascot's
+/// click is the call control's, as on the floating window: it ends the call,
+/// and on the idle pet it begins the next one.
 ///
 /// It stands at the body's extreme right, in the margin a wide window leaves
 /// beside the centred reading column, overlapping nothing; only where that

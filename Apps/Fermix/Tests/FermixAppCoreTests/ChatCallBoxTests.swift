@@ -177,50 +177,40 @@ struct ChatCallBoxTests {
         #expect(!ChatCallBox.animates(live: false, windowVisible: true, reduceMotion: false))
     }
 
-    /// The owner's rule of 2026-10-04: a click on the pet never closes the
-    /// call. The box exists only around a call, so its mascot is no control at
-    /// all: it neither ends the call nor, while the last one ends or after one
-    /// failed, begins the next; the toolbar's button does both. Its tooltip is
-    /// what the call is doing, or the failure.
-    @Test("the box's mascot takes no click, and its tooltip is the call's status")
-    func mascotTakesNoClick() throws {
-        let harness = try PetHarness()
-        harness.call.voiceNegotiated()
-
-        func clickChangesNothing() {
-            let phase = harness.call.voice.phase
-            #expect(!harness.model.mascotClickBegins(in: .callBox))
-            #expect(harness.model.mascotHelpText(in: .callBox) == harness.model.statusText)
-
-            harness.model.mascotClicked(in: .callBox)
-            #expect(harness.call.voice.phase == phase)
-        }
-
-        harness.call.callStarting()
-        #expect(harness.model.mascotHelpText(in: .callBox) == ProductStrings[.voiceStatusConnecting])
-        clickChangesNothing()
-
-        harness.call.callStarted()
+    /// The owner's direction of 2026-10-04: the box's pet behaves as the
+    /// floating window's does, where "a tap on it goes to listening mode or
+    /// idle mode". Its click is the call control's, through the gate, and its
+    /// tooltip the control's: it ends the call that is up, the pet going to
+    /// its idle pose in the box that stays, and a click on that idle pet
+    /// begins the next call, which plays its intro once.
+    @Test("a click on the box's pet ends the call, and on the idle pet begins the next")
+    func mascotClickTogglesTheCall() throws {
+        let harness = try liveCall()
         deliver(harness, .state(.listening))
-        #expect(harness.model.mascotHelpText(in: .callBox) == ProductStrings[.voiceStatusListening])
-        clickChangesNothing()
+        let first = harness.call.voice.attempt
+        harness.call.introShown()
+        #expect(harness.model.expression == .listening)
+        #expect(harness.model.callHelpText == "End voice call")
 
-        // The floating window's mascot begins the next call here; the box's
-        // does not.
-        harness.call.callStopping()
-        #expect(harness.model.mascotClickBegins(in: .floatingWindow))
-        clickChangesNothing()
+        harness.model.toggleCall()
+        #expect(harness.call.voice.phase == .stopping)
+        harness.call.callEnded()
+        #expect(state(harness) == .ended)
+        #expect(harness.model.expression == .idle)
+        #expect(harness.model.callHelpText == "Begin voice call")
 
-        harness.call.callStarting()
-        harness.call.callStarted()
-        deliver(harness, .error(RealtimeServerError(reason: "provider_disconnected", kind: .providerDisconnected)))
-        #expect(state(harness) == .failed(ProductStrings[.voiceErrorProviderDisconnected]))
-        #expect(harness.model.mascotHelpText(in: .callBox) == ProductStrings[.voiceErrorProviderDisconnected])
-        clickChangesNothing()
+        harness.model.toggleCall()
+        #expect(harness.call.voice.phase == .starting)
+        #expect(state(harness) == .live)
+        #expect(harness.call.voice.attempt == first + 1)
+        #expect(!harness.call.introPlayed, "the next call's pet swells in once")
 
+        // The click is the companion's, one view in both hosts, and the box
+        // acts on the call through nothing of its own.
         let box = try Self.text(of: "Chat/ChatCallBox.swift")
         #expect(box.contains("host: .callBox"))
         #expect(!box.contains("toggleCall"), "the box acts on the call itself")
+        #expect(!box.contains("onTapGesture"), "the box takes the mascot's click itself")
     }
 
     // MARK: - One pet, two hosts

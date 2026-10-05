@@ -6,7 +6,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 - Channels: turning iMessage on installs Fermix Messages first, and if the install fails the switch stays off with the reason under it. The iMessage row then names the first thing still missing, such as Full Disk Access, Messages automation or your confirmation of who Fermix may message, until it reads Connected.
 - Permissions: once iMessage is on, Messages data, Messages automation and Who Fermix may message each have a row with the one button that grants or confirms it, and the rows catch up when you come back from System Settings.
-- Pet: a click on the pet no longer ends a call, so a stray click cannot hang up; the pet's dock ends a call with a stop button, and the pet stays in the chat's box after a call until you close it.
+- Pet: a click on the pet begins or ends the call wherever the pet is shown, the pet stays in the chat's box after a call until you close it, and the pet's dock ends a call with a stop button.
 - Channels: iMessage and Phone show their own marks instead of the generic channel symbol.
 - Channels: the Phone row says it is available with the phone app and cannot be switched on until that app ships.
 - Channels: iMessage joins the Channels pane on a Mac, with the account choice, your handle and the guest list.
