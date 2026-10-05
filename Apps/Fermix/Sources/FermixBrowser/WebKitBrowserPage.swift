@@ -29,6 +29,9 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     private let fileRules: WebKitFileRules?
     /// The file a file page was last asked to show, which reload reads again.
     private var shownFile: (url: URL, kind: BrowserFileKind)?
+    /// Whether the network rule is in the page's content controller yet: it
+    /// goes in once, on the first load, and stays.
+    private var rulesInstalled = false
 
     init(configuration: WKWebViewConfiguration, fileRules: WebKitFileRules?) {
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -85,9 +88,16 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         case .failure(let error):
             events?.pageFailed(error.localizedDescription)
         case .success(let rules):
-            webView.configuration.userContentController.add(rules)
+            install(rules)
             show(file, as: kind)
         }
+    }
+
+    private func install(_ rules: WKContentRuleList) {
+        guard !rulesInstalled else { return }
+
+        webView.configuration.userContentController.add(rules)
+        rulesInstalled = true
     }
 
     /// Text is read here and given to WebKit as plain text, because WebKit

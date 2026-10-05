@@ -14,8 +14,8 @@ import Foundation
 /// there. Closing the last tab closes the pane.
 ///
 /// A file on this Mac opens here too (plan §8.2), in a file tab beside the
-/// web tabs, or in the app that opens it, or only in Finder where opening it
-/// would run it (`openFile`).
+/// web tabs, or in an app named for it, or only in Finder (`openFile`). No
+/// file is ever handed to the Mac by its path alone.
 ///
 /// The host's side of the daemon's `browser_host` wire runs through here too:
 /// a task's tabs, their release, the availability the host reports and its
@@ -105,10 +105,9 @@ public final class BrowserCoordinator {
 
     /// A file on this Mac, the one place a local file is opened, decided on
     /// where its link really lands (`BrowserLocalFile`): nothing there opens
-    /// the pane on the sentence that says so; a folder goes to Finder;
-    /// anything that runs is only shown in Finder, never opened; a file the
-    /// pane does not show goes to the app that opens it; and one it shows
-    /// opens in a new file tab, in front.
+    /// the pane on the sentence that says so; one the pane shows opens in a
+    /// new file tab, in front; a document goes to the app named for its type;
+    /// and everything else is only shown in Finder.
     public func openFile(_ link: URL) {
         guard let file = BrowserLocalFile(link) else {
             model.notice = ProductStrings[.browserNoticeFileMissing]
@@ -116,10 +115,10 @@ public final class BrowserCoordinator {
             return
         }
 
-        switch file.opening {
-        case .folder, .defaultApp: openOutside(file.url)
-        case .reveal: workspace.reveal(file.url)
+        switch file.opening(workspace) {
         case .show(let kind): openFileTab(file.url, as: kind)
+        case .open(let app): open(file.url, with: app)
+        case .reveal: workspace.reveal(file.url)
         }
     }
 
@@ -209,11 +208,12 @@ public final class BrowserCoordinator {
         openOutside(url)
     }
 
-    /// The file in front, in the app on this Mac that opens it.
+    /// The file in front, in the app its type goes to, decided again from
+    /// the file as it is now (`openInItsApp`).
     public func openFileInApp() {
         guard let file = model.selectedTab?.file else { return }
 
-        openOutside(file)
+        openInItsApp(file)
     }
 
     /// The file in front, selected in a Finder window.
@@ -223,10 +223,11 @@ public final class BrowserCoordinator {
         workspace.reveal(file)
     }
 
-    /// The app on this Mac that opens a file, by the name Finder shows, or
-    /// nil where none does.
-    public func appName(toOpen file: URL) -> String? {
-        workspace.appName(toOpen: file)
+    /// The app a file tab offers its file to, decided from the file as it is
+    /// now: nil where the file may go to none, a script among them, whose app
+    /// would run it.
+    public func documentApplication(for file: URL) -> WorkspaceApplication? {
+        BrowserLocalFile(file)?.documentApplication(workspace)
     }
 
     /// The person's answer to the dialog over the pane.
@@ -428,13 +429,42 @@ public final class BrowserCoordinator {
         unplace(tab)
     }
 
-    /// Where no app takes it, the pane says so, and opens to say it: a file
-    /// opened from a reply arrives with the pane closed.
+    /// A link, to the person's browser or the app that owns its scheme. A
+    /// file never goes to the workspace by its path, whichever way it came
+    /// here: it takes the file rules instead.
     private func openOutside(_ url: URL) {
+        guard !url.isFileURL else {
+            openInItsApp(url)
+            return
+        }
         guard !workspace.open(url) else { return }
 
         model.notice = ProductStrings[.browserNoticeNoApp]
-        showPane()
+    }
+
+    /// A file, decided again from what is at its path now, to the app its
+    /// type goes to where it may go to one, and otherwise only to Finder.
+    private func openInItsApp(_ path: URL) {
+        guard let file = BrowserLocalFile(path) else {
+            model.notice = ProductStrings[.browserNoticeFileMissing]
+            return
+        }
+        guard let app = file.documentApplication(workspace) else {
+            workspace.reveal(file.url)
+            return
+        }
+
+        open(file.url, with: app)
+    }
+
+    /// A file, handed to the app named for it as a document. Where the app
+    /// cannot take it, the pane says why in the system's words, opening to
+    /// say it: a file from a reply arrives with the pane closed.
+    private func open(_ file: URL, with app: WorkspaceApplication) {
+        workspace.open(file, withApplicationAt: app.url) { [weak self] reason in
+            self?.model.notice = reason
+            self?.showPane()
+        }
     }
 
     /// A file tab is the person's, so no task can ever address it, and it

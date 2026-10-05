@@ -77,8 +77,8 @@ struct ContentLinkTests {
     }
 
     /// The preference is about web pages. A file handed straight to the Mac
-    /// would run where it is a script, so it always takes the pane's own rule
-    /// for files.
+    /// would be launched or run by whatever is at its path, so it always
+    /// takes the pane's own rules for files.
     @Test("a file link takes the pane's rule for files, whatever the preference", arguments: LinkDestination.allCases)
     func fileLinksTakeTheFileRule(_ destination: LinkDestination) throws {
         let place = try FilePlaceFixture()
@@ -89,14 +89,14 @@ struct ContentLinkTests {
         preference.linkDestination = destination
         let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace)
         let notes = try place.write("notes.md", in: place.home)
-        let script = try place.write("run.command", in: place.home)
+        let app = try place.folder("Thing.app", in: place.home)
 
         opener.open(notes)
-        opener.open(script)
+        opener.open(app)
 
         #expect(harness.model.tabs.map(\.profile) == [.file])
         #expect(harness.page(0).files == [FileLoad(url: FilePlaceFixture.real(notes), kind: .text)])
-        #expect(harness.workspace.revealed == [FilePlaceFixture.real(script)])
+        #expect(harness.workspace.revealed == [FilePlaceFixture.real(app)])
         #expect(harness.workspace.opened.isEmpty)
         #expect(workspace.opened.isEmpty, "a file went straight to the Mac")
     }

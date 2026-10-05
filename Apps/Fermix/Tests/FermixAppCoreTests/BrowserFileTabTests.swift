@@ -8,12 +8,12 @@ import UniformTypeIdentifiers
 /// names.
 @Suite("Browser file kinds")
 struct BrowserFileKindTests {
-    @Test("an image, a PDF, an HTML file and text are shown", arguments: [
-        ("png", BrowserFileKind.image), ("jpg", .image), ("gif", .image), ("heic", .image), ("tiff", .image),
-        ("svg", .image),
+    @Test("an image WebKit draws, a PDF, an HTML file and text are shown", arguments: [
+        ("png", BrowserFileKind.image), ("jpg", .image), ("gif", .image), ("webp", .image), ("heic", .image),
+        ("tiff", .image), ("bmp", .image), ("ico", .image), ("svg", .image),
         ("pdf", .pdf),
         ("html", .html), ("htm", .html),
-        ("txt", .text), ("md", .text), ("swift", .text), ("c", .text), ("csv", .text),
+        ("txt", .text), ("md", .text), ("swift", .text), ("c", .text), ("csv", .text), ("css", .text),
         ("json", .text), ("xml", .text), ("yaml", .text), ("yml", .text)
     ])
     func shownKinds(_ pathExtension: String, _ kind: BrowserFileKind) throws {
@@ -22,15 +22,14 @@ struct BrowserFileKindTests {
         #expect(BrowserFileKind(type) == kind)
     }
 
-    /// The reason the three are named beside plain text: none of them
-    /// conforms to it, so plain text alone would send them to an app.
-    @Test("JSON, XML and YAML are text the pane names, since none conforms to plain text")
-    func structuredTextIsNamed() {
-        for type in [UTType.json, .xml, .yaml] {
-            #expect(!type.conforms(to: .plainText), "\(type.identifier)")
-            #expect(BrowserFileKind.textTypes.contains(type), "\(type.identifier)")
-        }
-        #expect(BrowserFileKind.textTypes.contains(.plainText))
+    /// Reading a script runs nothing in a tab with no page scripts and no
+    /// network, and the person wants to read what the agent wrote.
+    @Test("a script is text the pane shows", arguments: ["sh", "command", "zsh", "py", "rb", "applescript"])
+    func scriptsAreShownAsText(_ pathExtension: String) throws {
+        let type = try #require(UTType(filenameExtension: pathExtension))
+
+        #expect(BrowserLocalFile.runs(type))
+        #expect(BrowserFileKind(type) == .text)
     }
 
     /// A script is text too, and an SVG is XML too: the order of the rule is
@@ -43,32 +42,31 @@ struct BrowserFileKindTests {
         #expect(BrowserFileKind(svg) == .image)
     }
 
-    @Test("anything that runs is never shown, though a script is text", arguments: [
-        "sh", "command", "zsh", "bash", "py", "rb", "pl", "php", "js", "applescript", "jar", "exe", "dylib"
-    ])
-    func runnablesAreNeverShown(_ pathExtension: String) throws {
-        let type = try #require(UTType(filenameExtension: pathExtension))
+    @Test("an image WebKit does not draw is no image to the pane")
+    func undrawableImagesAreNotImages() throws {
+        let photoshop = try #require(UTType(filenameExtension: "psd"))
 
-        #expect(BrowserFileKind.runs(type))
-        #expect(BrowserFileKind(type) == nil)
-    }
-
-    @Test("an app, an executable and a script, by their own types, are what runs")
-    func runnableTypes() {
-        #expect(BrowserFileKind.runnableTypes == [.applicationBundle, .application, .executable, .unixExecutable, .script, .shellScript])
-        for type in BrowserFileKind.runnableTypes {
+        for type in [photoshop, UTType.rawImage] {
+            #expect(type.conforms(to: .image), "\(type.identifier)")
             #expect(BrowserFileKind(type) == nil, "\(type.identifier)")
         }
-        #expect(!BrowserFileKind.runs(.plainText))
-        #expect(!BrowserFileKind.runs(.pdf))
+        #expect(BrowserFileKind.imageTypes.starts(with: [.png, .jpeg, .gif, .webP, .heic, .heif, .tiff, .bmp, .svg, .ico]))
     }
 
-    @Test("anything else is not the pane's to show", arguments: ["zip", "docx", "mp4", "dmg", "fermixunknown"])
+    /// What rich text holds is a word processor's markup, not the words.
+    @Test("rich text is not text to the pane")
+    func richTextIsNotText() throws {
+        let rtf = try #require(UTType(filenameExtension: "rtf"))
+
+        #expect(rtf.conforms(to: .text))
+        #expect(BrowserFileKind(rtf) == nil)
+    }
+
+    @Test("anything else is not shown by its type", arguments: ["zip", "docx", "mp4", "dmg", "pkg", "fermixunknown"])
     func otherFilesAreNotShown(_ pathExtension: String) throws {
         let type = try #require(UTType(filenameExtension: pathExtension))
 
         #expect(BrowserFileKind(type) == nil)
-        #expect(!BrowserFileKind.runs(type))
     }
 
     @Test("the pane shows text up to 10 MB")
@@ -78,10 +76,13 @@ struct BrowserFileKindTests {
 }
 
 /// A file a link names, as it is on disk: decided on where the link really
-/// lands, never on its name.
+/// lands, never on its name, and by an allowlist: shown, a document to its
+/// app, or only shown in Finder.
 @Suite("Browser local files")
 @MainActor
 struct BrowserLocalFileTests {
+    static let preview = RecordingWorkspaceOpener.preview
+
     @Test("nothing there, or a link to nothing, is no file")
     func missingIsNothing() throws {
         let place = try FilePlaceFixture()
@@ -95,70 +96,139 @@ struct BrowserLocalFileTests {
         #expect(BrowserLocalFile(relative) == nil)
     }
 
-    @Test("a folder is a folder")
-    func folderIsAFolder() throws {
+    /// Finder shows a folder selected; opening one by its path would launch
+    /// an app swapped in under the same name.
+    @Test("a folder and an app are only shown in Finder")
+    func foldersAndAppsAreRevealed() throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
+        let workspace = RecordingWorkspaceOpener()
         let folder = try place.folder("reports", in: place.home)
-
-        let file = try #require(BrowserLocalFile(folder))
-        #expect(file.opening == .folder)
-        #expect(file.url == FilePlaceFixture.real(folder))
-    }
-
-    /// A package is one file to the person and a directory to the disk, and
-    /// a directory's executable bit is only leave to search it.
-    @Test("an app is something that runs, not a folder")
-    func appRuns() throws {
-        let place = try FilePlaceFixture()
-        defer { place.remove() }
         let app = try place.folder("Thing.app", in: place.home)
         _ = try place.folder("Contents", in: app)
 
-        #expect(BrowserLocalFile(app)?.opening == .reveal)
+        let file = try #require(BrowserLocalFile(folder))
+        #expect(file.opening(workspace) == .reveal)
+        #expect(file.url == FilePlaceFixture.real(folder))
+        #expect(BrowserLocalFile(app)?.opening(workspace) == .reveal)
+        #expect(workspace.typesAsked.isEmpty, "an app was looked up for a folder or an app")
     }
 
-    @Test("a file with its executable bit set runs, unless the pane shows it")
+    @Test("a script is shown as text and never offered to an app")
+    func scriptsAreShownNeverOpened() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let workspace = RecordingWorkspaceOpener()
+        let script = try #require(BrowserLocalFile(try place.write("install.sh", in: place.home)))
+
+        #expect(script.opening(workspace) == .show(.text))
+        #expect(script.documentApplication(workspace) == nil)
+    }
+
+    @Test("a file with its executable bit set is shown where it is text, and never offered to an app")
     func executableBit() throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
+        let workspace = RecordingWorkspaceOpener()
 
-        let tool = try place.write("tool", in: place.home, executable: true)
-        let archive = try place.write("archive.zip", in: place.home, executable: true)
-        let notes = try place.write("notes.txt", in: place.home, executable: true)
-        let plain = try place.write("plain.zip", in: place.home)
+        let notes = try #require(BrowserLocalFile(try place.write("notes.txt", in: place.home, executable: true)))
+        let script = try #require(BrowserLocalFile(try place.write("build", in: place.home, executable: true)))
+        let binary = try #require(BrowserLocalFile(try place.write("tool", Self.binary, in: place.home, executable: true)))
+        let letter = try #require(BrowserLocalFile(try place.write("letter.docx", in: place.home, executable: true)))
 
-        #expect(BrowserLocalFile(tool)?.opening == .reveal)
-        #expect(BrowserLocalFile(archive)?.opening == .reveal)
-        #expect(BrowserLocalFile(notes)?.opening == .show(.text))
-        #expect(BrowserLocalFile(plain)?.opening == .defaultApp)
+        #expect(notes.opening(workspace) == .show(.text))
+        #expect(notes.documentApplication(workspace) == nil)
+        #expect(script.opening(workspace) == .show(.text), "a script with no extension is text")
+        #expect(binary.opening(workspace) == .reveal)
+        #expect(letter.opening(workspace) == .reveal)
     }
 
-    @Test("text past the pane's size goes to its app")
-    func largeTextGoesToItsApp() throws {
+    /// A type nobody declared, or one known only as data, is text when its
+    /// bytes read as text, and never goes to an app either way.
+    @Test("a file of no known type is shown where its bytes read as text, and otherwise only in Finder")
+    func untypedFilesAreSniffed() throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
-        let large = try place.sparse("server.log", size: BrowserFileKind.textSizeCap + 1, in: place.home)
-        let atCap = try place.sparse("exact.txt", size: BrowserFileKind.textSizeCap, in: place.home)
-        let image = try place.sparse("huge.png", size: BrowserFileKind.textSizeCap + 1, in: place.home)
+        let workspace = RecordingWorkspaceOpener()
 
-        #expect(BrowserLocalFile(large)?.opening == .defaultApp)
-        #expect(BrowserLocalFile(atCap)?.opening == .show(.text))
-        #expect(BrowserLocalFile(image)?.opening == .show(.image), "the cap is text's alone")
+        let elixir = try #require(BrowserLocalFile(try place.write("lib.ex", Data("defmodule Fermix do\nend\n".utf8), in: place.home)))
+        let toml = try #require(BrowserLocalFile(try place.write("config.toml", in: place.home)))
+        let nul = try #require(BrowserLocalFile(try place.write("blob.ex", Self.binary, in: place.home)))
+        let latin1 = try #require(BrowserLocalFile(try place.write("old.ex", Data([0x63, 0x61, 0x66, 0xE9]), in: place.home)))
+        let installer = try #require(BrowserLocalFile(try place.write("setup.pkg", Self.binary, in: place.home)))
+        let archive = try #require(BrowserLocalFile(try place.write("archive.zip", Self.binary, in: place.home)))
+
+        #expect(elixir.opening(workspace) == .show(.text))
+        #expect(toml.opening(workspace) == .show(.text))
+        #expect(nul.opening(workspace) == .reveal)
+        #expect(latin1.opening(workspace) == .reveal)
+        #expect(installer.opening(workspace) == .reveal)
+        #expect(archive.opening(workspace) == .reveal)
+        #expect(elixir.documentApplication(workspace) == nil)
+        #expect(workspace.typesAsked.isEmpty, "an app was looked up for a type that is not content")
     }
 
-    /// Handing the link to another app would run what it points at.
+    /// The read stops at 64 KB, which can fall inside a character.
+    @Test("a character cut by the end of the read is still text")
+    func cutCharacterIsText() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        var bytes = Data(repeating: 0x61, count: BrowserLocalFile.sniffLength - 1)
+        bytes.append(contentsOf: Array("\u{E9}tude".utf8))
+
+        let file = try #require(BrowserLocalFile(try place.write("long.ex", bytes, in: place.home)))
+        #expect(file.opening(RecordingWorkspaceOpener()) == .show(.text))
+    }
+
+    @Test("a document goes to the app named for its type, and with none only to Finder")
+    func documentsGoToTheirApp() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let workspace = RecordingWorkspaceOpener()
+        let letter = try #require(BrowserLocalFile(try place.write("letter.docx", in: place.home)))
+        let photo = try #require(BrowserLocalFile(try place.write("photo.psd", in: place.home)))
+
+        #expect(letter.opening(workspace) == .open(Self.preview))
+        #expect(photo.opening(workspace) == .open(Self.preview))
+        #expect(workspace.typesAsked == [try #require(UTType(filenameExtension: "docx")), try #require(UTType(filenameExtension: "psd"))])
+
+        workspace.documentApp = nil
+        #expect(letter.opening(workspace) == .reveal)
+    }
+
+    @Test("text past the pane's size goes to its app where it is a document, and otherwise only to Finder")
+    func largeText() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let workspace = RecordingWorkspaceOpener()
+        let log = try #require(BrowserLocalFile(try place.sparse("server.log", size: BrowserFileKind.textSizeCap + 1, in: place.home)))
+        let atCap = try #require(BrowserLocalFile(try place.sparse("exact.txt", size: BrowserFileKind.textSizeCap, in: place.home)))
+        let image = try #require(BrowserLocalFile(try place.sparse("huge.png", size: BrowserFileKind.textSizeCap + 1, in: place.home)))
+        let untyped = try #require(BrowserLocalFile(try place.sparse("huge.ex", size: BrowserFileKind.textSizeCap + 1, in: place.home)))
+
+        #expect(log.opening(workspace) == .open(Self.preview))
+        #expect(atCap.opening(workspace) == .show(.text))
+        #expect(image.opening(workspace) == .show(.image), "the cap is text's alone")
+        #expect(untyped.opening(workspace) == .reveal)
+
+        workspace.documentApp = nil
+        #expect(log.opening(workspace) == .reveal)
+    }
+
+    /// A link handed to another app would hand over what it points at.
     @Test("a link is decided by the file it lands on")
     func linkIsItsTarget() throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
-        let script = try place.write("run.sh", in: place.outside)
+        let workspace = RecordingWorkspaceOpener()
+        let app = try place.folder("Thing.app", in: place.outside)
+        _ = try place.folder("Contents", in: app)
         let link = place.home.appendingPathComponent("notes.txt")
-        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: script.path)
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: app.path)
 
         let file = try #require(BrowserLocalFile(link))
-        #expect(file.opening == .reveal)
-        #expect(file.url == FilePlaceFixture.real(script))
+        #expect(file.opening(workspace) == .reveal)
+        #expect(file.url == FilePlaceFixture.real(app))
     }
 
     @Test("a leading ~ is the person's home folder")
@@ -166,9 +236,12 @@ struct BrowserLocalFileTests {
         let link = try #require(URL(string: "file:~"))
         let file = try #require(BrowserLocalFile(link))
 
-        #expect(file.opening == .folder)
+        #expect(file.opening(RecordingWorkspaceOpener()) == .reveal)
         #expect(file.url == FilePlaceFixture.real(URL(fileURLWithPath: NSHomeDirectory())))
     }
+
+    /// Bytes no text has: a NUL among them.
+    static let binary = Data([0xCF, 0xFA, 0xED, 0xFE, 0x00, 0x00, 0x01, 0x00])
 }
 
 /// Where a navigation in a file tab goes: its own file, and nothing else.
@@ -255,7 +328,8 @@ struct BrowserFileTabTests {
 
     @Test("a file the pane shows, inside the Fermix home, opens at once in a file tab of the person's, in front", arguments: [
         ("shot.png", BrowserFileKind.image), ("report.pdf", .pdf), ("page.html", .html),
-        ("notes.md", .text), ("config.yaml", .text), ("data.json", .text), ("main.swift", .text)
+        ("notes.md", .text), ("config.yaml", .text), ("data.json", .text), ("main.swift", .text),
+        ("install.sh", .text), ("lib.ex", .text)
     ])
     func insideTheHomeOpensAtOnce(_ name: String, _ kind: BrowserFileKind) throws {
         let place = try FilePlaceFixture()
@@ -275,6 +349,7 @@ struct BrowserFileTabTests {
         #expect(harness.page(0).files == [FileLoad(url: FilePlaceFixture.real(file), kind: kind)])
         #expect(harness.page(0).loaded.isEmpty, "a file tab loaded a web page")
         #expect(harness.workspace.opened.isEmpty)
+        #expect(harness.workspace.openedWith.isEmpty)
         #expect(BrowserText.tabTitle(title: "", url: nil, file: tab.file) == name)
     }
 
@@ -317,8 +392,9 @@ struct BrowserFileTabTests {
     }
 
     /// Nobody can see the question once the pane is hidden, so it is
-    /// dismissed, and the tab it was over goes with it, the pane once.
-    @Test("hiding the pane while it asks closes the file tab")
+    /// dismissed, and the tab it was over goes with it. It is the last tab,
+    /// and its close finds the pane already going: the pane closes once.
+    @Test("hiding the pane while it asks closes the file tab, the last, and the pane once")
     func hidingThePaneClosesTheTab() throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
@@ -328,6 +404,7 @@ struct BrowserFileTabTests {
         harness.coordinator.closePane()
 
         #expect(harness.model.tabs.isEmpty)
+        #expect(harness.model.selectedTabID == nil)
         #expect(harness.model.dialog == nil)
         #expect(!harness.model.isOpen)
         #expect(harness.record.paneShown == [true, false])
@@ -409,10 +486,13 @@ struct BrowserFileTabTests {
         #expect(harness.model.tabs.isEmpty)
         #expect(harness.model.notice == ProductStrings[.browserNoticeFileMissing])
         #expect(harness.workspace.opened.isEmpty)
+        #expect(harness.workspace.openedWith.isEmpty)
         #expect(harness.workspace.revealed.isEmpty)
     }
 
-    @Test("a folder goes to Finder")
+    /// Opening a folder by its path would launch an app swapped in under
+    /// its name; Finder shows it selected instead.
+    @Test("a folder is shown in Finder, never opened")
     func folderGoesToFinder() throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
@@ -421,26 +501,29 @@ struct BrowserFileTabTests {
 
         harness.coordinator.openFile(folder)
 
-        #expect(harness.workspace.opened == [FilePlaceFixture.real(folder)])
+        #expect(harness.workspace.revealed == [FilePlaceFixture.real(folder)])
+        #expect(harness.workspace.opened.isEmpty)
         #expect(harness.model.tabs.isEmpty)
         #expect(!harness.model.isOpen)
     }
 
-    /// The hole this closes: a script handed to the workspace opens in
-    /// Terminal and runs, and an app launches.
-    @Test("something that runs is only shown in Finder, never opened", arguments: [
-        ("install.sh", false), ("run.command", false), ("tool.py", false), ("build", true), ("archive.zip", true)
+    /// The hole this closes: a file handed to the workspace by its path is
+    /// launched or run, whatever it was when the pane decided.
+    @Test("anything that is neither shown nor a document is only shown in Finder", arguments: [
+        ("build", true), ("tool.jar", false), ("setup.pkg", false), ("letter.docx", true), ("disk.dmg", false)
     ])
-    func runnablesAreRevealed(_ name: String, _ executable: Bool) throws {
+    func everythingElseIsRevealed(_ name: String, _ executable: Bool) throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
-        let file = try place.write(name, in: place.home, executable: executable)
+        let contents = name == "letter.docx" ? Data("hello".utf8) : BrowserLocalFileTests.binary
+        let file = try place.write(name, contents, in: place.home, executable: executable)
         let harness = place.harness()
 
         harness.coordinator.openFile(file)
 
         #expect(harness.workspace.revealed == [FilePlaceFixture.real(file)])
         #expect(harness.workspace.opened.isEmpty)
+        #expect(harness.workspace.openedWith.isEmpty)
         #expect(harness.model.tabs.isEmpty)
         #expect(!harness.model.isOpen)
     }
@@ -457,10 +540,15 @@ struct BrowserFileTabTests {
 
         #expect(harness.workspace.revealed == [FilePlaceFixture.real(app)])
         #expect(harness.workspace.opened.isEmpty)
+        #expect(harness.workspace.openedWith.isEmpty)
     }
 
-    @Test("a file the pane does not show goes to the app that opens it", arguments: ["archive.zip", "letter.docx", "clip.mp4"])
-    func otherFilesGoToTheirApp(_ name: String) throws {
+    /// The app is named before the open, so whatever is at the path by then
+    /// is a document to it, never launched or run.
+    @Test("a document goes to the app named for its type, never to the workspace by its path", arguments: [
+        "letter.docx", "clip.mp4", "photo.psd"
+    ])
+    func documentsGoToTheirApp(_ name: String) throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
         let file = try place.write(name, in: place.outside)
@@ -468,12 +556,45 @@ struct BrowserFileTabTests {
 
         harness.coordinator.openFile(file)
 
-        #expect(harness.workspace.opened == [FilePlaceFixture.real(file)])
+        #expect(harness.workspace.openedWith == [AppOpen(file: FilePlaceFixture.real(file), app: RecordingWorkspaceOpener.preview.url)])
+        #expect(harness.workspace.opened.isEmpty)
+        #expect(harness.workspace.revealed.isEmpty)
         #expect(harness.model.tabs.isEmpty)
         #expect(!harness.model.isOpen)
     }
 
-    @Test("text past the pane's size goes to its app")
+    @Test("a document with no app for it is only shown in Finder")
+    func documentWithNoAppIsRevealed() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let file = try place.write("letter.docx", in: place.home)
+        let harness = place.harness()
+        harness.workspace.documentApp = nil
+
+        harness.coordinator.openFile(file)
+
+        #expect(harness.workspace.revealed == [FilePlaceFixture.real(file)])
+        #expect(harness.workspace.openedWith.isEmpty)
+        #expect(harness.model.notice == nil)
+    }
+
+    /// The link came from a reply, so the pane opens for the sentence rather
+    /// than the click going nowhere.
+    @Test("an app that cannot take the file opens the pane on the system's sentence")
+    func appRefusalSaysSo() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let harness = place.harness()
+        harness.workspace.appFailure = "The application can\u{2019}t be opened."
+
+        harness.coordinator.openFile(try place.write("letter.docx", in: place.home))
+
+        #expect(harness.model.isOpen)
+        #expect(harness.model.notice == "The application can\u{2019}t be opened.")
+        #expect(harness.model.tabs.isEmpty)
+    }
+
+    @Test("text past the pane's size goes to the app named for its type")
     func largeTextGoesToItsApp() throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
@@ -482,23 +603,7 @@ struct BrowserFileTabTests {
 
         harness.coordinator.openFile(file)
 
-        #expect(harness.workspace.opened == [FilePlaceFixture.real(file)])
-        #expect(harness.model.tabs.isEmpty)
-    }
-
-    /// The link came from a reply, so the pane opens for the sentence rather
-    /// than the click going nowhere.
-    @Test("with no app for the file the pane opens on the sentence that says so")
-    func noAppSaysSo() throws {
-        let place = try FilePlaceFixture()
-        defer { place.remove() }
-        let harness = place.harness()
-        harness.workspace.succeeds = false
-
-        harness.coordinator.openFile(try place.write("archive.zip", in: place.home))
-
-        #expect(harness.model.isOpen)
-        #expect(harness.model.notice == ProductStrings[.browserNoticeNoApp])
+        #expect(harness.workspace.openedWith == [AppOpen(file: FilePlaceFixture.real(file), app: RecordingWorkspaceOpener.preview.url)])
         #expect(harness.model.tabs.isEmpty)
     }
 
@@ -531,20 +636,79 @@ struct BrowserFileTabTests {
         #expect(harness.model.selectedTabID == harness.model.tabs.last?.id)
     }
 
-    @Test("the file in front opens in its app and shows in Finder")
-    func fileInFrontGoesOut() throws {
+    @Test("a document in front is offered to its app, which the label and the open both name, and shown in Finder")
+    func documentInFrontGoesOut() throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
-        let file = try place.write("report.pdf", in: place.home)
+        let file = try place.write("notes.md", in: place.home)
         let harness = place.harness()
         harness.coordinator.openFile(file)
 
+        #expect(harness.coordinator.documentApplication(for: FilePlaceFixture.real(file)) == RecordingWorkspaceOpener.preview)
         harness.coordinator.openFileInApp()
         harness.coordinator.showInFinder()
 
-        #expect(harness.workspace.opened == [FilePlaceFixture.real(file)])
+        #expect(harness.workspace.openedWith == [AppOpen(file: FilePlaceFixture.real(file), app: RecordingWorkspaceOpener.preview.url)])
         #expect(harness.workspace.revealed == [FilePlaceFixture.real(file)])
-        #expect(harness.coordinator.appName(toOpen: file) == "Mail")
+        #expect(harness.workspace.opened.isEmpty)
+    }
+
+    /// Its app would be Terminal or an editor that runs it.
+    @Test("a script in front is offered to no app, and the control only shows it in Finder")
+    func scriptInFrontIsOfferedNoApp() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let file = try place.write("install.sh", in: place.home)
+        let harness = place.harness()
+        harness.coordinator.openFile(file)
+
+        #expect(harness.coordinator.documentApplication(for: FilePlaceFixture.real(file)) == nil)
+        harness.coordinator.openFileInApp()
+
+        #expect(harness.workspace.openedWith.isEmpty)
+        #expect(harness.workspace.opened.isEmpty)
+        #expect(harness.workspace.revealed == [FilePlaceFixture.real(file)])
+    }
+
+    /// The control decides again at the click, from what is at the path then.
+    @Test("a file swapped for an app after it opened is only shown in Finder at the click")
+    func swappedFileIsRevealedAtTheClick() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let file = try place.write("notes.md", in: place.home)
+        let harness = place.harness()
+        harness.coordinator.openFile(file)
+        let app = try place.folder("Thing.app", in: place.outside)
+        _ = try place.folder("Contents", in: app)
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createSymbolicLink(atPath: file.path, withDestinationPath: app.path)
+
+        harness.coordinator.openFileInApp()
+
+        #expect(harness.workspace.openedWith.isEmpty)
+        #expect(harness.workspace.opened.isEmpty)
+        #expect(harness.workspace.revealed == [FilePlaceFixture.real(app)])
+    }
+
+    /// A page a person dropped a file on is at a file address: the person's
+    /// browser is never handed it by its path.
+    @Test("a page at a file address takes the file rules, never the workspace by its path")
+    func fileAddressInAWebTabTakesTheFileRules() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let letter = FilePlaceFixture.real(try place.write("letter.docx", in: place.home))
+        let script = FilePlaceFixture.real(try place.write("install.command", in: place.home))
+        let harness = place.harness()
+        harness.coordinator.open(Self.fermix)
+
+        harness.page(0).events?.pageChanged(BrowserPageState(url: letter))
+        harness.coordinator.openInSystemBrowser()
+        harness.page(0).events?.pageChanged(BrowserPageState(url: script))
+        harness.coordinator.openInSystemBrowser()
+
+        #expect(harness.workspace.opened.isEmpty)
+        #expect(harness.workspace.openedWith == [AppOpen(file: letter, app: RecordingWorkspaceOpener.preview.url)])
+        #expect(harness.workspace.revealed == [script])
     }
 
     @Test("a web tab in front has no file to open or show")
@@ -556,6 +720,7 @@ struct BrowserFileTabTests {
         harness.coordinator.showInFinder()
 
         #expect(harness.workspace.opened.isEmpty)
+        #expect(harness.workspace.openedWith.isEmpty)
         #expect(harness.workspace.revealed.isEmpty)
     }
 }
@@ -585,9 +750,9 @@ struct FilePlaceFixture {
         BrowserHarness(home: home)
     }
 
-    func write(_ name: String, in folder: URL, executable: Bool = false) throws -> URL {
+    func write(_ name: String, _ contents: Data = Data("hello".utf8), in folder: URL, executable: Bool = false) throws -> URL {
         let file = folder.appendingPathComponent(name)
-        try Data("hello".utf8).write(to: file)
+        try contents.write(to: file)
         if executable { try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path) }
 
         return file
@@ -600,9 +765,9 @@ struct FilePlaceFixture {
         return folder
     }
 
-    /// A file of `size` bytes that takes no room on disk.
+    /// A file of `size` bytes, all zero, that takes no room on disk.
     func sparse(_ name: String, size: Int, in folder: URL) throws -> URL {
-        let file = try write(name, in: folder)
+        let file = try write(name, Data(), in: folder)
         let handle = try FileHandle(forWritingTo: file)
         defer { try? handle.close() }
         try handle.truncate(atOffset: UInt64(size))

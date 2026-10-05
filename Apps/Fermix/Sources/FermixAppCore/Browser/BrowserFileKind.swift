@@ -3,12 +3,14 @@ import UniformTypeIdentifiers
 
 /// What the pane shows a file on this Mac as (plan §8.2), by the type its
 /// extension names: pure, so the rule is provable without a file or a web
-/// view.
+/// view. A file whose type the Mac does not know as content may still read
+/// as text, which only its bytes can say (`BrowserLocalFile`).
 ///
 /// WebKit draws all four itself, so a file tab needs no viewer of its own:
 /// an image, a PDF and an HTML file as they are, and text as plain text,
-/// which covers source code and markdown. Anything else is not the pane's to
-/// show and goes to the app on the Mac that opens it.
+/// which covers source code, scripts and markdown. Showing a script runs
+/// nothing: a file tab runs no page script and loads nothing from the
+/// network, and the person wants to read what the agent wrote.
 public enum BrowserFileKind: Equatable, Sendable {
     case image
     case pdf
@@ -20,37 +22,29 @@ public enum BrowserFileKind: Equatable, Sendable {
     /// read in an app made for it.
     public static let textSizeCap = 10_000_000
 
-    /// What runs when it is opened: an app, an executable and a script, and
-    /// anything that conforms to one. Never a kind the pane shows, though a
-    /// script is text too, and never opened at all (`BrowserLocalFile`).
-    public static let runnableTypes: [UTType] = [
-        .applicationBundle, .application, .executable, .unixExecutable, .script, .shellScript
-    ]
+    /// The images WebKit draws itself, named rather than every image there
+    /// is: a Photoshop file or a camera's raw file is an image too, and
+    /// WebKit draws neither.
+    public static let imageTypes: [UTType] = [
+        .png, .jpeg, .gif, .webP, .heic, .heif, .tiff, .bmp, .svg, .ico
+    ] + [UTType("public.avif")].compactMap { $0 }
 
-    /// Text as the pane shows it: plain text, which source code and markdown
-    /// conform to, and the three structured formats that do not.
-    public static let textTypes: [UTType] = [.plainText, .json, .xml, .yaml]
-
-    /// The kind a file of `type` shows as, or nil where the pane shows none.
+    /// The kind a file of `type` shows as, or nil where its type says none.
     /// An image comes first, so an SVG draws as a picture rather than as the
-    /// XML it is written in.
+    /// XML it is written in, and HTML before text, which it also is. Rich
+    /// text is not text to the pane: what it holds is a word processor's
+    /// markup.
     public init?(_ type: UTType) {
-        guard !Self.runs(type) else { return nil }
-
-        if type.conforms(to: .image) {
+        if Self.imageTypes.contains(where: type.conforms) {
             self = .image
         } else if type.conforms(to: .pdf) {
             self = .pdf
         } else if type.conforms(to: .html) {
             self = .html
-        } else if Self.textTypes.contains(where: type.conforms) {
+        } else if type.conforms(to: .text), !type.conforms(to: .rtf) {
             self = .text
         } else {
             return nil
         }
-    }
-
-    public static func runs(_ type: UTType) -> Bool {
-        runnableTypes.contains(where: type.conforms)
     }
 }

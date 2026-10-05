@@ -358,9 +358,10 @@ private struct BrowserNavigationRow: View {
 
     @State private var draft = ""
     @FocusState private var addressFocused: Bool
-    /// The app that opens a file tab's file, asked once as the row appears:
-    /// the row is built again for each tab, and a tab's file never changes.
-    @State private var fileApp: String?
+    /// The app a file tab offers its file to, asked once as the row appears:
+    /// the row is built again for each tab. The control decides again when
+    /// it is clicked, from the file as it is then.
+    @State private var fileApp: WorkspaceApplication?
 
     var body: some View {
         HStack(spacing: Spacing.xxs) {
@@ -385,7 +386,7 @@ private struct BrowserNavigationRow: View {
         }
         .onAppear {
             draft = shownAddress
-            fileApp = tab.file.flatMap(browser.appName(toOpen:))
+            fileApp = tab.file.flatMap(browser.documentApplication(for:))
             // A blank tab is opened to be typed into; a file tab is opened
             // to be read, before or after its file loads.
             if tab.url == nil, tab.profile != .file { addressFocused = true }
@@ -404,12 +405,13 @@ private struct BrowserNavigationRow: View {
         return BrowserText.address(of: file)
     }
 
-    /// A file tab's way out: its file in the app on the Mac that opens it,
-    /// where one does, and its file selected in Finder.
+    /// A file tab's way out: its file in the app its type goes to, where it
+    /// may go to one, which a script never may, and its file selected in
+    /// Finder.
     @ViewBuilder
     private var fileActions: some View {
         if let fileApp {
-            control(named: BrowserText.openIn(fileApp), symbol: "arrow.up.forward.app", enabled: true) {
+            control(named: BrowserText.openIn(fileApp.name), symbol: "arrow.up.forward.app", enabled: true) {
                 browser.openFileInApp()
             }
         }

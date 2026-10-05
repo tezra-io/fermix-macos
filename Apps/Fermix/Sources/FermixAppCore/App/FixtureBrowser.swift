@@ -2,6 +2,7 @@
 import AppKit
 import Darwin
 import Foundation
+import UniformTypeIdentifiers
 
 /// The browser the fixture configuration stands on: fake pages that never
 /// touch the network, so the pane can be looked at in a build with no web
@@ -212,8 +213,11 @@ final class FixturePageView: NSView {
 /// another app.
 struct FixtureWorkspaceOpener: WorkspaceLinkOpening {
     func open(_ url: URL) -> Bool { true }
-    /// No app is named, so a fixture page never asks to leave for one.
+    /// No app is named, so a fixture page never asks to leave for one, and a
+    /// file tab offers its file to none.
     func appName(toOpen url: URL) -> String? { nil }
+    func application(toOpen type: UTType) -> WorkspaceApplication? { nil }
+    func open(_ file: URL, withApplicationAt app: URL, failed: @escaping @MainActor (String) -> Void) {}
     /// Finder is another app too.
     func reveal(_ url: URL) {}
 }

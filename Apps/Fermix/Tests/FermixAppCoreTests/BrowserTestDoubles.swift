@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import UniformTypeIdentifiers
 
 @testable import FermixAppCore
 
@@ -365,10 +366,21 @@ final class FakeDownload: BrowserDownload {
 /// The Mac's own opener for content links, recorded rather than opened.
 @MainActor
 final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
+    static let preview = WorkspaceApplication(url: URL(fileURLWithPath: "/System/Applications/Preview.app"), name: "Preview")
+
     var succeeds = true
     /// The app this Mac would open any link in, or nil for none.
     var installedApp: String? = "Mail"
+    /// The app this Mac would open any document in, or nil for none.
+    var documentApp: WorkspaceApplication? = RecordingWorkspaceOpener.preview
+    /// The system's sentence the named app answers a file with, or nil where
+    /// it takes it.
+    var appFailure: String?
     private(set) var opened: [URL] = []
+    /// Every type an app was asked for, in order.
+    private(set) var typesAsked: [UTType] = []
+    /// Every file handed to a named app, in order.
+    private(set) var openedWith: [AppOpen] = []
     /// Every file shown in Finder, in order.
     private(set) var revealed: [URL] = []
 
@@ -379,7 +391,23 @@ final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
 
     func appName(toOpen url: URL) -> String? { installedApp }
 
+    func application(toOpen type: UTType) -> WorkspaceApplication? {
+        typesAsked.append(type)
+        return documentApp
+    }
+
+    func open(_ file: URL, withApplicationAt app: URL, failed: @escaping @MainActor (String) -> Void) {
+        openedWith.append(AppOpen(file: file, app: app))
+        if let appFailure { failed(appFailure) }
+    }
+
     func reveal(_ url: URL) { revealed.append(url) }
+}
+
+/// A file handed to a named app.
+struct AppOpen: Equatable {
+    let file: URL
+    let app: URL
 }
 
 /// The link preference with no host state behind it: the suite never reads or
