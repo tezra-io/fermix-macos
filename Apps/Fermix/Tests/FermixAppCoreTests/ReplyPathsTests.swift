@@ -105,6 +105,35 @@ struct ReplyPathsTests {
         #expect(Self.barePaths("Saved to ~/notes.md.") == ["~/notes.md"])
     }
 
+    /// A reference to a line says where to look in the file, not which file:
+    /// the text stays as written and the address is the file's alone.
+    @Test("a line reference after a bare path or a code span path is left out of the address")
+    func lineReferences() {
+        let reply = Self.reply("See /Users/me/app.swift:42 and /Users/me/b.swift:42:7, then `~/work/c.ex:12`.")
+
+        #expect(Self.links(reply) == [
+            "/Users/me/app.swift:42": "file:///Users/me/app.swift",
+            "/Users/me/b.swift:42:7": "file:///Users/me/b.swift",
+            "~/work/c.ex:12": "file:///Users/me/work/c.ex",
+        ])
+        #expect(ReplyPaths.withoutLineReference("/a/b.txt:12:3:4") == "/a/b.txt:12")
+        #expect(ReplyPaths.withoutLineReference("/a/b.txt:x") == "/a/b.txt:x")
+        #expect(ReplyPaths.withoutLineReference("/a/b.txt:") == "/a/b.txt:")
+        #expect(Self.barePaths("/approve:42 and /a:7").isEmpty, "a root and one name is a command, a line after it or not")
+    }
+
+    @Test("curly quotes and angle brackets stand around a bare path as straight quotes and parentheses do")
+    func curlyQuotesAndAngleBrackets() {
+        #expect(Self.barePaths("\u{201C}/Users/me/a.png\u{201D}, \u{2018}~/b/c.md\u{2019} and </a/b/c>.") == ["/Users/me/a.png", "~/b/c.md", "/a/b/c"])
+    }
+
+    /// An agent writes a path with a space in it in code, which marks where
+    /// it ends; unquoted, the path links only up to the space.
+    @Test("an unquoted bare path with a space in it links up to the space")
+    func barePathWithASpace() {
+        #expect(Self.barePaths("Saved to /Users/me/My Reports/q3.pdf") == ["/Users/me/My"])
+    }
+
     @Test("an address, a slash command, a fraction and the bare roots are no bare path")
     func notBarePaths() {
         #expect(Self.barePaths("https://example.com/a/b and file:///a/b/c").isEmpty)
