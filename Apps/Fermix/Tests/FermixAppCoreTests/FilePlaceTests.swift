@@ -3,13 +3,14 @@ import Testing
 
 @testable import FermixAppCore
 
-/// The host's containment test for a file it reads or writes for the engine:
-/// an upload from the workspace, a screenshot or a PDF into the browser
-/// directory. It is decided on where a path really lands, as the engine
-/// decides it on its side, never on how the path is spelled.
-@Suite("Browser host paths")
+/// The one containment test: the host's for a file it reads or writes for
+/// the engine (an upload from the workspace, a screenshot or a PDF into the
+/// browser directory), and the pane's for a file the person opens. It is
+/// decided on where a path really lands, as the engine decides it on its
+/// side, never on how the path is spelled.
+@Suite("File place")
 @MainActor
-struct BrowserHostPathTests {
+struct FilePlaceTests {
     /// The proven escape: `root/link` points at a directory outside the root,
     /// so `root/link/secret.txt` reads as inside and is not.
     @Test("a path through a link out of the root is refused")
@@ -23,8 +24,8 @@ struct BrowserHostPathTests {
         try Self.link(root.appendingPathComponent("link"), to: outside)
         try Self.link(root.appendingPathComponent("secret.txt"), to: secret)
 
-        #expect(!BrowserHostClient.path(root.appendingPathComponent("link/secret.txt").path, liesUnder: root))
-        #expect(!BrowserHostClient.path(root.appendingPathComponent("secret.txt").path, liesUnder: root))
+        #expect(!FilePlace.path(root.appendingPathComponent("link/secret.txt").path, liesUnder: root))
+        #expect(!FilePlace.path(root.appendingPathComponent("secret.txt").path, liesUnder: root))
     }
 
     @Test("a root reached through a link still holds its own files")
@@ -37,10 +38,10 @@ struct BrowserHostPathTests {
         let linked = temporary.url.appendingPathComponent("linked")
         try Self.link(linked, to: real)
 
-        #expect(BrowserHostClient.path(linked.appendingPathComponent("report.pdf").path, liesUnder: linked))
-        #expect(BrowserHostClient.path(file.path, liesUnder: linked))
-        #expect(BrowserHostClient.path(linked.appendingPathComponent("report.pdf").path, liesUnder: real))
-        #expect(BrowserHostClient.path(linked.path, liesUnder: real), "the root itself is its own")
+        #expect(FilePlace.path(linked.appendingPathComponent("report.pdf").path, liesUnder: linked))
+        #expect(FilePlace.path(file.path, liesUnder: linked))
+        #expect(FilePlace.path(linked.appendingPathComponent("report.pdf").path, liesUnder: real))
+        #expect(FilePlace.path(linked.path, liesUnder: real), "the root itself is its own")
     }
 
     /// A screenshot's path names a file that does not exist yet, and often a
@@ -52,9 +53,9 @@ struct BrowserHostPathTests {
         let root = try Self.directory("browser", in: temporary.url)
         let shots = try Self.directory("artifacts", in: root)
 
-        #expect(BrowserHostClient.path(shots.appendingPathComponent("1.png").path, liesUnder: root))
-        #expect(BrowserHostClient.path(shots.appendingPathComponent("task-1/screenshots/1.png").path, liesUnder: root))
-        #expect(BrowserHostClient.path(temporary.url.appendingPathComponent("nowhere/browser/1.png").path, liesUnder: temporary.url.appendingPathComponent("nowhere/browser")))
+        #expect(FilePlace.path(shots.appendingPathComponent("1.png").path, liesUnder: root))
+        #expect(FilePlace.path(shots.appendingPathComponent("task-1/screenshots/1.png").path, liesUnder: root))
+        #expect(FilePlace.path(temporary.url.appendingPathComponent("nowhere/browser/1.png").path, liesUnder: temporary.url.appendingPathComponent("nowhere/browser")))
     }
 
     /// Writing through a link writes where it points, and so does writing
@@ -69,10 +70,10 @@ struct BrowserHostPathTests {
         try Self.link(root.appendingPathComponent("latest.png"), to: outside.appendingPathComponent("new.png"))
         try Self.link(root.appendingPathComponent("current.png"), to: root.appendingPathComponent("shots/new.png"))
 
-        #expect(!BrowserHostClient.path(root.appendingPathComponent("link/new.png").path, liesUnder: root))
-        #expect(!BrowserHostClient.path(root.appendingPathComponent("link/deeper/new.png").path, liesUnder: root))
-        #expect(!BrowserHostClient.path(root.appendingPathComponent("latest.png").path, liesUnder: root))
-        #expect(BrowserHostClient.path(root.appendingPathComponent("current.png").path, liesUnder: root), "a dangling link that lands inside")
+        #expect(!FilePlace.path(root.appendingPathComponent("link/new.png").path, liesUnder: root))
+        #expect(!FilePlace.path(root.appendingPathComponent("link/deeper/new.png").path, liesUnder: root))
+        #expect(!FilePlace.path(root.appendingPathComponent("latest.png").path, liesUnder: root))
+        #expect(FilePlace.path(root.appendingPathComponent("current.png").path, liesUnder: root), "a dangling link that lands inside")
     }
 
     /// `/tmp` is a link to `/private/tmp`: the engine names one spelling and
@@ -86,10 +87,10 @@ struct BrowserHostPathTests {
         defer { try? FileManager.default.removeItem(at: resolved) }
 
         let shot = "browser/artifacts/1.png"
-        #expect(BrowserHostClient.path(spelled.appendingPathComponent(shot).path, liesUnder: resolved.appendingPathComponent("browser")))
-        #expect(BrowserHostClient.path(resolved.appendingPathComponent(shot).path, liesUnder: spelled.appendingPathComponent("browser")))
-        #expect(BrowserHostClient.path(spelled.appendingPathComponent("missing/1.png").path, liesUnder: resolved.appendingPathComponent("missing")))
-        #expect(!BrowserHostClient.path(spelled.appendingPathComponent("elsewhere/1.png").path, liesUnder: resolved.appendingPathComponent("browser")))
+        #expect(FilePlace.path(spelled.appendingPathComponent(shot).path, liesUnder: resolved.appendingPathComponent("browser")))
+        #expect(FilePlace.path(resolved.appendingPathComponent(shot).path, liesUnder: spelled.appendingPathComponent("browser")))
+        #expect(FilePlace.path(spelled.appendingPathComponent("missing/1.png").path, liesUnder: resolved.appendingPathComponent("missing")))
+        #expect(!FilePlace.path(spelled.appendingPathComponent("elsewhere/1.png").path, liesUnder: resolved.appendingPathComponent("browser")))
     }
 
     @Test("a path that climbs out, a relative path and a loop of links are refused")
@@ -102,10 +103,10 @@ struct BrowserHostPathTests {
         try Self.link(root.appendingPathComponent("a"), to: root.appendingPathComponent("b"))
         try Self.link(root.appendingPathComponent("b"), to: root.appendingPathComponent("a"))
 
-        #expect(!BrowserHostClient.path(root.path + "/../outside/secret.txt", liesUnder: root))
-        #expect(!BrowserHostClient.path(root.path + "/missing/../../outside/new.txt", liesUnder: root))
-        #expect(!BrowserHostClient.path("workspace/notes.txt", liesUnder: root))
-        #expect(!BrowserHostClient.path(root.appendingPathComponent("a/notes.txt").path, liesUnder: root))
+        #expect(!FilePlace.path(root.path + "/../outside/secret.txt", liesUnder: root))
+        #expect(!FilePlace.path(root.path + "/missing/../../outside/new.txt", liesUnder: root))
+        #expect(!FilePlace.path("workspace/notes.txt", liesUnder: root))
+        #expect(!FilePlace.path(root.appendingPathComponent("a/notes.txt").path, liesUnder: root))
     }
 
     private static func directory(_ name: String, in parent: URL) throws -> URL {
