@@ -711,15 +711,16 @@ extension BrowserCoordinator: BrowserTabDelegate {
         }
     }
 
-    /// A link the tab does not load, whose navigation the page has already
+    /// A link a file tab does not load, whose navigation the page has already
     /// refused, opened as the same link from a reply would be: a file by the
     /// file rules, and a web page in a new tab of the shared profile beside
-    /// the tab it came from. A task's tab hands nothing off: a file on this
-    /// Mac is the person's to open.
+    /// the tab it came from. Only a file tab hands a file over: a website
+    /// never gets a file on this Mac opened, shown or revealed, and a task,
+    /// whose tabs are web tabs, never does either.
     public func handOffRequested(_ url: URL, from tab: BrowserTab) {
         guard model.host.owner(of: tab.id) == .person else { return }
         guard !url.isFileURL else {
-            openFile(url)
+            if tab.profile == .file { openFile(url) }
             return
         }
 

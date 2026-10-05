@@ -345,13 +345,14 @@ struct BrowserFileTabNavigationTests {
         #expect(Self.inFile("javascript") == .cancel)
     }
 
-    /// A web tab never moves to a file: a click is handed to the file rules,
-    /// and a redirect, a frame or a file dropped on the page goes nowhere.
-    @Test("a web tab hands off a clicked file and goes to no other", arguments: ["file", "FILE"])
+    /// A website must never get a file on this Mac opened, shown or revealed:
+    /// a click, a redirect, a frame or a file dropped on the page all go
+    /// nowhere.
+    @Test("a web tab goes to no file, clicked or not", arguments: ["file", "FILE"])
     func webTabsNeverReachAFile(_ scheme: String) {
         #expect(!BrowserNavigationPolicy.isWeb(scheme))
-        #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme)) == .handOff)
-        #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme, targetsNewWindow: true)) == .handOff)
+        #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme)) == .cancel)
+        #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme, targetsNewWindow: true)) == .cancel)
         #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme, isUserInitiated: false)) == .cancel)
         #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme, isMainFrame: false)) == .cancel)
         #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme, isDownload: true)) == .cancel)
@@ -742,23 +743,46 @@ struct BrowserFileTabTests {
         #expect(harness.model.tabs[1].id == harness.model.selectedTabID)
     }
 
-    /// A link to a file in a web page, or to another file in a file tab, is
-    /// the same link a reply could hold, and takes the same rules.
-    @Test("a file link handed off by the person's tab takes the file rules")
-    func fileLinkHandedOffTakesTheFileRules() throws {
+    /// A link to another file in a file tab is the same link a reply could
+    /// hold, and takes the same rules.
+    @Test("a file link handed off by a file tab takes the file rules")
+    func fileLinkFromAFileTabTakesTheFileRules() throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
+        let report = try place.write("report.html", in: place.home)
         let notes = try place.write("notes.md", in: place.home)
         let app = try place.folder("Thing.app", in: place.home)
         let harness = place.harness()
-        harness.coordinator.open(Self.fermix)
+        harness.coordinator.openFile(report)
 
         harness.page(0).events?.pageHandedOff(notes)
-        harness.page(1).events?.pageHandedOff(app)
+        harness.page(0).events?.pageHandedOff(app)
 
-        #expect(harness.model.tabs.map(\.profile) == [.shared, .file])
+        #expect(harness.model.tabs.map(\.profile) == [.file, .file])
         #expect(harness.page(1).files == [FileLoad(url: FilePlaceFixture.real(notes), kind: .text)])
         #expect(harness.workspace.revealed == [FilePlaceFixture.real(app)])
+    }
+
+    /// The policy already cancels a web tab's click on a file; the
+    /// coordinator refuses one all the same, so no page can get a file on
+    /// this Mac opened, shown or revealed.
+    @Test("a file link from a web tab opens, shows and reveals nothing", arguments: [BrowserProfile.shared, .private])
+    func fileLinkFromAWebTabDoesNothing(_ profile: BrowserProfile) throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let harness = place.harness()
+        harness.coordinator.newTab(profile: profile)
+        #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: "file")) == .cancel)
+
+        harness.page(0).events?.pageHandedOff(try place.write("notes.md", in: place.home))
+        harness.page(0).events?.pageHandedOff(try place.write("clip.mp4", in: place.home))
+        harness.page(0).events?.pageHandedOff(try place.folder("Thing.app", in: place.home))
+
+        #expect(harness.model.tabs.map(\.profile) == [profile])
+        #expect(harness.model.dialog == nil)
+        #expect(harness.workspace.opened.isEmpty)
+        #expect(harness.workspace.openedWith.isEmpty)
+        #expect(harness.workspace.revealed.isEmpty)
     }
 
     /// The agent's clicks are trusted events, so the policy alone would hand

@@ -52,9 +52,8 @@ public enum BrowserNavigationDecision: Equatable, Sendable {
     /// A file to save, handed to the tab, whose owner rules on it: the
     /// person's is saved where they choose, and a task's never is.
     case download
-    /// A link this tab does not load, opened as the same link from a reply
-    /// would be: a web page from a file tab, or a file on this Mac from any
-    /// tab. The tab stays put.
+    /// A link a file tab does not load, opened as the same link from a reply
+    /// would be: a web page, or another file on this Mac. The tab stays put.
     case handOff
     /// Nothing happens.
     case cancel
@@ -65,8 +64,8 @@ public enum BrowserNavigationDecision: Equatable, Sendable {
 public enum BrowserNavigationPolicy {
     /// The schemes a web page is made of. `about` carries blank tabs and
     /// `srcdoc` frames, and `blob` and `data` carry content a page built
-    /// itself. A file on this Mac is not a web page: a click on one is handed
-    /// off, and nothing else moves a tab to one.
+    /// itself. A file on this Mac is not a web page, and a web tab never moves
+    /// to one, clicked or not.
     public static let webSchemes: Set<String> = ["http", "https", "about", "blob", "data", "javascript"]
 
     public static func isWeb(_ scheme: String) -> Bool {
@@ -84,17 +83,17 @@ public enum BrowserNavigationPolicy {
 
     /// The decision, in order: a download is saved where its scheme is one a
     /// file is saved from, and never where a frame began it, since a hidden
-    /// frame is how a page saves a file nobody asked for; a click on a file on
-    /// this Mac is handed off, and nothing else reaches one; a web page moves
-    /// the tab or opens a new one; anything else belongs to another app, which
-    /// is opened only for a click on the page itself. A frame or a script
-    /// reaching for another app or a file on its own is refused: that is how a
-    /// page would launch an app nobody asked for. A file tab has rules of its
-    /// own.
+    /// frame is how a page saves a file nobody asked for; a file on this Mac
+    /// goes nowhere, clicked or not, since a website must never get one
+    /// opened, shown or revealed; a web page moves the tab or opens a new one;
+    /// anything else belongs to another app, which is opened only for a click
+    /// on the page itself. A frame or a script reaching for another app on
+    /// its own is refused: that is how a page would launch an app nobody asked
+    /// for. A file tab has rules of its own.
     public static func decide(_ navigation: BrowserNavigation) -> BrowserNavigationDecision {
         guard !navigation.inFileTab else { return decideInFile(navigation) }
         guard !navigation.isDownload else { return isSavable(navigation) ? .download : .cancel }
-        guard !isFile(navigation) else { return isClick(navigation) ? .handOff : .cancel }
+        guard !isFile(navigation) else { return .cancel }
         guard !isWeb(navigation.scheme) else { return navigation.targetsNewWindow ? .newTab : .allow }
         guard isClick(navigation) else { return .cancel }
 

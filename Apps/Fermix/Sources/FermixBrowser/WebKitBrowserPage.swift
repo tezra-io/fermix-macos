@@ -200,9 +200,9 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
 
     /// What a refused navigation leaves behind: a link to another app, handed
     /// to the tab, whose owner rules on it. A task's tab never opens the app,
-    /// and the person's asks them first. A link the page does not load, a web
-    /// page from a file page or a file from any page, goes to the tab too, to
-    /// be opened as the same link from a reply would be.
+    /// and the person's asks them first. A link a file page does not load, a
+    /// web page or another file, goes to the tab too, to be opened as the
+    /// same link from a reply would be.
     private func carryOut(_ decision: BrowserNavigationDecision, for url: URL?) {
         guard let url else { return }
 

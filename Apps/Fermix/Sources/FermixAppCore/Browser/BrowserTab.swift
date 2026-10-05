@@ -138,9 +138,8 @@ public protocol BrowserPageEvents: AnyObject {
     /// files chosen, or nil for none.
     func pageRequestedFiles(_ request: BrowserFileRequest, answer: @escaping @MainActor ([URL]?) -> Void)
     func pageMetExternalScheme(_ url: URL)
-    /// A link the page does not load, whose navigation it has already
-    /// refused: a web page a person clicked in a file page, or a file on this
-    /// Mac clicked in any page.
+    /// A link a file page does not load, whose navigation it has already
+    /// refused: a web page or another file on this Mac a person clicked in it.
     func pageHandedOff(_ url: URL)
     func pagePresented(_ dialog: BrowserDialog, answer: @escaping @MainActor (BrowserDialogAnswer) -> Void)
     /// A navigation became a file to save.
