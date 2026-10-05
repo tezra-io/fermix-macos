@@ -24,15 +24,15 @@ struct IMessageSetupTests {
             (Self.notInstalled, .channelStatusHelperNotInstalled),
             (["full_disk_access": "denied", "db": "unreadable", "automation": "denied", "policy": "absent",
               "policy_matches_config": false, "signed_in": NSNull(), "user_session": false],
-             .channelStatusNeedsFullDiskAccess),
+             .channelStatusGrantInPermissions),
             (["db": "unreadable", "automation": "denied", "policy": "absent", "policy_matches_config": false,
               "signed_in": NSNull(), "user_session": false],
              .channelStatusMessagesDataUnreadable),
             (["automation": "not_determined", "policy": "absent", "policy_matches_config": false,
               "signed_in": NSNull(), "user_session": false],
-             .channelStatusNeedsMessagesAutomation),
+             .channelStatusGrantInPermissions),
             (["policy": "unconfirmed", "policy_matches_config": false, "signed_in": false, "user_session": false],
-             .channelStatusAwaitingConfirmation),
+             .channelStatusConfirmInPermissions),
             (["signed_in": false, "user_session": false], .channelStatusMessagesNotSignedIn),
             (["user_session": false], .channelStatusNeedsUserSession),
             ([:], .channelStatusConnected)
@@ -49,7 +49,7 @@ struct IMessageSetupTests {
     }
 
     /// A policy the helper confirmed for other recipients than the saved ones
-    /// is the daemon's "Awaiting confirmation", not Connected.
+    /// is "Confirm in Permissions", not Connected.
     @Test("a confirmed policy that no longer matches the settings awaits confirmation")
     func mismatchedPolicyAwaitsConfirmation() throws {
         let probe = try ManagementValueFixture.imessagePermissions(["policy_matches_config": false])
@@ -57,13 +57,45 @@ struct IMessageSetupTests {
         #expect(IMessageChannelStatus.firstGap(in: probe) == .confirmation)
         #expect(
             IMessageChannelStatus.status(.loaded(probe), refusal: nil)
-                == ProductStrings[.channelStatusAwaitingConfirmation]
+                == ProductStrings[.channelStatusConfirmInPermissions]
         )
     }
 
+    /// The words for a grant or the confirmation are the way to the pane that
+    /// gives it; a state such as a missing helper, the daemon's own refusal
+    /// sentence, an unanswered probe or Connected points nowhere.
+    @Test("a grant or a confirmation points the row at Permissions, a state points nowhere")
+    func grantsAndConfirmationPointAtPermissions() throws {
+        let noAccess = try ManagementValueFixture.imessagePermissions([
+            "full_disk_access": "denied", "db": "unreadable", "automation": "denied", "policy": "absent",
+            "policy_matches_config": false
+        ])
+        let noAutomation = try ManagementValueFixture.imessagePermissions([
+            "automation": "not_determined", "policy": "absent", "policy_matches_config": false
+        ])
+        let unconfirmed = try ManagementValueFixture.imessagePermissions(["policy": "unconfirmed"])
+        let notInstalled = try ManagementValueFixture.imessagePermissions(Self.notInstalled)
+
+        #expect(IMessageChannelStatus.pane(.loaded(noAccess), refusal: nil) == .permissions)
+        #expect(IMessageChannelStatus.pane(.loaded(noAutomation), refusal: nil) == .permissions)
+        #expect(IMessageChannelStatus.pane(.loaded(unconfirmed), refusal: nil) == .permissions)
+        #expect(IMessageChannelStatus.pane(.loaded(unconfirmed), refusal: Self.ownerIsThisMac) == nil)
+        #expect(IMessageChannelStatus.pane(.loaded(notInstalled), refusal: nil) == nil)
+        #expect(IMessageChannelStatus.pane(.loaded(try Self.golden()), refusal: nil) == nil)
+        #expect(IMessageChannelStatus.pane(.unread, refusal: nil) == nil)
+
+        let on = try Self.channel("imessage", enabled: true, configured: true)
+        let off = try Self.channel("imessage", enabled: false, configured: true)
+        let facts = IMessageChannelFacts(probe: .loaded(unconfirmed), refusal: nil)
+
+        #expect(ChannelRowProjection.statusPane(of: on, imessage: facts) == .permissions)
+        #expect(ChannelRowProjection.statusPane(of: off, imessage: facts) == nil)
+        #expect(ChannelRowProjection.rows([on], titledBy: [], imessage: facts).first?.statusPane == .permissions)
+    }
+
     /// A confirmation the daemon refused, such as an owner that is this Mac's
-    /// own address, is shown in the daemon's own sentence where "Awaiting
-    /// confirmation" would stand, and never over an earlier gap.
+    /// own address, is shown in the daemon's own sentence where "Confirm in
+    /// Permissions" would stand, and never over an earlier gap.
     @Test("a refused confirmation shows the daemon's sentence at the confirmation step only")
     func refusalReplacesAwaitingConfirmation() throws {
         let unconfirmed = try ManagementValueFixture.imessagePermissions(["policy": "unconfirmed"])
@@ -74,7 +106,7 @@ struct IMessageSetupTests {
         #expect(IMessageChannelStatus.status(.loaded(unconfirmed), refusal: Self.ownerIsThisMac) == Self.ownerIsThisMac)
         #expect(
             IMessageChannelStatus.status(.loaded(noAccess), refusal: Self.ownerIsThisMac)
-                == ProductStrings[.channelStatusNeedsFullDiskAccess]
+                == ProductStrings[.channelStatusGrantInPermissions]
         )
         #expect(
             IMessageChannelStatus.status(.loaded(try Self.golden()), refusal: Self.ownerIsThisMac)

@@ -11,6 +11,10 @@ public struct ChannelRowModel: Identifiable, Equatable, Sendable {
     /// under `channels.whatsapp`, and one spelling with one owner is the point.
     public let title: String
     public let status: String
+    /// The pane whose rows fix the status, when the status is a pointer to one
+    /// (an iMessage grant or confirmation lives in Permissions); the status
+    /// words then open that pane. Nil for a status that names a state.
+    public let statusPane: SettingsPane?
     public let enabled: Bool
     public let configured: Bool
     /// Whether the row can be set up and switched on. The phone channel is not,
@@ -67,6 +71,7 @@ public enum ChannelRowProjection {
                 name: channel.name,
                 title: titles[channel.name] ?? channel.name,
                 status: status(of: channel, imessage: imessage),
+                statusPane: statusPane(of: channel, imessage: imessage),
                 enabled: channel.enabled,
                 configured: channel.configured,
                 available: !unavailable.contains(channel.name)
@@ -81,6 +86,14 @@ public enum ChannelRowProjection {
         guard channel.name == IMessageChannelStatus.channel, channel.enabled else { return status(of: channel) }
 
         return IMessageChannelStatus.status(imessage.probe, refusal: imessage.refusal)
+    }
+
+    /// Only a switched-on iMessage row points anywhere: at Permissions, while
+    /// its status is a grant or confirmation that pane's rows give.
+    static func statusPane(of channel: ManagementSetupChannel, imessage: IMessageChannelFacts) -> SettingsPane? {
+        guard channel.name == IMessageChannelStatus.channel, channel.enabled else { return nil }
+
+        return IMessageChannelStatus.pane(imessage.probe, refusal: imessage.refusal)
     }
 
     static func status(of channel: ManagementSetupChannel) -> String {
@@ -129,15 +142,25 @@ public enum IMessageChannelStatus {
         case signIn
         case userSession
 
+        /// A grant or a confirmation is given on the Permissions pane, so the
+        /// row's status for it is three words pointing there rather than a
+        /// description of the permission; the pane's own row says the rest.
         var titleKey: ProductStringKey {
             switch self {
             case .helperNotInstalled: return .channelStatusHelperNotInstalled
-            case .fullDiskAccess: return .channelStatusNeedsFullDiskAccess
+            case .fullDiskAccess, .automation: return .channelStatusGrantInPermissions
             case .messagesData: return .channelStatusMessagesDataUnreadable
-            case .automation: return .channelStatusNeedsMessagesAutomation
-            case .confirmation: return .channelStatusAwaitingConfirmation
+            case .confirmation: return .channelStatusConfirmInPermissions
             case .signIn: return .channelStatusMessagesNotSignedIn
             case .userSession: return .channelStatusNeedsUserSession
+            }
+        }
+
+        /// The pane whose rows fix this gap, for the gaps one of them fixes.
+        var pane: SettingsPane? {
+            switch self {
+            case .fullDiskAccess, .automation, .confirmation: return .permissions
+            case .helperNotInstalled, .messagesData, .signIn, .userSession: return nil
             }
         }
     }
@@ -180,6 +203,19 @@ public enum IMessageChannelStatus {
         guard gap == .confirmation, let refusal else { return ProductStrings[gap.titleKey] }
 
         return refusal
+    }
+
+    /// The pane the status points at: Permissions while the first gap is one
+    /// of its grants or the confirmation, and never where the daemon's own
+    /// refusal sentence stands, which is a state to read, not a row to press.
+    public static func pane(
+        _ probe: SettingsReadState<ManagementIMessagePermissions>,
+        refusal: String?
+    ) -> SettingsPane? {
+        guard case .loaded(let answer) = probe, let gap = firstGap(in: answer) else { return nil }
+        guard gap != .confirmation || refusal == nil else { return nil }
+
+        return gap.pane
     }
 }
 
@@ -299,8 +335,16 @@ struct ChannelRow: View {
     private var content: some View {
         LabeledContent {
             HStack(spacing: Spacing.xs) {
-                Text(row.status)
-                    .foregroundStyle(Palette.secondary.color)
+                // A status that points at a pane is the way there; one that
+                // names a state is read and nothing else.
+                if let pane = row.statusPane {
+                    Button(row.status) { model.selectedPane = pane }
+                        .buttonStyle(.link)
+                        .accessibilityLabel(ProductStrings.commaPair(row.status, row.title))
+                } else {
+                    Text(row.status)
+                        .foregroundStyle(Palette.secondary.color)
+                }
 
                 if row.available {
                     Button(row.configured ? ProductStrings[.channelManage] : ProductStrings[.channelSetUp], action: edit)

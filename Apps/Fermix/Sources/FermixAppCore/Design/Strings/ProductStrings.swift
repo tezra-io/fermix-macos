@@ -746,10 +746,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// person fixes them.
     case channelStatusChecking = "channel.status.checking"
     case channelStatusHelperNotInstalled = "channel.status.helperNotInstalled"
-    case channelStatusNeedsFullDiskAccess = "channel.status.needsFullDiskAccess"
+    case channelStatusGrantInPermissions = "channel.status.grantInPermissions"
     case channelStatusMessagesDataUnreadable = "channel.status.messagesDataUnreadable"
-    case channelStatusNeedsMessagesAutomation = "channel.status.needsMessagesAutomation"
-    case channelStatusAwaitingConfirmation = "channel.status.awaitingConfirmation"
+    case channelStatusConfirmInPermissions = "channel.status.confirmInPermissions"
     case channelStatusMessagesNotSignedIn = "channel.status.messagesNotSignedIn"
     case channelStatusNeedsUserSession = "channel.status.needsUserSession"
     case channelSetUp = "channel.setUp"

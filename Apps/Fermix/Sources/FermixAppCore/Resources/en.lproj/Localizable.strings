@@ -726,10 +726,9 @@
 "channel.status.unavailable" = "Available with the phone app";
 "channel.status.checking" = "Checking";
 "channel.status.helperNotInstalled" = "Helper not installed";
-"channel.status.needsFullDiskAccess" = "Needs Full Disk Access";
+"channel.status.grantInPermissions" = "Grant in Permissions";
 "channel.status.messagesDataUnreadable" = "Cannot read the Messages database";
-"channel.status.needsMessagesAutomation" = "Needs Messages automation";
-"channel.status.awaitingConfirmation" = "Awaiting confirmation";
+"channel.status.confirmInPermissions" = "Confirm in Permissions";
 "channel.status.messagesNotSignedIn" = "Messages is not signed in";
 "channel.status.needsUserSession" = "Needs your logged-in session";
 "channel.setUp" = "Set up…";
