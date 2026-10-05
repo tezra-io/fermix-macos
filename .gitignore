@@ -38,3 +38,4 @@ erl_crash.dump
 # docs/design is a link into the private docs repo, where every doc lives.
 docs/
 output/
+outputs/
