@@ -54,7 +54,7 @@ scripts/dev_e2e.sh down          # quit the app, unregister its agent, stop the 
 ```
 
 To run a different engine, move the worktree yourself and run `up` again:
-`git -C ~/.cache/fermix-engine-m34 checkout --detach v0.12.1` for a release tag,
+`git -C ~/.cache/fermix-engine-m34 checkout --detach v0.14.0` for a release tag,
 or `origin/dev` for the engine's tip. The loop never fetches, resets or moves
 that checkout: it builds exactly what is there, uncommitted work included. Set
 `FERMIX_REPO` if your checkout is not at `~/projects/fermix`.

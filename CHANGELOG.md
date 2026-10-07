@@ -4,6 +4,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Runs the Fermix engine 0.14.0, which serves the iMessage channel and the ChatGPT sign-in for OpenAI Codex that the app now shows, offers Mistral Large 4, and keeps a GPT-Live call's work in the chat, where a task still running when the call ends finishes instead of being dropped.
 - Chat: a file a reply names, such as a screenshot or a report the agent saved, is a link. Pictures, PDFs, text and HTML open read only in a file tab of the browser, with a page's scripts off and nothing loaded from the internet; documents such as Word files, Pages files and spreadsheets open in their own app; and anything else, an app among them, is only shown in Finder, so a click never runs anything.
 - Channels: turning iMessage on installs Fermix Messages first, and if the install fails the switch stays off with the reason under it. The iMessage row then names the first thing still missing until it reads Connected; while that is a grant or your confirmation of who Fermix may message, it reads "Grant in Permissions" or "Confirm in Permissions", and those words open the Permissions pane.
 - Permissions: once iMessage is on, Messages data, Messages automation and Who Fermix may message each have a row with the one button that grants or confirms it, and the rows catch up when you come back from System Settings.
