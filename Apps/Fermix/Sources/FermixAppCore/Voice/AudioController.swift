@@ -21,6 +21,11 @@ final class AudioController: VoiceAudioEngine {
     private let player = AVAudioPlayerNode()
     private let playbackFormat: AVAudioFormat
     private var captureTapInstalled = false
+    /// The format the capture tap was installed at, and its conversion. On
+    /// the queue.
+    private var tapFormat: AVAudioFormat?
+    private var captureConversion: CaptureConversion?
+    private var reconfigurations: NSObjectProtocol?
     private var utteranceAnchorSampleTime: AVAudioFramePosition?
     private let playbackCounterLock = NSLock()
     private var pendingVoiceBuffers = 0
@@ -55,6 +60,20 @@ final class AudioController: VoiceAudioEngine {
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: playbackFormat)
         engine.mainMixerNode.outputVolume = 1.0
+
+        reconfigurations = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak self] _ in
+            self?.queue.async { self?.engineReconfigured() }
+        }
+    }
+
+    deinit {
+        if let reconfigurations {
+            NotificationCenter.default.removeObserver(reconfigurations)
+        }
     }
 
     func requestCapturePermission() async throws {
@@ -159,7 +178,52 @@ final class AudioController: VoiceAudioEngine {
         // Voice processing reshapes the input, so the tap's format is read
         // after it is switched on.
         try enableVoiceProcessing(on: input)
+        try installCaptureTap(on: input)
 
+        do {
+            try startEngineIfNeeded()
+            try settleCaptureTap(on: input)
+        } catch {
+            stopCapture()
+            throw error
+        }
+    }
+
+    /// The first voice processing bring-up in a process can settle its device
+    /// only as the engine starts: on 2026-10-08 it reported four input
+    /// channels where it delivered six, and a tap installed at the format read
+    /// before the start lost or garbled the first call's audio while the
+    /// processed voice itself was clear. So the format is read again once the
+    /// engine runs, and a tap at an older one is put back at the settled one.
+    private func settleCaptureTap(on input: AVAudioInputNode) throws {
+        guard let settled = Self.captureFormat(from: input), settled != tapFormat else { return }
+
+        log.info("capture format settled at \(Self.describe(settled), privacy: .public) after the engine started: reinstalling the tap")
+        removeCaptureTap()
+        try installCaptureTap(on: input)
+    }
+
+    /// macOS reconfigured the device under the running engine, which stops
+    /// itself and says so (`AVAudioEngineConfigurationChange`). A call's capture
+    /// is put back at the format the device has now, only if it changed, and
+    /// the engine started again; playback restarts with the next chunk. A
+    /// start changes no format, so this cannot feed itself. On the queue.
+    private func engineReconfigured() {
+        guard captureTapInstalled else { return }
+
+        log.info("the audio device was reconfigured during a call")
+
+        do {
+            try settleCaptureTap(on: engine.inputNode)
+            try startEngineIfNeeded()
+        } catch {
+            log.error("capture could not be restored after the device changed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Installs the tap at the input's format now, converting each buffer to
+    /// the call's 24 kHz mono. On the queue.
+    private func installCaptureTap(on input: AVAudioInputNode) throws {
         guard let format = Self.captureFormat(from: input) else { throw CaptureError.noInputDevice }
 
         guard let outputFormat = AVAudioFormat(
@@ -167,11 +231,7 @@ final class AudioController: VoiceAudioEngine {
             sampleRate: Self.realtimeSampleRate,
             channels: 1,
             interleaved: false
-        ) else {
-            throw CaptureError.outputFormatUnavailable
-        }
-
-        guard let converter = Self.captureConverter(from: format, to: outputFormat) else {
+        ), let conversion = CaptureConversion(from: format, to: outputFormat) else {
             throw CaptureError.outputFormatUnavailable
         }
 
@@ -189,19 +249,33 @@ final class AudioController: VoiceAudioEngine {
 
             guard let handler = handler else { return }
 
-            let data = Self.pcm16Data(from: buffer, converter: converter, outputFormat: outputFormat)
+            let data = conversion.pcm16(from: buffer)
             if !data.isEmpty {
                 handler(data)
             }
         }
+        tapFormat = format
+        captureConversion = conversion
         captureTapInstalled = true
+    }
 
-        do {
-            try startEngineIfNeeded()
-        } catch {
-            stopCapture()
-            throw error
+    /// Removes the tap and says what it sent: the one record of whether a
+    /// call's audio left the Mac whole. On the queue.
+    private func removeCaptureTap() {
+        guard captureTapInstalled else { return }
+
+        engine.inputNode.removeTap(onBus: 0)
+        captureTapInstalled = false
+
+        if let report = captureConversion?.report(), let tapFormat {
+            log.info("capture tap at \(Self.describe(tapFormat), privacy: .public) removed: \(report, privacy: .public)")
         }
+        tapFormat = nil
+        captureConversion = nil
+    }
+
+    static func describe(_ format: AVAudioFormat) -> String {
+        "\(format.channelCount) ch at \(Int(format.sampleRate)) Hz"
     }
 
     /// Echo cancellation, noise suppression and voice gain, from macOS. Neither
@@ -258,10 +332,7 @@ final class AudioController: VoiceAudioEngine {
         silenceCapture()
 
         // Braces: remove the tap so no further callbacks even occur.
-        if captureTapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            captureTapInstalled = false
-        }
+        removeCaptureTap()
     }
 
     /// Belt: clear the handler and mute, so any tap callback racing with
