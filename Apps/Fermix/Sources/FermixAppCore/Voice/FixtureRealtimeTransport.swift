@@ -418,7 +418,7 @@ final class FixtureAudioEngine: VoiceAudioEngine {
     /// Granted, and macOS is never asked.
     func requestCapturePermission() async throws {}
 
-    func prepareCapture() throws {}
+    func prepareCapture() async throws {}
 
     /// The daemon is listening. Nothing is captured, so the handler is never
     /// called.

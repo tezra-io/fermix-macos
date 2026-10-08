@@ -35,8 +35,9 @@ public protocol VoiceAudioEngine: AnyObject {
 
     func requestCapturePermission() async throws
     /// Warms the capture path muted and handlerless, so nothing can leave the
-    /// process before the daemon confirms it is listening.
-    func prepareCapture() throws
+    /// process before the daemon confirms it is listening. Off the main
+    /// thread: the first warm-up in a process takes over a second.
+    func prepareCapture() async throws
     func beginStreaming(onChunk: @escaping @Sendable (Data) -> Void) throws
     func setCaptureMuted(_ muted: Bool)
     func play(base64PCM16 encoded: String)
@@ -79,6 +80,11 @@ public final class AudioOwner {
     private var level: Float = 0
     /// The drain report waiting out `drainGrace`. New audio calls it off.
     private var pendingDrain: DeadlineToken?
+    /// Which call capture is being brought up for. Bring-up waits twice, on
+    /// the permission prompt and on the engine's warm-up, and the call can
+    /// end, or end and the next one begin, during either: only the call still
+    /// current goes on, and only its own failure ends a call.
+    private var generation = 0
 
     public init(engine: any VoiceAudioEngine, deadlines: any DeadlineScheduling) {
         self.engine = engine
@@ -111,6 +117,8 @@ public final class AudioOwner {
     public func beginCall() async throws {
         guard !callActive else { return }
 
+        generation += 1
+        let call = generation
         callActive = true
         muted = false
         isStreaming = false
@@ -121,14 +129,24 @@ public final class AudioOwner {
             // transport drop or a hang-up while it was up already tore capture
             // down, and warming it now would leave the microphone indicator lit
             // with no call behind it and nothing left to end.
-            guard callActive else { return }
+            guard isCurrent(call) else { return }
 
             engine.setCaptureMuted(true)
-            try engine.prepareCapture()
+            // A call ended during the warm-up has its teardown queued behind
+            // it in the engine, so the microphone comes down all the same.
+            try await engine.prepareCapture()
         } catch {
+            // A call that has since ended, or been followed by the next one,
+            // is not this failure's to end.
+            guard isCurrent(call) else { throw error }
+
             endCall()
             throw error
         }
+    }
+
+    private func isCurrent(_ call: Int) -> Bool {
+        callActive && generation == call
     }
 
     /// Attaches the chunk handler and unmutes. Called only when the daemon

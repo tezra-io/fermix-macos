@@ -672,8 +672,8 @@ struct VoiceCallLifecycleTests {
 
     /// The prompt is modal and answers every asker at once, so the first
     /// attempt's request comes back too. Only the attempt still current may
-    /// send `call_start`: one call, the second one.
-    @Test("start, cancel, start while the permission prompt is up sends one call start, for the second attempt")
+    /// warm the microphone and send `call_start`: one call, the second one.
+    @Test("start, cancel, start while the permission prompt is up warms once and sends one call start, for the second attempt")
     func restartDuringThePermissionPrompt() async throws {
         let harness = VoiceCallHarness()
         harness.engine.suspendsPermission = true
@@ -685,10 +685,10 @@ struct VoiceCallLifecycleTests {
         harness.coordinator.toggleCall()
         await harness.settle { harness.engine.pendingPermissionRequests == 2 }
         harness.engine.grantCapturePermission()
-        await harness.settle { harness.engine.calls.filter { $0 == .prepareCapture }.count == 2 }
+        await harness.settle { harness.call.voice.phase == .active }
 
         #expect(harness.call.voice.attempt == 2)
-        #expect(harness.call.voice.phase == .active)
+        #expect(harness.engine.calls.filter { $0 == .prepareCapture }.count == 1)
         #expect(try harness.sent("call_start") == 1)
     }
 

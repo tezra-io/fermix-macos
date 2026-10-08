@@ -129,6 +129,50 @@ struct AudioOwnerTests {
         #expect(engine.calls.last == .shutdown)
     }
 
+    /// The warm-up runs off the main thread and can take over a second, so
+    /// a call can be called off while it runs. The teardown follows the
+    /// warm-up in the engine, and the owner carries nothing on for that call.
+    @Test("a call ended during the warm-up stays ended, its teardown after the warm-up")
+    func callEndedDuringTheWarmUp() async throws {
+        let engine = FakeVoiceAudioEngine()
+        engine.suspendsPrepare = true
+        let owner = owner(engine)
+
+        let starting = Task { try await owner.beginCall() }
+        while engine.pendingPrepares == 0 { await Task.yield() }
+
+        owner.endCall()
+        engine.finishPrepare()
+        try await starting.value
+
+        #expect(owner.callActive == false)
+        #expect(engine.calls == [.requestPermission, .setMuted(true), .prepareCapture, .shutdown])
+    }
+
+    /// The next call can begin while the last one's warm-up is still running.
+    /// That warm-up failing then belongs to a call already over: the next
+    /// call keeps its capture.
+    @Test("a warm-up that fails after the next call began leaves that call alone")
+    func lateWarmUpFailureLeavesTheNextCall() async throws {
+        let engine = FakeVoiceAudioEngine()
+        engine.suspendsPrepare = true
+        let owner = owner(engine)
+
+        let first = Task { try await owner.beginCall() }
+        while engine.pendingPrepares == 0 { await Task.yield() }
+        owner.endCall()
+
+        engine.suspendsPrepare = false
+        try await owner.beginCall()
+        engine.finishPrepare(throwing: CaptureError.noInputDevice)
+
+        await #expect(throws: CaptureError.noInputDevice) {
+            try await first.value
+        }
+        #expect(owner.callActive)
+        #expect(engine.calls.filter { $0 == .shutdown }.count == 1)
+    }
+
     @Test("a streaming failure ends the call and shuts down")
     func streamingFailureEndsTheCall() async throws {
         let engine = FakeVoiceAudioEngine()

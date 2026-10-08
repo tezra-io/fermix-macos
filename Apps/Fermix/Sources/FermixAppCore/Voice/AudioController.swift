@@ -4,11 +4,19 @@ import Foundation
 /// The production `VoiceAudioEngine`: 24 kHz mono PCM16 both ways, a warmed
 /// muted capture path cleaned by macOS voice processing, and a teardown that
 /// releases the input unit so macOS clears the microphone indicator.
+///
+/// The engine and the player are used on `queue` alone. Warming capture the
+/// first time in a process builds macOS's voice processing unit, which held
+/// the main thread for 1.7 seconds on 2026-10-08 (0.2 seconds on later calls),
+/// so the chat's call box drew only once it was done. On one serial queue the
+/// warm-up runs off the main thread and every other use keeps its order: a
+/// teardown asked for while capture is still coming up runs after it.
 final class AudioController: VoiceAudioEngine {
     private static let realtimeSampleRate = 24_000.0
     private static let captureBufferFrames: AVAudioFrameCount = 4_800
 
     private let log = AppLog.logger(.voice)
+    private let queue = DispatchQueue(label: "ai.fermix.app.voice-audio", qos: .userInitiated)
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let playbackFormat: AVAudioFormat
@@ -75,20 +83,26 @@ final class AudioController: VoiceAudioEngine {
     /// Warm the capture pipeline without exposing any audio: installs the
     /// tap and starts the engine with the path muted and handlerless, so the
     /// tap's two-stage gate drops every buffer on the floor. Called from the
-    /// call flow only (after the permission gate) so the slow engine bring-up
-    /// overlaps the daemon/provider handshake instead of running after the
+    /// call flow only (after the permission gate), and run on the queue, so
+    /// the slow bring-up neither holds the main thread nor runs after the
     /// server already reports listening.
-    func prepareCapture() throws {
+    func prepareCapture() async throws {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             throw CaptureError.microphoneDenied
         }
 
-        chunkHandlerLock.lock()
-        onChunkHandler = nil
-        chunkHandlerLock.unlock()
-        setCaptureMuted(true)
+        silenceCapture()
 
-        try ensureCaptureRunning()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            warmCapture { continuation.resume(with: $0) }
+        }
+    }
+
+    /// Runs the warm-up on the queue and reports its outcome from there.
+    private func warmCapture(_ finished: @escaping (Result<Void, any Error>) -> Void) {
+        queue.async {
+            finished(Result { try self.ensureCaptureRunning() })
+        }
     }
 
     /// Attach a chunk handler and unmute so capture starts pushing data
@@ -100,7 +114,7 @@ final class AudioController: VoiceAudioEngine {
             throw CaptureError.microphoneDenied
         }
 
-        try ensureCaptureRunning()
+        try queue.sync { try ensureCaptureRunning() }
 
         chunkHandlerLock.lock()
         onChunkHandler = onChunk
@@ -110,7 +124,7 @@ final class AudioController: VoiceAudioEngine {
     }
 
     /// Idempotent: installs the tap, starts the engine, and leaves the
-    /// capture path muted+handlerless. Safe to call repeatedly.
+    /// capture path muted+handlerless. Safe to call repeatedly. On the queue.
     private func ensureCaptureRunning() throws {
         if captureTapInstalled {
             try startEngineIfNeeded()
@@ -239,14 +253,9 @@ final class AudioController: VoiceAudioEngine {
         return converter
     }
 
+    /// On the queue.
     private func stopCapture() {
-        // Belt: clear the handler so any tap callback racing with teardown
-        // can't fire a write to the socket.
-        chunkHandlerLock.lock()
-        onChunkHandler = nil
-        chunkHandlerLock.unlock()
-
-        setCaptureMuted(true)
+        silenceCapture()
 
         // Braces: remove the tap so no further callbacks even occur.
         if captureTapInstalled {
@@ -255,30 +264,48 @@ final class AudioController: VoiceAudioEngine {
         }
     }
 
+    /// Belt: clear the handler and mute, so any tap callback racing with
+    /// teardown can't fire a write to the socket. Locks only, so it holds on
+    /// any thread, before the queue has reached the teardown.
+    private func silenceCapture() {
+        chunkHandlerLock.lock()
+        onChunkHandler = nil
+        chunkHandlerLock.unlock()
+
+        setCaptureMuted(true)
+    }
+
     func setCaptureMuted(_ muted: Bool) {
         captureMuteLock.lock()
         captureMuted = muted
         captureMuteLock.unlock()
     }
 
+    /// Nothing leaves the process from the moment it is called; the engine
+    /// comes down on the queue, after any warm-up still running there.
     func shutdown() {
-        stopCapture()
-        stopPlayback()
+        silenceCapture()
+        clearPendingVoice()
 
-        // Voice processing keeps the audio session and the macOS mic
-        // indicator alive even after engine.stop() — disable it explicitly
-        // before tearing down the engine.
-        if engine.inputNode.isVoiceProcessingEnabled {
-            try? engine.inputNode.setVoiceProcessingEnabled(false)
+        queue.async {
+            self.stopCapture()
+            self.stopPlayer()
+
+            // Voice processing keeps the audio session and the macOS mic
+            // indicator alive even after engine.stop() — disable it explicitly
+            // before tearing down the engine.
+            if self.engine.inputNode.isVoiceProcessingEnabled {
+                try? self.engine.inputNode.setVoiceProcessingEnabled(false)
+            }
+
+            if self.engine.isRunning {
+                self.engine.stop()
+            }
+
+            // Release the input AudioUnit so the OS sees the mic session as
+            // terminated; without this the privacy indicator persists.
+            self.engine.reset()
         }
-
-        if engine.isRunning {
-            engine.stop()
-        }
-
-        // Release the input AudioUnit so the OS sees the mic session as
-        // terminated; without this the privacy indicator persists.
-        engine.reset()
     }
 
     func diagnostics() -> String {
@@ -289,13 +316,17 @@ final class AudioController: VoiceAudioEngine {
         // Core Audio HAL's view via AVAudioEngine — this is what actually
         // backs capture. A valid sample rate + channel count means the
         // engine has a usable input regardless of what AVFoundation reports.
-        let input = engine.inputNode
-        let inputFormat = input.inputFormat(forBus: 0)
-        let outputFormat = engine.outputNode.outputFormat(forBus: 0)
-        let voiceProcessing = input.isVoiceProcessingEnabled ? "enabled" : "disabled"
-        let engineHasInput = Self.captureFormat(from: input) != nil
+        let engineView = queue.sync {
+            let input = engine.inputNode
+            let inputFormat = input.inputFormat(forBus: 0)
+            let outputFormat = engine.outputNode.outputFormat(forBus: 0)
+            let voiceProcessing = input.isVoiceProcessingEnabled ? "enabled" : "disabled"
+            let engineHasInput = Self.captureFormat(from: input) != nil
 
-        return "auth=\(auth), avfDevice=\(avfDevice), engineHasInput=\(engineHasInput), inputSampleRate=\(inputFormat.sampleRate), inputChannels=\(inputFormat.channelCount), outputSampleRate=\(outputFormat.sampleRate), outputChannels=\(outputFormat.channelCount), voiceProcessing=\(voiceProcessing), engineRunning=\(engine.isRunning)"
+            return "engineHasInput=\(engineHasInput), inputSampleRate=\(inputFormat.sampleRate), inputChannels=\(inputFormat.channelCount), outputSampleRate=\(outputFormat.sampleRate), outputChannels=\(outputFormat.channelCount), voiceProcessing=\(voiceProcessing), engineRunning=\(engine.isRunning)"
+        }
+
+        return "auth=\(auth), avfDevice=\(avfDevice), \(engineView)"
     }
 
     func play(base64PCM16 encoded: String) {
@@ -315,6 +346,11 @@ final class AudioController: VoiceAudioEngine {
         emitOutputLevel(from: data)
         let voiced = PCM16.isVoiced(data)
 
+        queue.sync { schedule(buffer, voiced: voiced) }
+    }
+
+    /// On the queue.
+    private func schedule(_ buffer: AVAudioPCMBuffer, voiced: Bool) {
         if !engine.isRunning {
             do {
                 try startEngineIfNeeded()
@@ -413,27 +449,37 @@ final class AudioController: VoiceAudioEngine {
     }
 
     func stopPlayback() {
+        queue.sync { stopPlayer() }
+    }
+
+    /// On the queue.
+    private func stopPlayer() {
         player.stop()
         utteranceAnchorSampleTime = nil
+        clearPendingVoice()
+    }
 
+    private func clearPendingVoice() {
         playbackCounterLock.lock()
         pendingVoiceBuffers = 0
         playbackCounterLock.unlock()
     }
 
     func resetUtteranceAnchor() {
-        utteranceAnchorSampleTime = nil
+        queue.sync { utteranceAnchorSampleTime = nil }
     }
 
     func currentUtterancePlayedMs() -> Int? {
-        guard let anchor = utteranceAnchorSampleTime,
-              let current = currentPlayerSampleTime() else {
-            return nil
-        }
+        queue.sync {
+            guard let anchor = utteranceAnchorSampleTime,
+                  let current = currentPlayerSampleTime() else {
+                return nil
+            }
 
-        let frames = max(0, current - anchor)
-        let ms = Double(frames) / Self.realtimeSampleRate * 1_000.0
-        return Int(ms.rounded())
+            let frames = max(0, current - anchor)
+            let ms = Double(frames) / Self.realtimeSampleRate * 1_000.0
+            return Int(ms.rounded())
+        }
     }
 
     private func currentPlayerSampleTime() -> AVAudioFramePosition? {
