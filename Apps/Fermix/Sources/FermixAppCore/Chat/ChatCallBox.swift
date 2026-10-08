@@ -3,19 +3,22 @@ import SwiftUI
 /// What the call box shows, by the call's phase.
 enum ChatCallBoxState: Equatable {
     /// From the click until the call's last frame: the pet and its dock,
-    /// whose stop ends the call.
+    /// whose stop ends the call and closes the box.
     case live
-    /// The call ended: the still pet in its idle pose and the dock, whose
-    /// stop is now Close, until the person closes it (owner, 2026-10-04). The
-    /// box says nothing: the call's bill is the Pet page's.
+    /// The mascot's click ended the call: the still pet in its idle pose and
+    /// the dock, whose stop is now Close, until the person closes it (owner,
+    /// 2026-10-04). The box says nothing: the call's bill is the Pet page's.
     case ended
     /// The call, or the start of one, failed: the still pet, the dock's Close,
     /// and the one sentence the model kept for the failure, which carries the
     /// vendor's detail after it where the daemon sent one.
     case failed(String)
 
-    /// Nothing with no call, which is where Close leaves an ended one.
-    init?(voice: VoiceState) {
+    /// Nothing with no call, and nothing once the person closed the box,
+    /// whatever the call behind it is still doing.
+    init?(voice: VoiceState, closed: Bool) {
+        guard !closed else { return nil }
+
         switch voice.phase {
         case .idle:
             return nil
@@ -36,11 +39,12 @@ enum ChatCallBoxState: Equatable {
 /// mascot and the dock of its call controls, on the dock's own glass. The
 /// mascot's animation is the call's status, so the box carries no status word,
 /// no caption, no task and no cost: those are the Pet page's. The dock's stop
-/// ends the call, and the box stays once it is over, the mascot still in its
-/// idle pose, until the same control, then Close, puts it away (owner,
-/// 2026-10-04); a failure keeps its sentence under the dock. The mascot's
-/// click is the call control's, as on the floating window: it ends the call,
-/// and on the idle pet it begins the next one.
+/// ends the call and closes the box in one press, as the toolbar's call
+/// button and the menus do (owner, 2026-10-08). The mascot's click is the
+/// call control's, as on the floating window, and the one end that keeps the
+/// box: the mascot rests in its idle pose until the stop, then Close, puts it
+/// away, and a click on it begins the next call (owner, 2026-10-04). A failure
+/// keeps the box too, with its sentence under the dock.
 ///
 /// It stands at the body's extreme right, in the margin a wide window leaves
 /// beside the centred reading column, overlapping nothing; only where that
@@ -59,7 +63,7 @@ struct ChatCallBox: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let state = ChatCallBoxState(voice: call.voice)
+        let state = ChatCallBoxState(voice: call.voice, closed: call.callBoxClosed)
 
         ZStack {
             if let state {
@@ -111,8 +115,8 @@ struct ChatCallBox: View {
                 model: pet,
                 animates: Self.animates(live: live, windowVisible: call.mainWindowVisible, reduceMotion: reduceMotion),
                 playsIntro: Self.playsIntro(live: live, introPlayed: call.introPlayed, reduceMotion: reduceMotion),
-                // In every state the box has: the stop ends the call, then
-                // closes the box, in one place.
+                // In every state the box has: the stop ends the call and
+                // closes the box, or closes the box a call left behind.
                 dock: .shown,
                 host: .callBox
             )

@@ -215,38 +215,42 @@ struct PetSurfaceTests {
     /// the pet is drawn (owner, 2026-09-25: "the click on the mascot leads to
     /// enabling or disabling it"; 2026-10-04: the chat's box does the same as
     /// the floating window). With no call up it begins one; through a start
-    /// or a call it ends it, and the pet goes to its idle pose.
+    /// or a call it ends it, and the pet goes to its idle pose, resting in the
+    /// chat's box rather than closing it (owner, 2026-10-08: "Only clicking
+    /// on the pet goes to idle").
     @Test("a click on the pet's mascot begins a call while none is up and ends the one that is, in both hosts")
     func mascotClickTogglesTheCall() throws {
         let harness = try harness()
         harness.call.voiceNegotiated()
         #expect(harness.model.callHelpText == "Begin voice call")
 
-        harness.model.toggleCall()
+        harness.model.mascotClicked()
         #expect(harness.call.voice.phase == .starting)
         #expect(harness.model.callHelpText == "End voice call")
 
         // A start the daemon has not answered is called off like a call.
-        harness.model.toggleCall()
+        harness.model.mascotClicked()
         #expect(harness.call.voice.phase == .idle)
 
-        harness.model.toggleCall()
+        harness.model.mascotClicked()
         harness.call.callStarted()
         _ = harness.call.apply(.state(.listening), audioIsPlaying: false)
         #expect(harness.model.expression == .listening)
 
-        harness.model.toggleCall()
+        harness.model.mascotClicked()
         #expect(harness.call.voice.phase == .stopping)
         harness.call.callEnded()
         #expect(harness.model.expression == .idle)
+        #expect(!harness.call.callBoxClosed)
 
         // One companion draws the pet in both hosts, and its whole frame is
-        // the call control's click and tooltip: no host has a rule of its own.
+        // the mascot's click and the call control's tooltip: the click is the
+        // same in both, so no host has a rule of its own.
         let pet = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
-        #expect(pet.contains(".onTapGesture { model.toggleCall() }"))
+        #expect(pet.contains(".onTapGesture { model.mascotClicked() }"))
         #expect(pet.contains(".help(model.callHelpText)"))
         let model = try #require(try SourceTree.swiftFiles(matching: "Pet/PetFeatureModel.swift").first?.text)
-        #expect(!model.contains("func mascotClicked"), "a host's click has a rule of its own again")
+        #expect(model.contains("public func mascotClicked() {"), "a host's click has a rule of its own again")
     }
 
     /// Outside a call the mascot's click is the call control's, whatever the
@@ -281,10 +285,11 @@ struct PetSurfaceTests {
     // MARK: - The dock
 
     /// The dock's call control is a stop (owner, 2026-10-04: "I prefer it was
-    /// a stop button"): one control, the filled square, in both hosts. It
-    /// ends a start or a call, is dimmed while the call ends, and once the
-    /// call is over it is the chat box's Close; the floating window has
-    /// nothing to close, so there it offers nothing. It never begins a call.
+    /// a stop button"): one control, the filled square in ink, in both hosts.
+    /// It ends a start or a call. Once the call is ending or over it is the
+    /// chat box's Close; the floating window has nothing to close, so there
+    /// it is dimmed while the call ends and offers nothing after. It never
+    /// begins a call.
     @Test("the dock's one control is the stop: it ends a call in both hosts, and closes only the chat's box")
     func dockControlIsTheStop() throws {
         let harness = try harness()
@@ -295,6 +300,7 @@ struct PetSurfaceTests {
             #expect(model.stopAction(in: .floatingWindow) == window, "\(phase)")
         }
 
+        #expect(PetDockSymbol.stop == PetDockSymbol(name: "stop", filled: true, tint: Palette.ink))
         offers(nil, nil, "idle")
 
         harness.call.voiceNegotiated()
@@ -306,13 +312,10 @@ struct PetSurfaceTests {
         offers(.end, .end, "active")
 
         harness.call.callStopping()
-        offers(.ending, .ending, "stopping")
+        offers(.close, .ending, "stopping")
 
         harness.call.callEnded()
         offers(.close, nil, "ended")
-
-        harness.call.dismissEnded()
-        offers(nil, nil, "closed")
 
         harness.call.beginTestCall()
         harness.call.voiceFailed(.socketPathUnavailable)
@@ -330,20 +333,8 @@ struct PetSurfaceTests {
         let dock = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
         #expect(!dock.contains("Palette.accent"), "the dock draws the accent again")
         #expect(!dock.contains("callSymbol"), "the dock draws the toolbar's phone again")
-        #expect(dock.contains("PetControlButton(symbol: .stop(action)"))
+        #expect(dock.contains("PetControlButton(symbol: .stop"))
         #expect(dock.contains(".disabled(action == .ending)"))
-    }
-
-    /// The stop is the hang-up's red while it ends a call, as the chat
-    /// toolbar's hang-up is (owner, 2026-10-04: "turns red when the call is on
-    /// to close it"), and ink otherwise: dimmed in ink while the call ends,
-    /// and in ink as the chat box's Close. Red means there is a call to end.
-    @Test("the dock's stop is red while it ends a call, and ink while the call ends and as Close")
-    func dockStopIsRedWhileItEnds() {
-        #expect(PetDockSymbol.stop(.end) == PetDockSymbol(name: "stop", filled: true, tint: Palette.hangUp))
-        #expect(PetDockSymbol.stop(.ending) == PetDockSymbol(name: "stop", filled: true, tint: Palette.ink))
-        #expect(PetDockSymbol.stop(.close) == PetDockSymbol(name: "stop", filled: true, tint: Palette.ink))
-        #expect(Palette.hangUp != Palette.ink)
     }
 
     /// The stop never begins a call: a click on it with nothing to end or
@@ -446,7 +437,7 @@ struct PetSurfaceTests {
         #expect(text.contains(".simultaneousGesture(WindowDragGesture())"))
         #expect(text.contains(".allowsWindowActivationEvents(true)"))
         // The click is still the mascot's, beside the drag rather than under it.
-        #expect(text.contains(".onTapGesture { model.toggleCall() }"))
+        #expect(text.contains(".onTapGesture { model.mascotClicked() }"))
         #expect(text.contains("host: .floatingWindow"))
     }
 
@@ -686,6 +677,8 @@ final class PetHarness {
     let coordinator: AppCoordinator
     let voice: VoiceCoordinator
     let model: PetFeatureModel
+    /// The gate every call control but the mascot clicks through.
+    let gate: VoiceCallGate
 
     let socket = FakeRealtimeSocket()
     /// The stopping call's wait for the daemon's last frame.
@@ -719,7 +712,7 @@ final class PetHarness {
             presentation: SettingsPresentation(),
             announcer: RecordingAnnouncer()
         )
-        let gate = VoiceCallGate(
+        gate = VoiceCallGate(
             call: call,
             voice: voice,
             readiness: readiness,

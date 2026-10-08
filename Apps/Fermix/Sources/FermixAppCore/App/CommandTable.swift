@@ -200,19 +200,6 @@ public struct ToolbarSpec: Equatable, Sendable {
     public var isEmpty: Bool { commands.isEmpty }
 }
 
-/// How a toolbar control's symbol draws: its SF Symbol and, where it has
-/// one, its tint; nil is the toolbar's own ink. A value, so each state's
-/// drawing is proven without a window.
-public struct ToolbarSymbol: Equatable, Sendable {
-    public let name: String
-    public let tint: ThemedColor?
-
-    public init(name: String, tint: ThemedColor?) {
-        self.name = name
-        self.tint = tint
-    }
-}
-
 /// What a surface's toolbar has to know about the daemon right now (M34 §3.2).
 ///
 /// A value rather than a model reference, so "which primary does Home carry"
@@ -345,21 +332,17 @@ public enum CommandTable {
         toolbarHelpKey(of: command).map { ProductStrings[$0] }
     }
 
-    /// The call's symbol at rest, a phone: it sits in the conversation's
-    /// header, where a messaging app puts its call button, and the owner
-    /// asked for a call button there. The toolbar's alone: the pet's dock ends
-    /// a call with a stop and draws no phone (owner, 2026-10-04: "I prefer it
-    /// was a stop button").
+    /// The call's symbol, a phone: it sits in the conversation's header,
+    /// where a messaging app puts its call button, and the owner asked for a
+    /// call button there. The toolbar's alone: the pet's dock ends a call with
+    /// a stop and draws no phone (owner, 2026-10-04: "I prefer it was a stop
+    /// button").
     public static let callSymbol = "phone"
 
-    /// The hang-up, the phone set down: what the call's control draws while a
-    /// call is up, in the system's red (owner, 2026-10-04: "turns red when
-    /// the call is on to close it"). No green at rest: the window's own
-    /// controls already carry the traffic lights.
-    public static let hangUpSymbol = "phone.down.fill"
-
-    /// The SF Symbol a toolbar control draws beside or instead of its label,
-    /// at rest.
+    /// The SF Symbol a toolbar control draws beside or instead of its label.
+    ///
+    /// The call's is `callSymbol`, filled while a call is up (`fillsWhenOn`),
+    /// so its state shows in its shape as well as in its name.
     public static func symbol(of command: AppCommand) -> String? {
         switch command {
         case .runNetworkChecks: return "globe"
@@ -371,16 +354,11 @@ public enum CommandTable {
         }
     }
 
-    /// How a toolbar control's symbol draws in its command's state: its
-    /// symbol at rest in the toolbar's own ink, except the call's while a call
-    /// is up, which is the red hang-up. The one toolbar control whose state is
-    /// a fact about something running elsewhere, so its state shows in its
-    /// shape and its colour as well as in its name.
-    public static func toolbarSymbol(of command: AppCommand, isOn: Bool) -> ToolbarSymbol? {
-        guard let symbol = symbol(of: command) else { return nil }
-        guard command == .toggleVoiceCall, isOn else { return ToolbarSymbol(name: symbol, tint: nil) }
-
-        return ToolbarSymbol(name: hangUpSymbol, tint: Palette.hangUp)
+    /// Whether a toolbar control's symbol takes its filled form while its
+    /// command is on. Only the call's does: the one toolbar control whose
+    /// state is a fact about something running elsewhere.
+    public static func fillsWhenOn(_ command: AppCommand) -> Bool {
+        command == .toggleVoiceCall
     }
 
     public static func shortcut(of command: AppCommand) -> CommandShortcut? {
@@ -596,10 +574,5 @@ extension CommandPerforming {
 
     public func toolbarTitle(of command: AppCommand) -> String {
         CommandTable.toolbarTitle(of: command, isOn: isOn(command))
-    }
-
-    /// How the toolbar control's symbol draws right now.
-    public func toolbarSymbol(of command: AppCommand) -> ToolbarSymbol? {
-        CommandTable.toolbarSymbol(of: command, isOn: isOn(command))
     }
 }

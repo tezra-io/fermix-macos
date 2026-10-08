@@ -4,6 +4,8 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Pet: the stop button on the pet's dock ends a call and closes the chat's box in one press, as the chat's call button does, and only a click on the pet leaves it resting there. Neither is red any more: the call button's phone fills while a call is up.
+
 ## 0.4.0 (2026-10-08)
 
 - Runs the Fermix engine 0.14.0, which serves the iMessage channel and the ChatGPT sign-in for OpenAI Codex that the app now shows, offers Mistral Large 4, and keeps a GPT-Live call's work in the chat, where a task still running when the call ends finishes instead of being dropped.

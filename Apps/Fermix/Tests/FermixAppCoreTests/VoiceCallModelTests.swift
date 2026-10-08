@@ -1224,13 +1224,15 @@ struct VoiceCallSecondViewTests {
         #expect(model.voice.statusText == ProductStrings[.voiceStatusListening])
     }
 
-    @Test("dismiss returns an ended call to idle, and does nothing to a call that is up")
-    func dismissOnlyEndsTheEndedState() {
+    @Test("closing the box changes nothing about the call, and lasts until the next start")
+    func closingTheBoxLeavesTheCall() {
         let model = negotiatedModel()
         model.beginTestCall()
         _ = model.apply(.state(.listening), audioIsPlaying: false)
+        #expect(!model.callBoxClosed)
 
-        model.dismissEnded()
+        model.closeCallBox()
+        #expect(model.callBoxClosed)
         #expect(model.voice.phase == .active)
 
         _ = model.apply(
@@ -1238,11 +1240,11 @@ struct VoiceCallSecondViewTests {
             audioIsPlaying: false
         )
         #expect(model.voice.phase == .ended(.failed(kind: .providerDisconnected, sentence: ProductStrings[.voiceErrorProviderDisconnected])))
+        #expect(model.voice.status.carriesItsOwnSentence)
+        #expect(model.callBoxClosed)
 
-        model.dismissEnded()
-        #expect(model.voice.phase == .idle)
-        #expect(!model.voice.status.carriesItsOwnSentence)
-        #expect(model.voice.settledCostCents == nil)
+        model.callStarting()
+        #expect(!model.callBoxClosed)
     }
 
     @Test("the settled cost is the ended call's, never the figure while it is up")

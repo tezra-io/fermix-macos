@@ -300,6 +300,12 @@ public final class VoiceCallModel: ObservableObject {
     /// as a new call. Not published: nothing redraws for it.
     private var introAttempt: Int?
 
+    /// The start whose call box the person closed. The box goes at once, the
+    /// call behind it still ending, and stays gone until the next start mints
+    /// a new attempt; the call's facts, its cost among them, stay for the Pet
+    /// page. Published: the box redraws for it.
+    @Published private var closedBoxAttempt: Int?
+
     /// When the last chunk of a reply the operator stopped arrived, while more
     /// of it may still be coming.
     ///
@@ -390,18 +396,6 @@ public final class VoiceCallModel: ObservableObject {
         guard voice.phase == .stopping else { return }
 
         end(.normal(settled: voice.usage))
-    }
-
-    /// The ended call's state was dismissed: its outcome and its bill leave
-    /// every surface, and the presentation rests as it does with no call.
-    /// A call that is up, starting or stopping has nothing to dismiss.
-    public func dismissEnded() {
-        guard case .ended = voice.phase else { return }
-
-        var next = voice
-        next.phase = .idle
-        next.restOutsideACall()
-        voice = next
     }
 
     public func voiceNegotiated() {
@@ -521,6 +515,16 @@ public final class VoiceCallModel: ObservableObject {
     /// The box's mascot appeared for this start, so its intro is spent.
     public func introShown() {
         introAttempt = voice.attempt
+    }
+
+    /// Whether the person closed this start's box.
+    public var callBoxClosed: Bool { closedBoxAttempt == voice.attempt }
+
+    /// The person closed the box: the dock's stop, or a call control that
+    /// ended the call (owner, 2026-10-08: "the stop should basically close
+    /// the mascot").
+    public func closeCallBox() {
+        closedBoxAttempt = voice.attempt
     }
 
     public func mainWindowVisibilityChanged(_ visible: Bool) {

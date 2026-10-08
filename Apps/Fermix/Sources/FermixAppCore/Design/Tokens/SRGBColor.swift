@@ -43,26 +43,6 @@ public struct SRGBColor: Equatable, Sendable {
         )
     }
 
-    /// What a colour the system defines resolves to in one appearance, in
-    /// sRGB. A system colour with no sRGB form there is a source defect, so it
-    /// traps rather than resolving to some other colour.
-    public init(resolving system: NSColor, in appearance: NSAppearance.Name) {
-        var resolved: NSColor?
-        NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
-            resolved = system.usingColorSpace(.sRGB)
-        }
-        guard let resolved else {
-            preconditionFailure("\(system) has no sRGB form in \(appearance.rawValue)")
-        }
-
-        self.init(
-            red: resolved.redComponent,
-            green: resolved.greenComponent,
-            blue: resolved.blueComponent,
-            alpha: resolved.alphaComponent
-        )
-    }
-
     /// `rgba(r, g, b, a)` with 0-255 channels, the form §1.2 publishes. The
     /// alpha tokens are used verbatim and never converted to hex.
     public static func rgba(_ red: Int, _ green: Int, _ blue: Int, _ alpha: Double) -> SRGBColor {
