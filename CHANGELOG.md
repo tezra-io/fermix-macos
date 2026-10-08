@@ -4,6 +4,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Pet: during a call the pet takes its listening pose only once Fermix can hear you, so while the call is still connecting, or once it is ending, the pet rests instead of looking like it is listening.
 - Pet: the stop button on the pet's dock ends a call and closes the chat's box in one press, as the chat's call button does, and only a click on the pet leaves it resting there. Neither is red any more: the call button's phone fills while a call is up.
 
 ## 0.4.0 (2026-10-08)

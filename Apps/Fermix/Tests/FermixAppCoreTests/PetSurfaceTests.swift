@@ -209,6 +209,33 @@ struct PetSurfaceTests {
         #expect(harness.model.callHelpText == ProductStrings[.voiceErrorNoInputDevice])
     }
 
+    /// Listening is the daemon's word (owner, 2026-10-08: the pet must not
+    /// look like it is listening "while the microphone is still not up").
+    /// From `call_start` until the daemon first says listening the provider
+    /// is connecting and nothing is sent, and once the call is ending the
+    /// microphone is already released: the pet rests through both.
+    @Test("the pet rests until the daemon says listening, and from the moment the call ends")
+    func listensOnlyOnTheDaemonsWord() throws {
+        let harness = try harness()
+        harness.call.voiceNegotiated()
+
+        harness.call.callStarting()
+        #expect(harness.model.expression == .idle, "the microphone is warming")
+
+        harness.call.callStarted()
+        _ = harness.call.apply(
+            .callReady(RealtimeCallReady(engine: "openai_live", callId: "voice_live:test", captions: true)),
+            audioIsPlaying: false
+        )
+        #expect(harness.model.expression == .idle, "the provider is still connecting")
+
+        _ = harness.call.apply(.state(.listening), audioIsPlaying: false)
+        #expect(harness.model.expression == .listening)
+
+        harness.call.callStopping()
+        #expect(harness.model.expression == .idle, "the microphone is released")
+    }
+
     // MARK: - The mascot's click
 
     /// The mascot's click is the call control's, through the gate, wherever

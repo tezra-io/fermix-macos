@@ -1092,7 +1092,7 @@ struct LiveReplyEndTests {
 
         #expect(model.voice.mode == .listening)
         #expect(model.voice.status == .listening)
-        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .listening)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode) == .listening)
     }
 
     @Test("a reply spoken over running backend work returns the pet to that work")
@@ -1104,7 +1104,7 @@ struct LiveReplyEndTests {
         model.voicePlaybackDrained()
 
         #expect(model.voice.mode == .toolUse)
-        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .thinking)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode) == .thinking)
 
         _ = model.apply(.task(RealtimeTask(delegationId: "d1", revision: 1, status: .completed, summary: nil)), audioIsPlaying: false)
         #expect(model.voice.mode == .listening)
@@ -1134,7 +1134,7 @@ struct LiveReplyEndTests {
         model.voicePlaybackDrained()
 
         #expect(model.voice.mode == .toolUse)
-        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .thinking)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode) == .thinking)
     }
 
     @Test("stopping a reply spoken over backend work returns to the work")
