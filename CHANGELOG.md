@@ -4,6 +4,8 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+## 0.4.0 (2026-10-08)
+
 - Runs the Fermix engine 0.14.0, which serves the iMessage channel and the ChatGPT sign-in for OpenAI Codex that the app now shows, offers Mistral Large 4, and keeps a GPT-Live call's work in the chat, where a task still running when the call ends finishes instead of being dropped.
 - Chat: a file a reply names, such as a screenshot or a report the agent saved, is a link. Pictures, PDFs, text and HTML open read only in a file tab of the browser, with a page's scripts off and nothing loaded from the internet; documents such as Word files, Pages files and spreadsheets open in their own app; and anything else, an app among them, is only shown in Finder, so a click never runs anything.
 - Channels: turning iMessage on installs Fermix Messages first, and if the install fails the switch stays off with the reason under it. The iMessage row then names the first thing still missing until it reads Connected; while that is a grant or your confirmation of who Fermix may message, it reads "Grant in Permissions" or "Confirm in Permissions", and those words open the Permissions pane.
@@ -24,6 +26,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 - Providers: Import Codex sign-in and Fast mode are gone, because OpenAI Codex now signs in only with ChatGPT.
 - Sign-in: the browser stays in front while you sign in, because the waiting sheet now opens it after coming up instead of appearing over it.
 - Chat: a call button at the top right begins and ends a voice call, and while the call runs the pet floats there with its mute, interrupt and end controls, staying to say why if the call fails.
+- The macOS floor stays at 15.0.
 
 ## 0.3.0 (2026-09-30)
 
