@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
 # Import the "Developer ID Application" certificate into an ephemeral CI keychain
-# so headless codesign can use it, then set the partition list (without which the
-# first codesign call blocks forever on a UI prompt). Follows the proven compux
-# release flow, with an explicit PKCS#12 format so import never depends on the
-# temp file's extension.
+# so headless codesign can use it, keep it from locking itself mid-job, then set
+# the partition list (without which the first codesign call blocks forever on a
+# UI prompt). Follows the proven compux release flow, with an explicit PKCS#12
+# format so import never depends on the temp file's extension.
 #
 # Usage: keychain.sh import
 # Required env: MACOS_CERT_P12_BASE64  MACOS_CERT_PASSWORD  MACOS_KEYCHAIN_PASSWORD
@@ -31,6 +31,11 @@ import_cert() {
   echo "certificate: decoded $(wc -c <"$p12" | tr -d ' ') bytes, type: $(file -b "$p12" 2>/dev/null || echo unknown)"
 
   security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
+  # A new keychain locks after 300 s unused, and the release build runs about
+  # that long before its first codesign: a locked keychain makes codesign wait
+  # on an unlock prompt nobody can answer, which hung the job until cancelled.
+  # Six hours is the job's own ceiling.
+  security set-keychain-settings -lut 21600 "$KEYCHAIN"
   security default-keychain -s "$KEYCHAIN"
   security unlock-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
   security import "$p12" -f pkcs12 -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
