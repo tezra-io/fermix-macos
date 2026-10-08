@@ -4,6 +4,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Pet: a call begun from the pet resting in the chat goes straight into the call without hatching again. The pet hatches only when it first appears.
 - Voice: the first call after Fermix starts no longer freezes the window for a moment while the microphone gets ready, so the pet appears in the chat as soon as you click.
 - Pet: during a call the pet takes its listening pose only once Fermix can hear you, so while the call is still connecting, or once it is ending, the pet rests instead of looking like it is listening.
 - Pet: the stop button on the pet's dock ends a call and closes the chat's box in one press, as the chat's call button does, and only a click on the pet leaves it resting there. Neither is red any more: the call button's phone fills while a call is up.

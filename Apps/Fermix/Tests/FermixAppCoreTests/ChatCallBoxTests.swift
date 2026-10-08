@@ -212,7 +212,8 @@ struct ChatCallBoxTests {
     /// idle mode". Its click is the call control's, through the gate, and its
     /// tooltip the control's: it ends the call that is up, the pet going to
     /// its idle pose in the box that stays, and a click on that idle pet
-    /// begins the next call, which plays its intro once.
+    /// begins the next call with the same pet, which does not hatch again
+    /// (owner, 2026-10-08: "if its idle theres no point in rehatching").
     @Test("a click on the box's pet ends the call, and on the idle pet begins the next")
     func mascotClickTogglesTheCall() throws {
         let harness = try liveCall()
@@ -233,12 +234,13 @@ struct ChatCallBoxTests {
         #expect(harness.call.voice.phase == .starting)
         #expect(state(harness) == .live)
         #expect(harness.call.voice.attempt == first + 1)
-        #expect(!harness.call.introPlayed, "the next call's pet swells in once")
+        #expect(harness.call.introPlayed, "the resting pet hatched again for the next call")
 
         // The click is the companion's, one view in both hosts, and the box
         // acts on the call through nothing of its own.
         let box = try Self.text(of: "Chat/ChatCallBox.swift")
         #expect(box.contains("host: .callBox"))
+        #expect(!box.contains(".id(call.voice.attempt)"), "each call builds a new mascot again")
         #expect(!box.contains("toggleCall"), "the box acts on the call itself")
         #expect(!box.contains("onTapGesture"), "the box takes the mascot's click itself")
     }

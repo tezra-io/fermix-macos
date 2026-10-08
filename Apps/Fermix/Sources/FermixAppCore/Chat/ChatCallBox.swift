@@ -83,9 +83,11 @@ struct ChatCallBox: View {
         live && windowVisible && !reduceMotion
     }
 
-    /// The two second intro, once per call: not again when the chat view is
-    /// rebuilt mid-call, not for a failed call's still mascot, and never under
-    /// Reduce Motion.
+    /// The two second intro, once each time the box appears with a call (owner,
+    /// 2026-10-08: hatching makes sense the first time, "from idle to hatching
+    /// doesnt"): not again when the chat view is rebuilt mid-call, nor for a
+    /// call begun from the pet resting in the box, not for a failed call's
+    /// still mascot, and never under Reduce Motion.
     static func playsIntro(live: Bool, introPlayed: Bool, reduceMotion: Bool) -> Bool {
         live && !introPlayed && !reduceMotion
     }
@@ -108,8 +110,9 @@ struct ChatCallBox: View {
         let live = state == .live
 
         return VStack(spacing: Spacing.xs) {
-            // A new start is a new mascot, so each call swells in once; the
-            // call model remembers that it did, because this view is rebuilt on
+            // The mascot swells in when the box appears, and a call begun
+            // from the pet resting here carries the same mascot on. The call
+            // model remembers that it did, because this view is rebuilt on
             // every rail change.
             PetCompanion(
                 model: pet,
@@ -120,7 +123,6 @@ struct ChatCallBox: View {
                 dock: .shown,
                 host: .callBox
             )
-            .id(call.voice.attempt)
             .onAppear { call.introShown() }
 
             if case .failed(let sentence) = state {

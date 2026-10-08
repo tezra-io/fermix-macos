@@ -1263,9 +1263,11 @@ struct VoiceCallSecondViewTests {
     }
 
     /// The chat view is rebuilt on every rail change, so the call model
-    /// remembers whether this call's intro has played.
-    @Test("the intro plays once per call, and not again when the strip is rebuilt")
-    func introOncePerCall() {
+    /// remembers whether this call's intro has played. A call begun from the
+    /// pet resting in the box keeps that pet; one begun once the box was
+    /// closed brings a new one, which swells in.
+    @Test("the intro plays once per box, not again when the box is rebuilt or the resting pet begins a call")
+    func introOncePerBox() {
         let model = negotiatedModel()
 
         model.callStarting()
@@ -1273,7 +1275,7 @@ struct VoiceCallSecondViewTests {
 
         model.introShown()
         #expect(model.introPlayed)
-        // A rail change mid-call builds a new strip, which reads this again.
+        // A rail change mid-call builds a new box, which reads this again.
         model.callStarted()
         #expect(model.introPlayed)
 
@@ -1282,7 +1284,14 @@ struct VoiceCallSecondViewTests {
         #expect(model.introPlayed)
 
         model.callStarting()
-        #expect(!model.introPlayed)
+        #expect(model.introPlayed, "the resting pet hatched again")
+
+        model.callStarted()
+        model.closeCallBox()
+        model.callStopping()
+        model.callEnded()
+        model.callStarting()
+        #expect(!model.introPlayed, "a new box's pet did not swell in")
     }
 
     @Test("the main window's visibility reaches the call model, published only when it moves")
