@@ -144,6 +144,10 @@ public enum VendorMarks {
 
         // Channels.
         VendorMark(.channel, "discord", .file(.init("channels", "discord-blurple", "svg"))),
+        // Apple publishes no Messages mark and forbids reproducing its icon, so
+        // the row draws the channel's own symbol beside the daemon's name.
+        VendorMark(.channel, "imessage", .file(.init("channels", "imessage-color", "svg")), plate: .bleed),
+        VendorMark(.channel, "mobile", .file(.init("channels", "phone-color", "svg")), plate: .bleed),
         VendorMark(.channel, "signal", .file(.init("channels", "signal-ultramarine", "svg"))),
         VendorMark(.channel, "slack", .file(.init("channels", "slack-color", "png")), plate: .bleed),
         VendorMark(.channel, "telegram", .file(.init("channels", "telegram-color", "svg")), plate: .bleed),

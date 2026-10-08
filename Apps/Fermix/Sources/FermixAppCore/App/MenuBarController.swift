@@ -65,8 +65,8 @@ public final class MenuBarController: MenuBarItemPresenting {
     private let item: any StatusItemPresenting
     private var modelChanges: AnyCancellable?
     /// The glyph on the bar now. The model publishes for everything it holds,
-    /// including every audio chunk of a voice call, and the glyph depends on
-    /// two of those facts, so the image is set again only when it would change.
+    /// and the glyph depends on two of those facts, so the image is set again
+    /// only when it would change.
     private var drawn: MenuBarGlyphState?
 
     /// The shipped item: one real `NSStatusItem`, made here because this is the

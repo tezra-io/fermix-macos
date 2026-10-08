@@ -49,12 +49,20 @@ public enum BrowserZoom: Sendable {
     }
 }
 
-/// A JavaScript dialog a page raised: `alert`, `confirm` or `prompt`.
+/// A JavaScript dialog a page raised: `alert`, `confirm` or `prompt`. Or one
+/// of the pane's own questions, before a link in the person's tab opens
+/// another app or before a file outside the Fermix home loads, which take the
+/// same one place over the pane.
 public struct BrowserDialog: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case alert
         case confirm
         case prompt(defaultText: String)
+        /// Whether the app on this Mac named here may open the page's link.
+        case openApp(name: String)
+        /// Whether the file named here, outside the Fermix home, may load in
+        /// the file tab opened for it.
+        case openFile(name: String)
     }
 
     public let kind: Kind
@@ -76,6 +84,19 @@ public enum BrowserDialogAnswer: Equatable, Sendable {
     case text(String)
 }
 
+/// A file chooser a page's upload field raised, as WebKit describes it.
+public struct BrowserFileRequest: Equatable, Sendable {
+    /// The field takes several files at once.
+    public let allowsMultipleSelection: Bool
+    /// The field takes a folder (`webkitdirectory`).
+    public let allowsDirectories: Bool
+
+    public init(allowsMultipleSelection: Bool, allowsDirectories: Bool) {
+        self.allowsMultipleSelection = allowsMultipleSelection
+        self.allowsDirectories = allowsDirectories
+    }
+}
+
 /// One page as the web engine drives it, behind the seam.
 ///
 /// The engine's side of a tab: `BrowserTab` holds one and forwards the
@@ -87,6 +108,12 @@ public protocol BrowserPage: AnyObject {
     var events: (any BrowserPageEvents)? { get set }
 
     func load(_ url: URL)
+    /// A file on this Mac, shown as `kind`, on a page of the file profile,
+    /// which loads nothing before its network rule is in place. `readAccess`
+    /// is the file itself, or the folder an HTML file inside the Fermix home
+    /// sits in, so a report's own images and stylesheets show. Reload shows
+    /// the file again, reading text afresh.
+    func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL)
     func back()
     func forward()
     func reload()
@@ -107,9 +134,16 @@ public protocol BrowserPageEvents: AnyObject {
     /// The page asked for its own window to close, as a sign-in window does
     /// when it is done.
     func pageAskedToClose()
+    /// The page's upload field asked for files. Answered exactly once: the
+    /// files chosen, or nil for none.
+    func pageRequestedFiles(_ request: BrowserFileRequest, answer: @escaping @MainActor ([URL]?) -> Void)
     func pageMetExternalScheme(_ url: URL)
+    /// A link a file page does not load, whose navigation it has already
+    /// refused: a web page or another file on this Mac a person clicked in it.
+    func pageHandedOff(_ url: URL)
     func pagePresented(_ dialog: BrowserDialog, answer: @escaping @MainActor (BrowserDialogAnswer) -> Void)
-    func pageStartedDownload(_ url: URL)
+    /// A navigation became a file to save.
+    func pageStartedDownload(_ download: any BrowserDownload)
     /// A load never reached a page, in the system's own sentence.
     func pageFailed(_ reason: String)
 }
@@ -120,29 +154,50 @@ public protocol BrowserTabDelegate: AnyObject {
     /// A page opened a tab of its own. Answering false refuses it.
     func newTabRequested(_ tab: BrowserTab, from opener: BrowserTab) -> Bool
     func closeRequested(by tab: BrowserTab)
+    /// A page's upload field asked for files, answered exactly once.
+    func filesRequested(
+        _ request: BrowserFileRequest,
+        in tab: BrowserTab,
+        answer: @escaping @MainActor ([URL]?) -> Void
+    )
     /// A navigation to a scheme no web page serves, such as `mailto:`, which
-    /// belongs to another app on the Mac.
-    func externalSchemeMet(_ url: URL)
+    /// belongs to another app on the Mac. Whether that app opens is the tab
+    /// owner's rule.
+    func externalSchemeMet(_ url: URL, in tab: BrowserTab)
+    /// A link the tab does not load, to be opened as the same link from a
+    /// reply would be.
+    func handOffRequested(_ url: URL, from tab: BrowserTab)
     func dialogPresented(
         _ dialog: BrowserDialog,
         in tab: BrowserTab,
         answer: @escaping @MainActor (BrowserDialogAnswer) -> Void
     )
-    func downloadStarted(_ url: URL)
+    /// A page in the tab began saving a file. Whoever takes it sets its
+    /// events at once.
+    func downloadStarted(_ download: any BrowserDownload, in tab: BrowserTab)
     func loadFailed(_ reason: String, in tab: BrowserTab)
 }
 
 /// One tab of the pane: what its page shows, and what a person can ask of it.
 ///
-/// Its published state is written by its page's reports and by nothing else,
-/// so a view reads it and never sets it. The shape mirrors Apple's `WebPage`,
-/// so a later move to that API is mechanical.
+/// Its page state is written by its page's reports and by nothing else, so a
+/// view reads it and never sets it. The shape mirrors Apple's `WebPage`, so a
+/// later move to that API is mechanical.
 @MainActor
 public final class BrowserTab: ObservableObject, Identifiable {
     public let id = UUID()
     public let profile: BrowserProfile
     public weak var delegate: (any BrowserTabDelegate)?
 
+    /// The file a file tab was opened on, which its chip and address capsule
+    /// name from the moment it opens: a file outside the Fermix home waits
+    /// for the person's answer before anything loads, so the page has nothing
+    /// to report yet. The coordinator's to set, once; nil for every other tab.
+    @Published public internal(set) var file: URL?
+    /// The app a file tab offers its file to, decided by the coordinator as
+    /// the tab opens; nil where it offers none. The offer is decided again
+    /// when the person takes it, from the file as it is then.
+    @Published public internal(set) var fileApp: WorkspaceApplication?
     @Published public private(set) var url: URL?
     @Published public private(set) var title = ""
     @Published public private(set) var isLoading = false
@@ -171,6 +226,9 @@ public final class BrowserTab: ObservableObject, Identifiable {
     public var cookieStore: (any BrowserPageCookies)? { page as? any BrowserPageCookies }
 
     public func load(_ url: URL) { page.load(url) }
+    public func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL) {
+        page.loadFile(url, as: kind, readAccess: readAccess)
+    }
     public func back() { page.back() }
     public func forward() { page.forward() }
     public func reload() { page.reload() }
@@ -208,8 +266,23 @@ extension BrowserTab: BrowserPageEvents {
         delegate?.closeRequested(by: self)
     }
 
+    /// A page with nobody to ask gets no file, as a cancelled chooser does,
+    /// because WebKit holds the field until it is answered.
+    public func pageRequestedFiles(_ request: BrowserFileRequest, answer: @escaping @MainActor ([URL]?) -> Void) {
+        guard let delegate else {
+            answer(nil)
+            return
+        }
+
+        delegate.filesRequested(request, in: self, answer: answer)
+    }
+
     public func pageMetExternalScheme(_ url: URL) {
-        delegate?.externalSchemeMet(url)
+        delegate?.externalSchemeMet(url, in: self)
+    }
+
+    public func pageHandedOff(_ url: URL) {
+        delegate?.handOffRequested(url, from: self)
     }
 
     /// A page with nobody to ask is answered at once, because WebKit holds the
@@ -223,8 +296,14 @@ extension BrowserTab: BrowserPageEvents {
         delegate.dialogPresented(dialog, in: self, answer: answer)
     }
 
-    public func pageStartedDownload(_ url: URL) {
-        delegate?.downloadStarted(url)
+    /// A tab nobody holds any more saves nothing.
+    public func pageStartedDownload(_ download: any BrowserDownload) {
+        guard let delegate else {
+            download.cancel {}
+            return
+        }
+
+        delegate.downloadStarted(download, in: self)
     }
 
     public func pageFailed(_ reason: String) {

@@ -1,3 +1,4 @@
+import AppKit
 import FermixAppCore
 import Foundation
 import WebKit
@@ -14,20 +15,60 @@ import WebKit
 /// persistent website data store, named by the identifier the core keeps in
 /// the app's support folder, so a website sign-in survives closing the tab and
 /// quitting the app, and is separate from every other browser on the Mac. A
-/// private tab gets a store that is never written to disk.
+/// private tab gets a store that is never written to disk, and so does a file
+/// tab, which also runs none of its file's scripts and loads nothing from the
+/// network (`WebKitFileRules`).
 @MainActor
 public final class WebKitBrowserEngine: BrowserEngine {
     private let websiteProfile: UUID
     /// Opened on the first shared tab, so a person who only ever opens private
     /// tabs never has the persistent store created for them.
     private lazy var sharedStore = WKWebsiteDataStore(forIdentifier: websiteProfile)
+    /// Compiled on the first file tab, so an engine that never shows a file
+    /// never compiles it.
+    private lazy var fileRules = WebKitFileRules()
 
     public init(websiteProfile: UUID) {
         self.websiteProfile = websiteProfile
     }
 
     public func makeTab(profile: BrowserProfile) -> BrowserTab {
-        BrowserTab(profile: profile, page: WebKitBrowserPage(configuration: configuration(for: profile)))
+        let page = WebKitBrowserPage(configuration: configuration(for: profile), fileRules: profile == .file ? fileRules : nil)
+
+        return BrowserTab(profile: profile, page: page)
+    }
+
+    /// The system's open panel, as a sheet on the pane's window, which is the
+    /// window the person's tab in front is in. A page in no window has nowhere
+    /// to show it, and gets no file.
+    public func chooseFiles(_ request: BrowserFileRequest, for page: NSView, answer: @escaping @MainActor ([URL]?) -> Void) {
+        guard let window = page.window else {
+            answer(nil)
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = request.allowsMultipleSelection
+        panel.canChooseDirectories = request.allowsDirectories
+        panel.beginSheetModal(for: window) { response in
+            answer(response == .OK ? panel.urls : nil)
+        }
+    }
+
+    /// The system's save panel, as a sheet on the pane's window, the same way.
+    /// A page in no window has nowhere to show it, which cancels the download.
+    public func chooseSaveDestination(_ filename: String, for page: NSView, answer: @escaping @MainActor (URL?) -> Void) {
+        guard let window = page.window else {
+            answer(nil)
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        panel.nameFieldStringValue = filename
+        panel.beginSheetModal(for: window) { response in
+            answer(response == .OK ? panel.url : nil)
+        }
     }
 
     /// The corner window a task's pages run in while the pane cannot show
@@ -43,20 +84,35 @@ public final class WebKitBrowserEngine: BrowserEngine {
     /// The privacy defaults that need no vendored list (plan §4.6).
     ///
     /// Known hosts go to https before the request leaves, and every other http
-    /// navigation is tried over https first, with WebKit's own warning page
-    /// standing between the person and a page that only answers in the clear.
+    /// navigation is tried over https first, except to this Mac's own loopback
+    /// addresses, which `WebKitBrowserPage` keeps as asked. Where https fails,
+    /// WebKit tells the navigation delegate nothing. For a host name it lays
+    /// its own warning view over the page ("This Connection Is Not Secure",
+    /// with Continue and Go Back), the web view's URL goes to nil and no
+    /// failure or finish arrives; Continue loads the page in the clear as a
+    /// new navigation. For an IPv4 address it tries nothing, commits
+    /// `about:blank` and reports that finished, with no warning.
     /// The fraudulent website warning is WebKit's default and is stated rather
     /// than left implicit, because turning it off would be a decision.
+    ///
+    /// A file tab keeps no website data and runs none of the file's own
+    /// scripts, here and in every navigation's own preferences
+    /// (`WebKitBrowserPage`); its page installs the network rule before it
+    /// loads anything. It also has no https-first policy: under that policy a
+    /// file that loads from disk (a picture, a PDF, an HTML file) gets no
+    /// response and commits a blank page, with no failure, and a file tab
+    /// never goes to the network for the policy to guard.
     private func configuration(for profile: BrowserProfile) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = profile == .shared ? sharedStore : .nonPersistent()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = profile != .file
         // Unconditional: available since macOS 11.3, well under the floor.
         configuration.upgradeKnownHostsToHTTPS = true
         // `preferredHTTPSNavigationPolicy` is macOS 15.2. The floor stays 15.0
         // (the Homebrew cask cannot express a minor release), so on 15.0 and
         // 15.1 the policy is left at WebKit's own default rather than raising
         // the floor for this one property.
-        if #available(macOS 15.2, *) {
+        if #available(macOS 15.2, *), profile != .file {
             configuration.defaultWebpagePreferences.preferredHTTPSNavigationPolicy = .userMediatedFallbackToHTTP
         }
         configuration.preferences.isFraudulentWebsiteWarningEnabled = true

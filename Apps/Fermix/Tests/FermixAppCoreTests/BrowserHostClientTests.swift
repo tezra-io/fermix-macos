@@ -152,6 +152,29 @@ struct BrowserHostClientTests {
         #expect(error["reason"] as? String == "not_owner")
     }
 
+    /// A file tab is the person's from the step that makes it, so the wire,
+    /// which names task tabs only, can neither list it nor reach it.
+    @Test("a file tab is never listed or reached by a task")
+    func fileTabIsBeyondTheWire() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let harness = place.harness()
+        harness.coordinator.openFile(try place.write("notes.md", in: place.home))
+        let fileTab = try #require(harness.model.tabs.first)
+        let (_, transport) = Self.attachedClient(harness: harness)
+
+        transport.deliver(.request(.tabList(id: 5, taskId: "task-1")))
+        transport.deliver(.request(.tabFocus(id: 6, tabId: fileTab.id.uuidString)))
+
+        let sent = try transport.sentObjects()
+        let list = try #require(sent.first { $0["id"] as? Int == 5 })
+        let listed = try #require((list["result"] as? [String: Any])?["tabs"] as? [Any])
+        #expect(listed.isEmpty)
+        let focus = try #require(sent.first { $0["id"] as? Int == 6 })
+        #expect((focus["error"] as? [String: Any])?["reason"] as? String == "not_owner")
+        #expect(harness.model.selectedTabID == fileTab.id)
+    }
+
     @Test("host.stop_ack completes the quit hold sendHostStopping started")
     func hostStopAckCompletesTheQuitHold() throws {
         let harness = BrowserHarness()

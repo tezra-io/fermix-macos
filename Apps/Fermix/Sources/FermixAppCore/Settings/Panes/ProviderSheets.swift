@@ -116,53 +116,86 @@ struct AddKeySheet: View {
 
 /// Sign in (M34 §5.1).
 ///
-/// One sheet for both doors. The browser opens on the row's click, so by the
-/// time this is on screen the tab is already there: what the sheet adds is the
-/// step the daemon reports, one way to open the tab again where it was lost,
-/// and one way to stop.
+/// One sheet for both doors. It comes up as the daemon answers the row's
+/// click and opens the browser once it is on screen, so the browser lands in
+/// front of it rather than behind it; then it adds the step the daemon
+/// reports, one way to open the tab again where it was lost, and one way to
+/// stop.
+///
+/// A completed ChatGPT sign-in does not close it: the sheet turns into OpenAI's
+/// notice that the plan is in use, in place, and closes on `Got it`. One popup
+/// that changes what it says, never a second one over it (owner directive of
+/// 2026-09-20).
 struct SignInSheet: View {
     /// What the product calls the provider being signed in to.
     let label: String
     let importing: Bool
     let starting: Bool
     @ObservedObject var runner: JobRunner
+    /// Opens the browser for this run once the sheet is on screen, which is
+    /// what keeps the browser in front of it: `SettingsModel.openSignIn(on:)`.
+    let open: () -> Void
     /// Opens the browser again for the same provider.
     let reopen: () -> Void
     let retry: () -> Void
-    let browserFallback: (() -> Void)?
+    /// Opens ChatGPT's usage settings and answers the sentence a refusal
+    /// earned. Set only for a ChatGPT sign-in, which is what makes a completed
+    /// one end on the plan notice: `SettingsModel.manageUsage(after:)` decides.
+    let manageUsage: (() -> String?)?
     let dismiss: () -> Void
     @State private var cancelling = false
+    @State private var usageRefusal: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.m) {
-            Text(ProductStrings[importing ? .providerImportTitle : .providerSignInTitle])
-                .fermixType(Typography.sheetTitle)
-                .foregroundStyle(Palette.ink.color)
-
-            Text(ProductStrings[importing ? .providerImportBody : .providerSignInBody])
-                .fermixType(Typography.style(.calloutSmall))
-                .foregroundStyle(Palette.secondary.color)
-                .fixedSize(horizontal: false, vertical: true)
-
-            progress
-
-            if let sentence = runner.failure ?? runner.browserFailure {
-                Text(sentence)
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.warning.color)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.updatesFrequently)
+            switch phase {
+            case .planNotice:
+                planNotice
+            case .waiting, .closed:
+                waiting
             }
-
-            actions
         }
         .padding(WindowMetrics.contentPadding)
         .frame(width: SheetMetrics.credentialWidth)
+        // Escape closes the notice, as on every sheet (M34 §3.1). While the
+        // sheet waits, its Cancel and Done buttons own the key instead.
+        .onExitCommand(perform: phase == .planNotice ? dismiss : nil)
+        // Each run's browser opens here, after the sheet came up, so the
+        // browser is the last window a click brings forward.
+        .task(id: runner.job?.jobId) { open() }
         .task(id: runner.job?.status) {
-            guard runner.job?.status == .completed || runner.job?.status == .cancelled else { return }
+            guard phase == .closed else { return }
 
             dismiss()
         }
+    }
+
+    private var phase: SignInSheetPhase {
+        SignInSheetPhase(status: runner.job?.status, showsPlanNotice: manageUsage != nil)
+    }
+
+    @ViewBuilder
+    private var waiting: some View {
+        Text(ProductStrings[importing ? .providerImportTitle : .providerSignInTitle])
+            .fermixType(Typography.sheetTitle)
+            .foregroundStyle(Palette.ink.color)
+
+        Text(ProductStrings[importing ? .providerImportBody : .providerSignInBody])
+            .fermixType(Typography.style(.calloutSmall))
+            .foregroundStyle(Palette.secondary.color)
+            .fixedSize(horizontal: false, vertical: true)
+
+        progress
+
+        if let sentence = runner.failure ?? runner.browserFailure {
+            Text(sentence)
+                .fermixType(Typography.style(.calloutSmall))
+                .foregroundStyle(Palette.warning.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.updatesFrequently)
+        }
+
+        actions
     }
 
     private var progress: some View {
@@ -210,11 +243,42 @@ struct SignInSheet: View {
     @ViewBuilder
     private var terminalActions: some View {
         Button(ProductStrings[.providerSignInRetry], action: retry)
-        if let browserFallback {
-            Button(ProductStrings[.providerSignInBrowser], action: browserFallback)
-        }
         Button(ProductStrings[.settingsSheetDone], action: dismiss)
             .keyboardShortcut(.cancelAction)
+    }
+
+    /// OpenAI's notice, in OpenAI's words: the plan is in use, and where to
+    /// manage it. Its title is the first thing VoiceOver reads and `Got it` is
+    /// the default action. Manage usage leaves the sheet where it is.
+    @ViewBuilder
+    private var planNotice: some View {
+        Text(ProductStrings[.providerChatGPTNoticeTitle])
+            .fermixType(Typography.sheetTitle)
+            .foregroundStyle(Palette.ink.color)
+            .accessibilityAddTraits(.isHeader)
+
+        Text(ProductStrings[.providerChatGPTNoticeBody])
+            .fermixType(Typography.style(.calloutSmall))
+            .foregroundStyle(Palette.secondary.color)
+            .fixedSize(horizontal: false, vertical: true)
+
+        if let usageRefusal {
+            Text(usageRefusal)
+                .fermixType(Typography.style(.calloutSmall))
+                .foregroundStyle(Palette.warning.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.updatesFrequently)
+        }
+
+        HStack(spacing: Spacing.s) {
+            Spacer(minLength: 0)
+
+            Button(ProductStrings[.providerChatGPTManageUsage]) { usageRefusal = manageUsage?() }
+                .accessibilityHint(ProductStrings[.providerChatGPTManageUsageHint])
+
+            Button(ProductStrings[.providerChatGPTNoticeDone], action: dismiss)
+                .keyboardShortcut(.defaultAction)
+        }
     }
 
     private func cancel() {
@@ -227,6 +291,36 @@ struct SignInSheet: View {
         Task {
             await runner.cancelJob()
             cancelling = false
+        }
+    }
+}
+
+/// What the sign-in sheet shows for the job it follows.
+///
+/// Decided here rather than in the view, because two hosts present the sheet
+/// and both have to agree on when it closes itself: a completed ChatGPT
+/// sign-in stays on OpenAI's notice until `Got it`, and every other ending is
+/// what it always was.
+enum SignInSheetPhase: Equatable {
+    /// Running, failed, timed out, refused before it began, or a status this
+    /// build does not know: the sheet reports the step or the sentence, and a
+    /// person closes it.
+    case waiting
+    /// A completed ChatGPT sign-in: OpenAI's notice, in place, until `Got it`.
+    case planNotice
+    /// Completed or cancelled with nothing more to say: the sheet closes.
+    case closed
+
+    /// - Parameter showsPlanNotice: whether this sign-in ends on OpenAI's
+    ///   notice, which `SettingsModel.manageUsage(after:)` answers.
+    init(status: ManagementJobStatus?, showsPlanNotice: Bool) {
+        switch status {
+        case .completed:
+            self = showsPlanNotice ? .planNotice : .closed
+        case .cancelled:
+            self = .closed
+        case .running, .failed, .timedOut, .unrecognized, nil:
+            self = .waiting
         }
     }
 }

@@ -794,13 +794,12 @@ public final class BrowserHostClient {
 
     /// Whether `path` falls inside `root`: the engine's browser directory for
     /// a screenshot or a PDF the app writes, its workspace for an upload the
-    /// app reads. Each kind has the one root the engine keeps it under.
+    /// app reads. Each kind has the one root the engine keeps it under, and
+    /// `FilePlace` decides on where both really are.
     private func validatedPath(_ path: String, under root: () throws -> URL) -> Bool {
         guard let root = try? root() else { return false }
 
-        let standardizedRoot = root.standardizedFileURL.path
-        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
-        return standardizedPath == standardizedRoot || standardizedPath.hasPrefix(standardizedRoot + "/")
+        return FilePlace.path(path, liesUnder: root)
     }
 
     private func wireError(for refusal: BrowserTabRefusal, task: String) -> BrowserHostError {
@@ -1002,6 +1001,15 @@ extension BrowserHostClient: BrowserHostLink {
     /// window.
     public func tabClosed(_ tab: BrowserTab.ID, task: BrowserTaskID) {
         send(.tabClosed(tabId: Self.wireID(tab), by: .page))
+    }
+
+    /// The contract's own two events, in its order: `download.began`, then a
+    /// terminal `download.finished` that failed, with no path and no bytes.
+    public func downloadRefused(_ download: UUID, tab: BrowserTab.ID, filename: String, reason: String) {
+        let downloadId = download.uuidString
+        let tabId = Self.wireID(tab)
+        send(.downloadBegan(downloadId: downloadId, tabId: tabId, filename: filename))
+        send(.downloadFinished(downloadId: downloadId, tabId: tabId, state: .failed, path: nil, bytes: nil, reason: reason))
     }
 
     /// The person's "Cancel task", from its tab in the pane. The daemon's own

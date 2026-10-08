@@ -45,7 +45,16 @@ struct ConnectAISurface: View {
                 }
             )
         }
-        .sheet(isPresented: waitingForSignIn) { signInSheet }
+        .sheet(isPresented: signInSheetShown) { signInSheet }
+        // The flight ends when the job does, which is where the row's status
+        // word goes back to the daemon's and the gate reads again. The sheet
+        // can outlive it: a failed sign-in keeps its sentence, and a completed
+        // ChatGPT one shows OpenAI's notice until `Got it`.
+        .onChange(of: model.signIn.isRunning) { _, running in
+            guard !running else { return }
+
+            Task { await model.signInFinished() }
+        }
     }
 
     @ViewBuilder
@@ -80,8 +89,7 @@ struct ConnectAISurface: View {
                         ProviderSignInRow(
                             row: row,
                             perform: { perform(row) },
-                            enabled: !model.settings.startingSignIn && !model.signIn.isRunning,
-                            browserFallback: browserFallback(for: row)
+                            enabled: !model.settings.startingSignIn && !model.signIn.isRunning
                         )
                     }
 
@@ -153,53 +161,48 @@ struct ConnectAISurface: View {
         return ProductStrings.middot(provider.label, named)
     }
 
-    /// The one sign-in sheet, the same one the Providers pane draws. The
-    /// browser was already opened by the row's click, so the sheet only reports
-    /// the step and offers the tab again.
+    /// The one sign-in sheet, the same one the Providers pane draws. It opens
+    /// the browser once it is on screen, then reports the step and offers the
+    /// tab again.
     @ViewBuilder
     private var signInSheet: some View {
-        if let provider = model.settings.signingInProvider {
+        if let provider = model.signInSheetProvider {
             SignInSheet(
                 label: model.providers.first { $0.id == provider }?.label ?? provider,
                 importing: model.signIn.job?.kind == .authImport,
                 starting: model.settings.startingSignIn,
                 runner: model.signIn,
+                open: { model.settings.openSignIn(on: model.signIn) },
                 reopen: { model.settings.reopenSignIn(on: model.signIn) },
                 retry: { retrySignIn(provider: provider) },
-                browserFallback: provider == "openai_codex" && model.signIn.job?.kind == .authImport
-                    ? { Task { await model.startSignIn(provider: provider) } } : nil
+                manageUsage: model.settings.manageUsage(after: provider)
             ) {
-                Task { await model.signInFinished() }
+                Task { await model.signInSheetClosed() }
             }
         }
     }
 
+    /// Runs the attempt again the way it first ran. The one sign-in the app
+    /// adopts is Claude Code's, so an import is always that one.
     private func retrySignIn(provider: String) {
         guard model.signIn.job?.kind == .authImport else {
             Task { await model.startSignIn(provider: provider) }
             return
         }
 
-        let source: ManagementAuthImportSource = provider == "anthropic" ? .claudeCode : .codexCLI
-        Task { await model.importSignIn(source: source, provider: provider) }
+        Task { await model.importSignIn(source: .claudeCode, provider: provider) }
     }
 
-    private func browserFallback(for row: ProviderRowModel) -> (() -> Void)? {
-        guard row.verb == .importCodexCLI else { return nil }
-
-        return { Task { await model.startSignIn(provider: row.id) } }
-    }
-
-    /// The waiting sheet is open exactly while a sign-in is in flight, which is
-    /// the one status word no daemon field can report: the browser hop happens
-    /// outside the daemon.
-    private var waitingForSignIn: Binding<Bool> {
+    /// The sheet is open while the assistant's model says so: from the moment
+    /// a sign-in starts until the person closes it, which can be after the
+    /// flight it followed has ended.
+    private var signInSheetShown: Binding<Bool> {
         Binding(
-            get: { model.settings.signingInProvider != nil },
+            get: { model.signInSheetProvider != nil },
             set: { open in
                 guard !open else { return }
 
-                Task { await model.signInFinished() }
+                Task { await model.signInSheetClosed() }
             }
         )
     }
@@ -209,12 +212,10 @@ struct ConnectAISurface: View {
     /// performable at all, so the sheet cannot be opened without one.
     private func perform(_ row: ProviderRowModel) {
         switch row.verb {
-        case .signIn:
+        case .signIn, .continueWithChatGPT:
             Task { await model.startSignIn(provider: row.id) }
         case .importClaudeCode:
             Task { await model.importSignIn(source: .claudeCode, provider: row.id) }
-        case .importCodexCLI:
-            Task { await model.importSignIn(source: .codexCLI, provider: row.id) }
         case .addKey, .addSetupToken:
             guard let secret = row.secretID else { return }
 
@@ -291,13 +292,12 @@ struct AssistantChoiceRow<Leading: View>: View {
     let verb: String?
     let enabled: Bool
     let perform: () -> Void
-    var browserFallback: (() -> Void)? = nil
     @ViewBuilder let leading: () -> Leading
 
     var body: some View {
         LabeledContent {
             if let verb {
-                choiceControl(verb)
+                Button(verb, action: perform)
                     .disabled(!enabled)
                     .accessibilityLabel(ProductStrings.commaPair(verb, title))
             }
@@ -317,18 +317,6 @@ struct AssistantChoiceRow<Leading: View>: View {
             }
         }
     }
-
-    @ViewBuilder
-    private func choiceControl(_ title: String) -> some View {
-        if let browserFallback {
-            Menu(title) {
-                Button(title, action: perform)
-                Button(ProductStrings[.providerSignInBrowser], action: browserFallback)
-            }
-        } else {
-            Button(title, action: perform)
-        }
-    }
 }
 
 /// One vendor row: the mark, the name and where it stands, and the one verb the
@@ -337,7 +325,6 @@ struct ProviderSignInRow: View {
     let row: ProviderRowModel
     let perform: () -> Void
     var enabled = true
-    var browserFallback: (() -> Void)? = nil
 
     var body: some View {
         AssistantChoiceRow(
@@ -345,8 +332,7 @@ struct ProviderSignInRow: View {
             status: row.status,
             verb: row.verb.title,
             enabled: row.canPerform && enabled,
-            perform: perform,
-            browserFallback: browserFallback
+            perform: perform
         ) {
             ProviderMarkDisc(provider: row.id, label: row.label, diameter: OnboardingMetrics.rowMarkSize)
         }

@@ -5,6 +5,13 @@ enum ChatMetrics {
     /// The reading column the transcript and the composer share, centred in
     /// the body however wide the window is.
     static let columnWidth: Double = 720
+    /// The room the column keeps from the body's edges, the transcript's and
+    /// the composer's alike, when the body is narrower than the column.
+    static let columnGutter: Double = Spacing.l
+    /// The call box: the pet's stage, with the box's own padding round it.
+    static let callBoxWidth: Double = PetMetrics.stageSize.width + 2 * Spacing.s
+    /// What the call box keeps from the body's top and trailing edges.
+    static let callBoxInset: Double = Spacing.m
     /// The room a message the owner wrote leaves on its leading side, so the
     /// two sides of the conversation read as two sides.
     static let userRowLeadingRoom: Double = Spacing.xxl * 2
@@ -35,7 +42,7 @@ enum ChatMetrics {
         bottom: (HitTarget.button - HitTarget.rowAction) / 2,
         trailing: (HitTarget.button - HitTarget.rowAction) / 2
     )
-    /// A message's own corners, and the approval card's.
+    /// A message's own corners, the approval card's and the call box's.
     static let rowRadius: Double = 16
     /// How long typing in the search field pauses before the daemon is asked,
     /// so a word being typed is one search rather than one per letter.
@@ -61,28 +68,59 @@ enum ChatMetrics {
 /// typing pauses or on Return. Its hits replace the transcript until one is
 /// chosen; the transcript stays underneath so the reader's place survives a
 /// search, and clearing the field returns to it.
+///
+/// The call begins and ends from the toolbar's call button, at the
+/// conversation's top right, and while it is up the pet floats at the body's
+/// top right (`ChatCallBox`): nothing in the column moves for it, in either
+/// state (M56; the owner's direction of 2026-10-03).
 struct ChatSurfaceView: View {
     let session: CompanionSession
     @ObservedObject var model: CompanionModel
+    /// The one call's facts. Held and not observed: the call box observes
+    /// them, so a caption redraws the box and never this view or the
+    /// transcript.
+    let call: VoiceCallModel
+    /// The call's façade, which the box's pet draws from: the same one the Pet
+    /// page and the floating pet draw.
+    let pet: PetFeatureModel
+    /// The gate the toolbar's call button clicks through. Held and not
+    /// observed: the button observes it where it stands in the toolbar, and
+    /// the gate says only when its answer moves, so neither this view nor the
+    /// button redraws for a caption.
+    let gate: VoiceCallGate
     /// Read for the greeting's name, through the one settings model.
     let settings: SettingsModel
     /// Where a link in a reply opens.
     let links: ContentLinkOpener
-    /// "Show browser", the toolbar's one command (plan §4.10).
+    /// The toolbar's commands: "Show browser" (plan §4.10) and the call.
     let router: any CommandPerforming
 
-    @State private var draft = ""
+    /// The text being written. The session holds it as well, so leaving Chat
+    /// or opening Settings mid-call, which rebuilds this view, does not lose it.
+    @State private var draft: String
     @State private var query = ""
     @State private var resultsShown = false
     @State private var reveal: ChatReveal?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(session: CompanionSession, settings: SettingsModel, links: ContentLinkOpener, router: any CommandPerforming) {
+    init(
+        session: CompanionSession,
+        call: VoiceCallModel,
+        pet: PetFeatureModel,
+        gate: VoiceCallGate,
+        settings: SettingsModel,
+        links: ContentLinkOpener,
+        router: any CommandPerforming
+    ) {
         self.session = session
         self.model = session.model
+        self.call = call
+        self.pet = pet
+        self.gate = gate
         self.settings = settings
         self.links = links
         self.router = router
+        _draft = State(initialValue: session.draft)
     }
 
     var body: some View {
@@ -90,6 +128,14 @@ struct ChatSurfaceView: View {
 
         column(items)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The call floats at the body's top right, in the margin beside
+            // the centred column; only a body too narrow for that margin puts
+            // it over the transcript's trailing edge (`ChatCallBox.overlapsColumn`).
+            .overlay(alignment: .topTrailing) {
+                ChatCallBox(call: call, pet: pet)
+                    .padding(.top, ChatMetrics.callBoxInset)
+                    .padding(.trailing, ChatMetrics.callBoxInset)
+            }
             .navigationTitle(ProductStrings[.sidebarChat])
             .searchable(text: $query, placement: .toolbar, prompt: ProductStrings[.chatSearchPrompt])
             .onSubmit(of: .search) { search() }
@@ -117,7 +163,10 @@ struct ChatSurfaceView: View {
                 return .handled
             })
             .toolbar {
-                SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router)
+                SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router, follows: gate)
+            }
+            .onChange(of: draft) {
+                session.draft = draft
             }
     }
 
@@ -155,7 +204,7 @@ struct ChatSurfaceView: View {
                 cancel: session.cancel(clientMsgId:)
             )
             .frame(maxWidth: ChatMetrics.columnWidth)
-            .padding(.horizontal, Spacing.l)
+            .padding(.horizontal, ChatMetrics.columnGutter)
             .padding(.top, docked ? ChatMetrics.composerTopGap : 0)
             .padding(.bottom, docked ? Spacing.m : 0)
 

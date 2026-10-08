@@ -23,6 +23,10 @@ struct PetSurfaceView: View {
 
                     if model.callActive {
                         liveCall
+                    } else if let bill = model.settledBillText {
+                        Text(bill)
+                            .fermixType(Typography.style(.caption))
+                            .foregroundStyle(Palette.faint.color)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -62,18 +66,20 @@ struct PetSurfaceView: View {
             .accessibilityValue(model.accessibilityValue)
     }
 
-    /// What a live call reports beside its controls: the last caption line, what
-    /// the backend delegation is doing, and what the voice has cost so far.
+    /// What a live call reports beside its controls: the running caption line,
+    /// what the backend work is doing, and what the voice has cost so far.
     /// Each row is drawn only where the daemon has actually sent it, and the
-    /// whole block only while a call is up.
+    /// whole block only while a call is up; once it is over, only its bill.
     @ViewBuilder private var liveCall: some View {
         VStack(spacing: Spacing.xxs) {
             if let caption = model.captionLine {
+                // A running text on one line: the speaker leads it and the
+                // newest words end it, so the middle is what gives way.
                 Text(caption)
                     .fermixType(Typography.style(.calloutSmall))
                     .foregroundStyle(Palette.secondary.color)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .truncationMode(.middle)
                     .accessibilityAddTraits(.updatesFrequently)
             }
 
@@ -100,6 +106,8 @@ struct PetSurfaceView: View {
     private var controls: some View {
         HStack(spacing: Spacing.s) {
             PrimaryAction(model.callActionTitle, size: .inWindow) { model.toggleCall() }
+                .disabled(!model.callActionEnabled)
+                .help(model.callHelpText)
 
             Button(model.muteActionTitle) { model.toggleMute() }
                 .buttonStyle(SecondaryButtonStyle(.inWindow))

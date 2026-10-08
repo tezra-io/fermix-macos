@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import UniformTypeIdentifiers
 
 @testable import FermixAppCore
 
@@ -10,6 +11,7 @@ import Foundation
 final class FakeBrowserPage: BrowserPage {
     weak var events: (any BrowserPageEvents)?
     private(set) var loaded: [URL] = []
+    private(set) var files: [FileLoad] = []
     private(set) var actions: [String] = []
 
     /// Built on first use, so a test that never shows the page never makes a
@@ -17,12 +19,29 @@ final class FakeBrowserPage: BrowserPage {
     lazy var view = NSView()
 
     func load(_ url: URL) { loaded.append(url) }
+    func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL) {
+        files.append(FileLoad(url: url, kind: kind, readAccess: readAccess))
+    }
     func back() { actions.append("back") }
     func forward() { actions.append("forward") }
     func reload() { actions.append("reload") }
     func stop() { actions.append("stop") }
     func find(_ text: String) { actions.append("find \(text)") }
     func zoom(_ zoom: BrowserZoom) { actions.append("zoom \(zoom)") }
+}
+
+/// A file a page was asked to show, as what, and what it may read: the file
+/// itself unless a test says otherwise.
+struct FileLoad: Equatable {
+    let url: URL
+    let kind: BrowserFileKind
+    let readAccess: URL
+
+    init(url: URL, kind: BrowserFileKind, readAccess: URL? = nil) {
+        self.url = url
+        self.kind = kind
+        self.readAccess = readAccess ?? url
+    }
 }
 
 /// A page with a web engine behind it, standing in for `WebKitBrowserPage` in
@@ -46,6 +65,7 @@ final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
     private(set) var readyWaits = 0
 
     func load(_ url: URL) {}
+    func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL) {}
     func back() {}
     func forward() {}
     func reload() {}
@@ -101,6 +121,44 @@ final class FakeBrowserEngine: BrowserEngine {
         profiles.append(profile)
 
         return BrowserTab(profile: profile, page: page)
+    }
+
+    /// Every file chooser raised, with the page it was raised over; the open
+    /// one waits for the test's `answerFiles`.
+    private(set) var fileRequests: [BrowserFileRequest] = []
+    private(set) var filePages: [NSView] = []
+    private var fileAnswer: (@MainActor ([URL]?) -> Void)?
+
+    func chooseFiles(_ request: BrowserFileRequest, for page: NSView, answer: @escaping @MainActor ([URL]?) -> Void) {
+        fileRequests.append(request)
+        filePages.append(page)
+        fileAnswer = answer
+    }
+
+    /// The person answers the open chooser.
+    func answerFiles(_ files: [URL]?) {
+        let answer = fileAnswer
+        fileAnswer = nil
+        answer?(files)
+    }
+
+    /// Every save panel raised, by the file name it offered, with the page it
+    /// was raised over; the open one waits for the test's `answerSave`.
+    private(set) var saveRequests: [String] = []
+    private(set) var savePages: [NSView] = []
+    private var saveAnswer: (@MainActor (URL?) -> Void)?
+
+    func chooseSaveDestination(_ filename: String, for page: NSView, answer: @escaping @MainActor (URL?) -> Void) {
+        saveRequests.append(filename)
+        savePages.append(page)
+        saveAnswer = answer
+    }
+
+    /// The person answers the open save panel: a place, or nil for Cancel.
+    func answerSave(_ destination: URL?) {
+        let answer = saveAnswer
+        saveAnswer = nil
+        answer?(destination)
     }
 
     func releaseIdle() { idleReleases += 1 }
@@ -180,6 +238,21 @@ final class FakeHostLink: BrowserHostLink {
         events.append("cancel")
     }
 
+    /// A task's download the host refused, as the daemon was told of it.
+    struct Refusal: Equatable {
+        let download: UUID
+        let tab: UUID
+        let filename: String
+        let reason: String
+    }
+
+    private(set) var refusals: [Refusal] = []
+
+    func downloadRefused(_ download: UUID, tab: UUID, filename: String, reason: String) {
+        refusals.append(Refusal(download: download, tab: tab, filename: filename, reason: reason))
+        events.append("download.refused")
+    }
+
     func sendHostStopping(answered: @escaping @MainActor () -> Void) {
         stoppingSent += 1
         events.append("host_stopping")
@@ -199,8 +272,9 @@ final class RecordingTabDelegate: BrowserTabDelegate {
     private(set) var openedTabs: [BrowserTab] = []
     private(set) var closeRequests: [BrowserTab] = []
     private(set) var externals: [URL] = []
+    private(set) var handOffs: [URL] = []
     private(set) var dialogs: [BrowserDialog] = []
-    private(set) var downloads: [URL] = []
+    private(set) var downloads: [any BrowserDownload] = []
     private(set) var failures: [String] = []
     var answer: BrowserDialogAnswer = .confirmed
 
@@ -211,7 +285,21 @@ final class RecordingTabDelegate: BrowserTabDelegate {
 
     func closeRequested(by tab: BrowserTab) { closeRequests.append(tab) }
 
-    func externalSchemeMet(_ url: URL) { externals.append(url) }
+    private(set) var fileRequests: [BrowserFileRequest] = []
+    var files: [URL]?
+
+    func filesRequested(
+        _ request: BrowserFileRequest,
+        in tab: BrowserTab,
+        answer: @escaping @MainActor ([URL]?) -> Void
+    ) {
+        fileRequests.append(request)
+        answer(files)
+    }
+
+    func externalSchemeMet(_ url: URL, in tab: BrowserTab) { externals.append(url) }
+
+    func handOffRequested(_ url: URL, from tab: BrowserTab) { handOffs.append(url) }
 
     func dialogPresented(
         _ dialog: BrowserDialog,
@@ -222,21 +310,119 @@ final class RecordingTabDelegate: BrowserTabDelegate {
         answer(self.answer)
     }
 
-    func downloadStarted(_ url: URL) { downloads.append(url) }
+    func downloadStarted(_ download: any BrowserDownload, in tab: BrowserTab) { downloads.append(download) }
 
     func loadFailed(_ reason: String, in tab: BrowserTab) { failures.append(reason) }
+}
+
+/// A download with no web engine behind it, standing in for
+/// `WebKitBrowserDownload`: the test speaks for WebKit through its verbs, and
+/// `write(_:)` puts bytes where the pane said the file goes, as WebKit writes
+/// a file as it arrives.
+@MainActor
+final class FakeDownload: BrowserDownload {
+    weak var events: (any BrowserDownloadEvents)?
+    let suggestedFilename: String
+    /// What the pane answered for the file's place, once it has.
+    private(set) var destination: URL?
+    private(set) var answered = false
+    private(set) var cancels = 0
+    /// The cancel's answer, held until the test says the engine stopped.
+    private var stopped: (@MainActor () -> Void)?
+
+    init(suggestedFilename: String = "report.pdf") {
+        self.suggestedFilename = suggestedFilename
+    }
+
+    func cancel(_ stopped: @escaping @MainActor () -> Void) {
+        events = nil
+        cancels += 1
+        self.stopped = stopped
+    }
+
+    /// WebKit asks where the file goes; the pane may answer later. A refused
+    /// place cancels the download, so nothing is reported after it.
+    func askForDestination() {
+        events?.download(self, needsDestinationFor: suggestedFilename) { [weak self] destination in
+            self?.answered = true
+            self?.destination = destination
+            if destination == nil { self?.events = nil }
+        }
+    }
+
+    /// Bytes arrive at the destination.
+    func write(_ text: String) throws {
+        guard let destination else { throw CocoaError(.fileNoSuchFile) }
+
+        try Data(text.utf8).write(to: destination)
+    }
+
+    func finish() {
+        events?.downloadFinished(self)
+    }
+
+    func fail(_ reason: String) {
+        events?.download(self, failed: reason)
+    }
+
+    /// The engine has stopped writing after a cancel.
+    func engineStopped() {
+        let stopped = self.stopped
+        self.stopped = nil
+        stopped?()
+    }
 }
 
 /// The Mac's own opener for content links, recorded rather than opened.
 @MainActor
 final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
+    static let preview = WorkspaceApplication(url: URL(fileURLWithPath: "/System/Applications/Preview.app", isDirectory: true), name: "Preview")
+    static let mail = WorkspaceApplication(url: URL(fileURLWithPath: "/System/Applications/Mail.app", isDirectory: true), name: "Mail")
+
     var succeeds = true
+    /// The app this Mac would open any link in, or nil for none.
+    var linkApp: WorkspaceApplication? = RecordingWorkspaceOpener.mail
+    /// The app this Mac would open any document in, or nil for none.
+    var documentApp: WorkspaceApplication? = RecordingWorkspaceOpener.preview
+    /// The system's sentence the named app answers a file with, or nil where
+    /// it takes it.
+    var appFailure: String?
+    /// The apps that open web pages on this Mac.
+    var webBrowsers: [URL] = []
     private(set) var opened: [URL] = []
+    /// Every type an app was asked for, in order.
+    private(set) var typesAsked: [UTType] = []
+    /// Every file handed to a named app, in order.
+    private(set) var openedWith: [AppOpen] = []
+    /// Every file shown in Finder, in order.
+    private(set) var revealed: [URL] = []
 
     func open(_ url: URL) -> Bool {
         opened.append(url)
         return succeeds
     }
+
+    func application(toOpen url: URL) -> WorkspaceApplication? { linkApp }
+
+    func application(toOpen type: UTType) -> WorkspaceApplication? {
+        typesAsked.append(type)
+        return documentApp
+    }
+
+    func opensWebPages(_ app: WorkspaceApplication) -> Bool { webBrowsers.contains(app.url) }
+
+    func open(_ file: URL, withApplicationAt app: URL, failed: @escaping @MainActor (String) -> Void) {
+        openedWith.append(AppOpen(file: file, app: app))
+        if let appFailure { failed(appFailure) }
+    }
+
+    func reveal(_ url: URL) { revealed.append(url) }
+}
+
+/// A file handed to a named app.
+struct AppOpen: Equatable {
+    let file: URL
+    let app: URL
 }
 
 /// The link preference with no host state behind it: the suite never reads or
@@ -270,7 +456,9 @@ struct BrowserHarness {
     let location: BootstrapLocation
     let coordinator: BrowserCoordinator
 
-    init(availability: BrowserAvailability = .available) {
+    /// `home` is the Fermix home a file opens silently under; nil is a home
+    /// that cannot be resolved, which has nothing inside it.
+    init(availability: BrowserAvailability = .available, home: URL? = nil) {
         location = BrowserProfileLocation().location
         session = FakeSessionAvailability(availability)
         coordinator = BrowserCoordinator(
@@ -280,6 +468,10 @@ struct BrowserHarness {
             },
             profile: WebsiteProfileRecord(location: location),
             workspace: workspace,
+            home: {
+                guard let home else { throw CocoaError(.fileNoSuchFile) }
+                return home
+            },
             session: session,
             deadlines: deadlines,
             paneShown: { [record] in record.paneShown.append($0) },

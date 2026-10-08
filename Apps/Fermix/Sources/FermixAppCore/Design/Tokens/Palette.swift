@@ -77,6 +77,11 @@ public enum Palette {
     public static let success = ThemedColor(lightHex: "#1f7a4d", darkHex: "#4cc38a")
     public static let warning = ThemedColor(lightHex: "#9a6b1f", darkHex: "#e0b35c")
     public static let error = ThemedColor(lightHex: "#b3423a", darkHex: "#e5766c")
+    /// The hang-up: the system's own red, beside the window's red close
+    /// control, on the one glyph per surface that ends the call that is up
+    /// (owner, 2026-10-04: "turns red when the call is on to close it"). Never
+    /// `error`, which is muted for text and would read as a failure.
+    public static let hangUp = ThemedColor(system: .systemRed)
     /// Text inside a success pill, darker than the dot beside it.
     public static let successText = ThemedColor(lightHex: "#176641", darkHex: "#7fd6ac")
     /// The pass tone's text colour (`StatusTone.pass`).

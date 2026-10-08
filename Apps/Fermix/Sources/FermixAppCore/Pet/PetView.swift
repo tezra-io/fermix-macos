@@ -1,34 +1,31 @@
 import AppKit
 import SwiftUI
 
-/// The floating companion. It draws the voice state and offers the three
-/// actions a call has; every one of them goes through the voice controller.
+/// The floating companion: the pet, in a window of its own that floats over
+/// other apps.
+///
+/// What it draws is `PetCompanion`, the same view the chat's call box hosts;
+/// what is the window's alone is here: the drag from anywhere on it, the first
+/// press taken from an inactive app, the dock revealed by the pointer, and the
+/// context menu that is the only way back when the pet is all that is on
+/// screen.
 struct PetView: View {
     @ObservedObject var model: PetFeatureModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.mascot) private var mascot
 
     @State private var hovered = false
 
     var body: some View {
-        VStack(spacing: 2) {
-            ZStack {
-                mascotView
-                    .frame(width: PetMetrics.mascotSize.width, height: PetMetrics.mascotSize.height)
-                    // The mascot draws and never takes the click, so the whole
-                    // of its frame is this one button: a click starts the call
-                    // or ends it (owner, 2026-09-25: "the click on the mascot
-                    // leads to enabling or disabling it").
-                    .contentShape(Rectangle())
-                    .onTapGesture { model.toggleCall() }
-                    .help(model.callHelpText)
-            }
-            .frame(width: PetMetrics.stageSize.width, height: PetMetrics.stageSize.height)
-
-            ControlDock(model: model)
-                .opacity(shouldShowControls ? 1 : 0)
-                .animation(motion.animation(.stepCrossfade), value: shouldShowControls)
-        }
+        // Reduce Motion and a window off screen both park the loops; the pose
+        // still changes, so no state is lost. The intro plays on every show.
+        PetCompanion(
+            model: model,
+            animates: model.windowVisible && !reduceMotion,
+            playsIntro: !reduceMotion,
+            dock: shouldShowControls ? .shown : .hidden,
+            // Its dock's stop has nothing to close once a call is over.
+            host: .floatingWindow
+        )
         .padding(.horizontal, Spacing.xs)
         .padding(.vertical, Spacing.xxs)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,13 +45,11 @@ struct PetView: View {
         .simultaneousGesture(WindowDragGesture())
         .allowsWindowActivationEvents(true)
         .onHover { inside in
-            withAnimation(motion.animation(.stepCrossfade)) { hovered = inside }
+            withAnimation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade)) { hovered = inside }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(model.accessibilityLabel)
-        .accessibilityValue(model.accessibilityValue)
         .contextMenu {
             Button(model.callActionTitle) { model.toggleCall() }
+                .disabled(!model.callActionEnabled)
 
             if model.callActive {
                 Button(model.muteActionTitle) { model.toggleMute() }
@@ -66,56 +61,98 @@ struct PetView: View {
         }
     }
 
-    private var motion: Motion { Motion(reduceMotion: reduceMotion) }
-
+    /// The dock comes with a call. Its one control is the stop, which has
+    /// nothing to do on this window with no call up, so the pointer reveals
+    /// no empty dock at rest.
     private var shouldShowControls: Bool {
-        hovered || model.callActive || model.visualMode == .speaking
+        guard model.stopAction(in: .floatingWindow) != nil else { return false }
+
+        return hovered || model.callActive || model.visualMode == .speaking
+    }
+}
+
+/// The pet: the Rive mascot, fed the call's pose and live level, and under it
+/// the dock of its call controls.
+///
+/// One view, two hosts: the floating window (`PetView`) and the chat's call box
+/// (`ChatCallBox`). Each host decides what is its own: whether the mascot may
+/// move (its own window's visibility), whether the intro plays and whether the
+/// dock shows. A click on the mascot is the call control's in both, through
+/// the gate: it begins a call or ends it (owner, 2026-09-25: "the click on the
+/// mascot leads to enabling or disabling it"; 2026-10-04: the chat's box does
+/// the same). What the dock's stop offers is the façade's rule, read for the
+/// host that draws it, so the two cannot drift. The animation never takes the
+/// click, so the whole of the mascot's frame is that one action.
+struct PetCompanion: View {
+    /// Whether the dock of call controls is drawn.
+    enum Dock: Equatable {
+        case shown
+        /// Not drawn, keeping its room, so revealing it moves nothing.
+        case hidden
+        /// Not drawn and taking no room.
+        case absent
     }
 
-    /// The Rive mascot, fed the pose and the live level.
-    ///
-    /// Reduce Motion and a window off screen both park the loops; the pose
-    /// still changes, so no state is lost. The level is read by the renderer
-    /// rather than published here, because it changes with every audio chunk.
+    @ObservedObject var model: PetFeatureModel
+    let animates: Bool
+    let playsIntro: Bool
+    let dock: Dock
+    /// Which host draws it, which the façade reads for the dock's stop.
+    let host: PetHost
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.mascot) private var mascot
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ZStack {
+                mascotView
+                    .frame(width: PetMetrics.mascotSize.width, height: PetMetrics.mascotSize.height)
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.toggleCall() }
+                    .help(model.callHelpText)
+            }
+            .frame(width: PetMetrics.stageSize.width, height: PetMetrics.stageSize.height)
+
+            if dock != .absent {
+                ControlDock(model: model, host: host)
+                    .opacity(dock == .shown ? 1 : 0)
+                    .animation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade), value: dock)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(model.accessibilityLabel)
+        .accessibilityValue(model.accessibilityValue)
+    }
+
+    /// The level is read by the renderer rather than published here, because
+    /// it changes with every audio chunk.
     private var mascotView: some View {
         mascot?.mascot(
             pose: model.expression,
             level: { [model] in model.audioLevel },
-            animates: model.windowVisible && !reduceMotion,
-            playsIntro: !reduceMotion
+            animates: animates,
+            playsIntro: playsIntro
         )
     }
 }
 
 private struct ControlDock: View {
     @ObservedObject var model: PetFeatureModel
+    let host: PetHost
 
     var body: some View {
         HStack(spacing: Spacing.s) {
-            PetControlButton(
-                systemName: model.callActive ? "mic.fill" : "mic",
-                tint: model.callActive ? Palette.accent.color : Palette.ink.color,
-                label: model.callActionTitle
-            ) {
-                model.toggleCall()
-            }
+            stop
 
             if model.showsInterrupt {
-                PetControlButton(
-                    systemName: "stop.circle",
-                    tint: Palette.ink.color,
-                    label: model.interruptActionTitle
-                ) {
+                PetControlButton(symbol: .interrupt, label: model.interruptActionTitle) {
                     model.interrupt()
                 }
             }
 
             if model.callActive {
-                PetControlButton(
-                    systemName: model.muted ? "mic.slash.fill" : "mic.slash",
-                    tint: model.muted ? Palette.warning.color : Palette.ink.color,
-                    label: model.muteActionTitle
-                ) {
+                PetControlButton(symbol: .mute(model), label: model.muteActionTitle) {
                     model.toggleMute()
                 }
             }
@@ -127,20 +164,65 @@ private struct ControlDock: View {
             Capsule().stroke(Palette.hairline(.standard).color, lineWidth: Stroke.hairline)
         )
     }
+
+    /// The one call control, the stop. Where it has nothing to do it keeps its
+    /// place unseen, so the floating window's dock, hidden at rest, keeps the
+    /// room it takes once a call is up, and revealing it moves nothing.
+    @ViewBuilder private var stop: some View {
+        if let action = model.stopAction(in: host) {
+            PetControlButton(symbol: .stop(action), label: model.stopActionTitle(action)) {
+                model.stopClicked(in: host)
+            }
+            .disabled(action == .ending)
+        } else {
+            PetControlButton(symbol: .stop(.end), label: model.stopActionTitle(.end)) {}
+                .hidden()
+        }
+    }
+}
+
+/// How one of the dock's controls draws: its symbol, whether the symbol takes
+/// its filled form, and its tint. A value, so each state's drawing is proven
+/// without a window.
+struct PetDockSymbol: Equatable, Sendable {
+    let name: String
+    let filled: Bool
+    let tint: ThemedColor
+
+    /// The stop, the filled square, never the accent: it ends a call, and in
+    /// the chat's box it closes the box once the call is over (owner,
+    /// 2026-10-04: "I prefer it was a stop button"). It is the hang-up's red
+    /// while it ends a call, as the chat toolbar's hang-up is, and ink while
+    /// the call ends (dimmed) and as Close. The dock draws no phone: the chat
+    /// toolbar's begins a call, and the dock's control never does.
+    static func stop(_ action: PetStopAction) -> PetDockSymbol {
+        PetDockSymbol(name: "stop", filled: true, tint: action == .end ? Palette.hangUp : Palette.ink)
+    }
+
+    /// The slashed microphone, filled and in the warning tint while muted.
+    @MainActor
+    static func mute(_ pet: PetFeatureModel) -> PetDockSymbol {
+        PetDockSymbol(name: "mic.slash", filled: pet.muted, tint: pet.muted ? Palette.warning : Palette.ink)
+    }
+
+    /// The silenced speaker, which cuts the reply off: never the stop's
+    /// square, so the two cannot be confused.
+    static let interrupt = PetDockSymbol(name: "speaker.slash", filled: false, tint: Palette.ink)
 }
 
 private struct PetControlButton: View {
-    let systemName: String
-    let tint: Color
+    let symbol: PetDockSymbol
     let label: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName)
+            // The fill is a variant of the one name, as the toolbar draws it.
+            Image(systemName: symbol.name)
+                .symbolVariant(symbol.filled ? .fill : .none)
                 .font(.system(size: 14, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(tint)
+                .foregroundStyle(symbol.tint.color)
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }

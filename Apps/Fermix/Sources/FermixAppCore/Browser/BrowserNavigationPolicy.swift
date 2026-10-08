@@ -14,19 +14,29 @@ public struct BrowserNavigation: Equatable, Sendable {
     public let isMainFrame: Bool
     /// A person clicked or submitted something; a script did not do it alone.
     public let isUserInitiated: Bool
+    /// The tab shows a file on this Mac (`BrowserProfile.file`), which loads
+    /// its own file and nothing else.
+    public let inFileTab: Bool
+    /// The destination is the file the file tab shows, its own load or a move
+    /// within it, rather than another file.
+    public let isTabsOwnFile: Bool
 
     public init(
         scheme: String,
         targetsNewWindow: Bool = false,
         isDownload: Bool = false,
         isMainFrame: Bool = true,
-        isUserInitiated: Bool = true
+        isUserInitiated: Bool = true,
+        inFileTab: Bool = false,
+        isTabsOwnFile: Bool = false
     ) {
         self.scheme = scheme
         self.targetsNewWindow = targetsNewWindow
         self.isDownload = isDownload
         self.isMainFrame = isMainFrame
         self.isUserInitiated = isUserInitiated
+        self.inFileTab = inFileTab
+        self.isTabsOwnFile = isTabsOwnFile
     }
 }
 
@@ -36,10 +46,15 @@ public enum BrowserNavigationDecision: Equatable, Sendable {
     case allow
     /// The page gets a tab of its own for it.
     case newTab
-    /// The Mac's own app for the scheme opens it, and the tab stays put.
+    /// Another app's link: the tab stays put, and the tab's owner rules on
+    /// the app, which a person is asked about and a task never opens.
     case external
-    /// Nothing is saved, and the pane says why.
-    case refuseDownload
+    /// A file to save, handed to the tab, whose owner rules on it: the
+    /// person's is saved where they choose, and a task's never is.
+    case download
+    /// A link a file tab does not load, opened as the same link from a reply
+    /// would be: a web page, or another file on this Mac. The tab stays put.
+    case handOff
     /// Nothing happens.
     case cancel
 }
@@ -48,25 +63,124 @@ public enum BrowserNavigationDecision: Equatable, Sendable {
 /// without a web view. The WebKit page asks it and does what it answers.
 public enum BrowserNavigationPolicy {
     /// The schemes a web page is made of. `about` carries blank tabs and
-    /// `srcdoc` frames, `blob` and `data` carry content a page built itself,
-    /// and `file` is left to WebKit's own rule, which refuses a file a web page
-    /// was not given.
-    public static let webSchemes: Set<String> = ["http", "https", "about", "blob", "data", "javascript", "file"]
+    /// `srcdoc` frames, and `blob` and `data` carry content a page built
+    /// itself. A file on this Mac is not a web page, and a web tab never moves
+    /// to one, clicked or not.
+    public static let webSchemes: Set<String> = ["http", "https", "about", "blob", "data", "javascript"]
 
     public static func isWeb(_ scheme: String) -> Bool {
         webSchemes.contains(scheme.lowercased())
     }
 
-    /// The decision, in order: a download is refused whatever it points at; a
-    /// web page moves the tab or opens a new one; anything else belongs to
-    /// another app, which is opened only for a click on the page itself. A
-    /// frame or a script reaching for another app on its own is refused: that
-    /// is how a page would launch an app nobody asked for.
+    /// The schemes a file is saved from: the web's own, and `blob` and `data`
+    /// for a file a page built itself. A download of any other scheme (another
+    /// app's, `file`, `about`, `javascript`) is nothing a website offers.
+    public static let downloadSchemes: Set<String> = ["http", "https", "blob", "data"]
+
+    /// The schemes a web page is served on. A file tab never loads one: a
+    /// person's click on one is handed off.
+    public static let pageSchemes: Set<String> = ["http", "https"]
+
+    /// The decision, in order: a download is saved where its scheme is one a
+    /// file is saved from, and never where a frame began it, since a hidden
+    /// frame is how a page saves a file nobody asked for; a file on this Mac
+    /// goes nowhere, clicked or not, since a website must never get one
+    /// opened, shown or revealed; a web page moves the tab or opens a new one;
+    /// anything else belongs to another app, which is opened only for a click
+    /// on the page itself. A frame or a script reaching for another app on
+    /// its own is refused: that is how a page would launch an app nobody asked
+    /// for. A file tab has rules of its own.
     public static func decide(_ navigation: BrowserNavigation) -> BrowserNavigationDecision {
-        guard !navigation.isDownload else { return .refuseDownload }
+        guard !navigation.inFileTab else { return decideInFile(navigation) }
+        guard !navigation.isDownload else { return isSavable(navigation) ? .download : .cancel }
+        guard !isFile(navigation) else { return .cancel }
         guard !isWeb(navigation.scheme) else { return navigation.targetsNewWindow ? .newTab : .allow }
-        guard navigation.isMainFrame || navigation.targetsNewWindow, navigation.isUserInitiated else { return .cancel }
+        guard isClick(navigation) else { return .cancel }
 
         return .external
+    }
+
+    /// A file tab shows its file and nothing more, in order: it never saves
+    /// anything; its own load moves it; a person's click on a web link or on
+    /// another file, in the tab or asking for a window, is handed off; a click
+    /// on another app's link is the person's to answer, as in any tab of
+    /// theirs; and everything else, a frame, a redirect or a move nobody
+    /// clicked, goes nowhere.
+    private static func decideInFile(_ navigation: BrowserNavigation) -> BrowserNavigationDecision {
+        let scheme = navigation.scheme.lowercased()
+        guard !navigation.isDownload else { return .cancel }
+        guard !isOwnLoad(navigation) else { return .allow }
+        guard isClick(navigation) else { return .cancel }
+        guard !isFile(navigation), !pageSchemes.contains(scheme) else { return .handOff }
+
+        return isWeb(scheme) ? .cancel : .external
+    }
+
+    /// A person's click on the page itself, in the tab or asking for a window
+    /// of its own. A frame or a script moving on its own is never one.
+    private static func isClick(_ navigation: BrowserNavigation) -> Bool {
+        (navigation.isMainFrame || navigation.targetsNewWindow) && navigation.isUserInitiated
+    }
+
+    private static func isFile(_ navigation: BrowserNavigation) -> Bool {
+        navigation.scheme.lowercased() == "file"
+    }
+
+    /// A file tab's own load, in the tab itself: its own file, or a blank
+    /// page.
+    private static func isOwnLoad(_ navigation: BrowserNavigation) -> Bool {
+        guard navigation.isMainFrame, !navigation.targetsNewWindow else { return false }
+
+        return navigation.scheme.lowercased() == "about" || (isFile(navigation) && navigation.isTabsOwnFile)
+    }
+
+    private static func isSavable(_ download: BrowserNavigation) -> Bool {
+        download.isMainFrame && downloadSchemes.contains(download.scheme.lowercased())
+    }
+
+    /// Whether a host is this Mac's own loopback address, in a spelling that
+    /// cannot mean another machine to WebKit's URL parser: `localhost` in any
+    /// case, with or without one trailing dot; an address in `127.0.0.0/8` as
+    /// its canonical dotted quad; and `::1`, with or without its brackets.
+    ///
+    /// HTTPS-first never applies to one, as in every browser: a local server
+    /// answers in the clear, nothing on the network stands between it and the
+    /// page, and WebKit's https attempt on one ends in a blank page with no
+    /// failure reported. A navigation there keeps the scheme it was asked with.
+    ///
+    /// Every other spelling is refused and keeps HTTPS-first. An IPv4 host
+    /// counts only where `inet_ntop` gives back exactly what was written,
+    /// because `inet_pton` reads `0127.0.0.1` as decimal where a URL parser
+    /// reads the leading zero as octal and reaches another machine. A name
+    /// under `.localhost` reaches this Mac only if the system resolver says
+    /// so, which WebKit does not force. An IPv6 literal needs no round trip:
+    /// its spelling has no octal or shorthand a URL parser reads another way.
+    /// A zone id is refused outright: `inet_pton` accepts anything after a `%`
+    /// and drops it, while a URL parser refuses a zone id, so no navigation
+    /// carries one.
+    public static func isLoopback(host: String) -> Bool {
+        let name = host.lowercased()
+        if name == "localhost" || name == "localhost." { return true }
+        if let address = canonicalIPv4(name) { return UInt32(bigEndian: address.s_addr) >> 24 == 127 }
+
+        let literal = name.hasPrefix("[") && name.hasSuffix("]") ? String(name.dropFirst().dropLast()) : name
+        var address = in6_addr()
+        guard !literal.contains("%"), inet_pton(AF_INET6, literal, &address) == 1 else { return false }
+
+        return withUnsafeBytes(of: address) { parsed in
+            withUnsafeBytes(of: in6addr_loopback) { loopback in parsed.elementsEqual(loopback) }
+        }
+    }
+
+    /// The IPv4 address `name` spells, where it spells it canonically: the
+    /// dotted quad `inet_ntop` writes back for it, and nothing else.
+    private static func canonicalIPv4(_ name: String) -> in_addr? {
+        var address = in_addr()
+        guard inet_pton(AF_INET, name, &address) == 1 else { return nil }
+
+        let written = withUnsafeTemporaryAllocation(of: CChar.self, capacity: Int(INET_ADDRSTRLEN)) { buffer in
+            inet_ntop(AF_INET, &address, buffer.baseAddress, socklen_t(buffer.count)).map { String(cString: $0) }
+        }
+        return written == name ? address : nil
     }
 }

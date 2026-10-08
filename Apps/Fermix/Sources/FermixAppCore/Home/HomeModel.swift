@@ -67,7 +67,21 @@ public final class HomeModel: ObservableObject {
     /// The app coming to the front, which is when a change made in System
     /// Settings, the registrations' other writer, can first be seen.
     private var activations: AnyCancellable?
+    /// A settings write the daemon accepted, which can be the one that set
+    /// voice up (M56 §4.1).
+    private var settingsSaves: AnyCancellable?
+    /// A call the daemon refused, which is the freshest word there is about
+    /// voice readiness (M56 §4.1).
+    private var callRefusals: AnyCancellable?
+    /// The check two minutes after each read, which reads again while a call
+    /// control is on screen.
+    private let deadlines: any DeadlineScheduling
+    private var voiceReadinessCheck: DeadlineToken?
     private let log = AppLog.logger(.app)
+
+    /// How old voice readiness may grow while a call control is on screen
+    /// (M56 §4.1). The overview is otherwise read on no clock at all.
+    static let voiceReadinessInterval: TimeInterval = 120
 
     /// What the reconcile last found, read back from the one model that owns it
     /// (M34 §8). Home is the surface that reads `hello`, so Home is what writes
@@ -83,6 +97,8 @@ public final class HomeModel: ObservableObject {
         settings: SettingsModel,
         reconciler: EngineReconciler,
         menuBar: any MenuBarItemPresenting,
+        call: VoiceCallModel,
+        deadlines: any DeadlineScheduling,
         instructions: @escaping () -> CoexistenceInstructions? = { nil },
         revealSettingsFile: @escaping () -> Void = {}
     ) {
@@ -93,6 +109,7 @@ public final class HomeModel: ObservableObject {
         self.settings = settings
         self.reconciler = reconciler
         self.menuBar = menuBar
+        self.deadlines = deadlines
         self.instructions = instructions
         self.revealSettingsFile = revealSettingsFile
         // Nothing has been read yet, so Attention says that rather than drawing
@@ -111,6 +128,25 @@ public final class HomeModel: ObservableObject {
             .sink { [weak self] _ in
                 Task { await self?.refreshRegistrations() }
             }
+        self.settingsSaves = settings.saves.sink { [weak self] in
+            Task { await self?.refresh() }
+        }
+        self.callRefusals = call.$voice
+            .map { Self.refusedByTheDaemon($0.phase) }
+            .removeDuplicates()
+            .filter { $0 }
+            .sink { [weak self] _ in
+                Task { await self?.refresh() }
+            }
+    }
+
+    /// Whether a call ended on a failure the daemon named. A failure this Mac
+    /// raised, the microphone or a socket that never answered, carries no
+    /// kind and says nothing about voice readiness.
+    private static func refusedByTheDaemon(_ phase: VoiceCallPhase) -> Bool {
+        guard case .ended(.failed(_?, _)) = phase else { return false }
+
+        return true
     }
 
     /// Whether the GUI opens at login. Independent of the background service in
@@ -195,6 +231,30 @@ public final class HomeModel: ObservableObject {
         // "starting". The coordinator owns the write; Home only reports what it
         // just saw.
         coordinator.daemonObserved(DaemonObservation(snapshot: snapshot))
+        scheduleVoiceReadinessCheck()
+    }
+
+    /// Arms the check two minutes from this read, replacing the last one, so
+    /// readiness on a call control's screen is never older than that whatever
+    /// read came before.
+    private func scheduleVoiceReadinessCheck() {
+        voiceReadinessCheck?.cancel()
+        voiceReadinessCheck = deadlines.schedule(after: Self.voiceReadinessInterval) { [weak self] in
+            self?.voiceReadinessCheckDue()
+        }
+    }
+
+    /// Reads while a call control is on screen. With none showing it only
+    /// looks again later: a call control coming back on screen is not an
+    /// event every surface reports, but it is one this check will find.
+    private func voiceReadinessCheckDue() {
+        voiceReadinessCheck = nil
+        guard coordinator.showsCallControl else {
+            scheduleVoiceReadinessCheck()
+            return
+        }
+
+        Task { await refresh() }
     }
 
     /// Reads both registrations off the main thread, and publishes only a
@@ -421,5 +481,27 @@ public final class HomeModel: ObservableObject {
         // Read here rather than on the next refresh, and published even when
         // unchanged, so a refused change puts the switch straight back.
         registrations.mainApp = services.status(.mainApp)
+    }
+}
+
+/// Where voice readiness is read: the one overview reader (M56 §4.1).
+///
+/// A seam rather than the reader itself, so the call control and the surfaces
+/// that draw it are provable without a daemon behind them.
+@MainActor
+public protocol VoiceReadinessReading: AnyObject {
+    /// What the last overview said about voice.
+    var voiceReadiness: VoiceReadiness { get }
+    /// That value each time it moves, for a surface that draws it.
+    var voiceReadinessChanges: AnyPublisher<VoiceReadiness, Never> { get }
+}
+
+/// Home is the one overview reader, so it is where voice readiness is read
+/// (M56 §4.1): the same snapshot, never a second read.
+extension HomeModel: VoiceReadinessReading {
+    public var voiceReadiness: VoiceReadiness { snapshot.voiceReadiness }
+
+    public var voiceReadinessChanges: AnyPublisher<VoiceReadiness, Never> {
+        $snapshot.map(\.voiceReadiness).removeDuplicates().dropFirst().eraseToAnyPublisher()
     }
 }

@@ -37,8 +37,8 @@ public enum ProductCopyRules {
         "Telegram", "Slack", "Discord",
         "ChatGPT", "Claude", "Codex", "OpenAI", "Anthropic", "OpenRouter", "Ollama", "Realtime",
         "Google",
-        "Login", "Items", "System", "Settings",
-        "Applications", "Library", "Launchpad", "Spotlight",
+        "Login", "Items", "System", "Settings", "Permissions",
+        "Applications", "Library", "Launchpad", "Spotlight", "Messages", "Finder",
         "Homebrew", "Homebrew-managed"
     ]
 
@@ -48,7 +48,7 @@ public enum ProductCopyRules {
     /// generic halves stay offenders everywhere else. Exempting the bare words
     /// instead would let every future string capitalise `Code` or `Meet`
     /// mid-sentence with the gate silent, which is how an allowlist rots.
-    public static let properPhrases: [String] = ["Claude Code", "Google Meet", "Setup Assistant"]
+    public static let properPhrases: [String] = ["Claude Code", "Google Meet", "Setup Assistant", "Full Disk Access"]
 
     public static func violations(in value: String) -> Set<CopyViolation> {
         let lowered = value.lowercased()

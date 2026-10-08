@@ -28,6 +28,11 @@ public enum AppCommand: String, CaseIterable, Sendable {
     case showDoctor
     case showLogs
     case showPet
+    /// The one call control, as a command (M56 §4.1): it begins a call, ends
+    /// it, or opens Settings, Voice, through the same gate the Pet page and
+    /// the floating pet use. With no window open, the status item's row is how
+    /// a call is ended, and its title is the sign that one is up.
+    case toggleVoiceCall
     /// Opens the browser pane on its own, with nothing to show yet, so the
     /// person can watch or browse without waiting for a link (plan §4.10).
     case showBrowser
@@ -195,6 +200,19 @@ public struct ToolbarSpec: Equatable, Sendable {
     public var isEmpty: Bool { commands.isEmpty }
 }
 
+/// How a toolbar control's symbol draws: its SF Symbol and, where it has
+/// one, its tint; nil is the toolbar's own ink. A value, so each state's
+/// drawing is proven without a window.
+public struct ToolbarSymbol: Equatable, Sendable {
+    public let name: String
+    public let tint: ThemedColor?
+
+    public init(name: String, tint: ThemedColor?) {
+        self.name = name
+        self.tint = tint
+    }
+}
+
 /// What a surface's toolbar has to know about the daemon right now (M34 §3.2).
 ///
 /// A value rather than a model reference, so "which primary does Home carry"
@@ -241,6 +259,8 @@ public enum CommandTable {
         case .showDoctor: return .fixed(.menuTitleDoctor)
         case .showLogs: return .fixed(.menuTitleLogs)
         case .showPet: return .fixed(.menuTitlePet)
+        case .toggleVoiceCall:
+            return .toggling(whenOn: .menuTitleEndVoiceCall, whenOff: .menuTitleBeginVoiceCall)
         case .showBrowser: return .fixed(.menuTitleShowBrowser)
         case .runLocalChecks: return .fixed(.menuTitleRunLocalChecks)
         case .runNetworkChecks: return .fixed(.menuTitleRunNetworkChecks)
@@ -285,18 +305,22 @@ public enum CommandTable {
         case .showBrowser: return .browserShow
         case .pauseLogs: return nil
         case .openFermix, .checkForUpdates, .openSettings, .quit, .toggleSidebar, .showChat, .showHome,
-             .showDoctor, .showLogs, .showPet, .runLocalChecks,
+             .showDoctor, .showLogs, .showPet, .toggleVoiceCall, .runLocalChecks,
              .toggleBackgroundService, .toggleFloatingPet, .hideMenuBarItem,
              .linkCommandLineTool:
             return nil
         }
     }
 
-    /// `pauseLogs` is the one toolbar command whose label toggles, so it reads
-    /// its two sentence-case spellings here rather than through the menu's.
+    /// `pauseLogs` and `toggleVoiceCall` are the toolbar commands whose labels
+    /// toggle, so they read their two sentence-case spellings here rather than
+    /// through the menu's. The call's are the ones the pet's own control says.
     public static func toolbarTitle(of command: AppCommand, isOn: Bool) -> String {
         if command == .pauseLogs {
             return ProductStrings[isOn ? .logsResume : .logsPause]
+        }
+        if command == .toggleVoiceCall {
+            return ProductStrings[isOn ? .petCallEnd : .petCallBegin]
         }
 
         guard let key = toolbarLabelKey(of: command) else {
@@ -316,15 +340,47 @@ public enum CommandTable {
         command == .runNetworkChecks ? .doctorNetworkBody : nil
     }
 
-    /// The SF Symbol a toolbar control draws beside or instead of its label.
+    /// That sentence, written out, for a performer with nothing to add.
+    public static func toolbarHelp(of command: AppCommand) -> String? {
+        toolbarHelpKey(of: command).map { ProductStrings[$0] }
+    }
+
+    /// The call's symbol at rest, a phone: it sits in the conversation's
+    /// header, where a messaging app puts its call button, and the owner
+    /// asked for a call button there. The toolbar's alone: the pet's dock ends
+    /// a call with a stop and draws no phone (owner, 2026-10-04: "I prefer it
+    /// was a stop button").
+    public static let callSymbol = "phone"
+
+    /// The hang-up, the phone set down: what the call's control draws while a
+    /// call is up, in the system's red (owner, 2026-10-04: "turns red when
+    /// the call is on to close it"). No green at rest: the window's own
+    /// controls already carry the traffic lights.
+    public static let hangUpSymbol = "phone.down.fill"
+
+    /// The SF Symbol a toolbar control draws beside or instead of its label,
+    /// at rest.
     public static func symbol(of command: AppCommand) -> String? {
         switch command {
         case .runNetworkChecks: return "globe"
         case .showBrowser: return "safari"
+        case .toggleVoiceCall: return callSymbol
         case .pauseLogs: return "pause.circle"
         case .exportLogs, .exportSupportBundle: return "square.and.arrow.up"
         default: return nil
         }
+    }
+
+    /// How a toolbar control's symbol draws in its command's state: its
+    /// symbol at rest in the toolbar's own ink, except the call's while a call
+    /// is up, which is the red hang-up. The one toolbar control whose state is
+    /// a fact about something running elsewhere, so its state shows in its
+    /// shape and its colour as well as in its name.
+    public static func toolbarSymbol(of command: AppCommand, isOn: Bool) -> ToolbarSymbol? {
+        guard let symbol = symbol(of: command) else { return nil }
+        guard command == .toggleVoiceCall, isOn else { return ToolbarSymbol(name: symbol, tint: nil) }
+
+        return ToolbarSymbol(name: hangUpSymbol, tint: Palette.hangUp)
     }
 
     public static func shortcut(of command: AppCommand) -> CommandShortcut? {
@@ -406,6 +462,8 @@ public enum CommandTable {
             .command(.showDoctor),
             .command(.showLogs),
             .command(.showPet),
+            // After Pet, with no shortcut in the first cut (M56 P5).
+            .command(.toggleVoiceCall),
             .command(.showBrowser),
             .separator,
             .command(.runLocalChecks),
@@ -454,6 +512,8 @@ public enum CommandTable {
         .separator,
         .command(.restartDaemon),
         .command(.toggleFloatingPet),
+        // How a call is ended with no window open (M56 P3).
+        .command(.toggleVoiceCall),
         .command(.toggleBackgroundService),
         .separator,
         .command(.checkForUpdates),
@@ -480,9 +540,10 @@ public enum CommandTable {
         case .home:
             return home(condition)
         // Chat's search is the toolbar's own search field, not a command; the
-        // pane opens from the toolbar too, on its own (plan §4.10).
+        // pane opens from the toolbar too, on its own (plan §4.10), and the
+        // call begins and ends there, at the conversation's top right (M56).
         case .chat:
-            return ToolbarSpec(secondary: [.showBrowser])
+            return ToolbarSpec(secondary: [.showBrowser, .toggleVoiceCall])
         case .pet, .setup, .update, .uninstall, .recovery:
             return ToolbarSpec()
         }
@@ -513,9 +574,17 @@ public protocol CommandPerforming: AnyObject {
     /// Whether a toggling command is in its "on" state, which picks its title.
     func isOn(_ command: AppCommand) -> Bool
     func perform(_ command: AppCommand)
+    /// The help tag a toolbar control carries right now, or nothing.
+    func toolbarHelp(of command: AppCommand) -> String?
 }
 
 extension CommandPerforming {
+    /// The table's own help tag: a performer whose answer depends on nothing
+    /// but the command says this.
+    public func toolbarHelp(of command: AppCommand) -> String? {
+        CommandTable.toolbarHelp(of: command)
+    }
+
     /// The title to draw in a menu right now.
     public func menuTitle(of command: AppCommand) -> String {
         ProductStrings[CommandTable.title(of: command).key(isOn: isOn(command))]
@@ -527,5 +596,10 @@ extension CommandPerforming {
 
     public func toolbarTitle(of command: AppCommand) -> String {
         CommandTable.toolbarTitle(of: command, isOn: isOn(command))
+    }
+
+    /// How the toolbar control's symbol draws right now.
+    public func toolbarSymbol(of command: AppCommand) -> ToolbarSymbol? {
+        CommandTable.toolbarSymbol(of: command, isOn: isOn(command))
     }
 }

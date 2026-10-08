@@ -9,11 +9,11 @@ struct ProviderAuthenticationTests {
     @Test("a refused credential import is visible on the shared runner")
     func refusedImportIsVisible() async throws {
         let harness = try SettingsHarness()
-        let sentence = "The Codex sign-in on this Mac could not be read."
+        let sentence = "The Claude Code sign-in on this Mac could not be read."
         harness.gateway.v2Failures[.authImportStart] = ManagementRefusal.daemon(.unavailable, sentence)
         let runner = harness.model.makeJobRunner()
 
-        let refusal = await harness.model.startAuthImport(source: .codexCLI, provider: "openai_codex", on: runner)
+        let refusal = await harness.model.startAuthImport(source: .claudeCode, provider: "anthropic", on: runner)
 
         #expect(refusal == sentence)
         #expect(runner.failure == sentence)
@@ -32,7 +32,11 @@ struct ProviderAuthenticationTests {
         #expect(runner.failure == sentence)
     }
 
-    @Test("reopening a browser reuses the active URL without another auth job")
+    /// The click opens no browser: the sheet waiting on the sign-in does, once
+    /// it is on screen, so the browser is the last window to come forward
+    /// (owner report of 2026-10-03: the sheet presented after the browser and
+    /// came up over it). That first open happens once per run.
+    @Test("the browser opens once, when the waiting surface asks, and reopening reuses the URL")
     func reopeningReusesTheURL() async throws {
         let gateway = try SettingsFixture.gateway()
         let opener = RecordingExternalOpener()
@@ -40,6 +44,10 @@ struct ProviderAuthenticationTests {
         let runner = model.makeJobRunner()
 
         #expect(await model.startSignIn(provider: "openai_codex", on: runner) == nil)
+        #expect(opener.urls.isEmpty, "starting a sign-in opened the browser before its sheet was up")
+        model.openSignIn(on: runner)
+        model.openSignIn(on: runner)
+        #expect(opener.urls.count == 1, "a surface drawn again opened the same run a second time")
         model.reopenSignIn(on: runner)
 
         #expect(opener.urls.count == 2)
@@ -59,6 +67,7 @@ struct ProviderAuthenticationTests {
         let runner = model.makeJobRunner()
 
         #expect(await model.startSignIn(provider: "openai_codex", on: runner) == nil)
+        model.openSignIn(on: runner)
         #expect(runner.isRunning)
         #expect(runner.browserFailure == ProductStrings[.providerSignInOpenFailed])
         #expect(runner.authorizationURL != nil)
@@ -101,8 +110,11 @@ struct ProviderAuthenticationTests {
         runner.dismiss()
     }
 
-    @Test("a failed import reports its sentence and permits a browser fallback")
-    func failedImportCanUseBrowser() async throws {
+    /// The pane follows every sign-in on one runner, so a failed import is
+    /// followed by whatever sign-in the person tries next, and that one starts
+    /// clean rather than under the import's sentence.
+    @Test("a failed import reports its sentence, and the next sign-in on its runner starts clean")
+    func failedImportLeavesTheRunnerClean() async throws {
         let harness = try SettingsHarness()
         let sentence = "The imported credential has expired."
         harness.gateway.jobScript = [try ManagementValueFixture.job(
@@ -110,7 +122,7 @@ struct ProviderAuthenticationTests {
             failure: (code: "unavailable", sentence: sentence)
         )]
         let runner = harness.model.makeJobRunner()
-        #expect(await harness.model.startAuthImport(source: .codexCLI, provider: "openai_codex", on: runner) == nil)
+        #expect(await harness.model.startAuthImport(source: .claudeCode, provider: "anthropic", on: runner) == nil)
         #expect(runner.job?.kind == .authImport)
         #expect(runner.authorizationURL == nil)
         await runner.drainPendingWork()
@@ -208,6 +220,84 @@ struct ProviderAuthenticationTests {
         #expect(harness.gateway.polledJobs.isEmpty)
     }
 
+    // MARK: - ChatGPT's plan
+
+    /// Manage usage is one of the app's three browser hops, to a fixed page of
+    /// OpenAI's that carries no credential.
+    @Test("Manage usage opens exactly ChatGPT's usage settings")
+    func manageUsageOpensTheUsagePage() throws {
+        let opener = RecordingExternalOpener()
+        let model = SettingsFixture.model(gateway: try SettingsFixture.gateway(), opener: opener)
+
+        #expect(model.openChatGPTUsage() == nil)
+        #expect(opener.urls.map(\.absoluteString) == ["https://chatgpt.com/settings/usage"])
+    }
+
+    /// A browser that does not open is said under the button rather than
+    /// swallowed, in the same words a sign-in's tab uses.
+    @Test("Manage usage answers a sentence when the browser could not open")
+    func manageUsageStatesARefusedBrowser() throws {
+        let opener = RecordingExternalOpener(succeeds: false)
+        let model = SettingsFixture.model(gateway: try SettingsFixture.gateway(), opener: opener)
+
+        #expect(model.openChatGPTUsage() == ProductStrings[.providerSignInOpenFailed])
+        #expect(opener.urls.count == 1, "the open was asked for once")
+    }
+
+    /// What the sheet does as each job ends. Only a completed sign-in that
+    /// ends on the notice keeps the sheet; a cancelled one closes it as it
+    /// always did, and a failed one keeps its sentence for a person to read.
+    @Test("the sign-in sheet's phase follows the job it follows")
+    func signInSheetPhases() {
+        let endings: [(ManagementJobStatus?, Bool, SignInSheetPhase)] = [
+            (.completed, true, .planNotice),
+            (.completed, false, .closed),
+            (.cancelled, true, .closed),
+            (.cancelled, false, .closed),
+            (.running, true, .waiting),
+            (.failed, true, .waiting),
+            (.failed, false, .waiting),
+            (.timedOut, true, .waiting),
+            (.unrecognized("paused"), true, .waiting),
+            (nil, true, .waiting)
+        ]
+
+        for (status, notice, phase) in endings {
+            #expect(
+                SignInSheetPhase(status: status, showsPlanNotice: notice) == phase,
+                "\(String(describing: status)), notice \(notice)"
+            )
+        }
+    }
+
+    /// The one decision both sheets read: a completed ChatGPT sign-in ends on
+    /// OpenAI's notice, whose Manage usage opens the usage page, and a
+    /// completed SpaceXAI one closes the sheet as before.
+    @Test("a completed ChatGPT sign-in ends on the plan notice, and a SpaceXAI one closes")
+    func onlyChatGPTEndsOnThePlanNotice() async throws {
+        let opener = RecordingExternalOpener()
+        let gateway = try SettingsFixture.gateway()
+        let model = SettingsFixture.model(gateway: gateway, opener: opener)
+
+        for (provider, ending) in [("openai_codex", SignInSheetPhase.planNotice), ("xai", .closed)] {
+            gateway.jobScript = [try ManagementValueFixture.job(kind: "auth", status: "completed", phase: nil)]
+            let runner = model.makeJobRunner()
+            #expect(await model.startSignIn(provider: provider, on: runner) == nil)
+            await runner.drainPendingWork()
+
+            let usage = model.manageUsage(after: provider)
+            #expect(runner.job?.status == .completed)
+            #expect(SignInSheetPhase(status: runner.job?.status, showsPlanNotice: usage != nil) == ending, "\(provider)")
+            await model.signInFinished()
+        }
+
+        #expect(model.manageUsage(after: "anthropic") == nil)
+        let usage = try #require(model.manageUsage(after: "openai_codex"))
+        let browserHops = opener.urls.count
+        #expect(usage() == nil)
+        #expect(opener.urls.dropFirst(browserHops).map(\.absoluteString) == ["https://chatgpt.com/settings/usage"])
+    }
+
     private func waitUntil(_ condition: () -> Bool) async throws {
         for _ in 0..<10_000 {
             if condition() { return }
@@ -231,9 +321,10 @@ struct ProviderAuthenticationTests {
             pollGate.released = true
             runner.dismiss()
         }
+        let provider = importing ? "anthropic" : "openai_codex"
         let first = Task {
-            guard importing else { return await harness.model.startSignIn(provider: "openai_codex", on: runner) }
-            return await harness.model.startAuthImport(source: .codexCLI, provider: "openai_codex", on: runner)
+            guard importing else { return await harness.model.startSignIn(provider: provider, on: runner) }
+            return await harness.model.startAuthImport(source: .claudeCode, provider: provider, on: runner)
         }
         try await waitUntil { gate.entered }
         #expect(harness.model.startingSignIn)
@@ -242,18 +333,18 @@ struct ProviderAuthenticationTests {
         harness.gateway.v2Failures[.authImportStart] = busy
 
         #expect(await harness.model.startSignIn(provider: "openai_codex", on: runner) == nil)
-        #expect(await harness.model.startAuthImport(source: .codexCLI, provider: "openai_codex", on: runner) == nil)
+        #expect(await harness.model.startAuthImport(source: .claudeCode, provider: "anthropic", on: runner) == nil)
         gate.released = true
         #expect(await first.value == nil)
         #expect(!harness.model.startingSignIn)
         #expect(await harness.model.startSignIn(provider: "openai_codex", on: runner) == nil)
-        #expect(await harness.model.startAuthImport(source: .codexCLI, provider: "openai_codex", on: runner) == nil)
+        #expect(await harness.model.startAuthImport(source: .claudeCode, provider: "anthropic", on: runner) == nil)
 
         #expect(harness.gateway.calls.filter { $0 == .v2(.authStart) || $0 == .v2(.authImportStart) }.count == 1)
         #expect(runner.failure == nil)
         #expect(runner.isRunning)
         #expect(runner.job?.kind == (importing ? .authImport : .auth))
-        #expect(harness.model.signingInProvider == "openai_codex")
+        #expect(harness.model.signingInProvider == provider)
         #expect((runner.authorizationURL != nil) == !importing)
     }
 }

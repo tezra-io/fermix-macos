@@ -218,27 +218,25 @@ struct ServiceControllerTests {
 
     /// The shipped schedule waits for the app to come to the front or the
     /// backstop, and a cancelled task ends it at once rather than after either.
-    @Test("the shipped schedule ends as soon as its task is cancelled")
+    @Test("the shipped schedule ends as soon as its task is cancelled", .timeLimit(.minutes(1)))
     func shippedScheduleHonoursCancellation() async {
-        // Measured from inside the task, so a loaded runner that starts the
-        // task late does not count: what must be short is the wait itself,
-        // which a cancellation ends before the backstop would have.
-        let outcome = Task { () async -> (Duration, Bool) in
-            let started = ContinuousClock.now
+        // A backstop of an hour, so the one thing that can end this wait
+        // inside the test's time limit is its cancellation. No clock is read:
+        // a loaded runner resumes a task seconds late, so a bound on elapsed
+        // time measured the runner rather than the wait.
+        let outcome = Task { () async -> Bool in
             do {
-                try await ReturnOrBackstop().nextRead()
-                return (ContinuousClock.now - started, false)
+                try await ReturnOrBackstop(backstop: 3_600).nextRead()
+                return false
             } catch is CancellationError {
-                return (ContinuousClock.now - started, true)
+                return true
             } catch {
-                return (ContinuousClock.now - started, false)
+                return false
             }
         }
         outcome.cancel()
-        let (elapsed, cancelled) = await outcome.value
 
-        #expect(cancelled, "the wait ended some other way than by its cancellation")
-        #expect(elapsed < .seconds(ReturnOrBackstop.backstop))
+        #expect(await outcome.value, "the wait ended some other way than by its cancellation")
     }
 
     @Test("Login Items opens through the one documented opener")

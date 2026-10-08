@@ -26,6 +26,10 @@ public protocol BrowserHostLink: BrowserHostStopping, BrowserTaskCancelling {
     /// A task's tab closed without the task's release: its page closed its
     /// own window.
     func tabClosed(_ tab: BrowserTab.ID, task: BrowserTaskID)
+    /// A task's download the host refused to save: the daemon hears it begin
+    /// as `filename` and fail at once with `reason`, so a task waiting on it
+    /// is answered rather than left to time out.
+    func downloadRefused(_ download: UUID, tab: BrowserTab.ID, filename: String, reason: String)
 }
 
 /// The host's part of a quit, as the app coordinator asks for it.

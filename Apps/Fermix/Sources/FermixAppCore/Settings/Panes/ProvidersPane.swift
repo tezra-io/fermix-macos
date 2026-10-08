@@ -45,7 +45,7 @@ struct ProvidersPane: View {
         // never on a render. Each provider's own section is read with them,
         // because that is where the sub-page's rows and the key slot live.
         .task {
-            await model.refreshDetections([.claudeCode, .codexCLI, .existingPrimary])
+            await model.refreshDetections([.claudeCode, .existingPrimary])
             await model.loadProviderSections(for: published)
         }
         .onChange(of: auth.isRunning) { _, running in
@@ -61,11 +61,11 @@ struct ProvidersPane: View {
 
     /// The pane's first section: the primary provider's own rows (M34 §5.1).
     ///
-    /// The model in use, its reasoning effort and its fast mode are the pane's
-    /// headline, and reaching them only through a row's `Details…` hid the one
-    /// fact most visits come for. The rows are the daemon's `providers.<id>`
-    /// section drawn whole, and that provider's sub-page draws none of them, so
-    /// no key carries a control in two places.
+    /// The model in use and its reasoning effort are the pane's headline, and
+    /// reaching them only through a row's `Details…` hid the one fact most
+    /// visits come for. The rows are the daemon's `providers.<id>` section
+    /// drawn whole, and that provider's sub-page draws none of them, so no key
+    /// carries a control in two places.
     ///
     /// A home with no primary has no such section: there is no model in use to
     /// lead with yet.
@@ -188,10 +188,11 @@ struct ProvidersPane: View {
         }
     }
 
-    /// The browser opens on the click, and the sheet says what is happening
-    /// while it is open (M34 §5.1). Both doors into a sign-in behave this way,
-    /// so a person clicking `Sign in` is never asked to click a second button
-    /// inside a sheet to make anything happen.
+    /// The click is the whole of starting (M34 §5.1): the sheet that says what
+    /// is happening comes up as the daemon answers and opens the browser once
+    /// it is on screen, so the browser ends in front. Both doors into a sign-in
+    /// behave this way, so a person clicking `Sign in` is never asked to click
+    /// a second button inside a sheet to make anything happen.
     private func startSignIn(_ row: ProviderRowModel, source: ManagementAuthImportSource? = nil) {
         guard !startingAuth else { return }
 
@@ -231,9 +232,10 @@ struct ProvidersPane: View {
                 importing: source != nil,
                 starting: model.startingSignIn,
                 runner: auth,
+                open: { model.openSignIn(on: auth) },
                 reopen: { model.reopenSignIn(on: auth) },
                 retry: { startSignIn(row, source: source) },
-                browserFallback: source == .codexCLI ? { startSignIn(row) } : nil
+                manageUsage: model.manageUsage(after: row.id)
             ) { self.sheet = nil }
         case .models(let provider, let section, let key):
             ModelPickerSheet(provider: provider, model: model) { chosen in
@@ -241,7 +243,13 @@ struct ProvidersPane: View {
             } dismiss: {
                 self.sheet = nil
             }
-        case .detail(let row):
+        case .detail(let opened):
+            // The row as the daemon reports it now rather than as the sheet
+            // opened over it, so a sign-out inside the sheet takes the account
+            // and the plan off it at once. The opened row stands in only while
+            // the daemon's provider list cannot be read.
+            let row = rows.first { $0.id == opened.id } ?? opened
+
             ProviderDetailSheet(row: row, model: model, confirmPrimary: { provider in
                 // The dialog belongs to the pane, which owns the refusal
                 // sentence: two confirmations would be two chances to disagree
@@ -303,7 +311,7 @@ struct ProviderRow: View {
                     .foregroundStyle(Palette.secondary.color)
 
                 if let title = row.verb.title {
-                    authenticationControl(title)
+                    Button(title, action: perform)
                         // Every verb here ends in a write the daemon refuses
                         // while the settings file has changed outside Fermix
                         // (M34 §7.6), so the row does not offer it.
@@ -336,21 +344,9 @@ struct ProviderRow: View {
         }
     }
 
-    @ViewBuilder
-    private func authenticationControl(_ title: String) -> some View {
-        if row.verb == .importCodexCLI {
-            Menu(title) {
-                Button(title, action: perform)
-                Button(ProductStrings[.providerSignInBrowser]) { present(.signIn(row)) }
-            }
-        } else {
-            Button(title, action: perform)
-        }
-    }
-
     private func perform() {
         switch row.verb {
-        case .signIn:
+        case .signIn, .continueWithChatGPT:
             present(.signIn(row))
         case .addKey, .addSetupToken:
             // The button is disabled until the daemon has named the slot, so a
@@ -363,8 +359,6 @@ struct ProviderRow: View {
             present(.sheet(.addKey(ProviderKeyTarget(provider: row.id, label: row.label, secret: secret))))
         case .importClaudeCode:
             present(.importSignIn(row, .claudeCode))
-        case .importCodexCLI:
-            present(.importSignIn(row, .codexCLI))
         case .none:
             // A connected primary carries no verb, so no button reaches this.
             preconditionFailure("a provider row with no verb draws no button")

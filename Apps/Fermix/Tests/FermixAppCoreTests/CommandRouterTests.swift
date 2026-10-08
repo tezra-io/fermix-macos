@@ -362,6 +362,192 @@ struct CommandRouterTests {
         #expect(!harness.surfaces.logs.exportRequested)
         #expect(harness.windows.presented.isEmpty)
     }
+
+    // MARK: - The call command (M56 §4.1)
+
+    @Test("the call command begins a call when voice is ready")
+    func callCommandBeginsWhenReady() async throws {
+        let harness = try RouterHarness()
+        try await harness.readVoice("ready")
+
+        #expect(harness.router.canPerform(.toggleVoiceCall))
+        harness.router.perform(.toggleVoiceCall)
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.voice.toggleCallCount == 1)
+        #expect(!harness.presentation.isShowing)
+    }
+
+    /// No popup: the one click lands on the pane that sets voice up.
+    @Test("the call command opens Settings, Voice when voice is not set up", arguments: ["setup_required", "disabled"])
+    func callCommandOpensVoiceSettings(word: String) async throws {
+        let harness = try RouterHarness()
+        try await harness.readVoice(word)
+
+        #expect(harness.router.canPerform(.toggleVoiceCall))
+        harness.router.perform(.toggleVoiceCall)
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.voice.toggleCallCount == 0)
+        #expect(harness.windows.presented == [.main])
+        #expect(harness.presentation.isShowing)
+        #expect(harness.settings.selectedPane == .voice)
+    }
+
+    /// A row that would do nothing is dimmed, and the guard refuses it anyway.
+    @Test("the call command does nothing while voice is degraded or unread", arguments: ["degraded", nil])
+    func callCommandRefusedWhenUnavailable(word: String?) async throws {
+        let harness = try RouterHarness()
+        if let word { try await harness.readVoice(word) }
+
+        #expect(harness.surfaces.callGate.readiness == (word == nil ? .unknown : .degraded))
+        #expect(!harness.router.canPerform(.toggleVoiceCall))
+        harness.router.perform(.toggleVoiceCall)
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.voice.toggleCallCount == 0)
+        #expect(harness.windows.presented.isEmpty)
+        #expect(!harness.presentation.isShowing)
+    }
+
+    /// Ending is never gated: the row is how a call is ended with no window
+    /// open, whatever the last overview said.
+    @Test("the call command ends a call whatever readiness says", arguments: ["degraded", "setup_required", nil])
+    func callCommandAlwaysEnds(word: String?) async throws {
+        let harness = try RouterHarness()
+        if let word { try await harness.readVoice(word) }
+        harness.voiceCall.beginTestCall()
+
+        #expect(harness.router.canPerform(.toggleVoiceCall))
+        #expect(harness.router.isOn(.toggleVoiceCall))
+        harness.router.perform(.toggleVoiceCall)
+
+        #expect(harness.voice.toggleCallCount == 1)
+        #expect(!harness.presentation.isShowing)
+    }
+
+    /// The title names where a click goes: a start the daemon has not answered
+    /// is ended like a call, and a call still ending begins the next one.
+    @Test("the call command's title follows the call's phase")
+    func callCommandTitleFollowsThePhase() async throws {
+        let harness = try RouterHarness()
+        try await harness.readVoice("ready")
+        let call = harness.voiceCall
+
+        #expect(harness.router.menuTitle(of: .toggleVoiceCall) == "Begin Voice Call")
+
+        call.callStarting()
+        #expect(harness.router.menuTitle(of: .toggleVoiceCall) == "End Voice Call", "starting")
+
+        call.callStarted()
+        #expect(harness.router.menuTitle(of: .toggleVoiceCall) == "End Voice Call", "active")
+        #expect(harness.router.statusItemTitle(of: .toggleVoiceCall) == "End Voice Call")
+
+        call.callStopping()
+        #expect(harness.router.menuTitle(of: .toggleVoiceCall) == "Begin Voice Call", "stopping")
+
+        call.callEnded()
+        #expect(call.voice.phase == .ended(.normal(settled: nil)))
+        #expect(harness.router.menuTitle(of: .toggleVoiceCall) == "Begin Voice Call", "ended")
+        #expect(harness.router.statusItemTitle(of: .toggleVoiceCall) == "Begin Voice Call")
+    }
+
+    /// Chat's toolbar draws the call as a symbol, so its tag says what a
+    /// click does now, or why it does nothing, in the pet's own words.
+    @Test(
+        "the toolbar's call button names the next click, or why there is none",
+        arguments: [("ready", "Begin voice call"), ("setup_required", "Set up voice"), ("degraded", "Voice is not available right now")]
+    )
+    func callToolbarHelp(word: String, help: String) async throws {
+        let harness = try RouterHarness()
+        try await harness.readVoice(word)
+
+        #expect(harness.router.toolbarHelp(of: .toggleVoiceCall) == help)
+        #expect(harness.router.toolbarTitle(of: .toggleVoiceCall) == "Begin voice call")
+
+        harness.voiceCall.beginTestCall()
+        #expect(harness.router.toolbarHelp(of: .toggleVoiceCall) == "End voice call")
+        #expect(harness.router.toolbarTitle(of: .toggleVoiceCall) == "End voice call")
+
+        // Every other command's tag is the table's.
+        #expect(harness.router.toolbarHelp(of: .showBrowser) == nil)
+        #expect(harness.router.toolbarHelp(of: .runNetworkChecks) == ProductStrings[.doctorNetworkBody])
+    }
+
+    /// The Pet page, the floating pet and the menus are four doors on one
+    /// gate: the pet's click opens the same pane the menu row does.
+    @Test("the pet's call control clicks through the command's gate")
+    func petClicksThroughTheGate() async throws {
+        let harness = try RouterHarness()
+        try await harness.readVoice("setup_required")
+
+        harness.surfaces.pet.toggleCall()
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.voice.toggleCallCount == 0)
+        #expect(harness.presentation.isShowing)
+        #expect(harness.settings.selectedPane == .voice)
+    }
+
+    /// The pet's dock ends a call with its stop exactly while the toolbar's
+    /// call button is the hang-up, in both hosts: through a start and a call,
+    /// and never at rest, while the last call ends or once it has.
+    @Test("the dock's stop ends a call exactly while the toolbar's call button is the hang-up")
+    func dockStopEndsWhenTheToolbarDoes() async throws {
+        let harness = try RouterHarness()
+        try await harness.readVoice("ready")
+        let call = harness.voiceCall
+
+        func agree(_ phase: String) {
+            for host in [PetHost.floatingWindow, .callBox] {
+                let ends = harness.surfaces.pet.stopAction(in: host) == .end
+                #expect(ends == harness.router.isOn(.toggleVoiceCall), "\(phase), \(host)")
+            }
+        }
+
+        agree("idle")
+        call.callStarting()
+        agree("starting")
+        call.callStarted()
+        agree("active")
+        call.callStopping()
+        agree("stopping")
+        call.callEnded()
+        agree("ended")
+    }
+
+    /// The owner's direction of 2026-10-04 ("turns red when the call is on to
+    /// close it"), with no green: the toolbar's call button is the plain phone
+    /// at rest and the hang-up in the system's red while there is a call to
+    /// end, and the dock's stop is red at the same moments, in both hosts.
+    /// One red glyph per surface, only while there is a call to end.
+    @Test("the toolbar's hang-up and the dock's stop are red exactly while there is a call to end")
+    func callControlsAreRedWhileACallIsUp() async throws {
+        let harness = try RouterHarness()
+        try await harness.readVoice("ready")
+        let call = harness.voiceCall
+        let phone = ToolbarSymbol(name: "phone", tint: nil)
+        let hangUp = ToolbarSymbol(name: "phone.down.fill", tint: Palette.hangUp)
+
+        func draws(_ toolbar: ToolbarSymbol, _ phase: String) {
+            #expect(harness.router.toolbarSymbol(of: .toggleVoiceCall) == toolbar, "\(phase)")
+
+            for host in [PetHost.floatingWindow, .callBox] {
+                let stop = harness.surfaces.pet.stopAction(in: host).map(PetDockSymbol.stop)
+                #expect((stop?.tint == Palette.hangUp) == (toolbar == hangUp), "\(phase), \(host)")
+            }
+        }
+
+        draws(phone, "rest")
+        call.callStarting()
+        draws(hangUp, "starting")
+        call.callStarted()
+        draws(hangUp, "active")
+        call.callStopping()
+        draws(phone, "stopping")
+        call.callEnded()
+        draws(phone, "ended")
+    }
 }
 
 /// The real router over the real surfaces, with the daemon, the windows, the
@@ -371,6 +557,10 @@ final class RouterHarness {
     let gateway = FakeDaemonGateway()
     let loginItems = FakeLoginItemService()
     let model = AppModel()
+    let voiceCall = VoiceCallModel()
+    /// The voice controller behind the call control's gate, recording what it
+    /// was asked.
+    let voice = FakeVoiceController()
     let windows = FakeWindowHost()
     let lifecycle = FakeLifecycleController()
     let termination = FakeTerminationRequester()
@@ -427,16 +617,27 @@ final class RouterHarness {
         menuBar = MenuBarController(model: model, item: statusItem)
 
         let services = ServiceController(loginItems: loginItems)
+        let home = HomeModel(
+            gateway: gateway,
+            services: services,
+            coordinator: coordinator,
+            updates: updates,
+            settings: settings,
+            reconciler: EngineReconcilerFixture.aligned(),
+            menuBar: menuBar,
+            call: voiceCall,
+            deadlines: ManualDeadlineScheduler()
+        )
+        // The gate the composition builds: over the one reader, opening the
+        // Voice pane through the coordinator's one door into settings.
+        let gate = VoiceCallGate(
+            call: voiceCall,
+            voice: voice,
+            readiness: home,
+            setUpVoice: { [coordinator] in coordinator.open(.settings(.voice)) }
+        )
         surfaces = MainWindowSurfaces(
-            home: HomeModel(
-                gateway: gateway,
-                services: services,
-                coordinator: coordinator,
-                updates: updates,
-                settings: settings,
-                reconciler: EngineReconcilerFixture.aligned(),
-                menuBar: menuBar
-            ),
+            home: home,
             doctor: DoctorModel(
                 gateway: gateway,
                 logFolder: { URL(fileURLWithPath: "/tmp/fermix-home-fixture/logs", isDirectory: true) },
@@ -446,7 +647,9 @@ final class RouterHarness {
                 sleeper: NoWaitSleeper()
             ),
             logs: LogsModel(gateway: gateway),
-            pet: PetFeatureModel(model: model, voice: FakeVoiceController(), coordinator: coordinator),
+            pet: PetFeatureModel(call: voiceCall, voice: voice, gate: gate, coordinator: coordinator),
+            voiceCall: voiceCall,
+            callGate: gate,
             onboarding: OnboardingModel(
                 gateway: gateway,
                 activation: FakeActivationDriver(),
@@ -488,5 +691,11 @@ final class RouterHarness {
         for _ in 0..<16 {
             await Task.yield()
         }
+    }
+
+    /// The one overview reader, answering with voice in `word`.
+    func readVoice(_ word: String) async throws {
+        gateway.overviewResult = try ManagementValueFixture.overview(voice: word)
+        await surfaces.home.refresh()
     }
 }

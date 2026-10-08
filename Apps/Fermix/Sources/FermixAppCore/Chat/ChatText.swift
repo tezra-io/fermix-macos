@@ -99,7 +99,7 @@ enum ChatTurnStatus: Equatable {
 /// Reply text as it is drawn: SwiftUI's inline markdown, with its links
 /// live, and a search's matches marked where the reader was sent to them. A
 /// link opens through the surface's content link opener, in the pane or the
-/// person's own browser.
+/// person's own browser, or, for a local path, as the file it names.
 enum ChatText {
     /// Inline markdown only; blocks and tables are drawn as the text they
     /// are, except a heading line, drawn as its text in bold, and a fenced
@@ -110,7 +110,13 @@ enum ChatText {
     /// A link is drawn in the text blue, `accentText`, which holds §9's floor
     /// on the dark ground: left to the window's tint it would be the accent,
     /// which does not.
-    static func reply(_ text: String) -> AttributedString {
+    ///
+    /// A local path the reply names is a link to its file too (`ReplyPaths`),
+    /// `~` read as `home`, which the caller passes so the text alone decides
+    /// what is drawn. A path keeps the reply's own `ink`, because blue on
+    /// every path read as noise, and is underlined in `faint`, because ink
+    /// alone passed for plain text (owner, 2026-10-04).
+    static func reply(_ text: String, home: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
@@ -120,8 +126,10 @@ enum ChatText {
             attributed[run.range].foregroundColor = Palette.accentText.color
         }
 
-        return attributed
+        return ReplyPaths.linked(attributed, home: home, look: pathLook)
     }
+
+    static let pathLook = ReplyPaths.Look(ink: Palette.ink.color, underline: Palette.faint.color)
 
     static func plain(_ text: String) -> AttributedString {
         AttributedString(text)

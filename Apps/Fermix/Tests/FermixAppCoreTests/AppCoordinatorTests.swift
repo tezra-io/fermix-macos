@@ -699,7 +699,7 @@ final class FakeVoiceController: VoiceControlling {
     func toggleCall() { toggleCallCount += 1 }
     func setMuted(_ muted: Bool) {}
     func interrupt() {}
-    func cancelTask() {}
+    func cancelTask(delegationId: String, revision: Int) {}
     func shutdown() { shutdownCount += 1 }
 }
 

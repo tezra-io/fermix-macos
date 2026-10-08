@@ -124,3 +124,7 @@ struct ManagementPluginSettingParams: Encodable {
 struct ManagementCapabilityInstallParams: Encodable {
     let target: ManagementCapabilityTarget
 }
+
+struct ManagementIMessageGrantParams: Encodable {
+    let service: ManagementIMessageGrantService
+}

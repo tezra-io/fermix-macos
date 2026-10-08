@@ -117,6 +117,18 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// Holds the first authentication reply so duplicate clicks can be tested.
     var authStartGate: (@Sendable () async -> Void)?
     var jobIndex = 0
+    /// What each `capabilities.install.start` asked to install, in order.
+    var installedTargets: [ManagementCapabilityTarget] = []
+    /// The iMessage probe's answers, consumed in order, for a case that watches
+    /// the helper arrive or a grant land. Empty means the golden record; an
+    /// exhausted script keeps answering with the last one.
+    var imessagePermissionsScript: [ManagementIMessagePermissions] = []
+    var imessagePermissionsIndex = 0
+    /// The service each `imessage.grant.start` asked for, in order.
+    var imessageGrantServices: [ManagementIMessageGrantService] = []
+    /// The job an iMessage grant or confirmation starts as, where a case needs
+    /// one still running: the goldens publish both already completed.
+    var imessageJobStarted: ManagementJob?
 
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take
@@ -294,9 +306,11 @@ enum ManagementValueFixture {
         uptimeMs: Int = 273_600_000,
         failedJobs: Int = 0,
         activeConversations: Int = 0,
-        pendingConversations: Int = 0
+        pendingConversations: Int = 0,
+        voice: String? = "ready"
     ) throws -> ManagementOverview {
         let active = provider.map { "\"\($0)\"" } ?? "null"
+        let voiceStatus = voice.map { "\"\($0)\"" } ?? "null"
         return try decode(
             """
             {
@@ -338,7 +352,7 @@ enum ManagementValueFixture {
               },
               "realtime": {
                 "enabled": true,
-                "status": "ok",
+                "status": \(voiceStatus),
                 "provider": "openai",
                 "model": "gpt-realtime",
                 "socket_alive": true,

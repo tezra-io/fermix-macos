@@ -916,4 +916,15 @@ extension AppCoordinator: PetWindowPresenting {
         shown ? windows.show(.pet) : windows.close(.pet)
         model.petShown = windows.isOpen(.pet)
     }
+
+    /// Whether a surface with the call control is on screen: the floating pet,
+    /// or Chat or the Pet page in the primary window with settings not over
+    /// them (M56 §4.1). Read from the three facts this coordinator owns, which
+    /// window is on screen, which route it shows and whether settings covers it.
+    public var showsCallControl: Bool {
+        if windows.isVisible(.pet) { return true }
+        guard windows.isVisible(.main), !presentation.isShowing else { return false }
+
+        return model.route == .chat || model.route == .pet
+    }
 }

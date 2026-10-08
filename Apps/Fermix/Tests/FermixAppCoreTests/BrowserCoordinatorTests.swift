@@ -218,31 +218,6 @@ struct BrowserCoordinatorTests {
         #expect(harness.model.dialog == nil)
     }
 
-    @Test("a download is refused with the pane's sentence")
-    func downloadsAreRefusedWithASentence() throws {
-        let harness = BrowserHarness()
-        harness.coordinator.open(Self.fermix)
-
-        harness.page(0).events?.pageStartedDownload(URL(string: "https://fermix.ai/Fermix.dmg")!)
-
-        #expect(harness.model.notice == ProductStrings[.browserNoticeDownloadRefused])
-    }
-
-    @Test("another app's scheme goes to that app, and says so when none takes it")
-    func externalSchemesGoToTheMac() throws {
-        let harness = BrowserHarness()
-        harness.coordinator.open(Self.fermix)
-        let mail = URL(string: "mailto:hello@fermix.ai")!
-
-        harness.page(0).events?.pageMetExternalScheme(mail)
-        #expect(harness.workspace.opened == [mail])
-        #expect(harness.model.notice == nil)
-
-        harness.workspace.succeeds = false
-        harness.page(0).events?.pageMetExternalScheme(mail)
-        #expect(harness.model.notice == ProductStrings[.browserNoticeNoApp])
-    }
-
     @Test("the page in front opens in the person's own browser")
     func openInSystemBrowser() throws {
         let harness = BrowserHarness()
@@ -330,5 +305,32 @@ struct BrowserTextTests {
     func dialogTitles() {
         #expect(BrowserText.dialogTitle(origin: "fermix.ai") == "fermix.ai says")
         #expect(BrowserText.dialogTitle(origin: "") == "This page says")
+    }
+
+    /// Whatever the page calls itself: an HTML file's own title, or none.
+    @Test("a file tab is named by its file")
+    func fileTabTitles() {
+        let file = URL(fileURLWithPath: "/Users/Shared/Fermix/report.html", isDirectory: false)
+
+        #expect(BrowserText.tabTitle(title: "Quarterly", url: file, file: file) == "report.html")
+        #expect(BrowserText.tabTitle(title: "", url: nil, file: file) == "report.html")
+    }
+
+    @Test("a file's address is its path, the home folder written ~")
+    func fileAddresses() {
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+
+        #expect(BrowserText.address(of: home.appendingPathComponent("Fermix/workspace/notes.md", isDirectory: false)) == "~/Fermix/workspace/notes.md")
+        #expect(BrowserText.address(of: URL(fileURLWithPath: "/Users/Shared/notes.md", isDirectory: false)) == "/Users/Shared/notes.md")
+    }
+
+    @Test("a file tab's words")
+    func fileTabWords() {
+        #expect(BrowserText.openIn("Preview") == "Open in Preview")
+        #expect(BrowserText.dialogTitle(BrowserDialog(kind: .openFile(name: "notes.md"), message: "", origin: "")) == "Open \u{201C}notes.md\u{201D}?")
+        #expect(ProductStrings[.browserOpenFileMessage] == "This file is outside your Fermix home.")
+        #expect(ProductStrings[.browserNoticeFileMissing] == "There is no file at that path.")
+        #expect(ProductStrings[.browserShowInFinder] == "Show in Finder")
+        #expect(ProductStrings[.browserFileTab] == "File")
     }
 }

@@ -100,10 +100,15 @@ struct ManagementV2FixtureTests {
             ("mobile listener status", Array(ManagementMobileListenerStatus.publishedValues.keys)),
             ("mobile announcement", Array(ManagementMobileAnnouncement.publishedValues.keys)),
             ("mobile credentials", Array(ManagementMobileCredentials.publishedValues.keys)),
-            ("mobile signer role", Array(ManagementMobileSignerRole.publishedValues.keys))
+            ("mobile signer role", Array(ManagementMobileSignerRole.publishedValues.keys)),
+            ("imessage grant service", Array(ManagementIMessageGrantService.publishedValues.keys)),
+            ("imessage full disk access", Array(ManagementIMessageFullDiskAccess.publishedValues.keys)),
+            ("imessage database", Array(ManagementIMessageDatabase.publishedValues.keys)),
+            ("imessage automation", Array(ManagementIMessageAutomation.publishedValues.keys)),
+            ("imessage policy", Array(ManagementIMessagePolicy.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 24)
+        #expect(modelled.count == 29)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),
@@ -209,7 +214,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 91, "every success record was decoded")
+        #expect(seen.count == 96, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -496,7 +501,7 @@ struct ManagementV2FixtureTests {
     @Test("no job kind is doctor, in the schema or in the app")
     func doctorIsNotAJobKind() throws {
         #expect(ManagementJobKind.publishedValues["doctor"] == nil)
-        #expect(ManagementJobKind.publishedValues.count == 11)
+        #expect(ManagementJobKind.publishedValues.count == 13)
 
         let jobs: ManagementJobList = try FakeDaemonGateway.fixtureResult(
             named: "job_list",
@@ -508,6 +513,46 @@ struct ManagementV2FixtureTests {
             #expect(job.kind.isPublished, "\(job.kind) is not a kind this build models")
             #expect(job.kind != .unrecognized("doctor"))
         }
+    }
+
+    /// The iMessage probe decodes every field under its own key: each one but
+    /// `installed` is optional, so a key spelled wrong here would decode as
+    /// nil and read as "not reported" rather than fail. Both iMessage jobs
+    /// complete with that same view as their result, the confirmation adding
+    /// its `outcome`.
+    @Test("the iMessage probe and both of its jobs decode what the goldens carry")
+    func imessageShapesDecode() throws {
+        let probe: ManagementIMessagePermissions = try FakeDaemonGateway.fixtureResult(
+            named: "imessage_permissions_get",
+            as: ManagementIMessagePermissions.self
+        )
+
+        #expect(probe.installed)
+        #expect(probe.helperVersion == "0.1.0")
+        #expect(probe.fullDiskAccess == .granted)
+        #expect(probe.db == .readable)
+        #expect(probe.automation == .granted)
+        #expect(probe.messagesRunning == true)
+        #expect(probe.signedIn == true)
+        #expect(probe.userSession == true)
+        #expect(probe.policy == .confirmed)
+        #expect(probe.policyMatchesConfig == true)
+        #expect(probe.probedAt == "2026-10-03T12:00:06Z")
+
+        let grant: ManagementJob = try FakeDaemonGateway.fixtureResult(
+            named: "imessage_grant_start",
+            as: ManagementJob.self
+        )
+        let confirm: ManagementJob = try FakeDaemonGateway.fixtureResult(
+            named: "imessage_policy_confirm",
+            as: ManagementJob.self
+        )
+
+        #expect(grant.kind == .imessageGrant)
+        #expect(grant.result?.values["policy"] == .string("confirmed"))
+        #expect(confirm.kind == .imessagePolicyConfirm)
+        #expect(confirm.status == .completed)
+        #expect(confirm.result?.values["outcome"] == .string("confirmed"))
     }
 
     /// `failure.code` is closed, so a caller can branch on the kind rather than
@@ -659,7 +704,7 @@ struct ManagementV2FixtureTests {
         )
 
         #expect(state.providers.first?.id == "openai_codex")
-        #expect(state.providers.first?.label == "OpenAI Codex (ChatGPT)")
+        #expect(state.providers.first?.label == "OpenAI Codex")
         #expect(state.providers.first { $0.id == "anthropic" }?.label == "Anthropic")
         #expect(state.providers.first { $0.id == "xai" }?.label == "SpaceXAI")
         #expect(state.profile == "general")

@@ -33,6 +33,12 @@ public final class CompanionSession {
 
     public let model = CompanionModel()
 
+    /// What the owner is writing and has not sent. The chat view is rebuilt on
+    /// every rail change and when Settings opens, so the text lives here, beside
+    /// the outbox it is on its way to. Not the model's, which holds the daemon's
+    /// facts, and not published, so a keystroke redraws nothing but the field.
+    public var draft = ""
+
     private let transport: CompanionSocketClient
     private let socketPath: () throws -> String
     private let deadlines: any DeadlineScheduling

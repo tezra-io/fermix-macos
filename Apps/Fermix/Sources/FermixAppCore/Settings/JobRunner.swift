@@ -31,6 +31,10 @@ public final class JobRunner: ObservableObject {
     private let sleeper: any Sleeping
     private let now: @Sendable () -> Date
     private var authorizationExpiresAt: Date?
+    /// Whether this run's url has yet to reach a browser. The first open is
+    /// the waiting surface's to make, once it is on screen, and it happens once
+    /// per run; opening it again is the person's `Open the browser again`.
+    private var browserPending = false
     private let log = AppLog.logger(.app)
     private var poll: Task<Void, Never>?
 
@@ -84,6 +88,7 @@ public final class JobRunner: ObservableObject {
         guard !started.status.isTerminal else { return }
 
         authorizationURL = authorizeURL
+        browserPending = authorizeURL != nil
         authorizationExpiresAt = authorizeURL.map { _ in
             now().addingTimeInterval(Double(max(0, expiresInMs ?? started.budgetMs)) / 1_000)
         }
@@ -110,6 +115,15 @@ public final class JobRunner: ObservableObject {
         }
 
         return authorizationURL
+    }
+
+    /// The url to open the first time the surface that waits on this run is
+    /// drawn, and nil every time after, or where the run has none to open.
+    public func takeUnopenedBrowserURL() -> URL? {
+        guard browserPending else { return nil }
+
+        browserPending = false
+        return activeBrowserURL()
     }
 
     public func browserOpened(_ succeeded: Bool) {
@@ -217,6 +231,7 @@ public final class JobRunner: ObservableObject {
     private func clearAuthorization() {
         authorizationURL = nil
         authorizationExpiresAt = nil
+        browserPending = false
     }
 
     /// How many polls the daemon's budget allows, bounded by the published cap.
@@ -254,7 +269,8 @@ public enum JobPhaseCopy {
     }
 
     /// Every (kind, phase) pair PROTOCOL.md's per-kind vocabulary publishes.
-    /// `computer_use_grant` has none, which is why it has no entry.
+    /// `computer_use_grant`, `imessage_grant` and `imessage_policy_confirm` have
+    /// none, which is why they have no entry.
     public static let published: [Step: ProductStringKey] = [
         Step(.providerProbe, "calling"): .jobPhaseCalling,
         Step(.auth, "binding"): .jobPhaseBinding,

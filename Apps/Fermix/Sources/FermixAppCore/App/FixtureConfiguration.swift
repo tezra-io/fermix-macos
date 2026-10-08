@@ -47,6 +47,12 @@ enum FixtureStart: Equatable {
     /// Chat with the browser pane open beside it on two fake tabs. The pane
     /// closed is `chat` itself.
     case browser
+    /// Chat with a voice call begun on launch, which the scripted daemon
+    /// carries through a conversation to listening.
+    case chatCall
+    /// Chat with a voice call begun on launch, which the scripted daemon ends
+    /// at its cost ceiling.
+    case failedChatCall
 
     static let settingsPrefix = "settings/"
     static let assistantPrefix = "assistant/"
@@ -54,6 +60,8 @@ enum FixtureStart: Equatable {
     static let approvalStepName = "assistant/approval"
     static let emptyChatName = "chat-empty"
     static let browserName = "browser"
+    static let chatCallName = "chat-call"
+    static let failedChatCallName = "chat-call-failed"
 
     /// The start a launch argument named, or nil where this build publishes no
     /// such surface. A mistyped name is refused by the caller rather than
@@ -67,6 +75,10 @@ enum FixtureStart: Equatable {
             self = .emptyChat
         } else if name == Self.browserName {
             self = .browser
+        } else if name == Self.chatCallName {
+            self = .chatCall
+        } else if name == Self.failedChatCallName {
+            self = .failedChatCall
         } else if let slug = name.dropping(prefix: Self.settingsPrefix) {
             guard let pane = SettingsPane(rawValue: slug) else { return nil }
             self = .settings(pane)
@@ -84,7 +96,7 @@ enum FixtureStart: Equatable {
         AppRoute.allCases.map(\.rawValue)
             + SettingsPane.allCases.map { settingsPrefix + $0.slug }
             + OnboardingStage.allCases.map { assistantPrefix + $0.rawValue }
-            + [restartSheetName, approvalStepName, emptyChatName, browserName]
+            + [restartSheetName, approvalStepName, emptyChatName, browserName, chatCallName, failedChatCallName]
     }
 }
 
@@ -164,6 +176,8 @@ enum FixturePresentation: Equatable {
     case homeWithRestartSheet
     /// Chat, with the browser pane open on the fixture's two pages.
     case chatWithBrowser
+    /// Chat, with a voice call begun.
+    case chatWithCall
 }
 
 /// One fixture launch: where it lands, and the machine it lands on.
@@ -191,6 +205,7 @@ struct FixtureLaunch {
         case .restartSheet: return .homeWithRestartSheet
         case .emptyChat: return .route(.chat)
         case .browser: return .chatWithBrowser
+        case .chatCall, .failedChatCall: return .chatWithCall
         }
     }
 
@@ -198,6 +213,13 @@ struct FixtureLaunch {
     /// full timeline, so Chat reached from any of them shows a conversation.
     var companionTimeline: FixtureCompanionTimeline {
         start == .emptyChat ? .empty : .full
+    }
+
+    /// The call the voice socket's scripted daemon plays. Every start but the
+    /// failed call's gets the conversation, so a call begun from the Pet page
+    /// of any of them has a daemon to answer it.
+    var realtimeCall: FixtureRealtimeCall {
+        start == .failedChatCall ? .costLimit : .conversation
     }
 
     /// A filesystem-safe name for this start, which is what keeps two starts
@@ -211,6 +233,8 @@ struct FixtureLaunch {
         case .approvalStep: return "assistant-approval"
         case .emptyChat: return FixtureStart.emptyChatName
         case .browser: return FixtureStart.browserName
+        case .chatCall: return FixtureStart.chatCallName
+        case .failedChatCall: return FixtureStart.failedChatCallName
         }
     }
 }
@@ -516,6 +540,12 @@ extension AppEnvironment {
             identities: FixtureDaemonIdentity(),
             companionLines: FixtureCompanionTransport(timeline: launch.companionTimeline),
             browserHostLines: FixtureBrowserHostTransport(),
+            // A scripted daemon on the voice socket and a silent engine under
+            // the call, so a call begun from any surface reaches neither the
+            // realtime socket nor the microphone: the claim at the top of this
+            // file holds by construction.
+            realtimeLines: FixtureRealtimeTransport(call: launch.realtimeCall, deadlines: MainQueueDeadlineScheduler()),
+            voiceAudio: FixtureAudioEngine(deadlines: MainQueueDeadlineScheduler()),
             // An installed machine: `notInApplications` exists to render the
             // location refusal, and the Starting ladder is looked at with the
             // registration row the shipped activation draws.
@@ -552,7 +582,8 @@ extension AppComposition {
         launch.present(
             with: coordinator,
             showRestartSheet: { [coordinator] in coordinator.askForRestart() },
-            openBrowser: { [browser] in FixtureWebPage.openTabs(in: browser) }
+            openBrowser: { [browser] in FixtureWebPage.openTabs(in: browser) },
+            beginCall: { [voice] in voice.toggleCall() }
         )
     }
 }
@@ -563,9 +594,15 @@ extension FixtureLaunch {
     /// The restart sheet is the coordinator's, the same door the Attention row,
     /// the Daemon menu and the status item ask through, so it arrives as a
     /// closure rather than a second owner of it. The browser pane is the
-    /// browser coordinator's, and arrives the same way.
+    /// browser coordinator's, and the call is the voice coordinator's, the one
+    /// the Pet page's button asks; both arrive the same way.
     @MainActor
-    func present(with coordinator: AppCoordinator, showRestartSheet: () -> Void, openBrowser: () -> Void) {
+    func present(
+        with coordinator: AppCoordinator,
+        showRestartSheet: () -> Void,
+        openBrowser: () -> Void,
+        beginCall: () -> Void
+    ) {
         switch presentation {
         case .assistant(let stage):
             coordinator.openAssistant(at: stage)
@@ -579,6 +616,9 @@ extension FixtureLaunch {
         case .chatWithBrowser:
             coordinator.open(.chat)
             openBrowser()
+        case .chatWithCall:
+            coordinator.open(.chat)
+            beginCall()
         }
     }
 }

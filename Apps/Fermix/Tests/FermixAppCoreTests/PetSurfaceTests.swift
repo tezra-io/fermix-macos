@@ -51,6 +51,89 @@ struct PetSurfaceTests {
         #expect(harness.engine.permissionRequests == 0)
     }
 
+    /// A click while the daemon has not answered calls the start off, so the
+    /// control says so: it was "Begin" through the whole handshake, and a
+    /// second click began again.
+    @Test("the call control ends a start the daemon has not answered")
+    func controlEndsAPendingStart() throws {
+        let harness = try harness()
+
+        harness.model.toggleCall()
+        #expect(harness.model.callActionTitle == ProductStrings[.petCallEnd])
+
+        harness.model.toggleCall()
+        #expect(harness.model.callActionTitle == ProductStrings[.petCallBegin])
+        #expect(harness.call.voice.phase == .idle)
+    }
+
+    /// Voice that is not set up turns the call control into the way to set it
+    /// up: one click opens Settings, Voice, and no call starts.
+    @Test("with voice not set up the call control sets it up")
+    func controlSetsUpVoice() throws {
+        let harness = try harness()
+        harness.readiness.voiceReadiness = .setupRequired
+
+        #expect(harness.model.callActionTitle == "Set up voice")
+        #expect(harness.model.callHelpText == "Set up voice")
+        #expect(harness.model.callActionEnabled)
+
+        harness.model.toggleCall()
+
+        #expect(harness.voiceSetUps.count == 1)
+        #expect(harness.call.voice.phase == .idle)
+        #expect(harness.engine.permissionRequests == 0)
+    }
+
+    /// Degraded or unread voice offers nothing to click: the control is dimmed
+    /// under its usual title, and the help says why in the app's own words.
+    @Test(
+        "with voice degraded or unread the call control does nothing and says why",
+        arguments: [VoiceReadiness.degraded, .unknown]
+    )
+    func controlExplainsUnavailableVoice(readiness: VoiceReadiness) throws {
+        let harness = try harness()
+        harness.readiness.voiceReadiness = readiness
+
+        #expect(harness.model.callActionTitle == ProductStrings[.petCallBegin])
+        #expect(!harness.model.callActionEnabled)
+        #expect(harness.model.callHelpText == readiness.sentence)
+        #expect(
+            harness.model.callHelpText
+                == (readiness == .degraded ? "Voice is not available right now" : "Checking voice")
+        )
+
+        harness.model.toggleCall()
+
+        #expect(harness.voiceSetUps.count == 0)
+        #expect(harness.call.voice.phase == .idle)
+    }
+
+    /// A call that is up is always the control's to end, whatever the last
+    /// overview said.
+    @Test("a call that is up ends whatever readiness says")
+    func controlEndsWhateverReadinessSays() throws {
+        let harness = try harness()
+        harness.call.beginTestCall()
+        harness.readiness.voiceReadiness = .degraded
+
+        #expect(harness.model.callActionTitle == ProductStrings[.petCallEnd])
+        #expect(harness.model.callActionEnabled)
+        #expect(harness.model.callHelpText == ProductStrings[.petCallEnd])
+    }
+
+    /// The Pet page redraws when readiness moves, as it does for the call.
+    @Test("a readiness change redraws the pet")
+    func readinessChangeRedraws() throws {
+        let harness = try harness()
+        var redraws = 0
+        let subscription = harness.model.objectWillChange.sink { _ in redraws += 1 }
+        defer { subscription.cancel() }
+
+        harness.readiness.voiceReadiness = .degraded
+
+        #expect(redraws == 1)
+    }
+
     @Test("starting a call is the first and only thing that asks for the microphone")
     func permissionAtFirstCall() async throws {
         let harness = try harness()
@@ -126,6 +209,192 @@ struct PetSurfaceTests {
         #expect(harness.model.callHelpText == ProductStrings[.voiceErrorNoInputDevice])
     }
 
+    // MARK: - The mascot's click
+
+    /// The mascot's click is the call control's, through the gate, wherever
+    /// the pet is drawn (owner, 2026-09-25: "the click on the mascot leads to
+    /// enabling or disabling it"; 2026-10-04: the chat's box does the same as
+    /// the floating window). With no call up it begins one; through a start
+    /// or a call it ends it, and the pet goes to its idle pose.
+    @Test("a click on the pet's mascot begins a call while none is up and ends the one that is, in both hosts")
+    func mascotClickTogglesTheCall() throws {
+        let harness = try harness()
+        harness.call.voiceNegotiated()
+        #expect(harness.model.callHelpText == "Begin voice call")
+
+        harness.model.toggleCall()
+        #expect(harness.call.voice.phase == .starting)
+        #expect(harness.model.callHelpText == "End voice call")
+
+        // A start the daemon has not answered is called off like a call.
+        harness.model.toggleCall()
+        #expect(harness.call.voice.phase == .idle)
+
+        harness.model.toggleCall()
+        harness.call.callStarted()
+        _ = harness.call.apply(.state(.listening), audioIsPlaying: false)
+        #expect(harness.model.expression == .listening)
+
+        harness.model.toggleCall()
+        #expect(harness.call.voice.phase == .stopping)
+        harness.call.callEnded()
+        #expect(harness.model.expression == .idle)
+
+        // One companion draws the pet in both hosts, and its whole frame is
+        // the call control's click and tooltip: no host has a rule of its own.
+        let pet = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
+        #expect(pet.contains(".onTapGesture { model.toggleCall() }"))
+        #expect(pet.contains(".help(model.callHelpText)"))
+        let model = try #require(try SourceTree.swiftFiles(matching: "Pet/PetFeatureModel.swift").first?.text)
+        #expect(!model.contains("func mascotClicked"), "a host's click has a rule of its own again")
+    }
+
+    /// Outside a call the mascot's click is the call control's, whatever the
+    /// gate makes of it: Settings, Voice where voice is not set up, nothing
+    /// where it is degraded, and the next call after a failure.
+    @Test("outside a call the pet's mascot clicks through the gate")
+    func mascotClicksThroughTheGate() async throws {
+        let setUp = try harness()
+        setUp.readiness.voiceReadiness = .setupRequired
+        #expect(setUp.model.callHelpText == "Set up voice")
+        setUp.model.toggleCall()
+        #expect(setUp.voiceSetUps.count == 1)
+        #expect(setUp.call.voice.phase == .idle)
+
+        let degraded = try harness()
+        degraded.readiness.voiceReadiness = .degraded
+        #expect(degraded.model.callHelpText == "Voice is not available right now")
+        degraded.model.toggleCall()
+        #expect(degraded.call.voice.phase == .idle)
+
+        let failed = try harness()
+        failed.engine.permissionError = CaptureError.noInputDevice
+        failed.model.toggleCall()
+        failed.negotiate()
+        await failed.settle()
+        #expect(failed.model.callHelpText == ProductStrings[.voiceErrorNoInputDevice])
+
+        failed.model.toggleCall()
+        #expect(failed.call.voice.phase == .starting)
+    }
+
+    // MARK: - The dock
+
+    /// The dock's call control is a stop (owner, 2026-10-04: "I prefer it was
+    /// a stop button"): one control, the filled square, in both hosts. It
+    /// ends a start or a call, is dimmed while the call ends, and once the
+    /// call is over it is the chat box's Close; the floating window has
+    /// nothing to close, so there it offers nothing. It never begins a call.
+    @Test("the dock's one control is the stop: it ends a call in both hosts, and closes only the chat's box")
+    func dockControlIsTheStop() throws {
+        let harness = try harness()
+        let model = harness.model
+
+        func offers(_ box: PetStopAction?, _ window: PetStopAction?, _ phase: String) {
+            #expect(model.stopAction(in: .callBox) == box, "\(phase)")
+            #expect(model.stopAction(in: .floatingWindow) == window, "\(phase)")
+        }
+
+        offers(nil, nil, "idle")
+
+        harness.call.voiceNegotiated()
+        harness.call.callStarting()
+        offers(.end, .end, "starting")
+
+        harness.call.callStarted()
+        _ = harness.call.apply(.state(.speaking), audioIsPlaying: false)
+        offers(.end, .end, "active")
+
+        harness.call.callStopping()
+        offers(.ending, .ending, "stopping")
+
+        harness.call.callEnded()
+        offers(.close, nil, "ended")
+
+        harness.call.dismissEnded()
+        offers(nil, nil, "closed")
+
+        harness.call.beginTestCall()
+        harness.call.voiceFailed(.socketPathUnavailable)
+        offers(.close, nil, "failed")
+
+        #expect(model.stopActionTitle(.end) == ProductStrings[.petCallEnd])
+        #expect(model.stopActionTitle(.ending) == ProductStrings[.petCallEnd])
+        #expect(model.stopActionTitle(.close) == "Close")
+        for action in [PetStopAction.end, .ending, .close] {
+            let title = model.stopActionTitle(action)
+            #expect(ProductCopyRules.violations(in: title).isEmpty, "\(title)")
+            #expect(!title.localizedCaseInsensitiveContains("stop"), "\(title) says Stop, the service's word")
+        }
+
+        let dock = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
+        #expect(!dock.contains("Palette.accent"), "the dock draws the accent again")
+        #expect(!dock.contains("callSymbol"), "the dock draws the toolbar's phone again")
+        #expect(dock.contains("PetControlButton(symbol: .stop(action)"))
+        #expect(dock.contains(".disabled(action == .ending)"))
+    }
+
+    /// The stop is the hang-up's red while it ends a call, as the chat
+    /// toolbar's hang-up is (owner, 2026-10-04: "turns red when the call is on
+    /// to close it"), and ink otherwise: dimmed in ink while the call ends,
+    /// and in ink as the chat box's Close. Red means there is a call to end.
+    @Test("the dock's stop is red while it ends a call, and ink while the call ends and as Close")
+    func dockStopIsRedWhileItEnds() {
+        #expect(PetDockSymbol.stop(.end) == PetDockSymbol(name: "stop", filled: true, tint: Palette.hangUp))
+        #expect(PetDockSymbol.stop(.ending) == PetDockSymbol(name: "stop", filled: true, tint: Palette.ink))
+        #expect(PetDockSymbol.stop(.close) == PetDockSymbol(name: "stop", filled: true, tint: Palette.ink))
+        #expect(Palette.hangUp != Palette.ink)
+    }
+
+    /// The stop never begins a call: a click on it with nothing to end or
+    /// close changes nothing, on either host.
+    @Test("a click on the stop with nothing to end or close does nothing")
+    func stopNeverBegins() throws {
+        let harness = try harness()
+        harness.call.voiceNegotiated()
+
+        harness.model.stopClicked(in: .floatingWindow)
+        harness.model.stopClicked(in: .callBox)
+        #expect(harness.call.voice.phase == .idle)
+
+        harness.call.beginTestCall()
+        harness.model.stopClicked(in: .floatingWindow)
+        #expect(harness.call.voice.phase == .stopping)
+
+        // The floating window has nothing to close once the call is over.
+        harness.call.callEnded()
+        harness.model.stopClicked(in: .floatingWindow)
+        #expect(harness.call.voice.phase == .ended(.normal(settled: nil)))
+    }
+
+    /// The floating window's dock comes with a call: at rest its one control
+    /// has nothing to do, so the pointer reveals no empty dock, and the
+    /// hidden dock keeps the stop's room so a call that begins moves nothing.
+    @Test("the floating window's dock rests hidden and keeps the stop's room")
+    func floatingDockRestsHidden() throws {
+        let text = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
+
+        #expect(text.contains("guard model.stopAction(in: .floatingWindow) != nil else { return false }"))
+        #expect(text.contains(".hidden()"))
+    }
+
+    /// Mute keeps its drawing, and interrupt is the silenced speaker: never
+    /// the stop's square, so the two cannot be confused.
+    @Test("mute keeps its slashed microphone and its warning tint, and interrupt is the silenced speaker")
+    func dockMuteAndInterruptSymbols() throws {
+        let harness = try harness()
+        harness.call.beginTestCall()
+
+        #expect(PetDockSymbol.mute(harness.model) == PetDockSymbol(name: "mic.slash", filled: false, tint: Palette.ink))
+
+        harness.call.voiceMuted(true)
+        #expect(PetDockSymbol.mute(harness.model) == PetDockSymbol(name: "mic.slash", filled: true, tint: Palette.warning))
+
+        #expect(PetDockSymbol.interrupt == PetDockSymbol(name: "speaker.slash", filled: false, tint: Palette.ink))
+        #expect(!PetDockSymbol.interrupt.name.hasPrefix("stop"))
+        #expect(harness.model.interruptActionTitle == "Interrupt reply")
+    }
+
     /// The speaking tail is the one place the visual mode outlives the daemon's
     /// state, and it must keep its word: the status the daemon last reported is
     /// not what the pet is doing while audio is still leaving the speaker.
@@ -133,9 +402,9 @@ struct PetSurfaceTests {
     func speakingTailKeepsItsWord() throws {
         let harness = try harness()
 
-        harness.appModel.voiceCallBegan()
-        harness.appModel.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
-        harness.appModel.apply(.state(.listening), audioIsPlaying: true)
+        harness.call.beginTestCall()
+        harness.call.apply(.audioDelta(base64: RelayedAudio.voice(1)), audioIsPlaying: false)
+        harness.call.apply(.state(.listening), audioIsPlaying: true)
 
         #expect(harness.model.visualMode == .speaking)
         #expect(harness.model.statusText == ProductStrings[.voiceStatusSpeaking])
@@ -178,6 +447,7 @@ struct PetSurfaceTests {
         #expect(text.contains(".allowsWindowActivationEvents(true)"))
         // The click is still the mascot's, beside the drag rather than under it.
         #expect(text.contains(".onTapGesture { model.toggleCall() }"))
+        #expect(text.contains("host: .floatingWindow"))
     }
 
     /// The mascot draws no ground on either screen that draws it.
@@ -224,17 +494,17 @@ struct PetSurfaceTests {
         #expect(harness.model.voiceCostText == nil)
         #expect(!harness.model.showsCancelTask)
 
-        harness.appModel.voiceNegotiated()
-        harness.appModel.voiceCallBegan()
-        _ = harness.appModel.apply(
+        harness.call.voiceNegotiated()
+        harness.call.beginTestCall()
+        _ = harness.call.apply(
             .caption(RealtimeCaption(speaker: .user, delta: "what is ", startMs: 0, endMs: 440)),
             audioIsPlaying: false
         )
-        _ = harness.appModel.apply(
+        _ = harness.call.apply(
             .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running)),
             audioIsPlaying: false
         )
-        _ = harness.appModel.apply(.usage(RealtimeUsage(voiceCostCents: 5.35)), audioIsPlaying: false)
+        _ = harness.call.apply(.usage(RealtimeUsage(voiceCostCents: 5.35)), audioIsPlaying: false)
 
         #expect(harness.model.captionLine?.hasSuffix("what is ") == true)
         #expect(harness.model.taskStatusText == ProductStrings[.voiceTaskRunning])
@@ -242,21 +512,66 @@ struct PetSurfaceTests {
         #expect(harness.model.showsCancelTask)
     }
 
+    /// The line names whoever last spoke and shows that speaker's running
+    /// text, not the last fragment alone ("You: what is ").
+    @Test("the caption line is the running text of the speaker that last grew")
+    func captionLineFollowsTheLastSpeaker() throws {
+        let harness = try harness()
+        harness.call.voiceNegotiated()
+        harness.call.beginTestCall()
+
+        for (speaker, delta) in [(RealtimeCaptionSpeaker.user, "what is "), (.user, "the time"), (.assistant, "It is ")] {
+            _ = harness.call.apply(.caption(RealtimeCaption(speaker: speaker, delta: delta, startMs: 0, endMs: 1)), audioIsPlaying: false)
+        }
+        #expect(harness.model.captionLine == "Fermix: It is ")
+
+        _ = harness.call.apply(.caption(RealtimeCaption(speaker: .user, delta: "?", startMs: 0, endMs: 1)), audioIsPlaying: false)
+        #expect(harness.model.captionLine == "You: what is the time?")
+    }
+
+    /// One line of a running text: the speaker's name leads it and the newest
+    /// words end it, so what does not fit is cut from the middle.
+    @Test("the caption line keeps its speaker and its newest words")
+    func captionLineKeepsBothEnds() throws {
+        let text = try #require(try SourceTree.swiftFiles(matching: "Pet/PetSurfaceView.swift").first?.text)
+
+        #expect(text.contains(".truncationMode(.middle)"))
+    }
+
     /// Cancelling is offered for work that is running, and for nothing else: a
     /// finished delegation has nothing left to call off.
     @Test("a finished task offers no cancel")
     func aFinishedTaskOffersNoCancel() throws {
         let harness = try harness()
-        harness.appModel.voiceNegotiated()
-        harness.appModel.voiceCallBegan()
+        harness.call.voiceNegotiated()
+        harness.call.beginTestCall()
 
-        _ = harness.appModel.apply(
+        _ = harness.call.apply(
             .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .completed)),
             audioIsPlaying: false
         )
 
         #expect(!harness.model.showsCancelTask)
         #expect(harness.model.taskStatusText == ProductStrings[.voiceTaskCompleted])
+    }
+
+    /// The daemon's summary of the work is drawn beside its status word: a
+    /// terminal word alone says that something finished, not what.
+    @Test("the task line carries the daemon's summary beside the status word")
+    func taskLineCarriesTheSummary() throws {
+        let harness = try harness()
+        harness.call.voiceNegotiated()
+        harness.call.beginTestCall()
+
+        _ = harness.call.apply(
+            .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running, summary: "Checking the lease")),
+            audioIsPlaying: false
+        )
+
+        #expect(
+            harness.model.taskStatusText
+                == ProductStrings.middot(ProductStrings[.voiceTaskRunning], "Checking the lease")
+        )
     }
 
     /// The pet decides nothing about the call: cancelling reaches the daemon as
@@ -269,7 +584,7 @@ struct PetSurfaceTests {
         harness.negotiate()
         await harness.settle()
 
-        _ = harness.appModel.apply(
+        _ = harness.call.apply(
             .task(RealtimeTask(delegationId: "dg_01H9", revision: 1, status: .running)),
             audioIsPlaying: false
         )
@@ -294,15 +609,43 @@ struct PetSurfaceTests {
         #expect(harness.socket.sent.count == before)
     }
 
-    /// The Live rows belong to a live call: a surface that kept drawing the
-    /// last call's caption would be reporting a call that is over.
-    @Test("the live call rows are drawn only while a call is active")
+    /// The live rows belong to a live call: a surface that kept drawing the
+    /// last call's caption would be reporting a call that is over. What the
+    /// call cost outlives it: the daemon settles the bill after the hang-up,
+    /// and that bill is drawn once the call has ended (M56 §4.2).
+    @Test("the live call rows are drawn while a call is up, and the bill after it ends")
     func liveRowsAreGatedOnACall() throws {
         let view = try SourceTree.swiftFiles(matching: "Pet/PetSurfaceView.swift")
         let text = try #require(view.first?.text)
 
         #expect(text.contains("if model.callActive {"))
         #expect(text.contains("liveCall"))
+        #expect(text.contains("model.settledBillText"))
+    }
+
+    /// The settled bill arrives after `call_stop`, so a surface that drew cost
+    /// only during the call never drew the one figure that is final.
+    @Test("the settled bill is drawn in the ended state, and not into the next call")
+    func settledBillIsDrawnAfterTheCall() throws {
+        let harness = try harness()
+        harness.call.voiceNegotiated()
+        harness.call.beginTestCall()
+        _ = harness.call.apply(.usage(RealtimeUsage(voiceCostCents: 4, accounting: "running")), audioIsPlaying: false)
+        #expect(harness.model.settledBillText == nil)
+
+        harness.call.callStopping()
+        _ = harness.call.apply(.usage(RealtimeUsage(voiceCostCents: 12.5, accounting: "complete")), audioIsPlaying: false)
+        _ = harness.call.apply(.state(.idle), audioIsPlaying: false)
+
+        #expect(harness.model.callActive == false)
+        #expect(harness.model.voiceCostText == nil)
+        #expect(
+            harness.model.settledBillText
+                == String(format: ProductStrings[.voiceCostSettledFormat], CurrencyFormat.wholeCents(12.5))
+        )
+
+        harness.call.callStarting()
+        #expect(harness.model.settledBillText == nil)
     }
 
     @Test("every pet action carries product copy that obeys the voice rules")
@@ -337,6 +680,7 @@ struct PetSurfaceTests {
 @MainActor
 final class PetHarness {
     let appModel = AppModel()
+    let call = VoiceCallModel()
     let engine = PermissionCountingAudioEngine()
     let windows: FakeWindowHost
     let coordinator: AppCoordinator
@@ -344,6 +688,12 @@ final class PetHarness {
     let model: PetFeatureModel
 
     let socket = FakeRealtimeSocket()
+    /// The stopping call's wait for the daemon's last frame.
+    let callDeadlines = ManualDeadlineScheduler()
+    /// What the last overview said about voice: ready, unless a case says not.
+    let readiness = FakeVoiceReadiness()
+    /// Every time the gate opened Settings, Voice.
+    let voiceSetUps = SetUpRecorder()
 
     init() throws {
         windows = FakeWindowHost()
@@ -353,7 +703,7 @@ final class PetHarness {
             socketPath: { "/tmp/fermix-pet-tests.sock" },
             deadlines: MainQueueDeadlineScheduler()
         )
-        voice = VoiceCoordinator(model: appModel, session: session, audio: audio)
+        voice = VoiceCoordinator(model: call, session: session, audio: audio, deadlines: callDeadlines)
         coordinator = AppCoordinator(
             model: appModel,
             windows: WindowCoordinator(host: windows),
@@ -369,7 +719,18 @@ final class PetHarness {
             presentation: SettingsPresentation(),
             announcer: RecordingAnnouncer()
         )
-        model = PetFeatureModel(model: appModel, voice: voice, coordinator: coordinator)
+        let gate = VoiceCallGate(
+            call: call,
+            voice: voice,
+            readiness: readiness,
+            setUpVoice: { [voiceSetUps] in voiceSetUps.count += 1 }
+        )
+        model = PetFeatureModel(call: call, voice: voice, gate: gate, coordinator: coordinator)
+    }
+
+    /// Counts the gate's trips to Settings, Voice.
+    final class SetUpRecorder {
+        var count = 0
     }
 
     /// The daemon answering its half of the handshake, which is what turns a

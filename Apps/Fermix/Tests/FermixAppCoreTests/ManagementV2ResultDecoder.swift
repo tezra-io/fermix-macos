@@ -59,6 +59,8 @@ enum ManagementV2ResultDecoder {
             try read(ManagementPluginOAuthClientRow.self, payload, identifier, method)
         case .computerUsePermissionsGet:
             try read(ManagementComputerUsePermissions.self, payload, identifier, method)
+        case .imessagePermissionsGet:
+            try read(ManagementIMessagePermissions.self, payload, identifier, method)
         case .mobileStatus:
             try read(ManagementMobileStatus.self, payload, identifier, method)
         case .mobilePairStart:
@@ -74,7 +76,7 @@ enum ManagementV2ResultDecoder {
         case .providersProbeStart, .jobGet, .jobCancel, .authImportStart, .pluginsInstallStart,
              .pluginsCheckStart, .pluginsWorkspacesDiscoverStart, .pluginsWorkspaceSelectStart,
              .capabilitiesInstallStart, .meetingsSigninStart, .computerUseGrantStart,
-             .browserInstallStart:
+             .browserInstallStart, .imessageGrantStart, .imessagePolicyConfirm:
             try read(ManagementJob.self, payload, identifier, method)
         }
     }

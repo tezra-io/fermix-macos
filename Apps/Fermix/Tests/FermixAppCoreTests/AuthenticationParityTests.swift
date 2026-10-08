@@ -7,11 +7,17 @@ import Testing
 @Suite("Native authentication parity")
 @MainActor
 struct AuthenticationParityTests {
-    @Test("connected browser providers retain a reconnect action", arguments: ["openai_codex", "xai"])
-    func connectedProvidersCanReconnect(_ provider: String) {
+    /// The browser door stays once a provider is connected, because it is how
+    /// a person reconnects or switches account. OpenAI Codex's carries
+    /// OpenAI's own words for it.
+    @Test(
+        "connected browser providers retain a reconnect action",
+        arguments: [("openai_codex", ProviderVerb.continueWithChatGPT), ("xai", .signIn)]
+    )
+    func connectedProvidersCanReconnect(_ provider: String, _ verb: ProviderVerb) {
         let doors = ProviderRowProjection.detailDoors(for: provider, detections: nil)
 
-        #expect(doors.contains(ProviderDoor(verb: .signIn, available: true)))
+        #expect(doors.contains(ProviderDoor(verb: verb, available: true)))
     }
 
     /// Claude's detail always offers all of its ways in (owner directive of
@@ -41,23 +47,27 @@ struct AuthenticationParityTests {
         ])
         #expect(ProviderRowProjection.secretID(for: .addSetupToken, rows: []) == "anthropic_setup_token")
         // A button the daemon refuses on every click is the defect
-        // `browserSignInProviders` records, so no browser door is invented.
-        #expect(!(detected + undetected).contains { $0.verb == .signIn })
+        // `browserSignInVerbs` records, so no browser door is invented.
+        #expect(!(detected + undetected).contains { $0.verb == .signIn || $0.verb == .continueWithChatGPT })
         #expect(ProviderRowProjection.detailDoors(for: "openai", detections: nil).isEmpty)
     }
 
-    /// The other half of the rule. Beside a browser sign-in an adopted one is a
-    /// shortcut, so it is drawn only when it would work: Codex always has the
-    /// browser to lead with, and an unready second button there is just noise.
-    @Test("a provider with a browser sign-in offers an adopted sign-in only once it is detected")
-    func codexImportIsOfferedOnlyWhenDetected() throws {
+    /// OpenAI Codex signs in with ChatGPT and nothing else. The Codex CLI
+    /// import is retired: the daemon refuses it, so a Mac where the probe
+    /// would find a Codex sign-in draws the same one door as a Mac without.
+    @Test("OpenAI Codex's detail is the ChatGPT door alone, whatever a Codex probe finds")
+    func codexDetailIsTheChatGPTDoorAlone() throws {
         let golden = try ManagementValueFixture.detections()
-        #expect(golden.result(for: .codexCLI)?.present == false, "the golden detects no Codex sign-in")
+        let codexFound = try ManagementValueFixture.decode(
+            #"{"results": [{"target": "codex_cli", "present": true, "detail": null}]}"#,
+            as: ManagementDetections.self
+        )
+        #expect(codexFound.result(for: .codexCLI)?.present == true, "non-vacuity: a Codex sign-in is found")
 
-        for detections in [nil, golden] {
+        for detections in [nil, golden, codexFound] {
             let doors = ProviderRowProjection.detailDoors(for: "openai_codex", detections: detections)
 
-            #expect(doors == [ProviderDoor(verb: .signIn, available: true)])
+            #expect(doors == [ProviderDoor(verb: .continueWithChatGPT, available: true)])
         }
         // Every door any provider draws is ready, except the one sign-in a Mac
         // may not have yet.
@@ -123,7 +133,7 @@ struct AuthenticationParityTests {
         await harness.model.loadSection("providers.anthropic")
         #expect(await harness.model.apply(section: "providers.anthropic", key: "auth_mode", value: .text("oauth")))
         for detected in [false, true] {
-            if detected { await harness.model.refreshDetections([.claudeCode, .codexCLI, .existingPrimary]) }
+            if detected { await harness.model.refreshDetections([.claudeCode, .existingPrimary]) }
 
             let rows = ProviderRowProjection.rows(
                 providers: state.providers,
@@ -180,7 +190,7 @@ struct AuthenticationParityTests {
     private func providerDetailHeight(_ row: ProviderRowModel, keyStored: Bool, model: SettingsModel) -> CGFloat {
         let measured = ProviderRowModel(
             id: row.id, label: row.label, status: row.status, verb: row.verb, primary: row.primary,
-            configured: row.configured, presentKey: keyStored, secretID: row.secretID
+            configured: row.configured, presentKey: keyStored, secretID: row.secretID, account: row.account
         )
         let sheet = ProviderDetailSheet(
             row: measured, model: model, confirmPrimary: { _ in }, requestAuth: { _ in }, dismiss: {}

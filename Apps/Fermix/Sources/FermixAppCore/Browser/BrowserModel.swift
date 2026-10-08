@@ -19,9 +19,9 @@ public final class BrowserModel: ObservableObject {
     @Published public internal(set) var isOpen = false
     @Published public internal(set) var tabs: [BrowserTab] = []
     @Published public internal(set) var selectedTabID: BrowserTab.ID?
-    /// Why something the person asked for did not happen: a file the pane does
-    /// not download, an address that is not one, a page that never loaded.
-    /// One at a time, and gone at the next thing the person does.
+    /// Why something the person asked for did not happen, an address that is
+    /// not one or a page that never loaded, or what became of a file they
+    /// saved. One at a time, and gone at the next thing the person does.
     @Published public internal(set) var notice: String?
     /// A page's dialog, over the pane. One at a time: a second page asking
     /// while one is up is answered at once, so dialogs never stack.

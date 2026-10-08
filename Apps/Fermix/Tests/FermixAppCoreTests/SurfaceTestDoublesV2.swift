@@ -264,7 +264,9 @@ extension FakeDaemonGateway {
     func startCapabilityInstall(
         target: ManagementCapabilityTarget
     ) async throws -> ManagementJob {
-        try answer(.capabilitiesInstallStart, "capabilities_install_start")
+        installedTargets.append(target)
+
+        return try answer(.capabilitiesInstallStart, "capabilities_install_start")
     }
 
     func startMeetingsSignIn() async throws -> ManagementJob {
@@ -281,6 +283,34 @@ extension FakeDaemonGateway {
 
     func computerUsePermissions() async throws -> ManagementComputerUsePermissions {
         try answer(.computerUsePermissionsGet, "computer_use_permissions_get")
+    }
+
+    // MARK: - The iMessage channel
+
+    /// The golden probe, or the scripted one. The refusal gate and the call
+    /// record still run, so a script changes what the helper reported and
+    /// never whether it was asked.
+    func imessagePermissions() async throws -> ManagementIMessagePermissions {
+        let published: ManagementIMessagePermissions = try answer(.imessagePermissionsGet, "imessage_permissions_get")
+        guard !imessagePermissionsScript.isEmpty else { return published }
+
+        let scripted = imessagePermissionsScript[min(imessagePermissionsIndex, imessagePermissionsScript.count - 1)]
+        imessagePermissionsIndex += 1
+
+        return scripted
+    }
+
+    func startIMessageGrant(service: ManagementIMessageGrantService) async throws -> ManagementJob {
+        imessageGrantServices.append(service)
+        let published: ManagementJob = try answer(.imessageGrantStart, "imessage_grant_start")
+
+        return imessageJobStarted ?? published
+    }
+
+    func confirmIMessagePolicy() async throws -> ManagementJob {
+        let published: ManagementJob = try answer(.imessagePolicyConfirm, "imessage_policy_confirm")
+
+        return imessageJobStarted ?? published
     }
 
     // MARK: - The phone channel

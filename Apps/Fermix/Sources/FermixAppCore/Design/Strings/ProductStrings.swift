@@ -379,6 +379,14 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case voiceErrorOutputFormatUnavailable = "voice.error.outputFormatUnavailable"
     case voiceErrorVoiceProcessingUnavailable = "voice.error.voiceProcessingUnavailable"
     case voiceErrorMicrophoneUnknown = "voice.error.microphoneUnknown"
+    case voiceErrorProviderRefused = "voice.error.providerRefused"
+    case voiceErrorCostLimit = "voice.error.costLimit"
+    case voiceErrorSessionExpired = "voice.error.sessionExpired"
+    case voiceErrorCloseTimeout = "voice.error.closeTimeout"
+    case voiceErrorBridgeUnavailable = "voice.error.bridgeUnavailable"
+    case voiceErrorMaxSessionDuration = "voice.error.maxSessionDuration"
+    case voiceErrorProviderDisconnected = "voice.error.providerDisconnected"
+    case voiceErrorDetailFormat = "voice.error.detailFormat"
     case voiceCaptionSpeakerUser = "voice.caption.speakerUser"
     case voiceCaptionSpeakerAssistant = "voice.caption.speakerAssistant"
     case voiceCaptionLineFormat = "voice.caption.lineFormat"
@@ -389,6 +397,12 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case voiceTaskCancelled = "voice.task.cancelled"
     case voiceTaskStatusFormat = "voice.task.statusFormat"
     case voiceCostFormat = "voice.costFormat"
+    case voiceCostSettledFormat = "voice.costSettledFormat"
+    case voiceReadinessSetupRequired = "voice.readiness.setupRequired"
+    /// The call control's action while voice is not set up.
+    case voiceReadinessSetUp = "voice.readiness.setUp"
+    case voiceReadinessDegraded = "voice.readiness.degraded"
+    case voiceReadinessUnknown = "voice.readiness.unknown"
 
     // Companion chat
     case companionConnectionEngineHasNoChat = "companion.connection.engineHasNoChat"
@@ -432,11 +446,25 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatSearchOlder = "chat.search.older"
 
     // The browser pane. Its one sentence says why something the person asked
-    // for did not happen.
+    // for did not happen, or what became of a file they saved.
     case browserNoticeNotAnAddress = "browser.notice.notAnAddress"
     case browserNoticeProfileUnavailable = "browser.notice.profileUnavailable"
+    /// A task's tab in front reached for another app, which a task never opens.
+    case browserNoticeTaskOpenAppRefused = "browser.notice.taskOpenAppRefused"
     case browserNoticeNoApp = "browser.notice.noApp"
-    case browserNoticeDownloadRefused = "browser.notice.downloadRefused"
+    /// A file the person opened from a link is not where the link says.
+    case browserNoticeFileMissing = "browser.notice.fileMissing"
+    /// A text file that grew past what a file tab shows by the time it was
+    /// read again.
+    case browserNoticeFileTooLarge = "browser.notice.fileTooLarge"
+    /// A file the person chose a place for, by its name: on its way, saved,
+    /// and stopped short, with the system's own sentence after.
+    case browserNoticeDownloadingFormat = "browser.notice.downloadingFormat"
+    case browserNoticeDownloadSavedFormat = "browser.notice.downloadSavedFormat"
+    case browserNoticeDownloadFailedFormat = "browser.notice.downloadFailedFormat"
+    /// The name a downloaded file gets where the page suggested none it
+    /// could keep.
+    case browserDownloadUntitled = "browser.download.untitled"
     /// The pane's controls, by what each does. The stop control is Cancel
     /// loading: `Stop` leads no string in the product, which keeps the word for
     /// the service.
@@ -455,11 +483,26 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case browserSecure = "browser.secure"
     case browserOpenInBrowser = "browser.openInBrowser"
     case browserHide = "browser.hide"
+    /// A file tab: the mark that says so, its file in the app on the Mac that
+    /// opens it, named, and its file selected in Finder.
+    case browserFileTab = "browser.fileTab"
+    case browserOpenInAppFormat = "browser.openInAppFormat"
+    case browserShowInFinder = "browser.showInFinder"
     /// A page's own dialog, titled by the website that raised it.
     case browserDialogTitleFormat = "browser.dialog.titleFormat"
     case browserDialogThisPage = "browser.dialog.thisPage"
     case browserDialogOK = "browser.dialog.ok"
     case browserDialogCancel = "browser.dialog.cancel"
+    /// The pane's own question before a link in the person's tab opens
+    /// another app: titled by the app, saying which website asks.
+    case browserOpenAppTitleFormat = "browser.openApp.titleFormat"
+    case browserOpenAppMessageFormat = "browser.openApp.messageFormat"
+    /// The Open of both the pane's own questions.
+    case browserOpenAppOpen = "browser.openApp.open"
+    /// The pane's own question before a file outside the Fermix home loads:
+    /// titled by the file, saying why it asks.
+    case browserOpenFileTitleFormat = "browser.openFile.titleFormat"
+    case browserOpenFileMessage = "browser.openFile.message"
     /// A task's tab: the mark that says so, its close control, which cancels
     /// the task instead, and that control while the cancel is on its way.
     case browserTaskTab = "browser.taskTab"
@@ -482,10 +525,17 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// `task.cancel`'s own `reason`, sent to the daemon when the person
     /// cancels a task from its tab in the pane.
     case browserHostReasonPersonCancelled = "browserHost.reason.personCancelled"
+    /// `download.finished`'s `reason` for a task's download, which the pane
+    /// refuses to save: it finishes the engine's "The download did not
+    /// finish: ...".
+    case browserHostReasonTaskDownloadRefused = "browserHost.reason.taskDownloadRefused"
 
     // Pet
     case petCallBegin = "pet.callBegin"
     case petCallEnd = "pet.callEnd"
+    /// The dock's stop in the chat's call box once a call is over, ended or
+    /// failed: it puts the box away.
+    case petClose = "pet.close"
     case petMute = "pet.mute"
     case petUnmute = "pet.unmute"
     case petInterrupt = "pet.interrupt"
@@ -630,8 +680,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
 
     // Providers
     case providerVerbSignIn = "provider.verb.signIn"
+    case providerVerbContinueWithChatGPT = "provider.verb.continueWithChatGPT"
     case providerVerbImportClaudeCode = "provider.verb.importClaudeCode"
-    case providerVerbImportCodexCLI = "provider.verb.importCodexCLI"
     case providerVerbAddSetupToken = "provider.verb.addSetupToken"
     case providerVerbAddKey = "provider.verb.addKey"
     case providerStatusSigningIn = "provider.status.signingIn"
@@ -669,12 +719,38 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// live there rather than on the row.
     case providerDetails = "provider.details"
     case providerSignOut = "provider.signOut"
+    /// The signed-in account, in a provider's detail, for any provider whose
+    /// daemon row names one.
+    case providerAccount = "provider.account"
+    /// ChatGPT's plan, in OpenAI Codex's detail (M57): the offer under its
+    /// door, the line while Fermix uses the plan, and the way to its usage
+    /// settings.
+    case providerChatGPTOffer = "provider.chatgpt.offer"
+    case providerChatGPTUsingPlan = "provider.chatgpt.usingPlan"
+    case providerChatGPTManageUsage = "provider.chatgpt.manageUsage"
+    case providerChatGPTManageUsageHint = "provider.chatgpt.manageUsageHint"
+    /// OpenAI's notice after a ChatGPT sign-in completes, in the sign-in
+    /// sheet's place.
+    case providerChatGPTNoticeTitle = "provider.chatgpt.notice.title"
+    case providerChatGPTNoticeBody = "provider.chatgpt.notice.body"
+    case providerChatGPTNoticeDone = "provider.chatgpt.notice.done"
     /// The key of a provider that signs in, kept behind its sign-in.
 
     // Channels
     case channelStatusOff = "channel.status.off"
     case channelStatusNeedsSetup = "channel.status.needsSetup"
     case channelStatusConnected = "channel.status.connected"
+    case channelStatusUnavailable = "channel.status.unavailable"
+    /// The iMessage row's status from the helper's probe (M54 §10.1): the
+    /// probe not answered yet, then the first thing missing, in the order a
+    /// person fixes them.
+    case channelStatusChecking = "channel.status.checking"
+    case channelStatusHelperNotInstalled = "channel.status.helperNotInstalled"
+    case channelStatusGrantInPermissions = "channel.status.grantInPermissions"
+    case channelStatusMessagesDataUnreadable = "channel.status.messagesDataUnreadable"
+    case channelStatusConfirmInPermissions = "channel.status.confirmInPermissions"
+    case channelStatusMessagesNotSignedIn = "channel.status.messagesNotSignedIn"
+    case channelStatusNeedsUserSession = "channel.status.needsUserSession"
     case channelSetUp = "channel.setUp"
     case channelSheetFooter = "channel.sheetFooter"
     case channelManage = "channel.manage"
@@ -695,14 +771,24 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case permissionScreenRecordingTitle = "permission.screenRecording.title"
     case permissionInputControlTitle = "permission.inputControl.title"
     case permissionBackgroundServiceTitle = "permission.backgroundService.title"
+    /// The iMessage helper's three rights (M54 §10.2).
+    case permissionMessagesDataTitle = "permission.messagesData.title"
+    case permissionMessagesAutomationTitle = "permission.messagesAutomation.title"
+    case permissionMessagesRecipientsTitle = "permission.messagesRecipients.title"
     case permissionPrincipalApp = "permission.principal.app"
     case permissionPrincipalComputerUse = "permission.principal.computerUse"
     case permissionPrincipalAgent = "permission.principal.agent"
+    case permissionPrincipalMessages = "permission.principal.messages"
     case permissionStateGranted = "permission.state.granted"
     case permissionStateNotGranted = "permission.state.notGranted"
     case permissionStateRequiresApproval = "permission.state.requiresApproval"
     case permissionStateUnknown = "permission.state.unknown"
+    /// The recipients row is confirmed, or waits for the owner, rather than
+    /// granted.
+    case permissionStateConfirmed = "permission.state.confirmed"
+    case permissionStateAwaitingConfirmation = "permission.state.awaitingConfirmation"
     case permissionActionGrant = "permission.action.grant"
+    case permissionActionConfirm = "permission.action.confirm"
     case permissionActionOpenSettings = "permission.action.openSettings"
     case permissionActionOpenLoginItems = "permission.action.openLoginItems"
     case permissionsRightsSection = "permissions.rightsSection"
@@ -864,6 +950,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case menuTitleRunDoctor = "menuTitle.runDoctor"
     case menuTitleShowPet = "menuTitle.showPet"
     case menuTitleHidePet = "menuTitle.hidePet"
+    case menuTitleBeginVoiceCall = "menuTitle.beginVoiceCall"
+    case menuTitleEndVoiceCall = "menuTitle.endVoiceCall"
     case menuTitleShowBrowser = "menuTitle.showBrowser"
     case menuTitleHideMenuBarItem = "menuTitle.hideMenuBarItem"
     case menuTitleLinkCommandLineTool = "menuTitle.linkCommandLineTool"

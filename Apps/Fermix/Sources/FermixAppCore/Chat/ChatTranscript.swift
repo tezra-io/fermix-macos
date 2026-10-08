@@ -50,15 +50,24 @@ struct ChatTranscript: View {
                 }
                 .scrollTargetLayout()
                 .frame(maxWidth: ChatMetrics.columnWidth)
-                .padding(.horizontal, Spacing.l)
+                .padding(.horizontal, ChatMetrics.columnGutter)
                 .padding(.vertical, Spacing.m)
                 .frame(maxWidth: .infinity)
             }
             .defaultScrollAnchor(.bottom)
             .scrollIndicators(.never)
             .paneScrollEdges()
-            .onScrollGeometryChange(for: Bool.self, of: ChatTranscript.isAtBottom) { _, now in
-                atBottom = now
+            .onScrollGeometryChange(for: ChatViewport.self, of: ChatViewport.init) { before, now in
+                // The layout moved under a reader on the bottom edge: the
+                // composer grew a line, or the column narrowed beside the
+                // browser pane and the rows rewrapped. They stay there, as
+                // they do when a row arrives.
+                if ChatFollow.keepsBottom(readerAtBottom: atBottom, before: before, now: now), let newest = items.last {
+                    proxy.scrollTo(newest.id, anchor: .bottom)
+                    return
+                }
+
+                atBottom = now.atBottom
             }
             .onScrollTargetVisibilityChange(idType: ChatItemID.self, threshold: 0.01) { ids in
                 visible = Set(ids)
@@ -101,12 +110,6 @@ struct ChatTranscript: View {
         guard ChatFollow.follows(atBottom: atBottom, sent: sent) else { return }
 
         proxy.scrollTo(newest.id, anchor: .bottom)
-    }
-
-    /// The bottom edge, with some slack so a reader a few points short of it
-    /// still counts as there.
-    private static func isAtBottom(_ geometry: ScrollGeometry) -> Bool {
-        geometry.visibleRect.maxY >= geometry.contentSize.height - Spacing.l
     }
 
     private func readOlderAtTheTop() {
@@ -161,6 +164,44 @@ enum ChatFollow {
     /// while they read up the transcript does not move them.
     static func follows(atBottom: Bool, sent: Bool) -> Bool {
         sent || atBottom
+    }
+
+    /// Whether a reader is put back on the bottom edge after the transcript's
+    /// own size changed. A scroll view keeps its top where it was, so when the
+    /// transcript grows shorter (the composer takes a line) or narrower (the
+    /// browser pane opens and its rows rewrap), the newest rows slide out of
+    /// view below.
+    /// Only a reader who was on the bottom edge, and only for a change of the
+    /// transcript's size, which the reader's own scrolling never makes; rows
+    /// arriving and pages landing change the content, and those are already
+    /// the follow and page rules' to answer.
+    ///
+    /// Where the reader was is the transcript's own record of it rather than
+    /// the reading before this one: the browser pane opens over a run of
+    /// sizes, and after the first of them the previous reading is already off
+    /// the bottom edge.
+    static func keepsBottom(readerAtBottom: Bool, before: ChatViewport, now: ChatViewport) -> Bool {
+        readerAtBottom && now.size != before.size
+    }
+}
+
+/// The transcript's size and whether its reader is on the bottom edge, read
+/// together off one scroll geometry, so a change in one is never judged
+/// against a stale reading of the other.
+struct ChatViewport: Equatable {
+    let size: CGSize
+    let atBottom: Bool
+
+    init(size: CGSize, atBottom: Bool) {
+        self.size = size
+        self.atBottom = atBottom
+    }
+
+    /// The bottom edge carries some slack, so a reader a few points short of
+    /// it still counts as there.
+    init(_ geometry: ScrollGeometry) {
+        size = geometry.containerSize
+        atBottom = geometry.visibleRect.maxY >= geometry.contentSize.height - Spacing.l
     }
 }
 

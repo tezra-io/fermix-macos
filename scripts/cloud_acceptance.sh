@@ -3,7 +3,7 @@
 # Cloud acceptance: install and upgrade the app on a rented, clean Mac mini and
 # report what macOS did. The "does it start for a new user, does it upgrade for
 # an existing one, does the background agent run without macOS blocking it"
-# session of docs/STAGE0_RUNBOOK.md, on a Scaleway Apple silicon server that
+# session of docs/design/STAGE0_RUNBOOK.md, on a Scaleway Apple silicon server that
 # is reached over ssh and torn down when its lease allows.
 #
 #   scripts/cloud_acceptance.sh run --release [vX.Y.Z]   the published release (default: the latest)

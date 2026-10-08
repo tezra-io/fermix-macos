@@ -20,11 +20,29 @@ public struct ThemedColor: Equatable, Sendable {
     /// read never compares equal to the last one, so every view drawing a token
     /// counted as changed on every pass and SwiftUI redrew it.
     public let color: Color
+    /// The same colour for AppKit, built with it.
+    public let nsColor: NSColor
 
     public init(light: SRGBColor, dark: SRGBColor) {
+        self.init(light: light, dark: dark, drawn: Self.dynamic(light: light, dark: dark))
+    }
+
+    /// A colour the system defines rather than the redlines, such as its red:
+    /// drawn as the system's own dynamic colour, so it is whatever macOS draws
+    /// in each appearance, and compared by what it resolves to in each.
+    public init(system: NSColor) {
+        self.init(
+            light: SRGBColor(resolving: system, in: .aqua),
+            dark: SRGBColor(resolving: system, in: .darkAqua),
+            drawn: system
+        )
+    }
+
+    private init(light: SRGBColor, dark: SRGBColor, drawn: NSColor) {
         self.light = light
         self.dark = dark
-        self.color = Color(nsColor: Self.dynamic(light: light, dark: dark))
+        self.nsColor = drawn
+        self.color = Color(nsColor: drawn)
     }
 
     /// A token is its two values; the built colour is how it is drawn.
@@ -54,10 +72,6 @@ public struct ThemedColor: Equatable, Sendable {
 
     public func withAlpha(_ alpha: Double) -> ThemedColor {
         ThemedColor(light: light.withAlpha(alpha), dark: dark.withAlpha(alpha))
-    }
-
-    public var nsColor: NSColor {
-        Self.dynamic(light: light, dark: dark)
     }
 
     private static func dynamic(light: SRGBColor, dark: SRGBColor) -> NSColor {

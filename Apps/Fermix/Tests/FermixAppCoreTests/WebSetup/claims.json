@@ -81,16 +81,6 @@
   },
   {
     "tab": "provider",
-    "kind": "field",
-    "name": "provider_form[fast]",
-    "symbols": [
-      "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet"
-    ],
-    "section": "providers.openai_codex",
-    "row_key": "fast"
-  },
-  {
-    "tab": "provider",
     "kind": "action",
     "name": "provider_changed (phx-change)",
     "symbols": [
@@ -119,10 +109,41 @@
   {
     "tab": "provider",
     "kind": "action",
-    "name": "codex_login (phx-click, Sign in with ChatGPT / Reconnect ChatGPT)",
+    "name": "chatgpt_login (phx-click, Continue with ChatGPT / Turn on ChatGPT plan usage / Reconnect to ChatGPT)",
     "symbols": [
       "Settings/SettingsProviders.swift#startSignIn",
+      "Settings/Panes/ProviderSheets.swift#SignInSheet",
+      "Settings/Panes/ProviderProjection.swift#continueWithChatGPT"
+    ],
+    "note": "One door, Continue with ChatGPT, in every state: the daemon asks for plan consent again by itself, so turning plan usage on and reconnecting are the same auth.start."
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "chatgpt_cancel (phx-click, Cancel)",
+    "symbols": [
+      "Settings/JobRunner.swift#cancelJob",
       "Settings/Panes/ProviderSheets.swift#SignInSheet"
+    ]
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "chatgpt_logout (phx-click, Sign out)",
+    "symbols": [
+      "Settings/SettingsProviders.swift#logOut",
+      "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet"
+    ],
+    "partial": true,
+    "note": "Partial. Sign out revokes the ChatGPT session through auth.logout, but its result carries no word on whether ChatGPT confirmed the revocation, so the app cannot say, as the web does, when it was not confirmed."
+  },
+  {
+    "tab": "provider",
+    "kind": "action",
+    "name": "Manage usage (link to https://chatgpt.com/settings/usage)",
+    "symbols": [
+      "Settings/SettingsProviders.swift#openChatGPTUsage",
+      "Settings/Panes/ProviderProjection.swift#chatGPTUsageURL"
     ]
   },
   {
@@ -163,10 +184,25 @@
   {
     "tab": "provider",
     "kind": "sub_surface",
-    "name": "ChatGPT OAuth panel (badge, account email, error line, button, fallback link, embed caption \"Sign-in opens in your browser and returns here\") components.ex:783-",
+    "name": "ChatGPT auth panel (badge; Waiting with fallback link, paste field and Cancel; Connected with account \u00b7 Using ChatGPT plan, Manage usage and Sign out; Plan usage off; Reconnect needed; Not connected with \"Use your ChatGPT plan in Fermix.\") components.ex:821-1000",
     "symbols": [
+      "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet",
+      "Settings/Panes/ProviderDetailSheet.swift#account",
+      "Settings/Panes/ProviderDetailSheet.swift#chatGPTPlan",
       "Settings/Panes/ProviderSheets.swift#SignInSheet"
-    ]
+    ],
+    "note": "The badge is the status word in the detail's heading, Waiting is the sign-in sheet, and plan usage off is the account drawn with the offer under the door. The paste field is the chatgpt_paste row's, exempted there."
+  },
+  {
+    "tab": "provider",
+    "kind": "sub_surface",
+    "name": "One-time plan notice \"You're using your ChatGPT plan. Eligible usage in Fermix uses your ChatGPT plan. Manage usage in your ChatGPT settings.\" after a plan-on sign-in (components.ex:899-905; setup_live.ex:3745-3752)",
+    "symbols": [
+      "Settings/Panes/ProviderSheets.swift#SignInSheet",
+      "Settings/Panes/ProviderSheets.swift#SignInSheetPhase",
+      "Settings/SettingsProviders.swift#manageUsage"
+    ],
+    "note": "In the sign-in sheet's place rather than inside the panel: the sheet turns into the notice and closes on Got it."
   },
   {
     "tab": "provider",
@@ -188,12 +224,12 @@
   {
     "tab": "provider",
     "kind": "sub_surface",
-    "name": "Model behavior side panel (effort radios + Fast mode toggle) components.ex:1002-1082",
+    "name": "Model behavior side panel (effort radios) components.ex:1144-1162",
     "symbols": [
       "Settings/Panes/ProviderDetailSheet.swift#ProviderDetailSheet"
     ],
     "section": "providers.openai_codex",
-    "row_key": "fast"
+    "row_key": "reasoning_effort"
   },
   {
     "tab": "realtime",
@@ -1049,16 +1085,6 @@
     ],
     "section": "generate_image",
     "row_key": "image_model"
-  },
-  {
-    "tab": "media",
-    "kind": "field",
-    "name": "openai_codex warning",
-    "symbols": [
-      "Settings/Rows/DescriptorRow.swift#DescriptorRow"
-    ],
-    "section": "generate_image",
-    "row_key": "image_backend"
   },
   {
     "tab": "media",

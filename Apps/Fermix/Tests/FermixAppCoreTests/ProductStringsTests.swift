@@ -286,7 +286,7 @@ struct ProductStringsTests {
     /// is named, reviewable, and asserted.
     @Test("the proper nouns are the product, vendor, and macOS surface names")
     func properNouns() {
-        for noun in ["Fermix", "Telegram", "Slack", "Discord", "ChatGPT", "Claude", "Codex", "Terminal", "Setup", "Doctor", "Realtime"] {
+        for noun in ["Fermix", "Telegram", "Slack", "Discord", "ChatGPT", "Claude", "Codex", "Terminal", "Setup", "Doctor", "Realtime", "Messages", "Finder"] {
             #expect(ProductCopyRules.properNouns.contains(noun), "\(noun)")
         }
 
@@ -300,17 +300,20 @@ struct ProductStringsTests {
     /// rots into a rubber stamp.
     @Test("a product name is exempt as a phrase and its generic half is not")
     func properPhrasesDoNotExemptTheirWords() {
-        #expect(ProductCopyRules.properPhrases == ["Claude Code", "Google Meet", "Setup Assistant"])
+        #expect(ProductCopyRules.properPhrases == ["Claude Code", "Google Meet", "Setup Assistant", "Full Disk Access"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Use Claude Code sign-in").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "The Google Meet account is signed in").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "Run the Setup Assistant to register it").isEmpty)
+        #expect(ProductCopyRules.titleCaseOffenders(in: "Needs Full Disk Access").isEmpty)
 
         #expect(ProductCopyRules.titleCaseOffenders(in: "Open the Meet window") == ["Meet"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Show the Code panel") == ["Code"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Ask the Assistant about it") == ["Assistant"])
+        #expect(ProductCopyRules.titleCaseOffenders(in: "Grant Access to the Disk") == ["Access", "Disk"])
         #expect(!ProductCopyRules.properNouns.contains("Code"))
         #expect(!ProductCopyRules.properNouns.contains("Meet"))
         #expect(!ProductCopyRules.properNouns.contains("Assistant"))
+        #expect(!ProductCopyRules.properNouns.contains("Disk"))
 
         // A phrase that ends a sentence still ends it, so the word after it is a
         // sentence start rather than an offender.
@@ -361,11 +364,16 @@ struct ProductStringsTests {
         )
     }
 
-    @Test("connect AI commits to the browser handoff and never to a password")
+    /// The subcopy names what a person brings, an account they already have
+    /// or a key, rather than where a sign-in comes from: the Codex import that
+    /// made "a sign-in from this Mac" one of two ways in is gone.
+    @Test("connect AI offers an account or a key and never asks for a password")
     func connectAIDeck() {
         #expect(ProductStrings[.connectAITitle] == "Connect your AI")
-        #expect(ProductStrings[.connectAISubcopy].contains("opens in your browser"))
-        #expect(ProductStrings[.connectAISubcopy].contains("never sees your password"))
+        #expect(
+            ProductStrings[.connectAISubcopy]
+                == "Sign in with an account you already have, or add an API key. Fermix never sees your password."
+        )
         #expect(ProductStrings[.connectAIKeyRowTitle] == "API key")
                 // Not a vendor list: the picker inside the sheet is where the provider
         // is chosen, and a hand-written roster on the row went stale the moment
@@ -373,6 +381,30 @@ struct ProductStringsTests {
         #expect(ProductStrings[.connectAIKeyRowHint] == "Any provider that takes a key.")
         #expect(ProductStrings[.connectAIConnectedTitle] == "Your AI is already connected")
         #expect(ProductStrings[.connectAIConnectedBody].contains("found a working setup in your home folder"))
+    }
+
+    /// OpenAI's guidelines fix the words of the ChatGPT door and of the notice
+    /// a completed sign-in shows, so they are asserted whole rather than by a
+    /// fragment.
+    @Test("the ChatGPT door and its plan notice carry OpenAI's own words")
+    func chatGPTDeck() {
+        #expect(ProductStrings[.providerVerbContinueWithChatGPT] == "Continue with ChatGPT")
+        #expect(ProviderVerb.continueWithChatGPT.title == "Continue with ChatGPT")
+        #expect(ProductStrings[.providerChatGPTOffer] == "Use your ChatGPT plan in Fermix.")
+        #expect(ProductStrings[.providerChatGPTUsingPlan] == "Using your ChatGPT plan")
+        #expect(ProductStrings[.providerChatGPTManageUsage] == "Manage usage")
+        #expect(ProductStrings[.providerChatGPTManageUsageHint] == "Opens ChatGPT settings in your browser.")
+        #expect(ProductStrings[.providerChatGPTNoticeTitle] == "You\u{2019}re using your ChatGPT plan")
+        #expect(
+            ProductStrings[.providerChatGPTNoticeBody]
+                == "Eligible usage in Fermix uses your ChatGPT plan. Manage usage in your ChatGPT settings."
+        )
+        #expect(ProductStrings[.providerChatGPTNoticeDone] == "Got it")
+        #expect(ProductStrings[.providerAccount] == "Account")
+        #expect(
+            ProductStrings[.attentionVoiceBody]
+                == "Voice uses the OpenAI Realtime API, which a ChatGPT or Claude sign-in does not authorize."
+        )
     }
 
     /// M34 override 7: `ConnectChannel.dc.html` is not built, so no string in

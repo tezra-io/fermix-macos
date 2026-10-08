@@ -86,8 +86,27 @@ struct StatusMenuTests {
 
         #expect(commands == [
             .openFermix, .openSettings, .showDoctor, .restartDaemon, .toggleFloatingPet,
-            .toggleBackgroundService, .checkForUpdates, .hideMenuBarItem, .quit
+            .toggleVoiceCall, .toggleBackgroundService, .checkForUpdates, .hideMenuBarItem, .quit
         ])
+    }
+
+    /// With no window open the status item's row is how a call is ended, and
+    /// its title is the sign one is up (M56 P3).
+    @Test("the call row names where a click goes, and is dimmed while it would do nothing")
+    func callRowFollowsTheCall() throws {
+        let router = FakeCommandRouter()
+        let controller = StatusMenuController(router: router, source: try source())
+        let menu = controller.menu()
+        let row = try #require(menu.items.first { MainMenuController.command(of: $0) == .toggleVoiceCall })
+
+        #expect(row.title == "Begin Voice Call")
+
+        router.on = [.toggleVoiceCall]
+        controller.menuNeedsUpdate(menu)
+        #expect(row.title == "End Voice Call")
+
+        router.refused = [.toggleVoiceCall]
+        #expect(controller.validateMenuItem(row) == false)
     }
 
     /// The owner's first point on 2026-09-04: "theres too much discription on

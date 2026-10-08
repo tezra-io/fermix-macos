@@ -23,6 +23,8 @@ final class AppComposition {
     let model: AppModel
     let windowHost: AppKitWindowHost
     let windows: WindowCoordinator
+    /// The one owner of the call's facts, app scoped like the call itself.
+    let voiceCall: VoiceCallModel
     let voice: VoiceCoordinator
     let petModel: PetFeatureModel
     let services: ServiceController
@@ -96,7 +98,7 @@ final class AppComposition {
         model = AppModel()
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
-        browser = Self.buildBrowser(environment: environment, location: location, windows: windows)
+        browser = Self.buildBrowser(environment: environment, store: store, location: location, windows: windows)
         browserHost = Self.buildBrowserHost(
             environment: environment,
             store: store,
@@ -109,7 +111,13 @@ final class AppComposition {
             browser: browser,
             workspace: environment.workspace
         )
-        voice = Self.buildVoice(model: model, bootstrap: store)
+        voiceCall = VoiceCallModel()
+        voice = Self.buildVoice(
+            model: voiceCall,
+            bootstrap: store,
+            lines: environment.realtimeLines,
+            audio: environment.voiceAudio
+        )
         let companion = Self.buildCompanion(bootstrap: store, lines: environment.companionLines)
         services = ServiceController(loginItems: environment.loginItems, plists: environment.plists)
         engineReconciler = environment.reconciler
@@ -153,8 +161,6 @@ final class AppComposition {
             gateway: gateway,
             gate: gate
         )
-        petModel = Self.buildPet(model: model, voice: voice, coordinator: coordinator)
-
         let interface = Self.buildInterface(
             environment: environment,
             model: model,
@@ -164,7 +170,8 @@ final class AppComposition {
             services: services,
             coordinator: coordinator,
             gateway: gateway,
-            petModel: petModel,
+            voice: voice,
+            voiceCall: voiceCall,
             companion: companion,
             settings: settings,
             menuBar: menuBar,
@@ -172,6 +179,7 @@ final class AppComposition {
             browser: browser
         )
         surfaces = interface.surfaces
+        petModel = interface.surfaces.pet
         sidebar = interface.sidebar
         router = interface.router
         mainMenu = interface.mainMenu
@@ -220,14 +228,17 @@ final class AppComposition {
             links: links
         )
         // Every report goes through the coordinator, which owns whether a window
-        // is on screen; the pet and the browser read that answer rather than
-        // the raw signal. A task's page leaves a covered pane for the host
-        // window, which SwiftUI cannot see happen.
-        windowHost.onVisibilityChanged = { [petModel, windows, browser] kind, visible in
+        // is on screen; the pet, the browser and the chat's call box read
+        // that answer rather than the raw signal. A task's page leaves a
+        // covered pane for the host window, which SwiftUI cannot see happen,
+        // and the box's mascot parks while its window is off screen.
+        windowHost.onVisibilityChanged = { [petModel, windows, browser, voiceCall] kind, visible in
             let onScreen = windows.visibilityChanged(visible, for: kind)
             switch kind {
             case .pet: petModel.setWindowVisible(onScreen)
-            case .main: browser.windowVisibilityChanged(onScreen)
+            case .main:
+                browser.windowVisibilityChanged(onScreen)
+                voiceCall.mainWindowVisibilityChanged(onScreen)
             }
         }
 
@@ -259,10 +270,15 @@ final class AppComposition {
     }
 
     /// The voice stack: one audio owner, one realtime session, one coordinator.
-    private static func buildVoice(model: AppModel, bootstrap: BootstrapStore) -> VoiceCoordinator {
+    private static func buildVoice(
+        model: VoiceCallModel,
+        bootstrap: BootstrapStore,
+        lines: RealtimeSocketClient.LineSocket,
+        audio: any VoiceAudioEngine
+    ) -> VoiceCoordinator {
         let session = VoiceSession(
             transport: RealtimeSocketClient(
-                lines: MainActorLineDelivery(wrapping: RealtimeSocketClient.lineSocket())
+                lines: MainActorLineDelivery(wrapping: lines)
             ),
             // Resolved per connect from the bootstrap record, never from the
             // environment: §4 makes that record the sole macOS source.
@@ -273,16 +289,19 @@ final class AppComposition {
         return VoiceCoordinator(
             model: model,
             session: session,
-            audio: AudioOwner(engine: AudioController(), deadlines: MainQueueDeadlineScheduler())
+            audio: AudioOwner(engine: audio, deadlines: MainQueueDeadlineScheduler()),
+            deadlines: MainQueueDeadlineScheduler()
         )
     }
 
     /// The browser pane: the engine the executable handed in, the website
-    /// profile's record in this account's support folder, the session's
-    /// availability, and the window's room for the pane. The quit's bound is a
-    /// run-loop timer, which fires while AppKit holds the termination.
+    /// profile's record in this account's support folder, this account's
+    /// Fermix home, the session's availability, and the window's room for the
+    /// pane. The quit's bound is a run-loop timer, which fires while AppKit
+    /// holds the termination.
     private static func buildBrowser(
         environment: AppEnvironment,
+        store: BootstrapStore,
         location: BootstrapLocation,
         windows: WindowCoordinator
     ) -> BrowserCoordinator {
@@ -290,6 +309,10 @@ final class AppComposition {
             makeEngine: environment.makeBrowser,
             profile: WebsiteProfileRecord(location: location),
             workspace: environment.workspace,
+            // Resolved per open from the bootstrap record, as the host's
+            // workspace and browser roots are, so a file opens silently only
+            // under the home the record names now.
+            home: { try store.resolvedHome() },
             session: environment.session,
             deadlines: RunLoopDeadlineScheduler(),
             paneShown: { [windows] open in windows.setBrowserPane(open: open) },
@@ -478,15 +501,18 @@ final class AppComposition {
     }
 
     /// The companion's own model, which reads the voice stack and the
-    /// coordinator and owns nothing else.
+    /// coordinator and owns nothing else. Its call control clicks through the
+    /// same gate as the menus.
     private static func buildPet(
-        model: AppModel,
+        call: VoiceCallModel,
         voice: VoiceCoordinator,
+        gate: VoiceCallGate,
         coordinator: AppCoordinator
     ) -> PetFeatureModel {
         PetFeatureModel(
-            model: model,
+            call: call,
             voice: voice,
+            gate: gate,
             coordinator: coordinator,
             openFermix: { coordinator.open(.home) }
         )
@@ -615,7 +641,8 @@ final class AppComposition {
         services: ServiceController,
         coordinator: AppCoordinator,
         gateway: ManagementGateway,
-        petModel: PetFeatureModel,
+        voice: VoiceCoordinator,
+        voiceCall: VoiceCallModel,
         companion: CompanionSession,
         settings: SettingsModel,
         menuBar: MenuBarController,
@@ -634,7 +661,8 @@ final class AppComposition {
             services: services,
             coordinator: coordinator,
             gateway: gateway,
-            petModel: petModel,
+            voice: voice,
+            voiceCall: voiceCall,
             companion: companion,
             settings: settings,
             menuBar: menuBar,
@@ -673,7 +701,8 @@ final class AppComposition {
         services: ServiceController,
         coordinator: AppCoordinator,
         gateway: ManagementGateway,
-        petModel: PetFeatureModel,
+        voice: VoiceCoordinator,
+        voiceCall: VoiceCallModel,
         companion: CompanionSession,
         settings: SettingsModel,
         menuBar: any MenuBarItemPresenting,
@@ -687,24 +716,37 @@ final class AppComposition {
             settings: settings,
             instructions: instructions
         )
+        let home = HomeModel(
+            gateway: gateway,
+            services: services,
+            coordinator: coordinator,
+            updates: updates,
+            settings: settings,
+            reconciler: reconciler,
+            menuBar: menuBar,
+            call: voiceCall,
+            deadlines: MainQueueDeadlineScheduler(),
+            instructions: instructions,
+            // The reveal seam lives on Doctor, and this is that one rather
+            // than a second implementation of the same gesture.
+            revealSettingsFile: { doctor.revealSettingsFile() }
+        )
+        // Home is the one overview reader, so the gate reads readiness from it,
+        // and the one door into settings opens the Voice pane (M56 §4.1).
+        let gate = VoiceCallGate(
+            call: voiceCall,
+            voice: voice,
+            readiness: home,
+            setUpVoice: { coordinator.open(.settings(.voice)) }
+        )
 
         return MainWindowSurfaces(
-            home: HomeModel(
-                gateway: gateway,
-                services: services,
-                coordinator: coordinator,
-                updates: updates,
-                settings: settings,
-                reconciler: reconciler,
-                menuBar: menuBar,
-                instructions: instructions,
-                // The reveal seam lives on Doctor, and this is that one rather
-                // than a second implementation of the same gesture.
-                revealSettingsFile: { doctor.revealSettingsFile() }
-            ),
+            home: home,
             doctor: doctor,
             logs: LogsModel(gateway: gateway),
-            pet: petModel,
+            pet: buildPet(call: voiceCall, voice: voice, gate: gate, coordinator: coordinator),
+            voiceCall: voiceCall,
+            callGate: gate,
             onboarding: buildOnboarding(
                 environment: environment,
                 planner: planner,

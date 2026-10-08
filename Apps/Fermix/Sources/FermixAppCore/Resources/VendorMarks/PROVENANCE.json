@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "recorded_on": "2026-09-20",
+  "recorded_on": "2026-10-04",
   "contract": "MILESTONE_34_UNIFIED_MACOS_APP_IMPLEMENTATION.md section 7",
   "policy": {
     "sources": "A mark ships only when it was retrieved from the source recorded beside it and shipped byte for byte. Nothing here is redrawn, traced, recolored, or reconstructed from a screenshot. Three source kinds appear, and each record says which it is: a vendor's own host, fermix's checked-in plugin catalog, and fermix's own first-party artwork.",
@@ -18,9 +18,9 @@
     "plugins": "apps/fermix_core/priv/plugins/index.json and catalog.json (the static catalog and the bundled set)",
     "features": "apps/fermix_web/lib/fermix_web_web/live/setup_live (the three native driver logos)",
     "roster": "ROSTER.json",
-    "roster_sha256": "8bf60bfa0901c025fe62256c88a3c11013eea791ba76e9c78d156effed41c2f5",
+    "roster_sha256": "fe93723cbef433f63b7362f0085aa622780fcf1b9c4c9b383032933120adc60f",
     "provider_count": 8,
-    "channel_count": 5,
+    "channel_count": 6,
     "plugin_count": 13,
     "feature_count": 3,
     "channel_exclusions": {
@@ -72,6 +72,55 @@
       "notes": "The branding page's Color and White symbol download links are transposed relative to the archives they serve: the link labelled Color delivers Discord_Symbol_White and the link labelled White delivers Discord_Symbol_Color. Each asset here records the URL that actually contains its member, so the fetch script verifies content rather than the page's label.",
       "plate": "neutral",
       "origin": "vendor"
+    },
+    {
+      "key": "imessage",
+      "kind": "channel",
+      "origin": "first_party",
+      "display_name": "iMessage",
+      "accessibility_label": "iMessage",
+      "treatment": "vendor_mark",
+      "plate": "bleed",
+      "source_url": "https://github.com/tezra-io/fermix",
+      "source_retrieved_on": "2026-10-04",
+      "usage_terms": "Fermix's own artwork, drawn for this surface; no vendor terms apply.",
+      "permitted_treatment": "Ship the file as it is; it carries its own ground and fills the tile.",
+      "dark_mode_policy": "An opaque gradient tile with a white glyph, the same on both appearances.",
+      "assets": [
+        {
+          "role": "color",
+          "path": "channels/imessage-color.svg",
+          "sha256": "19c4d28a8dc0be9e3457fec0d11c1e9bd8428708dffd79a8983aa7419b4f35b4",
+          "asset_url": "https://github.com/tezra-io/fermix/blob/dev/apps/fermix_web/lib/fermix_web_web/live/setup_live/imessage_logo.svg",
+          "retrieved_on": "2026-10-04"
+        }
+      ],
+      "notes": "Added with the iMessage channel (engine M54). Apple publishes no brand kit for Messages, so the mark is Fermix's own drawing in the style of the Messages icon: a green gradient squircle and a white speech bubble, never Apple's icon file."
+    },
+    {
+      "key": "mobile",
+      "kind": "channel",
+      "origin": "first_party",
+      "display_name": "Phone",
+      "accessibility_label": "Phone",
+      "treatment": "vendor_mark",
+      "plate": "bleed",
+      "source_url": "https://github.com/tezra-io/fermix",
+      "source_retrieved_on": "2026-10-04",
+      "usage_terms": "Fermix's own artwork, drawn for this surface; no vendor terms apply.",
+      "permitted_treatment": "Ship the file as it is; it carries its own ground and fills the tile.",
+      "dark_mode_policy": "An opaque gradient tile with a white glyph, the same on both appearances.",
+      "assets": [
+        {
+          "role": "color",
+          "path": "channels/phone-color.svg",
+          "sha256": "1d4e49f0488e4367fcf20309623d3f7516bca7956ef5ebd20de8ab584ee850c4",
+          "asset_url": "https://github.com/tezra-io/fermix/blob/dev/apps/fermix_web/lib/fermix_web_web/live/setup_live/phone_logo.svg",
+          "retrieved_on": "2026-10-04"
+        }
+      ],
+      "notes": "The phone channel row of the Channels pane (setup.state.get names it mobile). Fermix's own phone app, so Fermix's own mark.",
+      "roster_note": "Not a vendor: the phone is Fermix's own companion app, so it is absent from the roster's channel set, which lists the messaging vendors the setup form map publishes."
     },
     {
       "key": "signal",

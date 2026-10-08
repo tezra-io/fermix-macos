@@ -12,7 +12,7 @@ struct ChatItemView: View {
         case .row(let row) where ChatSpeaker.isUser(row.role):
             ChatUserRow(text: ChatText.marking(marked, in: ChatText.plain(row.text)), sending: false)
         case .row(let row):
-            ChatReplyRow(text: ChatText.marking(marked, in: ChatText.reply(row.text)), speaker: row.role)
+            ChatReplyRow(text: ChatText.marking(marked, in: ChatText.reply(row.text, home: NSHomeDirectory())), speaker: row.role)
         case .turn(let turn):
             ChatTurnRow(turn: turn)
         case .approval(let approval, let answering):
@@ -84,7 +84,7 @@ private struct ChatTurnRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             if !turn.text.isEmpty {
-                Text(ChatText.reply(turn.text))
+                Text(ChatText.reply(turn.text, home: NSHomeDirectory()))
                     .fermixType(Typography.style(.body))
                     .foregroundStyle(Palette.ink.color)
             }

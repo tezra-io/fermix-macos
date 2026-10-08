@@ -77,17 +77,19 @@ struct CommandTableTests {
     func togglingTitles() {
         let router = FakeCommandRouter()
 
-        router.on = [.toggleBackgroundService, .pauseLogs, .toggleFloatingPet, .toggleSidebar]
+        router.on = [.toggleBackgroundService, .pauseLogs, .toggleFloatingPet, .toggleSidebar, .toggleVoiceCall]
         #expect(router.menuTitle(of: .toggleBackgroundService) == "Disable Background Service")
         #expect(router.menuTitle(of: .pauseLogs) == "Resume Logs")
         #expect(router.menuTitle(of: .toggleFloatingPet) == "Hide Pet")
         #expect(router.menuTitle(of: .toggleSidebar) == "Hide Sidebar")
+        #expect(router.menuTitle(of: .toggleVoiceCall) == "End Voice Call")
 
         router.on = []
         #expect(router.menuTitle(of: .toggleBackgroundService) == "Enable Background Service")
         #expect(router.menuTitle(of: .pauseLogs) == "Pause Logs")
         #expect(router.menuTitle(of: .toggleFloatingPet) == "Show Pet")
         #expect(router.menuTitle(of: .toggleSidebar) == "Show Sidebar")
+        #expect(router.menuTitle(of: .toggleVoiceCall) == "Begin Voice Call")
     }
 
     /// M34 §4 bans Start and Stop for the durable service, in the menu as
@@ -113,12 +115,22 @@ struct CommandTableTests {
         #expect(router.statusItemTitle(of: .showDoctor) == "Run Doctor")
         #expect(router.menuTitle(of: .showDoctor) == "Doctor")
 
-        for command in AppCommand.allCases where command != .showDoctor {
-            #expect(
-                router.statusItemTitle(of: command) == router.menuTitle(of: command),
-                "\(command.rawValue) has an unexplained second spelling"
-            )
+        for isOn in [false, true] {
+            router.on = isOn ? Set(AppCommand.allCases) : []
+
+            for command in AppCommand.allCases where command != .showDoctor {
+                #expect(
+                    router.statusItemTitle(of: command) == router.menuTitle(of: command),
+                    "\(command.rawValue) has an unexplained second spelling"
+                )
+            }
         }
+
+        // The call row is spelled the same in both places, in both states.
+        router.on = []
+        #expect(router.statusItemTitle(of: .toggleVoiceCall) == "Begin Voice Call")
+        router.on = [.toggleVoiceCall]
+        #expect(router.statusItemTitle(of: .toggleVoiceCall) == "End Voice Call")
     }
 
     /// M34 §3.3: the status item's rows are the design's, and it carries only
@@ -133,9 +145,26 @@ struct CommandTableTests {
 
         #expect(commands == [
             .openFermix, .openSettings, .showDoctor, .restartDaemon, .toggleFloatingPet,
-            .toggleBackgroundService, .checkForUpdates, .hideMenuBarItem, .quit
+            .toggleVoiceCall, .toggleBackgroundService, .checkForUpdates, .hideMenuBarItem, .quit
         ])
         #expect(!CommandTable.statusItem.contains(.servicesMenu))
+    }
+
+    /// The call command sits in the View menu after Pet, and has no shortcut
+    /// in the first cut (M56 §4.1, P5).
+    @Test("the View menu carries the call command after Pet, with no shortcut")
+    func viewMenuCarriesTheCallCommand() throws {
+        let view = try #require(CommandTable.mainMenu.first { $0.titleKey == .menuTitleView })
+        let commands = view.commands
+        let pet = try #require(commands.firstIndex(of: .showPet))
+
+        #expect(commands[pet + 1] == .toggleVoiceCall)
+        #expect(CommandTable.shortcut(of: .toggleVoiceCall) == nil)
+        #expect(CommandTable.mainMenuCommands.contains(.toggleVoiceCall))
+        #expect(CommandTable.toolbarLabelKey(of: .toggleVoiceCall) == nil)
+        // In the View menu and the status item only, never the application menu.
+        let application = try #require(CommandTable.mainMenu.first { $0.titleKey == .productName })
+        #expect(!application.commands.contains(.toggleVoiceCall))
     }
 
     /// A surface's trailing side is at most three groups, and the type is what
@@ -167,11 +196,37 @@ struct CommandTableTests {
         #expect(home.secondary.isEmpty)
         #expect(home.more.isEmpty)
         #expect(CommandTable.toolbar(for: .pet).isEmpty)
-        // Chat's search is the toolbar's own field, not a command; "Show
-        // browser" is the one command it does carry (plan §4.10).
-        #expect(CommandTable.toolbar(for: .chat).secondary == [.showBrowser])
+        // Chat's search is the toolbar's own field, not a command; it carries
+        // "Show browser" (plan §4.10) and the call, at the top right (M56).
+        #expect(CommandTable.toolbar(for: .chat).secondary == [.showBrowser, .toggleVoiceCall])
         #expect(CommandTable.toolbar(for: .chat).primary == nil)
         #expect(CommandTable.toolbar(for: .chat).more.isEmpty)
+    }
+
+    /// The call's control is the one toolbar control whose drawing changes
+    /// with its state: another symbol and a tint while a call is up. Every
+    /// other control draws its one symbol in the toolbar's own ink, on or off,
+    /// and a performer answers what the table does for its state.
+    @Test("only the call's toolbar control changes its symbol and gains a tint while on")
+    func onlyTheCallIsTintedWhenOn() {
+        let router = FakeCommandRouter()
+
+        for command in AppCommand.allCases where command != .toggleVoiceCall {
+            for isOn in [false, true] {
+                let drawn = CommandTable.toolbarSymbol(of: command, isOn: isOn)
+
+                #expect(drawn?.name == CommandTable.symbol(of: command), "\(command.rawValue), on: \(isOn)")
+                #expect(drawn?.tint == nil, "\(command.rawValue) gained a tint, on: \(isOn)")
+
+                router.on = isOn ? [command] : []
+                #expect(router.toolbarSymbol(of: command) == drawn, "\(command.rawValue), on: \(isOn)")
+            }
+        }
+
+        router.on = [.toggleVoiceCall]
+        #expect(router.toolbarSymbol(of: .toggleVoiceCall) == ToolbarSymbol(name: "phone.down.fill", tint: Palette.hangUp))
+        router.on = []
+        #expect(router.toolbarSymbol(of: .toggleVoiceCall) == ToolbarSymbol(name: "phone", tint: nil))
     }
 
     /// Every command a toolbar draws needs a sentence-case label; the menu's

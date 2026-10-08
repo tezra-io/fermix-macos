@@ -153,6 +153,45 @@ struct BrowserHostOperationsTests {
         _ = client
     }
 
+    /// Where a path lands decides, not how it is spelled (`BrowserHostPathTests`
+    /// has every case): a link inside a root that points out of it is outside.
+    @Test("a screenshot path through a link out of the browser directory is refused before any capture")
+    func screenshotThroughAnEscapingLinkRefused() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        let outside = try tab.outsideDirectory()
+        try FileManager.default.createDirectory(at: tab.browserDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: tab.browserDirectory.appendingPathComponent("artifacts"), withDestinationURL: outside)
+        let path = tab.browserDirectory.appendingPathComponent("artifacts/1.png").path
+
+        let response = try await Self.send(
+            transport,
+            .pageScreenshot(id: 10, BrowserHostPageScreenshotRequest(tabId: tab.wireID, fullPage: false, path: path))
+        )
+
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["reason"] as? String == "write_failed")
+        #expect(tab.page.screenshotFullPageRequests.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: outside.appendingPathComponent("1.png").path))
+        _ = client
+    }
+
+    @Test("an upload through a link out of the workspace is refused, and the page is never touched")
+    func uploadThroughAnEscapingLinkRefused() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        let outside = try tab.outsideDirectory()
+        try Data("secret".utf8).write(to: outside.appendingPathComponent("secret.txt"))
+        try FileManager.default.createDirectory(at: tab.workspace, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: tab.workspace.appendingPathComponent("notes"), withDestinationURL: outside)
+        let path = tab.workspace.appendingPathComponent("notes/secret.txt").path
+
+        let response = try await Self.send(transport, .pageUpload(id: 10, tabId: tab.wireID, ref: 7, path: path))
+
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["reason"] as? String == "upload_failed")
+        #expect(tab.page.actedOn.isEmpty)
+        _ = client
+    }
+
     @Test("a screenshot inside the engine's browser directory is written and answered")
     func screenshotWritesTheFile() async throws {
         let (client, transport, tab) = try await Self.attachedWithOneTab()
@@ -385,6 +424,14 @@ private struct OpenTab {
         try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
         return path.path
     }
+
+    /// A directory beside both roots and inside neither, for a link to point
+    /// at.
+    func outsideDirectory() throws -> URL {
+        let outside = workspace.deletingLastPathComponent().appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        return outside
+    }
 }
 
 /// A page with a web engine, a capture surface and a cookie store behind it,
@@ -410,6 +457,7 @@ private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, Browser
     private(set) var clearCalls = 0
 
     func load(_ url: URL) {}
+    func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL) {}
     func back() {}
     func forward() {}
     func reload() {}

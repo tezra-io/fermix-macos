@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Permissions: one row per right, with its principal named (M34 §5.9).
@@ -29,6 +30,12 @@ struct PermissionsPane: View {
                 ForEach(rights) { row in
                     PermissionRow(row: row, permissions: permissions, model: model, grant: grant)
                 }
+
+                // A grant or a confirmation waits on a person, and one that
+                // ended badly leaves the daemon's sentence here.
+                if grant.isRunning || grant.failure != nil {
+                    JobProgress(runner: grant)
+                }
             }
 
             Section(ProductStrings[.permissionsFactsSection]) {
@@ -46,10 +53,24 @@ struct PermissionsPane: View {
             }
         }
         .task { await model.refreshPermissions() }
+        // The iMessage helper's rights, once the daemon has said the channel
+        // exists, and again on every return to the app, which is when a person
+        // comes back from System Settings.
+        .task(id: model.publishesIMessage) { await model.refreshIMessagePermissions() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await model.refreshIMessagePermissions() }
+        }
     }
 
     private var rights: [PermissionRowModel] {
-        PermissionVisibility.rights(permissions.rows, requiresNewerEngine: model.requiresNewerEngine)
+        PermissionVisibility.rights(
+            permissions.rows,
+            requiresNewerEngine: model.requiresNewerEngine,
+            showsMessages: PermissionVisibility.showsMessages(
+                channels: model.setupState.value?.channels ?? [],
+                probe: permissions.imessage.value
+            )
+        )
     }
 
     /// The keychain namespace this home writes under, which the daemon reports.
@@ -77,6 +98,10 @@ struct PermissionRow: View {
                 if let action = row.action {
                     Button(title(of: action)) { perform(action) }
                         .accessibilityLabel(ProductStrings.commaPair(title(of: action), row.title))
+                        // One grant at a time: a second press while the
+                        // first waits on a person would replace the run its
+                        // owner is following.
+                        .disabled(grant.isRunning)
                 }
             }
         } label: {
@@ -95,20 +120,26 @@ struct PermissionRow: View {
         switch action {
         case .requestMicrophone: return ProductStrings[.permissionActionGrant]
         case .grantComputerUse: return ProductStrings[.permissionActionGrant]
+        case .grantIMessage: return ProductStrings[.permissionActionGrant]
+        case .confirmIMessageRecipients: return ProductStrings[.permissionActionConfirm]
         case .openSystemSettings: return ProductStrings[.permissionActionOpenSettings]
         case .openLoginItems: return ProductStrings[.permissionActionOpenLoginItems]
         }
     }
 
     /// Every branch is an explicit request the operator made. The microphone is
-    /// the GUI's own right; the helper's two are the daemon's grant job; the
-    /// rest are deep links into System Settings.
+    /// the GUI's own right; each helper's rights are the daemon's grant jobs;
+    /// the rest are deep links into System Settings.
     private func perform(_ action: PermissionAction) {
         switch action {
         case .requestMicrophone:
             Task { await requestMicrophone() }
         case .grantComputerUse:
             Task { await model.startComputerUseGrant(on: grant) }
+        case .grantIMessage(let service):
+            Task { await model.startIMessageGrant(service, on: grant) }
+        case .confirmIMessageRecipients:
+            Task { await model.confirmIMessageRecipients(on: grant) }
         case .openSystemSettings(let pane):
             open(pane)
         case .openLoginItems:

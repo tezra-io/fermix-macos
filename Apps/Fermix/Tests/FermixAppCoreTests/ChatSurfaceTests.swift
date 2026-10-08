@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -88,6 +89,59 @@ struct ChatSurfaceTests {
         #expect(ChatFollow.follows(atBottom: false, sent: false) == false)
         #expect(ChatFollow.follows(atBottom: false, sent: true) == true)
         #expect(ChatFollow.follows(atBottom: true, sent: true) == true)
+    }
+
+    /// The strip takes its room from the transcript, whose scroll view keeps
+    /// its top where it was: a reader on the bottom edge is put back there,
+    /// and one reading further up keeps their place. A reader's own scroll
+    /// changes no size, so it is never undone.
+    @Test("the transcript keeps a reader on its bottom edge when the strip takes room")
+    func transcriptKeepsTheBottomEdge() {
+        func viewport(_ height: Double, width: Double = 720, atBottom: Bool) -> ChatViewport {
+            ChatViewport(size: CGSize(width: width, height: height), atBottom: atBottom)
+        }
+        let reading = viewport(480, atBottom: true)
+
+        // The strip arrives, or takes a line.
+        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(400, atBottom: false)))
+        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(464, atBottom: true)))
+        // The column narrows beside the pane and the rows rewrap.
+        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: viewport(480, atBottom: true), now: viewport(480, width: 432, atBottom: false)))
+        // The pane opens over a run of sizes: past the first, the last reading
+        // is already off the bottom edge, and the reader still is not.
+        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: viewport(480, width: 600, atBottom: false), now: viewport(480, width: 480, atBottom: false)))
+        // A reader further up keeps their place.
+        #expect(!ChatFollow.keepsBottom(readerAtBottom: false, before: viewport(480, atBottom: false), now: viewport(400, atBottom: false)))
+        // The reader scrolled away from the bottom edge themselves.
+        #expect(!ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(480, atBottom: false)))
+    }
+
+    // MARK: - The draft
+
+    /// The chat view is rebuilt on every rail change and when Settings opens,
+    /// so the text being written lives on the session and the view starts from
+    /// it. Not on the model, and not published: a keystroke redraws nothing
+    /// but the field.
+    @Test("the draft lives on the session, unpublished, so a rebuilt chat view finds it")
+    @MainActor
+    func draftOutlivesTheView() throws {
+        let session = CompanionSession(
+            transport: CompanionSocketClient(lines: FakeCompanionSocket()),
+            socketPath: { "/tmp/fermix-test/companion.sock" },
+            deadlines: ManualDeadlineScheduler()
+        )
+        var changes = 0
+        let subscription = session.model.objectWillChange.sink { _ in changes += 1 }
+        defer { subscription.cancel() }
+
+        #expect(session.draft.isEmpty)
+        session.draft = "check the lease"
+        #expect(session.draft == "check the lease")
+        #expect(changes == 0)
+
+        let surface = try #require(try SourceTree.swiftFiles(matching: "Chat/ChatSurfaceView.swift").first?.text)
+        #expect(surface.contains("_draft = State(initialValue: session.draft)"))
+        #expect(surface.contains("session.draft = draft"))
     }
 
     // MARK: - Where a hit is
@@ -228,7 +282,7 @@ struct ChatSurfaceTests {
     /// which opens them in the pane or the person's own browser.
     @Test("reply markdown is inline only, and its links are live")
     func replyText() {
-        let reply = ChatText.reply("See **the notes** at [the site](https://example.com).")
+        let reply = ChatText.reply("See **the notes** at [the site](https://example.com).", home: "/Users/me")
 
         #expect(String(reply.characters) == "See the notes at the site.")
         #expect(reply.runs.compactMap(\.link) == [URL(string: "https://example.com")!])
@@ -242,7 +296,8 @@ struct ChatSurfaceTests {
     @Test("a heading line is drawn in bold and a fenced block as code, and other block marks stay")
     func replyBlocks() {
         let reply = ChatText.reply(
-            "Plan\n### What to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n```text\n/tmp/a.png\n\nx `y`\n```\nDone"
+            "Plan\n### What to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n```text\n/tmp/a.png\n\nx `y`\n```\nDone",
+            home: "/Users/me"
         )
 
         #expect(String(reply.characters) == "Plan\nWhat to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n/tmp/a.png\n\nx `y`\nDone")

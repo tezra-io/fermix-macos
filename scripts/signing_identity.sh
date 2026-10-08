@@ -23,7 +23,7 @@ signing_identity() {
   case "$count" in
     1) printf '%s\n' "$matches" | sed -E 's/^[^"]*"([^"]*)".*$/\1/' ;;
     0)
-      echo "no Developer ID Application identity in the login keychain. The background agent is registered through SMAppService, which keys on the Team ID of the signed code; an ad-hoc signature has none, so every rebuild is a new program to launchd and the agent stops launching. Import the certificate this team releases with (docs/E2E_RUNBOOK.md, \"Importing your Developer ID on this Mac\"), then run again" >&2
+      echo "no Developer ID Application identity in the login keychain. The background agent is registered through SMAppService, which keys on the Team ID of the signed code; an ad-hoc signature has none, so every rebuild is a new program to launchd and the agent stops launching. Import the certificate this team releases with (docs/design/E2E_RUNBOOK.md, \"Importing your Developer ID on this Mac\"), then run again" >&2
       return 1
       ;;
     *)

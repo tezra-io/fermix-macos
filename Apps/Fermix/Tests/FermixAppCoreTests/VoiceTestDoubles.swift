@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 @testable import FermixAppCore
 
@@ -45,7 +46,13 @@ final class FakeVoiceAudioEngine: VoiceAudioEngine, @unchecked Sendable {
     /// Holds `requestCapturePermission` open, the way the real TCC prompt does.
     /// The call can end while it is up, which is the whole point.
     var suspendsPermission = false
-    private var permissionContinuation: CheckedContinuation<Void, Never>?
+    /// Every request waiting on the prompt. macOS shows one prompt however
+    /// often it is asked while it is up, and answers every asker at once.
+    private var permissionWaiters: [CheckedContinuation<Void, Never>] = []
+    private let waitersLock = NSLock()
+
+    /// How many requests are waiting on the prompt now.
+    var pendingPermissionRequests: Int { waitersLock.withLock { permissionWaiters.count } }
 
     func requestCapturePermission() async throws {
         calls.append(.requestPermission)
@@ -53,15 +60,19 @@ final class FakeVoiceAudioEngine: VoiceAudioEngine, @unchecked Sendable {
         guard suspendsPermission else { return }
 
         await withCheckedContinuation { continuation in
-            permissionContinuation = continuation
+            waitersLock.withLock { permissionWaiters.append(continuation) }
         }
     }
 
     /// The user answered the prompt.
     func grantCapturePermission() {
-        let continuation = permissionContinuation
-        permissionContinuation = nil
-        continuation?.resume()
+        let waiters = waitersLock.withLock {
+            defer { permissionWaiters.removeAll() }
+            return permissionWaiters
+        }
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     func prepareCapture() throws {
@@ -120,4 +131,72 @@ enum RelayedAudio {
     }
 
     static let padding = Data(count: 4_800).base64EncodedString()
+}
+
+extension VoiceCallModel {
+    /// A call the daemon has been asked for: started, and `call_start` sent.
+    func beginTestCall() {
+        callStarting()
+        callStarted()
+    }
+}
+
+/// The whole call stack on fakes: the real session, coordinator and call model
+/// over a recording socket, a scripted audio engine, and deadlines driven by
+/// hand, so the call's lifecycle is proven end to end with no daemon and no
+/// microphone.
+@MainActor
+final class VoiceCallHarness {
+    let socket = FakeRealtimeSocket()
+    let engine = FakeVoiceAudioEngine()
+    /// The handshake's deadline.
+    let sessionDeadlines = ManualDeadlineScheduler()
+    /// The stopping call's wait for the daemon's last frame.
+    let callDeadlines = ManualDeadlineScheduler()
+    let call = VoiceCallModel()
+    let coordinator: VoiceCoordinator
+
+    init() {
+        let session = VoiceSession(
+            transport: RealtimeSocketClient(lines: socket),
+            socketPath: "/tmp/fermix-call-tests.sock",
+            deadlines: sessionDeadlines
+        )
+        coordinator = VoiceCoordinator(
+            model: call,
+            session: session,
+            audio: AudioOwner(engine: engine, deadlines: ManualDeadlineScheduler()),
+            deadlines: callDeadlines
+        )
+    }
+
+    /// The daemon answering its half of the handshake.
+    func negotiate() {
+        socket.deliver(.serverHello(minVersion: 1, maxVersion: 2))
+    }
+
+    /// Yields until `condition` holds. The permission request hops off the
+    /// main actor and back, so a fixed number of yields would be a guess.
+    func settle(
+        until condition: () -> Bool,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async {
+        for _ in 0..<10_000 {
+            if condition() { return }
+            await Task.yield()
+        }
+        #expect(condition(), "the call never settled", sourceLocation: sourceLocation)
+    }
+
+    /// Begins a call and lets it run up to `call_start`.
+    func beginCall() async {
+        coordinator.toggleCall()
+        negotiate()
+        await settle { call.voice.phase == .active }
+    }
+
+    /// How many control frames of one wire type went out.
+    func sent(_ type: String) throws -> Int {
+        try socket.sentObjects().filter { $0["type"] as? String == type }.count
+    }
 }

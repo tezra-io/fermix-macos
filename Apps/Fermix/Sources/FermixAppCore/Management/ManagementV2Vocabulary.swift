@@ -131,6 +131,8 @@ public enum ManagementJobKind: ManagementVocabulary, Hashable {
     case meetingsSignin
     case computerUseGrant
     case browserInstall
+    case imessageGrant
+    case imessagePolicyConfirm
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -144,7 +146,9 @@ public enum ManagementJobKind: ManagementVocabulary, Hashable {
         "capability_install": .capabilityInstall,
         "meetings_signin": .meetingsSignin,
         "computer_use_grant": .computerUseGrant,
-        "browser_install": .browserInstall
+        "browser_install": .browserInstall,
+        "imessage_grant": .imessageGrant,
+        "imessage_policy_confirm": .imessagePolicyConfirm
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
     public var unrecognizedValue: String? {
@@ -261,12 +265,15 @@ public enum ManagementCapabilityTarget: ManagementVocabulary {
     case computerUseSidecar
     case meetbot
     case localSTT
+    /// Fermix Messages, the signed helper the iMessage channel runs through.
+    case imessageHelper
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
         "computer_use_sidecar": .computerUseSidecar,
         "meetbot": .meetbot,
-        "local_stt": .localSTT
+        "local_stt": .localSTT,
+        "imessage_helper": .imessageHelper
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
     public var unrecognizedValue: String? {

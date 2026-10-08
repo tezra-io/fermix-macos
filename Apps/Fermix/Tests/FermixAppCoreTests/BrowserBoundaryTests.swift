@@ -16,17 +16,43 @@ struct BrowserNavigationPolicyTests {
         #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: "https", targetsNewWindow: true)) == .newTab)
     }
 
-    /// Whatever it points at: a download link to a web page is still a file.
-    @Test("a download is refused, wherever it points")
-    func downloadsAreRefused() {
-        for scheme in ["https", "blob", "mailto"] {
-            #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme, isDownload: true)) == .refuseDownload)
-        }
+    /// The web's own schemes, and a file a page built itself, in any case the
+    /// page wrote it.
+    @Test("the tab's own download of a web file is saved", arguments: ["http", "https", "HTTPS", "blob", "data"])
+    func webDownloadsAreSaved(_ scheme: String) {
+        #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme, isDownload: true)) == .download)
+    }
+
+    /// A link's `download` attribute keeps the file out of a new window, and
+    /// a script's download is still the tab's own.
+    @Test("a download is saved whether it asked for a window or a script began it")
+    func downloadsIgnoreWindowAndGesture() {
         #expect(
             BrowserNavigationPolicy.decide(
                 BrowserNavigation(scheme: "https", targetsNewWindow: true, isDownload: true)
-            ) == .refuseDownload
+            ) == .download
         )
+        #expect(
+            BrowserNavigationPolicy.decide(
+                BrowserNavigation(scheme: "https", isDownload: true, isUserInitiated: false)
+            ) == .download
+        )
+    }
+
+    /// Nothing a website offers: the download answer comes before the scheme
+    /// rules, so it holds the scheme to the web's own itself.
+    @Test(
+        "a download of any other scheme is refused",
+        arguments: ["mailto", "tel", "zoommtg", "file", "about", "javascript", "ftp"]
+    )
+    func otherSchemeDownloadsAreRefused(_ scheme: String) {
+        #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme, isDownload: true)) == .cancel)
+    }
+
+    /// A hidden frame is how a page saves a file nobody asked for.
+    @Test("a frame's download is refused without a word", arguments: ["https", "blob", "data"])
+    func frameDownloadsAreRefused(_ scheme: String) {
+        #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: scheme, isDownload: true, isMainFrame: false)) == .cancel)
     }
 
     @Test("a click on another app's scheme opens that app", arguments: ["mailto", "tel", "facetime", "zoommtg"])
@@ -54,6 +80,51 @@ struct BrowserNavigationPolicyTests {
     func framesLoadWebPages() {
         #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: "https", isMainFrame: false)) == .allow)
         #expect(BrowserNavigationPolicy.decide(BrowserNavigation(scheme: "https", isUserInitiated: false)) == .allow)
+    }
+
+    /// HTTPS-first never applies to these: a local server answers in the
+    /// clear, and WebKit's https attempt on one is a silent blank page.
+    @Test("this Mac's own loopback addresses are loopback, in the spellings that mean only this Mac", arguments: [
+        "localhost", "LocalHost", "localhost.", "LOCALHOST.",
+        "127.0.0.1", "127.1.2.3", "127.255.255.254",
+        "::1", "[::1]", "0:0:0:0:0:0:0:1", "[0:0:0:0:0:0:0:1]", "::0:1"
+    ])
+    func loopbackHosts(_ host: String) {
+        #expect(BrowserNavigationPolicy.isLoopback(host: host))
+    }
+
+    /// Everything else keeps HTTPS-first: a name that merely contains
+    /// `localhost`, a name under `.localhost`, whose address is the system
+    /// resolver's to choose, every IPv4 spelling a URL parser reads otherwise
+    /// than `inet_pton` does (`0127.0.0.1` is octal there, so another machine),
+    /// a zone id, which `inet_pton` drops and a URL never carries, and the
+    /// other private and unspecified addresses.
+    @Test("every other host is not loopback", arguments: [
+        "", "example.com", "localhost.example.com", "mylocalhost", "notlocalhost.", "localhost.com", "localhost..",
+        "dev.localhost", "localhost.localhost", "app.localhost.", "[localhost]",
+        "0127.0.0.1", "127.0.0.01", "127.000.000.001", "0x7f.0.0.1", "2130706433", "127.1", "127.0.0.1.", "[127.0.0.1]",
+        "126.0.0.1", "128.0.0.1", "10.0.0.1", "192.168.1.151", "0.0.0.0", "127.0.0", "127.0.0.1.example.com",
+        "::", "::2", "fe80::1", "::ffff:127.0.0.1", "::1%lo0", "[::1%25lo0]", "::1%", "[::1", "::1]", "localhost:8765"
+    ])
+    func otherHosts(_ host: String) {
+        #expect(!BrowserNavigationPolicy.isLoopback(host: host))
+    }
+
+    /// The page reads the host off the navigation's own URL, which spells an
+    /// IPv6 literal its own way.
+    @Test("a navigation's host is read as the page reads it", arguments: [
+        ("http://localhost:8765/links.html", true),
+        ("http://127.0.0.1:8765/links.html", true),
+        ("http://[::1]:8765/links.html", true),
+        ("http://dev.localhost/", false),
+        ("http://0127.0.0.1/", false),
+        ("http://example.com/", false),
+        ("http://192.168.1.151:8766/", false)
+    ])
+    func navigationHosts(_ address: String, _ loopback: Bool) throws {
+        let host = try #require(URL(string: address)?.host)
+
+        #expect(BrowserNavigationPolicy.isLoopback(host: host) == loopback)
     }
 }
 
@@ -105,6 +176,19 @@ struct BrowserTabTests {
         #expect(page.actions == ["back", "forward", "reload", "stop", "find mascot", "zoom larger"])
     }
 
+    @Test("a file reaches the page, with what it shows as")
+    func fileReachesThePage() {
+        let page = FakeBrowserPage()
+        let tab = BrowserTab(profile: .file, page: page)
+        let file = URL(fileURLWithPath: "/Users/Shared/report.html", isDirectory: false)
+        let folder = file.deletingLastPathComponent()
+
+        tab.loadFile(file, as: .html, readAccess: folder)
+
+        #expect(page.files == [FileLoad(url: file, kind: .html, readAccess: folder)])
+        #expect(page.loaded.isEmpty)
+    }
+
     /// A page's own window keeps the opener's website data: a sign-in window
     /// opened from a private tab stays private.
     @Test("a page's own window is a tab of the opener's profile")
@@ -128,17 +212,34 @@ struct BrowserTabTests {
         let tab = BrowserTab(profile: .shared, page: page)
         tab.delegate = delegate
         let mail = try #require(URL(string: "mailto:hello@fermix.ai"))
-        let file = try #require(URL(string: "https://fermix.ai/fermix.dmg"))
+        let file = FakeDownload()
+
+        let site = try #require(URL(string: "https://fermix.ai"))
 
         page.events?.pageMetExternalScheme(mail)
+        page.events?.pageHandedOff(site)
         page.events?.pageStartedDownload(file)
         page.events?.pageAskedToClose()
         page.events?.pageFailed("A server with the specified hostname could not be found.")
 
         #expect(delegate.externals == [mail])
-        #expect(delegate.downloads == [file])
+        #expect(delegate.handOffs == [site])
+        #expect(delegate.downloads.map(ObjectIdentifier.init) == [ObjectIdentifier(file)])
+        #expect(file.cancels == 0)
         #expect(delegate.failures == ["A server with the specified hostname could not be found."])
         #expect(delegate.closeRequests.map(\.id) == [tab.id])
+    }
+
+    @Test("a download from a tab nobody holds is cancelled")
+    func unheldTabCancelsADownload() {
+        let page = FakeBrowserPage()
+        let tab = BrowserTab(profile: .shared, page: page)
+        let file = FakeDownload()
+
+        page.events?.pageStartedDownload(file)
+
+        #expect(file.cancels == 1)
+        #expect(tab.delegate == nil)
     }
 
     /// WebKit holds a page until its dialog is answered, so a tab nobody is

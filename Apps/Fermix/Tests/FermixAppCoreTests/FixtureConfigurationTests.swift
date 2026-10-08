@@ -112,6 +112,8 @@ struct FixtureConfigurationTests {
         #expect(FixtureStart(name: "restart-sheet") == .restartSheet)
         #expect(FixtureStart(name: "chat-empty") == .emptyChat)
         #expect(FixtureStart(name: "browser") == .browser)
+        #expect(FixtureStart(name: "chat-call") == .chatCall)
+        #expect(FixtureStart(name: "chat-call-failed") == .failedChatCall)
     }
 
     /// A name this build does not publish resolves to nothing, so the caller
@@ -130,7 +132,7 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 4)
+            + OnboardingStage.allCases.count + 6)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -188,10 +190,12 @@ struct FixtureConfigurationTests {
             }
             var restartSheetShown = false
             var browserOpened = false
+            var callsBegun = 0
             FixtureLaunch(start: start).present(
                 with: harness.coordinator,
                 showRestartSheet: { restartSheetShown = true },
-                openBrowser: { browserOpened = true }
+                openBrowser: { browserOpened = true },
+                beginCall: { callsBegun += 1 }
             )
             // `fermix://setup` asks the daemon where to land before it lands
             // (M34 §3.4), so the window opens on the answer rather than on the
@@ -200,6 +204,10 @@ struct FixtureConfigurationTests {
 
             expectOpened(start, harness: harness, restartSheetShown: restartSheetShown)
             #expect(browserOpened == (start == .browser), "\(name) opened the browser pane")
+            #expect(
+                callsBegun == (start == .chatCall || start == .failedChatCall ? 1 : 0),
+                "\(name) began \(callsBegun) calls"
+            )
         }
     }
 
@@ -241,7 +249,7 @@ struct FixtureConfigurationTests {
         case .approvalStep:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.onboardingStage == .starting)
-        case .emptyChat, .browser:
+        case .emptyChat, .browser, .chatCall, .failedChatCall:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.route == .chat)
         }
@@ -260,6 +268,38 @@ struct FixtureConfigurationTests {
         #expect(FixtureHome.forStart(.emptyChat) == .settled)
     }
 
+    /// A call is looked at beside a conversation, so both call starts hold the
+    /// full timeline; only the failed one's daemon ends the call. Every other
+    /// start's voice talks to the conversation, so a call begun from the Pet
+    /// page of any start has a daemon to answer it.
+    @Test("chat-call and chat-call-failed open Chat over the full timeline, each with its own call")
+    func callStartsNameTheirCall() {
+        #expect(FixtureLaunch(start: .chatCall).presentation == .chatWithCall)
+        #expect(FixtureLaunch(start: .failedChatCall).presentation == .chatWithCall)
+        #expect(FixtureLaunch(start: .chatCall).companionTimeline == .full)
+        #expect(FixtureLaunch(start: .failedChatCall).companionTimeline == .full)
+        #expect(FixtureLaunch(start: .chatCall).realtimeCall == .conversation)
+        #expect(FixtureLaunch(start: .failedChatCall).realtimeCall == .costLimit)
+        #expect(FixtureLaunch(start: .surface(.pet)).realtimeCall == .conversation)
+        #expect(FixtureLaunch(start: .emptyChat).realtimeCall == .conversation)
+        #expect(FixtureHome.forStart(.chatCall) == .settled)
+        #expect(FixtureHome.forStart(.failedChatCall) == .settled)
+    }
+
+    /// The voice of every fixture launch stands on the scripted daemon and the
+    /// silent engine, so no start can reach the realtime socket or ask macOS
+    /// for the microphone, whichever surface a call is begun from.
+    @MainActor
+    @Test("the fixture environment hands the voice its scripted daemon and the silent engine")
+    func fixtureVoiceSeams() throws {
+        for start in [FixtureStart.chatCall, .failedChatCall, .surface(.pet)] {
+            let environment = try AppEnvironment.fixture(FixtureLaunch(start: start), mascot: StillMascot())
+
+            #expect(environment.realtimeLines is FixtureRealtimeTransport)
+            #expect(environment.voiceAudio is FixtureAudioEngine)
+        }
+    }
+
     /// The pane is looked at beside a conversation, on the fixture's own two
     /// pages, and never over the network.
     @MainActor
@@ -273,6 +313,7 @@ struct FixtureConfigurationTests {
             makeEngine: { _ in FixtureBrowserEngine() },
             profile: WebsiteProfileRecord(location: BrowserProfileLocation().location),
             workspace: FixtureWorkspaceOpener(),
+            home: { throw CocoaError(.fileNoSuchFile) },
             session: FakeSessionAvailability(),
             deadlines: ManualDeadlineScheduler(),
             paneShown: { _ in },
@@ -285,6 +326,32 @@ struct FixtureConfigurationTests {
         #expect(browser.model.tabs.map(\.profile) == [.shared, .private])
         #expect(browser.model.tabs.map(\.hasOnlySecureContent) == [true, true])
         #expect(browser.model.selectedTabID == browser.model.tabs.first?.id)
+    }
+
+    /// A file opens in a fake page that draws its name and reads nothing
+    /// from the operator's disk.
+    @MainActor
+    @Test("a file opens in a fixture file tab, named by the file")
+    func fixtureFileTab() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let browser = BrowserCoordinator(
+            makeEngine: { _ in FixtureBrowserEngine() },
+            profile: WebsiteProfileRecord(location: BrowserProfileLocation().location),
+            workspace: FixtureWorkspaceOpener(),
+            home: { place.home },
+            session: FakeSessionAvailability(),
+            deadlines: ManualDeadlineScheduler(),
+            paneShown: { _ in },
+            presentPrimaryWindow: {}
+        )
+
+        browser.openFile(try place.write("notes.md", in: place.home))
+
+        #expect(browser.model.tabs.map(\.profile) == [.file])
+        #expect(browser.model.tabs.map(\.title) == ["notes.md"])
+        #expect(browser.model.tabs.first?.url == browser.model.tabs.first?.file)
+        #expect(browser.model.dialog == nil)
     }
 
     /// The scripted daemon, driven through the real adapter and the session:
@@ -491,6 +558,21 @@ struct FixtureConfigurationTests {
         }
     }
 
+    /// The voice section publishes one golden per engine for the same request,
+    /// and Live's carries rows the other never does. The home answers the one
+    /// published under the engine its own overview runs, so the Voice pane
+    /// never draws Live's backend row beside a Realtime engine.
+    @Test("the voice section answers under the engine the overview names")
+    func voiceSectionFollowsTheOverviewEngine() async throws {
+        let client = try await negotiatedClient()
+        let overview = try await client.overview()
+        let voice = try await client.settings(section: "realtime")
+
+        #expect(overview.realtime.engine == "openai_realtime")
+        #expect(voice.rows.contains { $0.key == "realtime_reasoning_effort" })
+        #expect(!voice.rows.contains { $0.key == "realtime_backend" })
+    }
+
     /// A section this home does not publish is loud, not empty: a pane
     /// rendering nothing is exactly what this configuration exists to prevent.
     @Test("a section with no golden answer is refused, not answered empty")
@@ -578,7 +660,7 @@ struct FixtureConfigurationTests {
         // Every channel the Channels pane draws, one answering and the rest
         // offered: the list is the daemon's, and a home carrying one channel
         // could never render the list at all.
-        #expect(state.channels.count == 5)
+        #expect(state.channels.count == 6)
         #expect(state.channels.contains { $0.enabled && $0.configured })
         #expect(state.channels.contains { !$0.configured })
 
@@ -654,7 +736,7 @@ struct FixtureConfigurationTests {
         #expect(!state.providers.isEmpty, "the list is still the daemon's own")
         #expect(!state.providers.contains { $0.configured })
         #expect(!state.providers.contains { $0.primary })
-        #expect(state.channels.count == 5)
+        #expect(state.channels.count == 6)
         #expect(!state.channels.contains { $0.enabled || $0.configured })
         // Seeded before any screen: the name, the time zone and a default style.
         #expect(state.personalization.present.userName)
@@ -935,6 +1017,20 @@ struct FixtureConfigurationSourceGateTests {
         let composition = try SourceTree.swiftFiles(matching: "App/AppComposition.swift")
         #expect(composition[0].text.contains("init(environment: AppEnvironment)"))
         #expect(!composition[0].text.contains("#if DEBUG"), "the product root branches on the build")
+    }
+
+    /// The voice stack is built over the two seams the environment hands it,
+    /// as chat is over its own: a socket or an audio engine the graph built for
+    /// itself is one no configuration governs, and the fixture's claim that it
+    /// never touches the microphone would be true only by accident.
+    @Test("the composition builds voice over the environment's socket and audio engine")
+    func voiceStandsOnTheEnvironment() throws {
+        let composition = try SourceTree.swiftFiles(matching: "App/AppComposition.swift")[0].text
+
+        #expect(composition.contains("environment.realtimeLines"))
+        #expect(composition.contains("environment.voiceAudio"))
+        #expect(!composition.contains("AudioController("), "the composition builds its own audio engine")
+        #expect(!composition.contains("lineSocket("), "the composition builds its own socket")
     }
 
     /// Nothing reaches past the environment to read the machine directly. The

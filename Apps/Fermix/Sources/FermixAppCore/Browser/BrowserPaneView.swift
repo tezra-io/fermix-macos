@@ -19,18 +19,51 @@ enum BrowserPaneMetrics {
 
 /// The words the pane draws for a tab and a page's dialog.
 enum BrowserText {
-    /// A tab is named by its page's title, then by the page's host while the
-    /// title has not arrived, then as a new tab.
-    static func tabTitle(title: String, url: URL?) -> String {
+    /// A file tab is named by its file, whatever its page calls itself. Any
+    /// other tab is named by its page's title, then by the page's host while
+    /// the title has not arrived, then as a new tab.
+    static func tabTitle(title: String, url: URL?, file: URL? = nil) -> String {
+        if let file { return file.lastPathComponent }
         guard title.isEmpty else { return title }
         guard let host = url?.host, !host.isEmpty else { return ProductStrings[.browserUntitledTab] }
 
         return host
     }
 
+    /// A file's address is its path, the home folder written `~`.
+    static func address(of file: URL) -> String {
+        (file.path as NSString).abbreviatingWithTildeInPath
+    }
+
+    /// The file tab's own way out, named by the app that opens its file.
+    static func openIn(_ app: String) -> String {
+        String(format: ProductStrings[.browserOpenInAppFormat], app)
+    }
+
     /// A dialog speaks for the website that raised it.
     static func dialogTitle(origin: String) -> String {
-        String(format: ProductStrings[.browserDialogTitleFormat], origin.isEmpty ? ProductStrings[.browserDialogThisPage] : origin)
+        String(format: ProductStrings[.browserDialogTitleFormat], speaker(origin))
+    }
+
+    /// A page's dialog is titled by the website that raised it, the pane's
+    /// question before a link opens another app by that app, and its question
+    /// before a file outside the Fermix home loads by that file.
+    static func dialogTitle(_ dialog: BrowserDialog) -> String {
+        switch dialog.kind {
+        case .openApp(let app): return String(format: ProductStrings[.browserOpenAppTitleFormat], app)
+        case .openFile(let name): return String(format: ProductStrings[.browserOpenFileTitleFormat], name)
+        case .alert, .confirm, .prompt: return dialogTitle(origin: dialog.origin)
+        }
+    }
+
+    /// The pane's question before a link opens another app says which website
+    /// asks.
+    static func openAppMessage(origin: String) -> String {
+        String(format: ProductStrings[.browserOpenAppMessageFormat], speaker(origin))
+    }
+
+    private static func speaker(_ origin: String) -> String {
+        origin.isEmpty ? ProductStrings[.browserDialogThisPage] : origin
     }
 }
 
@@ -76,7 +109,7 @@ struct BrowserPaneView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(alignment: .topLeading) { BrowserShortcuts(browser: browser) }
         .alert(
-            model.dialog.map { BrowserText.dialogTitle(origin: $0.dialog.origin) } ?? "",
+            model.dialog.map { BrowserText.dialogTitle($0.dialog) } ?? "",
             isPresented: dialogShown,
             presenting: model.dialog
         ) { request in
@@ -93,7 +126,8 @@ struct BrowserPaneView: View {
 
     /// A page's dialog, answered once: OK alone for an alert, OK and Cancel for
     /// a confirmation, and a field above them for a prompt, named by the page's
-    /// own question, which the alert already shows as its message.
+    /// own question, which the alert already shows as its message. The pane's
+    /// questions before another app opens or a file loads are Open and Cancel.
     @ViewBuilder
     private func dialogActions(_ dialog: BrowserDialog) -> some View {
         switch dialog.kind {
@@ -106,6 +140,9 @@ struct BrowserPaneView: View {
             TextField(dialog.message, text: $promptText)
                 .labelsHidden()
             Button(ProductStrings[.browserDialogOK]) { browser.answer(.text(promptText)) }
+            Button(ProductStrings[.browserDialogCancel], role: .cancel) { browser.answer(.dismissed) }
+        case .openApp, .openFile:
+            Button(ProductStrings[.browserOpenAppOpen]) { browser.answer(.confirmed) }
             Button(ProductStrings[.browserDialogCancel], role: .cancel) { browser.answer(.dismissed) }
         }
     }
@@ -134,7 +171,7 @@ struct BrowserPaneView: View {
     private var page: some View {
         if let tab = model.selectedTab {
             BrowserPageHost(browser: browser)
-                .accessibilityLabel(BrowserText.tabTitle(title: tab.title, url: tab.url))
+                .accessibilityLabel(BrowserText.tabTitle(title: tab.title, url: tab.url, file: tab.file))
         } else {
             EmptyState(model: EmptyStateModel(message: ProductStrings[.browserEmpty]))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -214,8 +251,8 @@ private struct BrowserTabStrip: View {
     }
 }
 
-/// One tab: its title, a mark where it is private or a task's, and its close
-/// control.
+/// One tab: its title, a mark where it is private, a file or a task's, and
+/// its close control.
 ///
 /// The tab in front sits on the secondary capsule; the others are plain words.
 /// Its close control carries Command-W, so the key closes the tab in front and
@@ -245,6 +282,10 @@ private struct BrowserTabChip: View {
                     if tab.profile == .private {
                         Image(systemName: "eye.slash")
                             .accessibilityLabel(ProductStrings[.browserPrivateTab])
+                    }
+                    if tab.profile == .file {
+                        Image(systemName: "doc")
+                            .accessibilityLabel(ProductStrings[.browserFileTab])
                     }
                     Text(title)
                         .lineLimit(1)
@@ -278,7 +319,7 @@ private struct BrowserTabChip: View {
     }
 
     private var title: String {
-        BrowserText.tabTitle(title: tab.title, url: tab.url)
+        BrowserText.tabTitle(title: tab.title, url: tab.url, file: tab.file)
     }
 
     /// Shown on the tab in front and on the one under the pointer, and always
@@ -308,7 +349,8 @@ private struct BrowserTabChip: View {
 }
 
 /// Back, forward, reload or cancel loading, the address capsule, and the
-/// pane's own two actions.
+/// pane's own actions: the page in the person's own browser, or a file tab's
+/// file in the app that opens it and in Finder, then hiding the pane.
 private struct BrowserNavigationRow: View {
     let browser: BrowserCoordinator
     @ObservedObject var tab: BrowserTab
@@ -329,15 +371,20 @@ private struct BrowserNavigationRow: View {
 
             address
 
-            control(.browserOpenInBrowser, symbol: "arrow.up.forward.app", enabled: tab.url != nil) {
-                browser.openInSystemBrowser()
+            if tab.profile == .file {
+                fileActions
+            } else {
+                control(.browserOpenInBrowser, symbol: "arrow.up.forward.app", enabled: tab.url != nil) {
+                    browser.openInSystemBrowser()
+                }
             }
             control(.browserHide, symbol: "sidebar.trailing", enabled: true) { browser.closePane() }
         }
         .onAppear {
             draft = shownAddress
-            // A blank tab is opened to be typed into.
-            if tab.url == nil { addressFocused = true }
+            // A blank tab is opened to be typed into; a file tab is opened
+            // to be read, before or after its file loads.
+            if tab.url == nil, tab.profile != .file { addressFocused = true }
         }
         .onChange(of: focusRequests) { addressFocused = true }
         .onChange(of: tab.url) {
@@ -351,36 +398,66 @@ private struct BrowserNavigationRow: View {
         tab.url?.absoluteString ?? ""
     }
 
+    /// A file tab's way out: its file in the app the tab offers it to, where
+    /// it offers one, which it never does for text, markup or a script, and
+    /// its file selected in Finder.
+    @ViewBuilder
+    private var fileActions: some View {
+        if let fileApp = tab.fileApp {
+            control(named: BrowserText.openIn(fileApp.name), symbol: "arrow.up.forward.app", enabled: true) {
+                browser.openFileInApp()
+            }
+        }
+        control(.browserShowInFinder, symbol: "folder", enabled: true) { browser.showInFinder() }
+    }
+
     /// The address capsule: the page's address, with the lock while every
-    /// resource on it came over a secure connection, and a field that loads
-    /// what is typed on Return.
+    /// resource on it came over a secure connection, in a field that loads
+    /// what is typed on Return. A file tab's is its path, to read and copy
+    /// and never to type into, since the tab loads nothing else.
     private var address: some View {
         HStack(spacing: Spacing.xxs) {
-            if tab.hasOnlySecureContent {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: BrowserPaneMetrics.lockSymbolSize, weight: .semibold))
-                    .foregroundStyle(Palette.secondary.color)
-                    .accessibilityLabel(ProductStrings[.browserSecure])
+            if let file = tab.file {
+                Text(BrowserText.address(of: file))
+                    .fermixType(Typography.style(.callout))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(ProductStrings[.browserAddress])
+                    .accessibilityValue(BrowserText.address(of: file))
+            } else {
+                webAddress
             }
-
-            TextField(ProductStrings[.browserAddressPrompt], text: $draft)
-                .textFieldStyle(.plain)
-                .fermixType(Typography.style(.callout))
-                .focused($addressFocused)
-                .accessibilityLabel(ProductStrings[.browserAddress])
-                .onSubmit {
-                    browser.load(address: draft)
-                    addressFocused = false
-                }
-                .onExitCommand {
-                    draft = shownAddress
-                    addressFocused = false
-                }
         }
         .padding(.horizontal, Spacing.s)
         .frame(maxWidth: .infinity, minHeight: HitTarget.rowAction)
         .background(ButtonRecipe.shape.fill(ButtonRecipe.secondaryFill.color))
         .overlay(ButtonRecipe.shape.strokeBorder(ButtonRecipe.secondaryBorder.color, lineWidth: Stroke.hairline))
+    }
+
+    @ViewBuilder
+    private var webAddress: some View {
+        if tab.hasOnlySecureContent {
+            Image(systemName: "lock.fill")
+                .font(.system(size: BrowserPaneMetrics.lockSymbolSize, weight: .semibold))
+                .foregroundStyle(Palette.secondary.color)
+                .accessibilityLabel(ProductStrings[.browserSecure])
+        }
+
+        TextField(ProductStrings[.browserAddressPrompt], text: $draft)
+            .textFieldStyle(.plain)
+            .fermixType(Typography.style(.callout))
+            .focused($addressFocused)
+            .accessibilityLabel(ProductStrings[.browserAddress])
+            .onSubmit {
+                browser.load(address: draft)
+                addressFocused = false
+            }
+            .onExitCommand {
+                draft = shownAddress
+                addressFocused = false
+            }
     }
 
     /// One of the row's symbol capsules, named for VoiceOver and the pointer.
@@ -390,14 +467,23 @@ private struct BrowserNavigationRow: View {
         enabled: Bool,
         action: @escaping () -> Void
     ) -> some View {
+        control(named: ProductStrings[name], symbol: symbol, enabled: enabled, action: action)
+    }
+
+    private func control(
+        named name: String,
+        symbol: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
-            Label(ProductStrings[name], systemImage: symbol)
+            Label(name, systemImage: symbol)
                 .labelStyle(.iconOnly)
         }
         .buttonStyle(SecondaryButtonStyle(.row))
         .disabled(!enabled)
-        .help(ProductStrings[name])
-        .accessibilityLabel(ProductStrings[name])
+        .help(name)
+        .accessibilityLabel(name)
     }
 }
 

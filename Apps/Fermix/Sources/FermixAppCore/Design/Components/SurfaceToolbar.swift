@@ -7,7 +7,7 @@ import SwiftUI
 /// draws is the trailing side, in the published order: one prominent primary
 /// action while its condition holds, one secondary group, one overflow menu,
 /// and a status item whose text never sits on glass.
-struct SurfaceToolbar: ToolbarContent {
+struct SurfaceToolbar<Followed: ObservableObject>: ToolbarContent {
     let spec: ToolbarSpec
     let router: any CommandPerforming
     /// A sentence about what the surface is doing right now, where it has one.
@@ -17,6 +17,17 @@ struct SurfaceToolbar: ToolbarContent {
     /// 2026-09-27: what `Continue setup` opens, next to `Continue setup`). It
     /// exists only while the action does.
     var primaryCaption: String?
+    /// What the secondary controls observe for themselves, where their drawing
+    /// follows something the surface does not redraw for.
+    ///
+    /// The window's toolbar is AppKit's, bridged from SwiftUI, and it keeps a
+    /// control as it first drew it: the surface's own redraw does not reach a
+    /// control already standing in the toolbar (measured 2026-10-03: the chat
+    /// redrew with the gate's new answer and its call button stayed dimmed
+    /// under "Checking voice"). A control that observes the fact itself is
+    /// redrawn in place, so the surface hands its toolbar that fact. Chat's
+    /// call button follows the call gate.
+    var follows: Followed?
 
     var body: some ToolbarContent {
         if let statusText {
@@ -39,7 +50,11 @@ struct SurfaceToolbar: ToolbarContent {
         if !spec.secondary.isEmpty {
             ToolbarItemGroup(placement: .primaryAction) {
                 ForEach(spec.secondary, id: \.self) { command in
-                    button(command)
+                    if let follows {
+                        Following(followed: follows) { button(command) }
+                    } else {
+                        button(command)
+                    }
                 }
             }
         }
@@ -109,8 +124,8 @@ struct SurfaceToolbar: ToolbarContent {
         Button {
             router.perform(command)
         } label: {
-            if let symbol = CommandTable.symbol(of: command) {
-                Label(router.toolbarTitle(of: command), systemImage: symbol)
+            if let symbol = router.toolbarSymbol(of: command) {
+                symbolLabel(router.toolbarTitle(of: command), symbol)
             } else {
                 Text(router.toolbarTitle(of: command))
             }
@@ -120,11 +135,46 @@ struct SurfaceToolbar: ToolbarContent {
         .help(helpText(for: command))
     }
 
+    /// The label with its symbol for the command's state, in the symbol's
+    /// tint where it has one (the call's hang-up) and otherwise in the
+    /// toolbar's own ink.
+    @ViewBuilder
+    private func symbolLabel(_ title: String, _ symbol: ToolbarSymbol) -> some View {
+        if let tint = symbol.tint {
+            Label(title, systemImage: symbol.name)
+                .foregroundStyle(tint.color)
+        } else {
+            Label(title, systemImage: symbol.name)
+        }
+    }
+
     /// The help tag a control carries, or nothing. `Text("")` draws no tag, so
     /// the modifier is applied once rather than behind a branch that would make
-    /// two toolbars out of one.
+    /// two toolbars out of one. The router answers, because the call's tag
+    /// follows the gate: what a click does, or why it does nothing.
     private func helpText(for command: AppCommand) -> String {
-        CommandTable.toolbarHelpKey(of: command).map { ProductStrings[$0] } ?? ""
+        router.toolbarHelp(of: command) ?? ""
+    }
+}
+
+extension SurfaceToolbar where Followed == FollowsNothing {
+    /// A toolbar whose controls follow nothing the surface does not redraw for.
+    init(spec: ToolbarSpec, router: any CommandPerforming, statusText: String? = nil, primaryCaption: String? = nil) {
+        self.init(spec: spec, router: router, statusText: statusText, primaryCaption: primaryCaption, follows: nil)
+    }
+}
+
+/// The nothing a toolbar's controls follow on every surface but Chat.
+final class FollowsNothing: ObservableObject {}
+
+/// A control drawn inside the view that observes what it follows, so a change
+/// redraws it where it stands in the toolbar.
+private struct Following<Followed: ObservableObject, Control: View>: View {
+    @ObservedObject var followed: Followed
+    @ViewBuilder let control: () -> Control
+
+    var body: some View {
+        control()
     }
 }
 

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// Where the Settings window remembers which pane was last open.
@@ -107,10 +108,17 @@ public final class SettingsModel: ObservableObject {
     /// is exactly the disagreement §5.9 exists to prevent.
     public let permissions: PermissionLedger
 
+    /// Each write the daemon accepted: a row, a secret, the primary provider.
+    /// The overview reader reads after every one, since a save is what sets
+    /// voice up (M56 §4.1). Not published state: a save is an event, not a
+    /// fact a view draws.
+    public let saves = PassthroughSubject<Void, Never>()
+
     let gateway: any DaemonQuerying
     private let store: any SettingsPaneStoring
     let sleeper: any Sleeping
-    /// The system browser, for the one hop a sign-in needs (RFC 8252).
+    /// The system browser, for the hop a sign-in needs (RFC 8252) and the one
+    /// to ChatGPT's usage settings.
     let opener: any ExternalOpening
     let log = AppLog.logger(.app)
 
@@ -425,6 +433,22 @@ public final class SettingsModel: ObservableObject {
         guard permissions.computerUse == .requiresNewerEngine else { return }
 
         noteRequiresNewerEngine()
+    }
+
+    /// Whether the daemon publishes the iMessage channel at all. Only a Mac
+    /// engine that has the channel does, and only that engine serves its probe.
+    public var publishesIMessage: Bool {
+        setupState.value?.channels.contains { $0.name == IMessageChannelStatus.channel } ?? false
+    }
+
+    /// Reads the iMessage helper's probe through the one ledger, where the
+    /// daemon publishes the channel. An engine without it is never asked for a
+    /// method it does not have, and a refusal here says nothing about whether
+    /// the other panes can be served.
+    public func refreshIMessagePermissions() async {
+        guard publishesIMessage else { return }
+
+        await permissions.refreshIMessage()
     }
 
     /// Probes what is already installed on this Mac. Detections change the verb

@@ -7,8 +7,11 @@ import Foundation
 /// one without it shows `Add setup token`, and both are the same row.
 public enum ProviderVerb: String, CaseIterable, Sendable {
     case signIn
+    /// OpenAI Codex's browser sign-in, in OpenAI's own words: its guidelines
+    /// ask for exactly `Continue with ChatGPT`, text only, so the generic
+    /// `Sign in` does not fit. The same `auth.start` as `signIn` underneath.
+    case continueWithChatGPT
     case importClaudeCode
-    case importCodexCLI
     case addSetupToken
     case addKey
     /// Nothing to do: the provider is connected and primary.
@@ -17,8 +20,8 @@ public enum ProviderVerb: String, CaseIterable, Sendable {
     public var titleKey: ProductStringKey? {
         switch self {
         case .signIn: return .providerVerbSignIn
+        case .continueWithChatGPT: return .providerVerbContinueWithChatGPT
         case .importClaudeCode: return .providerVerbImportClaudeCode
-        case .importCodexCLI: return .providerVerbImportCodexCLI
         case .addSetupToken: return .providerVerbAddSetupToken
         case .addKey: return .providerVerbAddKey
         case .none: return nil
@@ -51,6 +54,10 @@ public struct ProviderRowModel: Identifiable, Equatable, Sendable {
     /// The `secret.set` id this row's key sheet writes to, where the daemon has
     /// named one. Never minted from `id`: a provider id is not a secret id.
     public let secretID: String?
+    /// The signed-in account the daemon names, an email for ChatGPT, for any
+    /// provider that publishes one. Drawn in the provider's detail only: the
+    /// rows stay one name, one status and one verb.
+    public let account: String?
 
     /// The row reads as one sentence: the vendor, then where it stands.
     public var accessibilityLabel: String { ProductStrings.commaPair(label, status) }
@@ -91,24 +98,48 @@ public struct ProviderKeyTarget: Identifiable, Equatable, Sendable {
 public enum ProviderRowProjection {
     /// The provider each import source belongs to. This pairing is the
     /// contract's own: `setup.detect {claude_code}` exists to answer for
-    /// Anthropic and `{codex_cli}` for ChatGPT, and nothing else can pair them.
+    /// Anthropic, and nothing else can pair them.
+    ///
+    /// Claude Code's is the one sign-in the app adopts. The contract still
+    /// carries `codex_cli`, and the daemon refuses to import it: OpenAI Codex
+    /// signs in with ChatGPT in the browser, so offering the import was a
+    /// button that could only be refused.
     public static let importSources: [String: ManagementDetectTarget] = [
-        anthropicProvider: .claudeCode,
-        "openai_codex": .codexCLI
+        anthropicProvider: .claudeCode
     ]
 
     /// Anthropic, which is the one provider whose doors are not the ones its
     /// `auth_modes` suggest.
     public static let anthropicProvider = "anthropic"
 
-    /// Every provider `auth.start` will actually start a browser sign-in for.
+    /// OpenAI Codex, which signs in with ChatGPT. The one owner of what is
+    /// ChatGPT's own: its door's words, its plan line and its usage settings.
+    public static let chatGPTProvider = "openai_codex"
+
+    /// ChatGPT's usage settings, where a person sees what Fermix used of their
+    /// plan and caps it. A constant rather than a daemon field: it is OpenAI's,
+    /// the same for every account, and carries no credential.
+    public static let chatGPTUsageURL: URL = {
+        guard let url = URL(string: "https://chatgpt.com/settings/usage") else {
+            preconditionFailure("ChatGPT's usage settings form a url")
+        }
+
+        return url
+    }()
+
+    /// Every provider `auth.start` will actually start a browser sign-in for,
+    /// and the verb its door carries. One table, read by the row's verb and the
+    /// detail's doors, so the two cannot name a provider's door differently.
     ///
     /// `auth_modes` is not that answer. Anthropic publishes `oauth` there and
     /// `auth.start` refuses it — the daemon has no loopback flow for it, and its
     /// two ways in are an adopted Claude Code sign-in and a setup token. A row
     /// that read the mode and offered `Sign in` earned `This provider has no
     /// browser sign-in.` on every click.
-    public static let browserSignInProviders: Set<String> = ["openai_codex", "xai"]
+    public static let browserSignInVerbs: [String: ProviderVerb] = [
+        chatGPTProvider: .continueWithChatGPT,
+        "xai": .signIn
+    ]
 
     /// The auth mode that means a browser hop rather than a typed key.
     public static let oauthMode = "oauth"
@@ -123,7 +154,7 @@ public enum ProviderRowProjection {
     /// draws three rows and no more: these two, and the API key door beside
     /// them. Every other provider the daemon publishes is reachable through
     /// that door's picker and through the Providers pane.
-    public static let assistantProviders = ["openai_codex", "anthropic"]
+    public static let assistantProviders = [chatGPTProvider, anthropicProvider]
 
     /// Token states that mean the credential is there and no longer works.
     public static let staleTokenStates: Set<String> = ["expired", "invalid", "revoked"]
@@ -154,9 +185,9 @@ public enum ProviderRowProjection {
 
     /// Which surface draws one provider's own descriptor rows (M34 §5.1).
     ///
-    /// The primary's are the pane's headline — the model in use, its reasoning
-    /// effort, its fast mode — because reaching the one fact most visits come
-    /// for through a row's `Details…` hid it. Every other provider's belong to
+    /// The primary's are the pane's headline — the model in use and its
+    /// reasoning effort — because reaching the one fact most visits come for
+    /// through a row's `Details…` hid it. Every other provider's belong to
     /// its sub-page, which is what keeps the pane from becoming the longest
     /// scroll in the app.
     ///
@@ -191,7 +222,8 @@ public enum ProviderRowProjection {
                 primary: provider.primary,
                 configured: provider.configured,
                 presentKey: provider.presentKey,
-                secretID: secretID(for: verb, rows: descriptorRows[provider.id] ?? [])
+                secretID: secretID(for: verb, rows: descriptorRows[provider.id] ?? []),
+                account: provider.accountLabel
             )
         }
     }
@@ -246,7 +278,7 @@ public enum ProviderRowProjection {
             return anthropicSetupTokenID
         case .addKey:
             return rows.first { $0.kind == .secret }?.key
-        case .signIn, .importClaudeCode, .importCodexCLI, .none:
+        case .signIn, .continueWithChatGPT, .importClaudeCode, .none:
             return nil
         }
     }
@@ -282,14 +314,13 @@ public enum ProviderRowProjection {
     ) -> [ProviderDoor] {
         precondition(!provider.isEmpty, "provider authentication actions name their provider")
 
-        let opensBrowser = browserSignInProviders.contains(provider)
-        var doors = opensBrowser ? [ProviderDoor(verb: .signIn, available: true)] : []
+        let browser = browserSignInVerbs[provider]
+        var doors = browser.map { [ProviderDoor(verb: $0, available: true)] } ?? []
 
         if let source = importSources[provider] {
             let detected = detections?.result(for: source)?.present == true
-            let verb: ProviderVerb = source == .claudeCode ? .importClaudeCode : .importCodexCLI
 
-            if detected || !opensBrowser { doors.append(ProviderDoor(verb: verb, available: detected)) }
+            if detected || browser == nil { doors.append(ProviderDoor(verb: .importClaudeCode, available: detected)) }
         }
         if provider == anthropicProvider { doors.append(ProviderDoor(verb: .addSetupToken, available: true)) }
 
@@ -386,14 +417,17 @@ public enum ProviderRowProjection {
         // The sign-in doors, in the order they win: a sign-in this Mac already
         // has, then Anthropic's setup token, then the browser.
         if let source = importSources[provider.id], detections?.result(for: source)?.present == true {
-            return source == .claudeCode ? .importClaudeCode : .importCodexCLI
+            return .importClaudeCode
         }
 
-        // Before the browser branch, because Anthropic publishes `oauth` and
-        // has no browser flow: its door is the setup token `secret.set` takes
-        // under `anthropic_setup_token`.
+        // Anthropic publishes `oauth` and has no browser flow: its door is the
+        // setup token `secret.set` takes under `anthropic_setup_token`.
         if provider.id == anthropicProvider { return .addSetupToken }
-        if provider.authModes.contains(oauthMode) { return .signIn }
+        // The browser where the daemon says the provider signs in and
+        // `auth.start` opens one for it, under that provider's own verb.
+        if provider.authModes.contains(oauthMode), let browser = browserSignInVerbs[provider.id] {
+            return browser
+        }
 
         return .addKey
     }

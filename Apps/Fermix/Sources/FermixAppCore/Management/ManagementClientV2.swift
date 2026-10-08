@@ -332,6 +332,34 @@ extension ManagementClient {
         )
     }
 
+    // MARK: - The iMessage channel
+
+    public func imessagePermissions() async throws -> ManagementIMessagePermissions {
+        try await send(
+            .imessagePermissionsGet,
+            params: ManagementEmptyParams(),
+            as: ManagementIMessagePermissions.self
+        )
+    }
+
+    public func startIMessageGrant(service: ManagementIMessageGrantService) async throws -> ManagementJob {
+        try await send(
+            .imessageGrantStart,
+            params: ManagementIMessageGrantParams(service: service),
+            as: ManagementJob.self
+        )
+    }
+
+    /// The owner refusing the helper's dialog completes this job with
+    /// `outcome: policy_refused` in its result; it is a decision, not a failure.
+    public func confirmIMessagePolicy() async throws -> ManagementJob {
+        try await send(
+            .imessagePolicyConfirm,
+            params: ManagementEmptyParams(),
+            as: ManagementJob.self
+        )
+    }
+
     // MARK: - The phone channel
 
     public func mobileStatus() async throws -> ManagementMobileStatus {

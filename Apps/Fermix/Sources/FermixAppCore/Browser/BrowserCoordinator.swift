@@ -13,9 +13,15 @@ import Foundation
 /// beside them, as a link opened in a browser lands in the window already
 /// there. Closing the last tab closes the pane.
 ///
+/// A file on this Mac opens here too (plan §8.2), in a file tab beside the
+/// web tabs, or in an app named for it, or only in Finder (`openFile`). No
+/// file is ever handed to the Mac by its path alone.
+///
 /// The host's side of the daemon's `browser_host` wire runs through here too:
 /// a task's tabs, their release, the availability the host reports and its
 /// part of a quit, each decided by `BrowserHostReducer` and carried out here.
+/// A file a page saves is routed here by whose tab it came from, and
+/// `BrowserDownloads` carries it to its end.
 @MainActor
 public final class BrowserCoordinator {
     /// How long a quit waits for the daemon's answer to `host_stopping`.
@@ -26,6 +32,10 @@ public final class BrowserCoordinator {
     private let makeEngine: BrowserEngineMaking
     private let profile: WebsiteProfileRecord
     private let workspace: any WorkspaceLinkOpening
+    /// The Fermix home, inside which a file the person opens loads without a
+    /// question. Resolved per open from the bootstrap record, as the host's
+    /// roots are; a home that cannot be resolved has nothing inside it.
+    private let home: () throws -> URL
     private let session: any SessionAvailabilityReporting
     /// The quit's bound. A run-loop timer in the product, because main-actor
     /// work can starve while AppKit holds a termination.
@@ -43,12 +53,18 @@ public final class BrowserCoordinator {
     private var availabilityChanges: AnyCancellable?
     private var quitDone: (@MainActor () -> Void)?
     private var quitBoundToken: DeadlineToken?
+    /// The files the pages are saving.
+    private let downloads = BrowserDownloads()
 
     /// The pane's page area, while SwiftUI has one built.
     private weak var paneStage: (any BrowserPageStage)?
     /// Whether the primary window is on screen: open, and not covered,
     /// minimised or on another Space.
     private var windowVisible = false
+    /// Whether a system panel is up over the pane, the file chooser for a
+    /// page's upload field or the save panel for a person's download: the
+    /// pane's one popup while it is, as a page's dialog is.
+    private var systemPanelShown = false
     /// Where each tab's page is now.
     private var placed: [BrowserTab.ID: BrowserPagePlace] = [:]
 
@@ -56,6 +72,7 @@ public final class BrowserCoordinator {
         makeEngine: @escaping BrowserEngineMaking,
         profile: WebsiteProfileRecord,
         workspace: any WorkspaceLinkOpening,
+        home: @escaping () throws -> URL,
         session: any SessionAvailabilityReporting,
         deadlines: any DeadlineScheduling,
         paneShown: @escaping (Bool) -> Void,
@@ -65,6 +82,7 @@ public final class BrowserCoordinator {
         self.makeEngine = makeEngine
         self.profile = profile
         self.workspace = workspace
+        self.home = home
         self.session = session
         self.deadlines = deadlines
         self.paneShown = paneShown
@@ -72,16 +90,37 @@ public final class BrowserCoordinator {
         availabilityChanges = session.changes.sink { [weak self] availability in
             self?.availabilityChanged(availability)
         }
+        downloads.host = self
     }
 
     // MARK: - Opening
 
-    /// A link, in a new tab of the shared profile, in front.
-    public func open(_ url: URL) {
+    /// A link, in a new tab of the shared profile, in front: at the end, or
+    /// beside the tab it came from.
+    public func open(_ url: URL, after opener: BrowserTab? = nil) {
         guard let tab = makePersonTab(.shared) else { return }
 
-        add(tab)
+        add(tab, after: opener)
         tab.load(url)
+    }
+
+    /// A file on this Mac a person asked for, from a reply or a page, decided
+    /// on where its link really lands (`BrowserLocalFile`): nothing there
+    /// opens the pane on the sentence that says so; one the pane shows opens
+    /// in a new file tab, in front; a document goes to the app named for its
+    /// type; and everything else is only shown in Finder.
+    public func openFile(_ link: URL) {
+        guard let file = BrowserLocalFile(link) else {
+            model.notice = ProductStrings[.browserNoticeFileMissing]
+            showPane()
+            return
+        }
+
+        switch file.opening(workspace) {
+        case .show(let kind): openFileTab(file, as: kind)
+        case .open(let app): open(file.url, with: app)
+        case .reveal: workspace.reveal(file.url)
+        }
     }
 
     /// A blank tab, with the caret in the address field.
@@ -97,13 +136,14 @@ public final class BrowserCoordinator {
     }
 
     /// What the person typed in the address field, in the tab in front, or in
-    /// a new tab where none is.
+    /// a new tab where none is or where the tab in front shows a file, which
+    /// never loads a web page.
     public func load(address: String) {
         guard let url = BrowserAddress.url(from: address) else {
             model.notice = ProductStrings[.browserNoticeNotAnAddress]
             return
         }
-        guard let tab = model.selectedTab else {
+        guard let tab = model.selectedTab, tab.profile != .file else {
             open(url)
             return
         }
@@ -149,13 +189,15 @@ public final class BrowserCoordinator {
     }
 
     /// Hides the pane and keeps its tabs. A dialog waiting over the pane is
-    /// answered as dismissed, because nobody can see it to answer it.
+    /// answered as dismissed, because nobody can see it to answer it. The
+    /// pane is closed first: a dismissed file question closes its tab, which
+    /// may be the last, and that close finds the pane already going.
     public func closePane() {
         guard model.isOpen else { return }
 
+        model.isOpen = false
         answer(.dismissed)
         model.notice = nil
-        model.isOpen = false
         paneShown(false)
         placePages()
     }
@@ -165,6 +207,21 @@ public final class BrowserCoordinator {
         guard let url = model.selectedTab?.url else { return }
 
         openOutside(url)
+    }
+
+    /// The file in front, in the app its type goes to, decided again from
+    /// the file as it is now (`openInItsApp`).
+    public func openFileInApp() {
+        guard let file = model.selectedTab?.file else { return }
+
+        openInItsApp(file)
+    }
+
+    /// The file in front, selected in a Finder window.
+    public func showInFinder() {
+        guard let file = model.selectedTab?.file else { return }
+
+        workspace.reveal(file)
     }
 
     /// The person's answer to the dialog over the pane.
@@ -366,10 +423,116 @@ public final class BrowserCoordinator {
         unplace(tab)
     }
 
+    /// A link, to the person's browser or the app that owns its scheme. A
+    /// file never goes to the workspace by its path, whichever way it came
+    /// here: it takes the file rules instead.
     private func openOutside(_ url: URL) {
+        guard !url.isFileURL else {
+            openInItsApp(url)
+            return
+        }
         guard !workspace.open(url) else { return }
 
         model.notice = ProductStrings[.browserNoticeNoApp]
+    }
+
+    /// A file, decided again from what is at its path now, to the app its
+    /// type goes to where it may go to one, and otherwise only to Finder.
+    private func openInItsApp(_ path: URL) {
+        guard let file = BrowserLocalFile(path) else {
+            model.notice = ProductStrings[.browserNoticeFileMissing]
+            return
+        }
+        guard let app = file.documentApplication(workspace) else {
+            workspace.reveal(file.url)
+            return
+        }
+
+        open(file.url, with: app)
+    }
+
+    /// A file, handed to the app named for it as a document. Where the app
+    /// cannot take it, the pane says why in the system's words, opening to
+    /// say it: a file from a reply arrives with the pane closed.
+    private func open(_ file: URL, with app: WorkspaceApplication) {
+        workspace.open(file, withApplicationAt: app.url) { [weak self] reason in
+            self?.model.notice = reason
+            self?.showPane()
+        }
+    }
+
+    /// A file tab is the person's, so no task can ever address it, and it
+    /// comes to the front with the pane open, with the app it offers its file
+    /// to decided now. Inside the Fermix home its file loads at once, an HTML
+    /// file with leave to read its own folder for its images and stylesheets;
+    /// outside it, the one file loads only on the person's answer, and no tab
+    /// is made while something else is asking, since the question could not
+    /// be put.
+    private func openFileTab(_ file: BrowserLocalFile, as kind: BrowserFileKind) {
+        let inside = isInsideHome(file.url)
+        guard inside || nothingIsAsking else { return }
+        guard let tab = makePersonTab(.file) else { return }
+
+        tab.file = file.url
+        tab.fileApp = file.documentApplication(workspace)
+        add(tab)
+        guard inside else {
+            askBeforeLoading(file.url, as: kind, in: tab)
+            return
+        }
+
+        tab.loadFile(file.url, as: kind, readAccess: kind == .html ? file.url.deletingLastPathComponent() : file.url)
+    }
+
+    private func isInsideHome(_ file: URL) -> Bool {
+        guard let home = try? home() else { return false }
+
+        return FilePlace.path(file.path, liesUnder: home)
+    }
+
+    /// The pane's one dialog, over the file's own tab, before anything
+    /// loads. Open loads it; any other answer closes the tab, unless the tab
+    /// is already going, its record gone with the close that answered.
+    private func askBeforeLoading(_ file: URL, as kind: BrowserFileKind, in tab: BrowserTab) {
+        let question = BrowserDialog(
+            kind: .openFile(name: file.lastPathComponent),
+            message: ProductStrings[.browserOpenFileMessage],
+            origin: ""
+        )
+        dialogPresented(question, in: tab) { [weak self] answer in
+            guard let self else { return }
+            guard answer == .confirmed else {
+                if model.host.owner(of: tab.id) != nil { close(tab) }
+                return
+            }
+
+            tab.loadFile(file, as: kind, readAccess: file)
+        }
+    }
+
+    /// The one rule for asking the person anything, whether a page's dialog,
+    /// the file chooser or the save panel: only the page in front, in an open
+    /// pane, may ask, and only while nothing else is asking, so a popup never
+    /// stacks.
+    private func mayAsk(from tab: BrowserTab) -> Bool {
+        model.isOpen && model.selectedTabID == tab.id && nothingIsAsking
+    }
+
+    private var nothingIsAsking: Bool {
+        model.dialog == nil && !systemPanelShown
+    }
+
+    /// Puts up a system panel, which is the pane's one popup until the person
+    /// answers it.
+    private func showSystemPanel<Answer>(
+        _ show: (@escaping @MainActor (Answer) -> Void) -> Void,
+        answer: @escaping @MainActor (Answer) -> Void
+    ) {
+        systemPanelShown = true
+        show { [weak self] chosen in
+            self?.systemPanelShown = false
+            answer(chosen)
+        }
     }
 
     private func availabilityChanged(_ availability: BrowserAvailability) {
@@ -457,6 +620,7 @@ extension BrowserCoordinator: BrowserHostQuitting {
     /// the answer or the bound, whichever comes first (BROWSER-7).
     public func stopHost(done: @escaping @MainActor () -> Void) {
         session.applicationTerminating()
+        downloads.cancelAll()
 
         switch model.host.stop() {
         case .complete(let released):
@@ -506,18 +670,71 @@ extension BrowserCoordinator: BrowserTabDelegate {
         remove([tab.id])
     }
 
-    public func externalSchemeMet(_ url: URL) {
-        openOutside(url)
+    /// A page's upload field. The person's own tab gets the system's file
+    /// chooser, on the same terms as a page's dialog. A task's tab gets none:
+    /// a task uploads only through `page.upload`, which is confined to the
+    /// engine's workspace.
+    public func filesRequested(
+        _ request: BrowserFileRequest,
+        in tab: BrowserTab,
+        answer: @escaping @MainActor ([URL]?) -> Void
+    ) {
+        guard model.host.owner(of: tab.id) == .person, mayAsk(from: tab), let engine else {
+            answer(nil)
+            return
+        }
+
+        showSystemPanel({ engine.chooseFiles(request, for: tab.view, answer: $0) }, answer: answer)
     }
 
-    /// Only the page in front, in an open pane, may ask the person anything,
-    /// and only one at a time; every other dialog is dismissed at once.
+    /// A link to another app (`mailto:`, `tel:`, an app's own scheme), whose
+    /// navigation the page has already refused. A task's tab never opens
+    /// another app, and the pane says so where that tab is in front. The
+    /// person's own tab asks first, in the pane's one dialog, naming the app,
+    /// and the app opens only on their answer.
+    public func externalSchemeMet(_ url: URL, in tab: BrowserTab) {
+        guard model.host.owner(of: tab.id) == .person else {
+            if model.selectedTabID == tab.id { model.notice = ProductStrings[.browserNoticeTaskOpenAppRefused] }
+            return
+        }
+        guard let app = workspace.application(toOpen: url)?.name else {
+            model.notice = ProductStrings[.browserNoticeNoApp]
+            return
+        }
+
+        let origin = tab.url?.host ?? ""
+        let question = BrowserDialog(kind: .openApp(name: app), message: BrowserText.openAppMessage(origin: origin), origin: origin)
+        dialogPresented(question, in: tab) { [weak self] answer in
+            guard answer == .confirmed else { return }
+
+            self?.openOutside(url)
+        }
+    }
+
+    /// A link a file tab does not load, whose navigation the page has already
+    /// refused, opened as the same link from a reply would be: a file by the
+    /// file rules, and a web page in a new tab of the shared profile beside
+    /// the tab it came from. Only a file tab hands a file over: a website
+    /// never gets a file on this Mac opened, shown or revealed, and a task,
+    /// whose tabs are web tabs, never does either.
+    public func handOffRequested(_ url: URL, from tab: BrowserTab) {
+        guard model.host.owner(of: tab.id) == .person else { return }
+        guard !url.isFileURL else {
+            if tab.profile == .file { openFile(url) }
+            return
+        }
+
+        open(url, after: tab)
+    }
+
+    /// Shown where the page may ask (`mayAsk`); every other dialog is
+    /// dismissed at once.
     public func dialogPresented(
         _ dialog: BrowserDialog,
         in tab: BrowserTab,
         answer: @escaping @MainActor (BrowserDialogAnswer) -> Void
     ) {
-        guard model.isOpen, model.selectedTabID == tab.id, model.dialog == nil else {
+        guard mayAsk(from: tab) else {
             answer(.dismissed)
             return
         }
@@ -525,8 +742,12 @@ extension BrowserCoordinator: BrowserTabDelegate {
         model.dialog = BrowserDialogRequest(dialog: dialog, tabID: tab.id, answer: answer)
     }
 
-    public func downloadStarted(_ url: URL) {
-        model.notice = ProductStrings[.browserNoticeDownloadRefused]
+    /// The person's file is saved where they choose. A task's is refused:
+    /// the daemon cannot vet it over the host wire, by where it comes from or
+    /// by its size, as it vets every download in its own browser.
+    public func downloadStarted(_ download: any BrowserDownload, in tab: BrowserTab) {
+        let route: BrowserDownloads.Route = owner(of: tab) == .person ? .person : .task
+        downloads.save(download, from: tab.id, route: route)
     }
 
     /// The system's sentence, for the tab in front only: a tab behind it has
@@ -541,3 +762,22 @@ extension BrowserCoordinator: BrowserTabDelegate {
 /// The wire client's seam onto this coordinator (`BrowserHostClient.swift`),
 /// which the methods above already answer exactly.
 extension BrowserCoordinator: BrowserHostCoordinating {}
+
+extension BrowserCoordinator: BrowserDownloadsHosting {
+    var downloadLink: (any BrowserHostLink)? { link }
+
+    /// On the one rule (`mayAsk`): the save panel, over the person's page,
+    /// holds the pane's one popup as the file chooser does.
+    func askWhereToSave(_ filename: String, from tab: BrowserTab.ID, answer: @escaping @MainActor (URL?) -> Void) {
+        guard let tab = model.tabs.first(where: { $0.id == tab }), mayAsk(from: tab), let engine else {
+            answer(nil)
+            return
+        }
+
+        showSystemPanel({ engine.chooseSaveDestination(filename, for: tab.view, answer: $0) }, answer: answer)
+    }
+
+    func say(_ notice: String) {
+        model.notice = notice
+    }
+}

@@ -66,7 +66,6 @@ struct ContentLinkTests {
         ("https://fermix.ai", LinkDestination.fermix),
         ("HTTP://fermix.ai", .fermix),
         ("mailto:a@fermix.ai", .system),
-        ("file:///Users/Shared/notes.txt", .system),
         ("javascript:alert(1)", .system),
         ("fermix://settings/voice", .system)
     ])
@@ -75,6 +74,31 @@ struct ContentLinkTests {
 
         #expect(ContentLinkOpener.destination(of: url, preferring: .fermix) == expected)
         #expect(ContentLinkOpener.destination(of: url, preferring: .system) == .system)
+    }
+
+    /// The preference is about web pages. A file handed straight to the Mac
+    /// would be launched or run by whatever is at its path, so it always
+    /// takes the pane's own rules for files.
+    @Test("a file link takes the pane's rule for files, whatever the preference", arguments: LinkDestination.allCases)
+    func fileLinksTakeTheFileRule(_ destination: LinkDestination) throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let harness = place.harness()
+        let workspace = RecordingWorkspaceOpener()
+        let preference = InMemoryLinkPreferenceStore()
+        preference.linkDestination = destination
+        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace)
+        let notes = try place.write("notes.md", in: place.home)
+        let app = try place.folder("Thing.app", in: place.home)
+
+        opener.open(notes)
+        opener.open(app)
+
+        #expect(harness.model.tabs.map(\.profile) == [.file])
+        #expect(harness.page(0).files == [FileLoad(url: FilePlaceFixture.real(notes), kind: .text)])
+        #expect(harness.workspace.revealed == [FilePlaceFixture.real(app)])
+        #expect(harness.workspace.opened.isEmpty)
+        #expect(workspace.opened.isEmpty, "a file went straight to the Mac")
     }
 }
 
@@ -95,6 +119,8 @@ struct SignInStaysExternalTests {
         let runner = model.makeJobRunner()
 
         #expect(await model.startSignIn(provider: "openai_codex", on: runner) == nil)
+        // What the sign-in sheet does once it is on screen.
+        model.openSignIn(on: runner)
 
         #expect(external.urls.map(\.host) == ["auth.openai.com"], "the authorize address did not reach the browser")
         #expect(workspace.opened.isEmpty)

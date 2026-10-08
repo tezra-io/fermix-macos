@@ -397,6 +397,7 @@ struct IntegrationDetailSheet: View {
                 warning: warning,
                 runner: runner,
                 cancel: cancelSignIn,
+                open: { model.openSignIn(on: runner) },
                 reopen: { model.reopenSignIn(on: runner) },
                 retry: beginSignIn
             )
@@ -755,6 +756,9 @@ struct IntegrationSignInWait: View {
     let warning: String?
     @ObservedObject var runner: JobRunner
     let cancel: () -> Void
+    /// Opens the browser for this run once the wait is drawn, as the provider
+    /// sign-in sheet does: `SettingsModel.openSignIn(on:)`.
+    let open: () -> Void
     /// Opens the browser again for the same sign-in.
     let reopen: () -> Void
     let retry: () -> Void
@@ -774,6 +778,7 @@ struct IntegrationSignInWait: View {
             HStack(spacing: Spacing.xs) { actions }
                 .disabled(busy)
         }
+        .task(id: runner.job?.jobId) { open() }
     }
 
     /// Where to look and what the daemon is doing, while there is a wait. The
