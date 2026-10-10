@@ -34,10 +34,9 @@ public enum ChannelRowProjection {
     /// own, and a row that does not exist in the descriptor simply has no
     /// toggle rather than a write the daemon would refuse.
     /// The channels the pane shows but does not let anyone set up or switch on
-    /// yet. The phone channel waits for the Fermix phone app; until it ships,
-    /// a switch that registered a listener nobody can pair with would be a
-    /// control that does nothing.
-    public static let unavailable: Set<String> = ["mobile"]
+    /// yet. None today: the phone channel is switched on and set up like the
+    /// others, so the phone app can be paired with it.
+    public static let unavailable: Set<String> = []
 
     public static func enabledKey(for channel: String) -> String {
         precondition(!channel.isEmpty, "a channel is named")

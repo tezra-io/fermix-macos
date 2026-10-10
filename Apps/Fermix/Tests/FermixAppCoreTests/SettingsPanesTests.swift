@@ -431,10 +431,10 @@ struct SettingsPanesTests {
         #expect(ChannelRowProjection.status(of: live) == ProductStrings[.channelStatusConnected])
     }
 
-    /// The phone channel waits for the phone app: its row says so whatever the
-    /// daemon reports, and it is the one row that cannot be set up or switched on.
-    @Test("the phone row is unavailable until the phone app ships")
-    func phoneRowIsUnavailable() throws {
+    /// The phone channel is a channel like the others: its row reads the
+    /// daemon's two facts and can be set up and switched on.
+    @Test("the phone row can be set up and switched on")
+    func phoneRowIsAvailable() throws {
         let phone = try channel(name: "mobile", enabled: true, configured: true)
         let rows = ChannelRowProjection.rows(
             [phone, try channel(name: "telegram", enabled: true, configured: true)],
@@ -442,8 +442,8 @@ struct SettingsPanesTests {
             imessage: .unanswered
         )
 
-        #expect(ChannelRowProjection.status(of: phone) == ProductStrings[.channelStatusUnavailable])
-        #expect(rows.first { $0.name == "mobile" }?.available == false)
+        #expect(ChannelRowProjection.status(of: phone) == ProductStrings[.channelStatusConnected])
+        #expect(rows.first { $0.name == "mobile" }?.available == true)
         #expect(rows.first { $0.name == "mobile" }?.title == "Phone")
         #expect(rows.first { $0.name == "telegram" }?.available == true)
     }

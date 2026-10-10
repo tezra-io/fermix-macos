@@ -84,6 +84,7 @@
 "ready.title" = "Fermix is live";
 "ready.status" = "Running, answers even when this window is closed";
 "ready.nextChannels" = "Connect Telegram, Slack or Discord";
+"ready.nextPhone" = "Pair your Android phone";
 "ready.nextVoice" = "Turn on the voice companion";
 "ready.attention" = "Some things still need attention";
 "ready.blockedTitle" = "Almost ready";
@@ -735,6 +736,35 @@
 "channel.sheetFooter" = "Turn it on with the switch when you are done.";
 "channel.manage" = "Change…";
 "channel.enable" = "Turn on";
+
+/* MARK: Phone */
+"phone.status.restartToTurnOn" = "Restart to turn on";
+"phone.status.couldNotStart" = "Could not start";
+"phone.status.noPhone" = "No phone paired";
+"phone.status.countFormat" = "%lld phones";
+"phone.pair" = "Pair a phone…";
+"phone.turnOn.andRestart" = "Turn on and restart Fermix";
+"phone.turnOn.restart" = "Restart Fermix";
+"phone.scan.line" = "On your Android phone, open Fermix and scan this code.";
+"phone.scan.countdownFormat" = "Expires in %@";
+"phone.scan.codeLabel" = "Pairing code for your phone";
+"phone.compare.headingFormat" = "%@ wants to pair";
+"phone.compare.line" = "Approve only if the phone shows the same six digits.";
+"phone.compare.deny" = "Deny";
+"phone.compare.approve" = "Approve";
+"phone.paired.format" = "Paired with %@.";
+"phone.ended.expired" = "The code expired. Pairing codes last two minutes.";
+"phone.ended.denied" = "You denied this phone.";
+"phone.ended.cancelled" = "Pairing was cancelled.";
+"phone.ended.elsewhere" = "A pairing code is already open somewhere else.";
+"phone.ended.unreadable" = "Fermix answered a pairing code this app cannot show.";
+"phone.ended.pairAgain" = "Pair again";
+"phone.ended.startOver" = "Start over";
+"phone.phones.seenFormat" = "Seen %@";
+"phone.phones.notSeen" = "Not seen yet";
+"phone.phones.forget" = "Forget…";
+"phone.phones.forgetConfirm" = "Forget this phone";
+"phone.phones.pairAnother" = "Pair another phone";
 
 /* MARK: Computer */
 "computer.rightsSection" = "What the helper may do";
