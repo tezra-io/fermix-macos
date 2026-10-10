@@ -224,13 +224,18 @@ private struct PhoneTurnOnStep: View {
 /// Scan: the code on its card, the one line, and the daemon's own countdown.
 ///
 /// The window is left out of screen sharing and recordings for as long as
-/// this step is on screen (decision 5).
+/// this step is on screen (decision 5). For a phone or an emulator that cannot
+/// scan, "Can't scan the code?" shows the link itself, with Copy; a copy is
+/// taken back off the pasteboard when Scan leaves, however the window ended.
 private struct PhoneScanStep: View {
     let scan: PhoneScan
     let heading: AccessibilityFocusState<Bool>.Binding
     let cancel: () -> Void
 
     private let announcer: any AccessibilityAnnouncing = AppKitAccessibilityAnnouncer()
+    @State private var showsLink = false
+    /// The pasteboard's change count from this step's copy, while it has one.
+    @State private var copied: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.m) {
@@ -244,6 +249,13 @@ private struct PhoneScanStep: View {
                 .foregroundStyle(Palette.secondary.color)
                 .monospacedDigit()
                 .frame(maxWidth: .infinity)
+
+            if showsLink {
+                PhoneLinkRow(link: scan.link.text, copy: copy)
+            } else {
+                Button(ProductStrings[.phoneScanCantScan]) { showsLink = true }
+                    .buttonStyle(.link)
+            }
 
             PhoneButtons {
                 Button(ProductStrings[.settingsSheetCancel], action: cancel)
@@ -259,9 +271,56 @@ private struct PhoneScanStep: View {
 
             announcer.announce(countdown)
         }
+        .onDisappear(perform: withdrawCopy)
     }
 
     private var countdown: String { PhoneWording.countdown(ttlMs: scan.ttlMs) }
+
+    private func copy() {
+        copied = Clipboard.writeSecret(scan.link.text)
+    }
+
+    private func withdrawCopy() {
+        guard let copied else { return }
+
+        Clipboard.withdraw(copied)
+        self.copied = nil
+    }
+}
+
+/// The pairing link as text, selectable, with Copy: the command row the
+/// coexistence instructions draw, held to three lines, since a long link
+/// would otherwise make the sheet scroll.
+private struct PhoneLinkRow: View {
+    let link: String
+    let copy: () -> Void
+
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Spacing.s) {
+            Text(link)
+                .fermixType(Typography.style(.mono))
+                .foregroundStyle(Palette.ink.color)
+                .lineLimit(3)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel(ProductStrings[.phoneScanLinkLabel])
+
+            Button(ProductStrings[.phoneScanCopyLink], action: copy)
+                .buttonStyle(SecondaryButtonStyle(.row))
+        }
+        .padding(.horizontal, Spacing.s)
+        .padding(.vertical, Spacing.xs)
+        .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(Palette.cardFill.color))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(
+                Palette.hairline(.standard, increaseContrast: contrast == .increased).color,
+                lineWidth: 1
+            )
+        )
+    }
 }
 
 /// Compare: the phone, its six digits large and grouped as the phone draws

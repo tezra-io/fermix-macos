@@ -54,6 +54,7 @@ struct PhonePairingTests {
         #expect(scan.session == Self.session)
         #expect(scan.ttlMs == 120_000)
         #expect(scan.code == (try Self.code(started.uri)))
+        #expect(scan.link.text == started.uri, "Can't scan the code? shows the link the code was drawn from")
         #expect(transition.abandons == nil)
     }
 
@@ -77,6 +78,7 @@ struct PhonePairingTests {
         }
         #expect(next.ttlMs == 112_000)
         #expect(next.code == first.code, "the code survives every read, since no read repeats the link")
+        #expect(next.link == first.link, "and so does the link it was drawn from")
 
         let compare = PhonePairing.reduce(scan, .session(try PairingGolden.session("mobile_pair_get_awaiting_decision")))
         #expect(compare.step == .compare(PhoneCompare(

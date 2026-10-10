@@ -774,6 +774,12 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// The code image's accessibility label. The image carries no value: the
     /// link it draws is the secret (§3.5).
     case phoneScanCodeLabel = "phone.scan.codeLabel"
+    /// The door to the link as text, for a phone or an emulator that cannot
+    /// scan the code.
+    case phoneScanCantScan = "phone.scan.cantScan"
+    /// The revealed link's accessibility label, read in place of the secret.
+    case phoneScanLinkLabel = "phone.scan.linkLabel"
+    case phoneScanCopyLink = "phone.scan.copyLink"
     case phoneCompareHeadingFormat = "phone.compare.headingFormat"
     case phoneCompareLine = "phone.compare.line"
     case phoneCompareDeny = "phone.compare.deny"

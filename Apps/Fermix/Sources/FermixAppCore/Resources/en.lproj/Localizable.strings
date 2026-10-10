@@ -748,6 +748,9 @@
 "phone.scan.line" = "On your Android phone, open Fermix and scan this code.";
 "phone.scan.countdownFormat" = "Expires in %@";
 "phone.scan.codeLabel" = "Pairing code for your phone";
+"phone.scan.cantScan" = "Can’t scan the code?";
+"phone.scan.linkLabel" = "Pairing link";
+"phone.scan.copyLink" = "Copy link";
 "phone.compare.headingFormat" = "%@ wants to pair";
 "phone.compare.line" = "Approve only if the phone shows the same six digits.";
 "phone.compare.deny" = "Deny";

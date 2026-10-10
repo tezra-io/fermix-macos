@@ -8,8 +8,8 @@ import Foundation
 /// when the sheet closes in Scan or Compare so no window is left waiting for a
 /// scan. A quit cancels nothing: the window closes on the daemon's clock.
 ///
-/// The code drawn from the pairing link lives in the step and nowhere else, so
-/// it leaves memory when the sheet leaves Scan.
+/// The pairing link and the code drawn from it live in the step and nowhere
+/// else, so they leave memory when the sheet leaves Scan.
 @MainActor
 public final class PhonePairingModel: ObservableObject {
     @Published public private(set) var status: SettingsReadState<ManagementMobileStatus> = .unread

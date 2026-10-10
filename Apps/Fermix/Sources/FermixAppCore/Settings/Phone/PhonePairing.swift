@@ -20,17 +20,22 @@ public enum PhoneChannel {
 
 // MARK: - The link
 
-/// The pairing link the daemon hands back once, between the guards and the
-/// code drawn from it, and kept nowhere after that.
+/// The pairing link the daemon hands back once, held by the Scan step and
+/// nowhere else, so it leaves memory when Scan does.
 ///
 /// It carries the one-time secret the phone pairs with, so it is never logged,
-/// never written to disk, never put on the pasteboard, never drawn as text and
-/// never an accessibility value (M60 §3.5). Its descriptions say so rather than
-/// spelling it: a value printed into a log line or a test failure prints this
-/// type's name and nothing of the link.
+/// never written to disk and never an accessibility value (M60 §3.5). It is
+/// shown as text only when the person asks, behind "Can't scan the code?", for
+/// a phone or an emulator that cannot scan, and copied for this Mac only,
+/// taken back off the pasteboard when Scan leaves. Its descriptions say so
+/// rather than spelling it: a value printed into a log line or a test failure
+/// prints this type's name and nothing of the link.
 public struct PairingLink: Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     /// The bytes the code is drawn from, as the daemon sent them.
     let utf8: Data
+
+    /// The link as the person reads and pastes it.
+    var text: String { String(decoding: utf8, as: UTF8.self) }
 
     public var description: String { "PairingLink(withheld)" }
     public var debugDescription: String { description }
@@ -152,12 +157,13 @@ public struct PhoneTurnOn: Equatable, Sendable {
     }
 }
 
-/// Scan: the code, and the daemon's own clock for it.
+/// Scan: the code, the link it was drawn from, and the daemon's own clock.
 ///
-/// The code is drawn from the link once, as the window opens, and the link is
-/// not kept: the code is all Scan shows, and it leaves memory with the step.
+/// The code is drawn from the link once, as the window opens. Both leave
+/// memory with the step, since no later answer carries the link again.
 public struct PhoneScan: Equatable, Sendable {
     public let session: String
+    public let link: PairingLink
     public let code: PairingCode
     /// The daemon's `ttl_ms`, as the last answer gave it.
     public let ttlMs: Int
@@ -267,7 +273,7 @@ public enum PhonePairing {
                   let ttl = PairingGuards.ttl(session.ttlMs)
             else { return unreadable(leaving: session) }
 
-            return PhoneTransition(.scan(PhoneScan(session: id, code: code, ttlMs: ttl)))
+            return PhoneTransition(.scan(PhoneScan(session: id, link: link, code: code, ttlMs: ttl)))
         case .failed:
             return failed(session)
         case .awaitingDecision, .approved, .denied, .expired, .cancelled, .unrecognized:
@@ -329,7 +335,7 @@ public enum PhonePairing {
         }
         guard let ttl = PairingGuards.remaining(session.ttlMs) else { return unreadable(leaving: session) }
 
-        return PhoneTransition(.scan(PhoneScan(session: id, code: scan.code, ttlMs: ttl)))
+        return PhoneTransition(.scan(PhoneScan(session: id, link: scan.link, code: scan.code, ttlMs: ttl)))
     }
 
     private static func comparing(_ session: ManagementPairingSession, id: String) -> PhoneTransition {
