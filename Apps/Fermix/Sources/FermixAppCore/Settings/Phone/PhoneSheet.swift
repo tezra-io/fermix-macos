@@ -288,9 +288,14 @@ private struct PhoneScanStep: View {
     }
 }
 
-/// The pairing link as text, selectable, with Copy: the command row the
-/// coexistence instructions draw, held to three lines, since a long link
-/// would otherwise make the sheet scroll.
+/// The pairing link as text, with Copy: the command row the coexistence
+/// instructions draw, held to three lines, since a long link would otherwise
+/// make the sheet scroll.
+///
+/// The text is not selectable. Copy is the one way the link leaves the sheet,
+/// because only Copy keeps it to this Mac, out of clipboard history, and takes
+/// it back when Scan leaves; a selection copied with Command-C would do none
+/// of that.
 private struct PhoneLinkRow: View {
     let link: String
     let copy: () -> Void
@@ -304,7 +309,6 @@ private struct PhoneLinkRow: View {
                 .foregroundStyle(Palette.ink.color)
                 .lineLimit(3)
                 .truncationMode(.middle)
-                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel(ProductStrings[.phoneScanLinkLabel])
 
