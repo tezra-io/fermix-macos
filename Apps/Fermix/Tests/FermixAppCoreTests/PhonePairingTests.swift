@@ -235,23 +235,39 @@ struct PhonePairingTests {
         }
     }
 
-    @Test("a lifetime outside one to 120000 milliseconds is refused")
+    @Test("a window opens with one to 120000 milliseconds, and a later read may carry zero left")
     func ttlGuard() throws {
         #expect(PairingGuards.ttl(1) == 1)
         #expect(PairingGuards.ttl(120_000) == 120_000)
         #expect(PairingGuards.ttl(0) == nil)
         #expect(PairingGuards.ttl(120_001) == nil)
         #expect(PairingGuards.ttl(nil) == nil)
+        #expect(PairingGuards.remaining(0) == 0)
+        #expect(PairingGuards.remaining(120_000) == 120_000)
+        #expect(PairingGuards.remaining(-1) == nil)
+        #expect(PairingGuards.remaining(120_001) == nil)
+        #expect(PairingGuards.remaining(nil) == nil)
 
         for ttl: Any in [0, 120_001, NSNull()] {
             let started = try PairingGolden.start("mobile_pair_start") { $0["ttl_ms"] = ttl }
             #expect(PhonePairing.reduce(.waiting(session: nil), .started(started)).abandons == Self.session)
+        }
 
+        for ttl: Any in [120_001, NSNull()] {
             let read = try PairingGolden.session("mobile_pair_get_awaiting_scan") { $0["ttl_ms"] = ttl }
             let transition = PhonePairing.reduce(try scanning(), .session(read))
             #expect(transition.step == Self.unreadable)
             #expect(transition.abandons == Self.session)
         }
+
+        // The last moment before the daemon says the window expired still
+        // shows the code, not a refusal.
+        let last = try PairingGolden.session("mobile_pair_get_awaiting_scan") { $0["ttl_ms"] = 0 }
+        guard case .scan(let scan) = PhonePairing.reduce(try scanning(), .session(last)).step else {
+            Issue.record("a read with nothing left still shows Scan")
+            return
+        }
+        #expect(scan.ttlMs == 0)
     }
 
     @Test("the code is six digits")

@@ -62,8 +62,19 @@ public enum PairingGuards {
         return PairingLink(utf8: bytes)
     }
 
+    /// The window's lifetime as it opens, which `fermix pair` holds to one to
+    /// 120000 milliseconds.
     public static func ttl(_ value: Int?) -> Int? {
         guard let value, ttlRange.contains(value) else { return nil }
+
+        return value
+    }
+
+    /// What is left of an open window on a later read. The daemon counts it
+    /// down to zero before it says the window expired, so a read in that last
+    /// moment can carry zero.
+    public static func remaining(_ value: Int?) -> Int? {
+        guard let value, (0...ttlRange.upperBound).contains(value) else { return nil }
 
         return value
     }
@@ -316,14 +327,14 @@ public enum PhonePairing {
                 action: .startOver(session: id)
             )))
         }
-        guard let ttl = PairingGuards.ttl(session.ttlMs) else { return unreadable(leaving: session) }
+        guard let ttl = PairingGuards.remaining(session.ttlMs) else { return unreadable(leaving: session) }
 
         return PhoneTransition(.scan(PhoneScan(session: id, code: scan.code, ttlMs: ttl)))
     }
 
     private static func comparing(_ session: ManagementPairingSession, id: String) -> PhoneTransition {
         guard let request = session.request,
-              let ttl = PairingGuards.ttl(session.ttlMs),
+              let ttl = PairingGuards.remaining(session.ttlMs),
               PairingGuards.digits(request.sas),
               PairingGuards.field(request.deviceName),
               PairingGuards.field(request.model)
