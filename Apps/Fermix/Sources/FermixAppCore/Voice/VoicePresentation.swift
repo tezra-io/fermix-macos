@@ -180,7 +180,7 @@ public struct VoicePresentation: Equatable, Sendable {
     }
 
     public var expression: PetExpression {
-        PetExpression.resolve(for: visualMode, callActive: callActive)
+        PetExpression.resolve(for: visualMode)
     }
 
     public var accessibilityLabel: String {

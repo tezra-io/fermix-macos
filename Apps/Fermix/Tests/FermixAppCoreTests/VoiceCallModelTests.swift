@@ -672,8 +672,8 @@ struct VoiceCallLifecycleTests {
 
     /// The prompt is modal and answers every asker at once, so the first
     /// attempt's request comes back too. Only the attempt still current may
-    /// send `call_start`: one call, the second one.
-    @Test("start, cancel, start while the permission prompt is up sends one call start, for the second attempt")
+    /// warm the microphone and send `call_start`: one call, the second one.
+    @Test("start, cancel, start while the permission prompt is up warms once and sends one call start, for the second attempt")
     func restartDuringThePermissionPrompt() async throws {
         let harness = VoiceCallHarness()
         harness.engine.suspendsPermission = true
@@ -685,10 +685,10 @@ struct VoiceCallLifecycleTests {
         harness.coordinator.toggleCall()
         await harness.settle { harness.engine.pendingPermissionRequests == 2 }
         harness.engine.grantCapturePermission()
-        await harness.settle { harness.engine.calls.filter { $0 == .prepareCapture }.count == 2 }
+        await harness.settle { harness.call.voice.phase == .active }
 
         #expect(harness.call.voice.attempt == 2)
-        #expect(harness.call.voice.phase == .active)
+        #expect(harness.engine.calls.filter { $0 == .prepareCapture }.count == 1)
         #expect(try harness.sent("call_start") == 1)
     }
 
@@ -1092,7 +1092,7 @@ struct LiveReplyEndTests {
 
         #expect(model.voice.mode == .listening)
         #expect(model.voice.status == .listening)
-        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .listening)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode) == .listening)
     }
 
     @Test("a reply spoken over running backend work returns the pet to that work")
@@ -1104,7 +1104,7 @@ struct LiveReplyEndTests {
         model.voicePlaybackDrained()
 
         #expect(model.voice.mode == .toolUse)
-        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .thinking)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode) == .thinking)
 
         _ = model.apply(.task(RealtimeTask(delegationId: "d1", revision: 1, status: .completed, summary: nil)), audioIsPlaying: false)
         #expect(model.voice.mode == .listening)
@@ -1134,7 +1134,7 @@ struct LiveReplyEndTests {
         model.voicePlaybackDrained()
 
         #expect(model.voice.mode == .toolUse)
-        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode, callActive: true) == .thinking)
+        #expect(PetExpression.resolve(for: model.voice.presentation.visualMode) == .thinking)
     }
 
     @Test("stopping a reply spoken over backend work returns to the work")
@@ -1224,13 +1224,15 @@ struct VoiceCallSecondViewTests {
         #expect(model.voice.statusText == ProductStrings[.voiceStatusListening])
     }
 
-    @Test("dismiss returns an ended call to idle, and does nothing to a call that is up")
-    func dismissOnlyEndsTheEndedState() {
+    @Test("closing the box changes nothing about the call, and lasts until the next start")
+    func closingTheBoxLeavesTheCall() {
         let model = negotiatedModel()
         model.beginTestCall()
         _ = model.apply(.state(.listening), audioIsPlaying: false)
+        #expect(!model.callBoxClosed)
 
-        model.dismissEnded()
+        model.closeCallBox()
+        #expect(model.callBoxClosed)
         #expect(model.voice.phase == .active)
 
         _ = model.apply(
@@ -1238,11 +1240,11 @@ struct VoiceCallSecondViewTests {
             audioIsPlaying: false
         )
         #expect(model.voice.phase == .ended(.failed(kind: .providerDisconnected, sentence: ProductStrings[.voiceErrorProviderDisconnected])))
+        #expect(model.voice.status.carriesItsOwnSentence)
+        #expect(model.callBoxClosed)
 
-        model.dismissEnded()
-        #expect(model.voice.phase == .idle)
-        #expect(!model.voice.status.carriesItsOwnSentence)
-        #expect(model.voice.settledCostCents == nil)
+        model.callStarting()
+        #expect(!model.callBoxClosed)
     }
 
     @Test("the settled cost is the ended call's, never the figure while it is up")
@@ -1261,9 +1263,11 @@ struct VoiceCallSecondViewTests {
     }
 
     /// The chat view is rebuilt on every rail change, so the call model
-    /// remembers whether this call's intro has played.
-    @Test("the intro plays once per call, and not again when the strip is rebuilt")
-    func introOncePerCall() {
+    /// remembers whether this call's intro has played. A call begun from the
+    /// pet resting in the box keeps that pet; one begun once the box was
+    /// closed brings a new one, which swells in.
+    @Test("the intro plays once per box, not again when the box is rebuilt or the resting pet begins a call")
+    func introOncePerBox() {
         let model = negotiatedModel()
 
         model.callStarting()
@@ -1271,7 +1275,7 @@ struct VoiceCallSecondViewTests {
 
         model.introShown()
         #expect(model.introPlayed)
-        // A rail change mid-call builds a new strip, which reads this again.
+        // A rail change mid-call builds a new box, which reads this again.
         model.callStarted()
         #expect(model.introPlayed)
 
@@ -1280,7 +1284,14 @@ struct VoiceCallSecondViewTests {
         #expect(model.introPlayed)
 
         model.callStarting()
-        #expect(!model.introPlayed)
+        #expect(model.introPlayed, "the resting pet hatched again")
+
+        model.callStarted()
+        model.closeCallBox()
+        model.callStopping()
+        model.callEnded()
+        model.callStarting()
+        #expect(!model.introPlayed, "a new box's pet did not swell in")
     }
 
     @Test("the main window's visibility reaches the call model, published only when it moves")

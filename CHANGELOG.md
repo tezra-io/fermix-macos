@@ -4,6 +4,17 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Channels: you can pair your Android phone from the Mac, with no Terminal. The Phone row's Pair a phone… turns the phone channel on and restarts Fermix where it needs to, saying so first, then shows a code to scan, with the link itself behind Can’t scan the code? for a phone or an emulator that cannot scan it, and asks you to approve only when both screens show the same six digits. Once a phone is paired the row names it, and Change… lists your phones, forgets one or pairs another. The last setup screen offers Pair your Android phone as an optional step.
+
+## 0.4.1 (2026-10-08)
+
+- Voice: a call keeps hearing you when macOS reconfigures the microphone during it, which it can do on the first call after Fermix starts.
+- Pet: a call begun from the pet resting in the chat goes straight into the call without hatching again. The pet hatches only when it first appears.
+- Voice: the first call after Fermix starts no longer freezes the window for a moment while the microphone gets ready, so the pet appears in the chat as soon as you click.
+- Pet: during a call the pet takes its listening pose only once Fermix can hear you, so while the call is still connecting, or once it is ending, the pet rests instead of looking like it is listening.
+- Pet: the stop button on the pet's dock ends a call and closes the chat's box in one press, as the chat's call button does, and only a click on the pet leaves it resting there. Neither is red any more: the call button's phone fills while a call is up.
+- Runs the same Fermix engine as 0.4.0, and the macOS floor stays at 15.0.
+
 ## 0.4.0 (2026-10-08)
 
 - Runs the Fermix engine 0.14.0, which serves the iMessage channel and the ChatGPT sign-in for OpenAI Codex that the app now shows, offers Mistral Large 4, and keeps a GPT-Live call's work in the chat, where a task still running when the call ends finishes instead of being dropped.

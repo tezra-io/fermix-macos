@@ -84,6 +84,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case readyTitle = "ready.title"
     case readyStatus = "ready.status"
     case readyNextChannels = "ready.nextChannels"
+    /// The optional row that pairs a phone (M60 §3.6). One of the two strings
+    /// that name the platform (§3.7).
+    case readyNextPhone = "ready.nextPhone"
     case readyNextVoice = "ready.nextVoice"
     case readyAttention = "ready.attention"
     case readyBlockedTitle = "ready.blockedTitle"
@@ -755,6 +758,47 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case channelSheetFooter = "channel.sheetFooter"
     case channelManage = "channel.manage"
     case channelEnable = "channel.enable"
+
+    // Phone (M60 §6). The words are the app's over the daemon's facts; every
+    // sentence the daemon writes is drawn as written and is not here.
+    case phoneStatusRestartToTurnOn = "phone.status.restartToTurnOn"
+    case phoneStatusCouldNotStart = "phone.status.couldNotStart"
+    case phoneStatusNoPhone = "phone.status.noPhone"
+    case phoneStatusCountFormat = "phone.status.countFormat"
+    case phonePair = "phone.pair"
+    case phoneTurnOnAndRestart = "phone.turnOn.andRestart"
+    case phoneTurnOnRestart = "phone.turnOn.restart"
+    /// The Scan step's line: the other string that names the platform (§3.7).
+    case phoneScanLine = "phone.scan.line"
+    case phoneScanCountdownFormat = "phone.scan.countdownFormat"
+    /// The code image's accessibility label. The image carries no value: the
+    /// link it draws is the secret (§3.5).
+    case phoneScanCodeLabel = "phone.scan.codeLabel"
+    /// The door to the link as text, for a phone or an emulator that cannot
+    /// scan the code.
+    case phoneScanCantScan = "phone.scan.cantScan"
+    /// The revealed link's accessibility label, read in place of the secret.
+    case phoneScanLinkLabel = "phone.scan.linkLabel"
+    case phoneScanCopyLink = "phone.scan.copyLink"
+    case phoneCompareHeadingFormat = "phone.compare.headingFormat"
+    case phoneCompareLine = "phone.compare.line"
+    case phoneCompareDeny = "phone.compare.deny"
+    case phoneCompareApprove = "phone.compare.approve"
+    case phonePairedFormat = "phone.paired.format"
+    /// The three endings the daemon reports by reason alone, and the two the
+    /// app reaches itself (§3.4).
+    case phoneEndedExpired = "phone.ended.expired"
+    case phoneEndedDenied = "phone.ended.denied"
+    case phoneEndedCancelled = "phone.ended.cancelled"
+    case phoneEndedElsewhere = "phone.ended.elsewhere"
+    case phoneEndedUnreadable = "phone.ended.unreadable"
+    case phonePairAgain = "phone.ended.pairAgain"
+    case phoneStartOver = "phone.ended.startOver"
+    case phoneSeenFormat = "phone.phones.seenFormat"
+    case phoneNotSeen = "phone.phones.notSeen"
+    case phoneForget = "phone.phones.forget"
+    case phoneForgetConfirm = "phone.phones.forgetConfirm"
+    case phonePairAnother = "phone.phones.pairAnother"
 
     // Computer
     case computerRightsSection = "computer.rightsSection"

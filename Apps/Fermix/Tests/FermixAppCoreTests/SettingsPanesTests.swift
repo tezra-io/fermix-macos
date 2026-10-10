@@ -431,21 +431,32 @@ struct SettingsPanesTests {
         #expect(ChannelRowProjection.status(of: live) == ProductStrings[.channelStatusConnected])
     }
 
-    /// The phone channel waits for the phone app: its row says so whatever the
-    /// daemon reports, and it is the one row that cannot be set up or switched on.
-    @Test("the phone row is unavailable until the phone app ships")
-    func phoneRowIsUnavailable() throws {
+    /// The phone channel can be switched on and paired like the others, and
+    /// its row takes its status and its button from the phone channel's own
+    /// reads (M60 §3.2), never from `configured`: the channel is always
+    /// configured, so the two generic facts said Connected with no phone
+    /// paired.
+    @Test("the phone row can be switched on, and says what the phone channel reports")
+    func phoneRowIsAvailable() throws {
         let phone = try channel(name: "mobile", enabled: true, configured: true)
+        let unpaired = PhoneRow(status: ProductStrings[.phoneStatusNoPhone], opens: .pair)
         let rows = ChannelRowProjection.rows(
             [phone, try channel(name: "telegram", enabled: true, configured: true)],
             titledBy: [ManagementSettingsSection(id: "channels.mobile", pane: .channels, title: "Phone")],
-            imessage: .unanswered
+            imessage: .unanswered,
+            phone: unpaired
         )
+        let row = try #require(rows.first { $0.name == "mobile" })
 
-        #expect(ChannelRowProjection.status(of: phone) == ProductStrings[.channelStatusUnavailable])
-        #expect(rows.first { $0.name == "mobile" }?.available == false)
-        #expect(rows.first { $0.name == "mobile" }?.title == "Phone")
-        #expect(rows.first { $0.name == "telegram" }?.available == true)
+        #expect(row.status == ProductStrings[.phoneStatusNoPhone])
+        #expect(row.actionTitle == ProductStrings[.phonePair])
+        #expect(row.available)
+        #expect(row.title == "Phone")
+
+        let telegram = try #require(rows.first { $0.name == "telegram" })
+        #expect(telegram.available)
+        #expect(telegram.status == ProductStrings[.channelStatusConnected], "the phone's reads reach the phone row only")
+        #expect(telegram.actionTitle == ProductStrings[.channelManage])
     }
 
     /// A provider's own rows have exactly one home (M34 §5.1).
@@ -529,7 +540,8 @@ struct SettingsPanesTests {
         let rows = ChannelRowProjection.rows(
             [try channel(name: "whatsapp", enabled: true, configured: true)],
             titledBy: [ManagementSettingsSection(id: "channels.whatsapp", pane: .channels, title: "WhatsApp")],
-            imessage: .unanswered
+            imessage: .unanswered,
+            phone: .unanswered
         )
 
         #expect(rows.first?.title == "WhatsApp")
@@ -544,7 +556,8 @@ struct SettingsPanesTests {
         let rows = ChannelRowProjection.rows(
             [try channel(name: "whatsapp", enabled: true, configured: true)],
             titledBy: [],
-            imessage: .unanswered
+            imessage: .unanswered,
+            phone: .unanswered
         )
 
         #expect(rows.first?.title == "whatsapp")

@@ -210,6 +210,10 @@ final class AppComposition {
         // model is built with this coordinator's own router.
         coordinator.resumeAssistant = { [surfaces] stage in surfaces.onboarding.resume(at: stage) }
         coordinator.showUninstallNotice = { [surfaces] shown in surfaces.doctor.uninstallNoticeShown = shown }
+        // Turning the phone channel on takes the app's one restart, and the
+        // phone hangs off the settings model, which is built before the
+        // coordinator that owns that restart.
+        settings.phone.restarter = coordinator
         // A login launch opens nothing, so Home's own refresh never runs and
         // the menu bar would have no answer to draw.
         coordinator.readDaemonCondition = { [surfaces] in Task { await surfaces.home.refresh() } }
