@@ -316,31 +316,51 @@ extension FakeDaemonGateway {
     // MARK: - The phone channel
 
     func mobileStatus() async throws -> ManagementMobileStatus {
-        try answer(.mobileStatus, "mobile_status")
+        let published: ManagementMobileStatus = try answer(.mobileStatus, "mobile_status")
+
+        return mobileStatusResult ?? published
     }
 
     func startPairing() async throws -> ManagementPairingStart {
-        try answer(.mobilePairStart, "mobile_pair_start")
+        if let pairingStartGate { await pairingStartGate() }
+        let published: ManagementPairingStart = try answer(.mobilePairStart, "mobile_pair_start")
+
+        return pairingStartResult ?? published
     }
 
     func pairingSession(id: String) async throws -> ManagementPairingSession {
-        try answer(.mobilePairGet, "mobile_pair_get_awaiting_decision")
+        pairingReads.append(id)
+        let published: ManagementPairingSession = try answer(.mobilePairGet, "mobile_pair_get_awaiting_decision")
+        guard !pairingSessionScript.isEmpty else { return published }
+
+        let scripted = pairingSessionScript[min(pairingSessionIndex, pairingSessionScript.count - 1)]
+        pairingSessionIndex += 1
+        return scripted
     }
 
     func decidePairing(id: String, approved: Bool) async throws -> ManagementPairingSession {
-        try answer(.mobilePairDecide, "mobile_pair_decide")
+        pairingDecisions.append(PairingDecision(session: id, approved: approved))
+        let published: ManagementPairingSession = try answer(.mobilePairDecide, "mobile_pair_decide")
+
+        return pairingDecisionResult ?? published
     }
 
     func cancelPairing(id: String) async throws -> ManagementPairingSession {
-        try answer(.mobilePairCancel, "mobile_pair_cancel")
+        cancelledPairings.append(id)
+
+        return try answer(.mobilePairCancel, "mobile_pair_cancel")
     }
 
     func mobileDevices() async throws -> ManagementMobileDevices {
-        try answer(.mobileDevicesList, "mobile_devices_list")
+        let published: ManagementMobileDevices = try answer(.mobileDevicesList, "mobile_devices_list")
+
+        return mobileDevicesResult ?? published
     }
 
     func revokeMobileDevice(id: String) async throws -> ManagementMobileDeviceRevoked {
-        try answer(.mobileDevicesRevoke, "mobile_devices_revoke")
+        revokedDevices.append(id)
+
+        return try answer(.mobileDevicesRevoke, "mobile_devices_revoke")
     }
 
     // MARK: - One answer
@@ -413,6 +433,12 @@ extension FakeDaemonGateway {
     }
 }
 
+
+/// One `mobile.pair.decide`, as the surface sent it.
+struct PairingDecision: Equatable {
+    let session: String
+    let approved: Bool
+}
 
 /// One `settings.apply` payload, as the surface sent it.
 struct SettingsWrite: Equatable {

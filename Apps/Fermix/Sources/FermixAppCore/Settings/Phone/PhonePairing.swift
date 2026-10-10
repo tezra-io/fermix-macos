@@ -20,12 +20,13 @@ public enum PhoneChannel {
 
 // MARK: - The link
 
-/// The pairing link the daemon hands back once, held only while Scan shows it.
+/// The pairing link the daemon hands back once, between the guards and the
+/// code drawn from it, and kept nowhere after that.
 ///
 /// It carries the one-time secret the phone pairs with, so it is never logged,
 /// never written to disk, never put on the pasteboard, never drawn as text and
 /// never an accessibility value (M60 §3.5). Its descriptions say so rather than
-/// spelling it: a step printed into a log line or a test failure prints this
+/// spelling it: a value printed into a log line or a test failure prints this
 /// type's name and nothing of the link.
 public struct PairingLink: Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     /// The bytes the code is drawn from, as the daemon sent them.
@@ -141,9 +142,12 @@ public struct PhoneTurnOn: Equatable, Sendable {
 }
 
 /// Scan: the code, and the daemon's own clock for it.
+///
+/// The code is drawn from the link once, as the window opens, and the link is
+/// not kept: the code is all Scan shows, and it leaves memory with the step.
 public struct PhoneScan: Equatable, Sendable {
     public let session: String
-    public let link: PairingLink
+    public let code: PairingCode
     /// The daemon's `ttl_ms`, as the last answer gave it.
     public let ttlMs: Int
 }
@@ -248,10 +252,11 @@ public enum PhonePairing {
         case .awaitingScan:
             guard let id = session.sessionId,
                   let link = PairingGuards.link(answer.uri),
+                  let code = PairingCode.make(from: link),
                   let ttl = PairingGuards.ttl(session.ttlMs)
             else { return unreadable(leaving: session) }
 
-            return PhoneTransition(.scan(PhoneScan(session: id, link: link, ttlMs: ttl)))
+            return PhoneTransition(.scan(PhoneScan(session: id, code: code, ttlMs: ttl)))
         case .failed:
             return failed(session)
         case .awaitingDecision, .approved, .denied, .expired, .cancelled, .unrecognized:
@@ -313,7 +318,7 @@ public enum PhonePairing {
         }
         guard let ttl = PairingGuards.ttl(session.ttlMs) else { return unreadable(leaving: session) }
 
-        return PhoneTransition(.scan(PhoneScan(session: id, link: scan.link, ttlMs: ttl)))
+        return PhoneTransition(.scan(PhoneScan(session: id, code: scan.code, ttlMs: ttl)))
     }
 
     private static func comparing(_ session: ManagementPairingSession, id: String) -> PhoneTransition {

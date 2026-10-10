@@ -116,6 +116,22 @@ struct FixtureConfigurationTests {
         #expect(FixtureStart(name: "chat-call-failed") == .failedChatCall)
     }
 
+    /// Every step of the Phone sheet a launch can open on, derived from the
+    /// published steps rather than listed here.
+    @Test("every Phone sheet step can be opened by name, on Channels with the sheet up")
+    func everyPhoneStepHasAStart() {
+        for step in FixturePhoneStart.allCases {
+            let start = FixtureStart(name: "phone/\(step.rawValue)")
+
+            #expect(start == .phone(step))
+            #expect(FixtureLaunch(start: .phone(step)).presentation == .channelsWithPhone(step.intent))
+            #expect(FixtureLaunch(start: .phone(step)).phoneChannel == step.channel)
+            #expect(FixtureHome.forStart(.phone(step)) == .settled)
+        }
+        #expect(FixtureStart(name: "phone/telepathy") == nil)
+        #expect(FixtureLaunch(start: .surface(.home)).phoneChannel == .published)
+    }
+
     /// A name this build does not publish resolves to nothing, so the caller
     /// refuses. Falling back to Home would report a typo as a success.
     @Test("an unpublished name resolves to nothing")
@@ -132,7 +148,7 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 6)
+            + OnboardingStage.allCases.count + 6 + FixturePhoneStart.allCases.count)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -191,11 +207,13 @@ struct FixtureConfigurationTests {
             var restartSheetShown = false
             var browserOpened = false
             var callsBegun = 0
+            var phoneSheet: PhoneSheetIntent?
             FixtureLaunch(start: start).present(
                 with: harness.coordinator,
                 showRestartSheet: { restartSheetShown = true },
                 openBrowser: { browserOpened = true },
-                beginCall: { callsBegun += 1 }
+                beginCall: { callsBegun += 1 },
+                presentPhone: { phoneSheet = $0 }
             )
             // `fermix://setup` asks the daemon where to land before it lands
             // (M34 §3.4), so the window opens on the answer rather than on the
@@ -208,6 +226,11 @@ struct FixtureConfigurationTests {
                 callsBegun == (start == .chatCall || start == .failedChatCall ? 1 : 0),
                 "\(name) began \(callsBegun) calls"
             )
+            if case .phone(let step) = start {
+                #expect(phoneSheet == step.intent, "\(name) did not put the Phone sheet up")
+            } else {
+                #expect(phoneSheet == nil, "\(name) put the Phone sheet up")
+            }
         }
     }
 
@@ -252,6 +275,10 @@ struct FixtureConfigurationTests {
         case .emptyChat, .browser, .chatCall, .failedChatCall:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.route == .chat)
+        case .phone:
+            #expect(harness.windows.presented == [.main])
+            #expect(harness.settings.selectedPane == .channels)
+            #expect(harness.presentation.isShowing)
         }
     }
 
@@ -659,8 +686,11 @@ struct FixtureConfigurationTests {
 
         // Every channel the Channels pane draws, one answering and the rest
         // offered: the list is the daemon's, and a home carrying one channel
-        // could never render the list at all.
-        #expect(state.channels.count == 6)
+        // could never render the list at all. The seventh is the phone, which
+        // PROTOCOL.md publishes after the inventory channels and the golden
+        // predates.
+        #expect(state.channels.count == 7)
+        #expect(state.channels.last?.name == PhoneChannel.name)
         #expect(state.channels.contains { $0.enabled && $0.configured })
         #expect(state.channels.contains { !$0.configured })
 
@@ -728,7 +758,11 @@ struct FixtureConfigurationTests {
     /// defects on Connect your AI shipped without anyone seeing them.
     @Test("the fresh home has nothing set up")
     func theFreshHomeHasNothingSetUp() async throws {
-        let client = try await Self.negotiatedClient(readiness: .fresh)
+        let launch = FixtureLaunch(start: .assistant(.welcome))
+        let client = try await Self.negotiatedClient(
+            readiness: .fresh,
+            machine: FixtureMachine(daemonUp: true, phone: launch.phoneChannel)
+        )
         let state = try await client.setupState()
         let overview = try await client.overview()
 
@@ -736,8 +770,11 @@ struct FixtureConfigurationTests {
         #expect(!state.providers.isEmpty, "the list is still the daemon's own")
         #expect(!state.providers.contains { $0.configured })
         #expect(!state.providers.contains { $0.primary })
-        #expect(state.channels.count == 6)
-        #expect(!state.channels.contains { $0.enabled || $0.configured })
+        #expect(state.channels.count == 7)
+        #expect(!state.channels.contains { $0.enabled })
+        // The phone channel has no credential, so the daemon reports it
+        // configured from the first boot (PROTOCOL.md).
+        #expect(state.channels.filter(\.configured).map(\.name) == [PhoneChannel.name])
         // Seeded before any screen: the name, the time zone and a default style.
         #expect(state.personalization.present.userName)
         #expect(state.personalization.present.timezone)
@@ -753,12 +790,12 @@ struct FixtureConfigurationTests {
         #expect(overview.health.providers.isEmpty)
     }
 
-    private static func negotiatedClient(readiness: FixtureReadiness) async throws -> ManagementClient {
+    private static func negotiatedClient(
+        readiness: FixtureReadiness = .gatingFailure,
+        machine: FixtureMachine = FixtureMachine(daemonUp: true)
+    ) async throws -> ManagementClient {
         let client = ManagementClient(
-            transport: try FixtureManagementTransport(
-                machine: FixtureMachine(daemonUp: true),
-                readiness: readiness
-            ),
+            transport: try FixtureManagementTransport(machine: machine, readiness: readiness),
             contract: try ManagementContract.vendored()
         )
         _ = try await client.hello()
@@ -795,6 +832,53 @@ struct FixtureConfigurationTests {
         // Mixed on purpose: a ledger where every right agrees never shows the
         // row that asks for one.
         #expect(permissions.screenCapture != permissions.inputControl)
+    }
+
+    // MARK: - The phone channel
+
+    /// Each Phone step is read from its own moment of the one golden window,
+    /// and the status names that moment.
+    @Test("the phone channel answers from the moment its machine declares")
+    func phoneMoments() async throws {
+        let moments: [(FixturePhoneStart, ManagementPairingState)] = [
+            (.scan, .awaitingScan), (.compare, .awaitingDecision), (.paired, .approved), (.ended, .expired)
+        ]
+
+        for (step, state) in moments {
+            let client = try await Self.negotiatedClient(machine: FixtureMachine(daemonUp: true, phone: step.channel))
+            let status = try await client.mobileStatus()
+            let read = try await client.pairingSession(id: PhonePairingTests.session)
+            let started = try await client.startPairing()
+
+            #expect(status.started, "\(step)")
+            #expect(status.pairing?.state == state, "\(step)")
+            #expect(read.state == state, "\(step)")
+            #expect(started.session.state == .awaitingScan, "\(step) opened no window")
+            #expect(started.uri != nil)
+        }
+    }
+
+    /// A channel that is not running pairs nobody, has no window, and refuses
+    /// a start with the daemon's own sentence.
+    @Test("a phone channel that is not running answers as one")
+    func phoneChannelOff() async throws {
+        let off = FixturePhoneChannel(switchedOn: false, running: false, moment: "awaiting_scan")
+        let client = try await Self.negotiatedClient(machine: FixtureMachine(daemonUp: true, phone: off))
+
+        let status = try await client.mobileStatus()
+        #expect(!status.enabled)
+        #expect(!status.started)
+        #expect(status.pairedDevices == 0)
+        #expect(status.pairing == nil)
+
+        let started = try await client.startPairing()
+        #expect(started.session.state == .failed)
+        #expect(started.session.failure?.sentence == "The mobile channel is turned off.")
+
+        let state = try await client.setupState()
+        let phone = try #require(state.channels.first { $0.name == PhoneChannel.name })
+        #expect(!phone.enabled)
+        #expect(phone.configured)
     }
 
     // MARK: - The machine a transaction moves

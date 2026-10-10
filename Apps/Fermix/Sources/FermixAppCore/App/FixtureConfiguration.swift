@@ -53,9 +53,14 @@ enum FixtureStart: Equatable {
     /// Chat with a voice call begun on launch, which the scripted daemon ends
     /// at its cost ceiling.
     case failedChatCall
+    /// Settings, Channels, with the Phone sheet up on one of its steps. The
+    /// sheet is presented from the phone model's own flag, which is the flag
+    /// the row's button and the last setup screen set.
+    case phone(FixturePhoneStart)
 
     static let settingsPrefix = "settings/"
     static let assistantPrefix = "assistant/"
+    static let phonePrefix = "phone/"
     static let restartSheetName = "restart-sheet"
     static let approvalStepName = "assistant/approval"
     static let emptyChatName = "chat-empty"
@@ -85,6 +90,9 @@ enum FixtureStart: Equatable {
         } else if let stage = name.dropping(prefix: Self.assistantPrefix) {
             guard let screen = OnboardingStage(rawValue: stage) else { return nil }
             self = .assistant(screen)
+        } else if let step = name.dropping(prefix: Self.phonePrefix) {
+            guard let start = FixturePhoneStart(rawValue: step) else { return nil }
+            self = .phone(start)
         } else {
             guard let route = AppRoute(rawValue: name) else { return nil }
             self = .surface(route)
@@ -97,7 +105,55 @@ enum FixtureStart: Equatable {
             + SettingsPane.allCases.map { settingsPrefix + $0.slug }
             + OnboardingStage.allCases.map { assistantPrefix + $0.rawValue }
             + [restartSheetName, approvalStepName, emptyChatName, browserName, chatCallName, failedChatCallName]
+            + FixturePhoneStart.allCases.map { phonePrefix + $0.rawValue }
     }
+}
+
+/// The Phone sheet's steps a fixture launch opens on (M60).
+///
+/// Each one is a phone channel on the fixture machine, never a step set on the
+/// sheet: the sheet opens the way the row's button opens it, and the daemon's
+/// golden answers walk it to the step. A window waiting for a scan stays on
+/// Scan; every other moment is read a second after the window opens.
+enum FixturePhoneStart: String, CaseIterable {
+    case scan
+    case compare
+    case paired
+    case ended
+
+    /// What the sheet is opened for.
+    var intent: PhoneSheetIntent { .pair }
+
+    /// The channel the machine has: running, with the window in the moment the
+    /// step is read from.
+    var channel: FixturePhoneChannel {
+        switch self {
+        case .scan: return FixturePhoneChannel(switchedOn: true, running: true, moment: "awaiting_scan")
+        case .compare: return FixturePhoneChannel(switchedOn: true, running: true, moment: "awaiting_decision")
+        case .paired: return FixturePhoneChannel(switchedOn: true, running: true, moment: "approved")
+        case .ended: return FixturePhoneChannel(switchedOn: true, running: true, moment: "expired")
+        }
+    }
+}
+
+/// The phone channel on the fixture machine (M60): its switch, whether it
+/// runs, and the moment of the pairing window the daemon answers from.
+///
+/// The channel starts only at boot, so the switch moves `running` only through
+/// a restart, exactly as the daemon's does.
+struct FixturePhoneChannel: Equatable {
+    var switchedOn: Bool
+    var running: Bool
+    /// The state `mobile.pair.get` answers in, as the golden published for
+    /// it. Nil is the moment `mobile.status` itself publishes.
+    let moment: String?
+
+    /// The goldens as published: a running channel, read in the moment its
+    /// status names.
+    static let published = FixturePhoneChannel(switchedOn: true, running: true, moment: nil)
+
+    /// A channel nobody has turned on.
+    static let switchedOff = FixturePhoneChannel(switchedOn: false, running: false, moment: nil)
 }
 
 /// What the Mac under the app looks like.
@@ -178,6 +234,8 @@ enum FixturePresentation: Equatable {
     case chatWithBrowser
     /// Chat, with a voice call begun.
     case chatWithCall
+    /// Settings, Channels, with the Phone sheet up for what it was asked.
+    case channelsWithPhone(PhoneSheetIntent)
 }
 
 /// One fixture launch: where it lands, and the machine it lands on.
@@ -206,7 +264,17 @@ struct FixtureLaunch {
         case .emptyChat: return .route(.chat)
         case .browser: return .chatWithBrowser
         case .chatCall, .failedChatCall: return .chatWithCall
+        case .phone(let step): return .channelsWithPhone(step.intent)
         }
+    }
+
+    /// The phone channel the machine has: the Phone sheet's own for its
+    /// steps, switched off on a first run, where nothing is on yet, and the
+    /// goldens as published everywhere else.
+    var phoneChannel: FixturePhoneChannel {
+        if case .phone(let step) = start { return step.channel }
+
+        return home == .fresh ? .switchedOff : .published
     }
 
     /// The timeline the chat holds. Every start but the empty one gets the
@@ -235,6 +303,7 @@ struct FixtureLaunch {
         case .browser: return FixtureStart.browserName
         case .chatCall: return FixtureStart.chatCallName
         case .failedChatCall: return FixtureStart.failedChatCallName
+        case .phone(let step): return "phone-\(step.rawValue)"
         }
     }
 }
@@ -304,17 +373,20 @@ final class FixtureMachine: @unchecked Sendable {
     private var registered: Set<LoginItemPrincipal> = [.agent]
     private var running: Bool
     private var pid = FixtureMachine.firstPid
+    private var phone: FixturePhoneChannel
 
-    init(daemonUp: Bool, agentHeldForApproval: Bool = false) {
+    init(daemonUp: Bool, agentHeldForApproval: Bool = false, phone: FixturePhoneChannel = .published) {
         launchdStartsTheDaemon = daemonUp
         running = daemonUp
         self.agentHeldForApproval = agentHeldForApproval
+        self.phone = phone
         // A first install: nothing is registered until setup asks.
         if agentHeldForApproval { registered = [] }
     }
 
     var currentPid: Int32 { withLock { pid } }
     var daemonRunning: Bool { withLock { running } }
+    var phoneChannel: FixturePhoneChannel { withLock { phone } }
 
     func isRegistered(_ principal: LoginItemPrincipal) -> Bool {
         withLock { registered.contains(principal) }
@@ -367,12 +439,14 @@ final class FixtureMachine: @unchecked Sendable {
         if on { start() } else { running = false }
     }
 
-    /// launchd loading the job, which is what changes the pid.
+    /// launchd loading the job, which is what changes the pid. The phone
+    /// channel starts at boot, as whatever its switch says.
     private func start() {
         guard launchdStartsTheDaemon else { return }
 
         pid += 1
         running = true
+        phone.running = phone.switchedOn
     }
 
     private func withLock<Answer>(_ body: () -> Answer) -> Answer {
@@ -493,7 +567,8 @@ extension AppEnvironment {
         // transport commits is the same one the probes report on.
         let machine = FixtureMachine(
             daemonUp: launch.home != .daemonStarting && launch.home != .awaitingApproval,
-            agentHeldForApproval: launch.home == .awaitingApproval
+            agentHeldForApproval: launch.home == .awaitingApproval,
+            phone: launch.phoneChannel
         )
         let transport = try FixtureManagementTransport(
             machine: machine,
@@ -583,7 +658,8 @@ extension AppComposition {
             with: coordinator,
             showRestartSheet: { [coordinator] in coordinator.askForRestart() },
             openBrowser: { [browser] in FixtureWebPage.openTabs(in: browser) },
-            beginCall: { [voice] in voice.toggleCall() }
+            beginCall: { [voice] in voice.toggleCall() },
+            presentPhone: { [settings] intent in settings.phone.present(intent) }
         )
     }
 }
@@ -595,13 +671,15 @@ extension FixtureLaunch {
     /// the Daemon menu and the status item ask through, so it arrives as a
     /// closure rather than a second owner of it. The browser pane is the
     /// browser coordinator's, and the call is the voice coordinator's, the one
-    /// the Pet page's button asks; both arrive the same way.
+    /// the Pet page's button asks; both arrive the same way. The Phone sheet
+    /// is the phone model's, the one the Channels row asks.
     @MainActor
     func present(
         with coordinator: AppCoordinator,
         showRestartSheet: () -> Void,
         openBrowser: () -> Void,
-        beginCall: () -> Void
+        beginCall: () -> Void,
+        presentPhone: (PhoneSheetIntent) -> Void
     ) {
         switch presentation {
         case .assistant(let stage):
@@ -619,6 +697,9 @@ extension FixtureLaunch {
         case .chatWithCall:
             coordinator.open(.chat)
             beginCall()
+        case .channelsWithPhone(let intent):
+            coordinator.open(.settings(.channels))
+            presentPhone(intent)
         }
     }
 }

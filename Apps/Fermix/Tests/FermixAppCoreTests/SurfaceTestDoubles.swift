@@ -130,6 +130,25 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// one still running: the goldens publish both already completed.
     var imessageJobStarted: ManagementJob?
 
+    /// The phone channel, where a case needs answers the goldens do not give:
+    /// another moment of the channel, of the start, or of the window.
+    var mobileStatusResult: ManagementMobileStatus?
+    var mobileDevicesResult: ManagementMobileDevices?
+    var pairingStartResult: ManagementPairingStart?
+    /// Holds `mobile.pair.start` open, so a case can close the sheet while the
+    /// window is opening.
+    var pairingStartGate: (@Sendable () async -> Void)?
+    /// The window's reads, consumed in order. Empty means the golden that
+    /// waits for a decision; an exhausted script keeps answering with the last.
+    var pairingSessionScript: [ManagementPairingSession] = []
+    var pairingSessionIndex = 0
+    var pairingDecisionResult: ManagementPairingSession?
+    /// What the surfaces asked of the phone channel, in order.
+    var pairingReads: [String] = []
+    var pairingDecisions: [PairingDecision] = []
+    var cancelledPairings: [String] = []
+    var revokedDevices: [String] = []
+
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take
     /// effect on the next call, which is more forgiving than the socket: the

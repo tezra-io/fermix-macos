@@ -1,3 +1,4 @@
+import CoreImage
 import Foundation
 import Testing
 
@@ -52,7 +53,7 @@ struct PhonePairingTests {
         }
         #expect(scan.session == Self.session)
         #expect(scan.ttlMs == 120_000)
-        #expect(scan.link.utf8 == Data(try #require(started.uri).utf8))
+        #expect(scan.code == (try Self.code(started.uri)))
         #expect(transition.abandons == nil)
     }
 
@@ -75,7 +76,7 @@ struct PhonePairingTests {
             return
         }
         #expect(next.ttlMs == 112_000)
-        #expect(next.link == first.link, "the link survives every read, since no read repeats it")
+        #expect(next.code == first.code, "the code survives every read, since no read repeats the link")
 
         let compare = PhonePairing.reduce(scan, .session(try PairingGolden.session("mobile_pair_get_awaiting_decision")))
         #expect(compare.step == .compare(PhoneCompare(
@@ -339,17 +340,75 @@ struct PhonePairingTests {
 
     // MARK: - The secret
 
-    @Test("the link never reaches a description, a reflection or a dump")
+    /// The code is the link in another form, so it is withheld exactly as the
+    /// link is: a step printed into a log line prints neither.
+    @Test("neither the link nor its code reaches a description, a reflection or a dump")
     func linkIsWithheld() throws {
         let step = try scanning()
+        let link = try #require(PairingGuards.link(try PairingGolden.start("mobile_pair_start").uri))
         let secret = "EXAMPLE-ONE-USE-SECRET"
-        var dumped = ""
-        dump(step, to: &dumped)
 
-        for written in [String(describing: step), String(reflecting: step), dumped, "\(step)"] {
-            #expect(!written.contains(secret))
-            #expect(!written.contains("fermix://pair"))
+        for value in [step as Any, link as Any] {
+            var dumped = ""
+            dump(value, to: &dumped)
+
+            for written in [String(describing: value), String(reflecting: value), dumped] {
+                #expect(!written.contains(secret))
+                #expect(!written.contains("fermix://pair"))
+                #expect(!written.contains("true"), "a module reached a description")
+            }
         }
+    }
+
+    // MARK: - The code
+
+    /// A link at the 2048-byte ceiling is the densest code a window can ask
+    /// for. It is drawn, it reads back as the link, and its card fits the
+    /// sheet at two points a module.
+    @Test("a link at the 2048-byte ceiling produces a code that reads back and fits the sheet")
+    func ceilingLinkProducesACode() throws {
+        let filler = String(repeating: "a", count: PairingGuards.maxLinkBytes - PairingGuards.linkPrefix.utf8.count)
+        let text = PairingGuards.linkPrefix + filler
+        let code = try Self.code(text)
+
+        // A dense code: version 37 or above, 165 modules a side or more.
+        #expect(code.count >= 165)
+        #expect(PairingCodeLayout.modulePoints(for: code) == PairingCodeLayout.minimumModulePoints)
+        #expect(PairingCodeLayout.side(of: code) <= PairingCodeLayout.maximumSide)
+        #expect(try PairingCodeReader.read(code) == text)
+    }
+
+    @Test("the golden link's code reads back as the link, the right way up")
+    func goldenLinkReadsBack() throws {
+        let uri = try #require(try PairingGolden.start("mobile_pair_start").uri)
+        let code = try Self.code(uri)
+
+        #expect(try PairingCodeReader.read(code) == uri)
+        // The three finder patterns sit top left, top right and bottom left,
+        // which is what a code that is not mirrored looks like.
+        #expect(PairingCodeReader.hasFinder(code, row: 0, column: 0))
+        #expect(PairingCodeReader.hasFinder(code, row: 0, column: code.count - 7))
+        #expect(PairingCodeReader.hasFinder(code, row: code.count - 7, column: 0))
+        #expect(!PairingCodeReader.hasFinder(code, row: code.count - 7, column: code.count - 7))
+    }
+
+    /// Whole points per module and never fewer than two, and a card that grows
+    /// with the code once two points a module is what it takes.
+    @Test("the card scales by whole points and grows with the code up to the sheet's width")
+    func cardLayout() throws {
+        let short = try Self.code("fermix://pair?v=1")
+        let golden = try Self.code(try PairingGolden.start("mobile_pair_start").uri)
+        let ceiling = try Self.code(PairingGuards.linkPrefix + String(repeating: "b", count: 2034))
+
+        for code in [short, golden, ceiling] {
+            let points = PairingCodeLayout.modulePoints(for: code)
+
+            #expect(points >= 2)
+            #expect(PairingCodeLayout.side(of: code) == (code.count + 8) * points)
+            #expect(PairingCodeLayout.side(of: code) <= PairingCodeLayout.maximumSide)
+        }
+        #expect(PairingCodeLayout.side(of: golden) < PairingCodeLayout.side(of: ceiling))
+        #expect(PairingCodeLayout.maximumSide == 412)
     }
 
     // MARK: - The row
@@ -485,6 +544,13 @@ struct PhonePairingTests {
         PhoneEnding(sentence: ProductStrings[.phoneEndedUnreadable], action: .pairAgain)
     )
 
+    /// The code a link that passes the guards draws.
+    static func code(_ text: String?) throws -> PairingCode {
+        let link = try #require(PairingGuards.link(text))
+
+        return try #require(PairingCode.make(from: link))
+    }
+
     private func scanning() throws -> PhoneSheetStep {
         PhonePairing.reduce(.waiting(session: nil), .started(try PairingGolden.start("mobile_pair_start"))).step
     }
@@ -497,6 +563,52 @@ struct PhonePairingTests {
         var listener = status["listener"] as? [String: Any] ?? [:]
         listener["status"] = value
         status["listener"] = listener
+    }
+}
+
+/// Reads a drawn code back with Core Image's own detector, which is what
+/// proves the modules are a code a scanner reads as the link.
+enum PairingCodeReader {
+    static func read(_ code: PairingCode) throws -> String? {
+        let scale = 4
+        let span = code.count + 8
+        let side = span * scale
+        var bytes = [UInt8](repeating: 255, count: side * side)
+        for (row, modules) in code.modules.enumerated() {
+            for (column, dark) in modules.enumerated() where dark {
+                for y in 0..<scale {
+                    for x in 0..<scale {
+                        bytes[((row + 4) * scale + y) * side + (column + 4) * scale + x] = 0
+                    }
+                }
+            }
+        }
+        let provider = try #require(CGDataProvider(data: Data(bytes) as CFData))
+        let image = try #require(CGImage(
+            width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: side,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: 0),
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent
+        ))
+        let detector = try #require(CIDetector(
+            ofType: CIDetectorTypeQRCode,
+            context: nil,
+            options: [CIDetectorAccuracy: CIDetectorAccuracyHigh]
+        ))
+
+        return detector.features(in: CIImage(cgImage: image))
+            .compactMap { ($0 as? CIQRCodeFeature)?.messageString }
+            .first
+    }
+
+    /// Whether a seven-module finder pattern starts at this corner: a dark
+    /// ring around a light ring around a dark three by three square.
+    static func hasFinder(_ code: PairingCode, row: Int, column: Int) -> Bool {
+        (0..<7).allSatisfy { y in
+            (0..<7).allSatisfy { x in
+                let ring = min(x, y, 6 - x, 6 - y)
+                return code.modules[row + y][column + x] == (ring != 1)
+            }
+        }
     }
 }
 

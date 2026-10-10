@@ -52,7 +52,7 @@ struct FixtureManagementTransport: ManagementTransport {
     init(machine: FixtureMachine, readiness: FixtureReadiness) throws {
         self.machine = machine
         self.readiness = readiness
-        records = try Self.loadRecords()
+        records = try Self.loadRecords(phoneMoment: machine.phoneChannel.moment)
     }
 
     func exchange(_ payload: Data, timeout: Duration) async throws -> Data {
@@ -64,7 +64,7 @@ struct FixtureManagementTransport: ManagementTransport {
         else {
             throw Defect.requestIsIncomplete
         }
-        guard let published = records[method] else {
+        guard let published = candidates(for: method) else {
             throw Defect.methodHasNoAnswer(method)
         }
 
@@ -83,6 +83,18 @@ struct FixtureManagementTransport: ManagementTransport {
         return try Self.envelope(requestId: identifier, result: answered)
     }
 
+    /// The records a request is answered from.
+    ///
+    /// `mobile.pair.start` publishes the window opened and the refusal with the
+    /// channel off, for the same request: a running phone channel answers the
+    /// first, and a channel that is not running the second.
+    private func candidates(for method: String) -> [Record]? {
+        guard method == ManagementMethod.mobilePairStart.rawValue else { return records[method] }
+
+        let running = machine.phoneChannel.running
+        return records[method]?.filter { ($0.moment?.sessionId != nil) == running }
+    }
+
     /// The golden answer, with this home's own two facts written into it.
     ///
     /// The pid is a fact about the process that replied rather than a shape the
@@ -94,12 +106,19 @@ struct FixtureManagementTransport: ManagementTransport {
         case ManagementMethod.hello.rawValue:
             return try helloWithLivePid(result)
         case ManagementMethod.setupStateGet.rawValue:
-            return try reshape(result, method: method, with: readiness.setupState)
+            return try reshape(result, method: method) { phone.withChannel(readiness.setupState($0)) }
         case ManagementMethod.overviewGet.rawValue:
             return try reshape(result, method: method) { readiness.overview($0, setupState: setupState) }
+        case ManagementMethod.mobileStatus.rawValue:
+            return try reshape(result, method: method, with: phone.status)
         default:
             return result
         }
+    }
+
+    /// The machine's phone channel, as the answers that speak of it read it.
+    private var phone: FixturePhoneAnswers {
+        FixturePhoneAnswers(channel: machine.phoneChannel)
     }
 
     private func helloWithLivePid(_ result: Data) throws -> Data {
@@ -141,7 +160,7 @@ struct FixtureManagementTransport: ManagementTransport {
     // MARK: - Loading
 
     /// Every published success answer, grouped by wire method name.
-    private static func loadRecords() throws -> [String: [Record]] {
+    private static func loadRecords(phoneMoment: String?) throws -> [String: [Record]] {
         let data = try VendoredContracts.data(.management, "fixtures/success.jsonl")
         let lines = String(decoding: data, as: UTF8.self)
             .split(separator: "\n", omittingEmptySubsequences: true)
@@ -152,7 +171,7 @@ struct FixtureManagementTransport: ManagementTransport {
             grouped[record.method, default: []].append(record)
         }
 
-        return atVoiceEngine(atStatusMoment(grouped))
+        return atVoiceEngine(atPhoneMoment(grouped, declared: phoneMoment))
     }
 
     /// The voice engine this daemon runs.
@@ -177,21 +196,23 @@ struct FixtureManagementTransport: ManagementTransport {
 
     /// The moment this daemon answers from.
     ///
-    /// `mobile.pair.get` publishes one golden per session state and
-    /// `mobile.pair.start` two (the window opened, and the refusal with the
-    /// channel off), every one for the same request, so no selector tells them
-    /// apart: they are moments of one session, not answers to different
-    /// questions. A daemon answers from one moment, and `mobile.status` names
-    /// it under `pairing`: the session, in the state it is in. The start that
-    /// opened that session and the read that shows it in that state are this
-    /// machine's answers; the other records are other moments. A status that
-    /// names no session leaves the records as published, and `resolve` says so.
-    private static func atStatusMoment(_ grouped: [String: [Record]]) -> [String: [Record]] {
-        guard let moment = grouped[ManagementMethod.mobileStatus.rawValue]?.first?.moment else { return grouped }
+    /// `mobile.pair.get` publishes one golden per session state, every one for
+    /// the same request, so no selector tells them apart: they are moments of
+    /// one session, not answers to different questions. A daemon answers from
+    /// one moment, and `mobile.status` names it under `pairing`: the session,
+    /// in the state it is in. The read that shows that session in that state
+    /// is this machine's answer; the other records are other moments. A
+    /// machine may declare its own moment of the same session, which is how
+    /// the Phone sheet is looked at on each of its steps. A status that names
+    /// no session leaves the records as published, and `resolve` says so.
+    ///
+    /// `mobile.pair.start`'s two records are kept: which one answers is
+    /// whether the channel runs, which a restart changes (`candidates`).
+    private static func atPhoneMoment(_ grouped: [String: [Record]], declared: String?) -> [String: [Record]] {
+        guard let published = grouped[ManagementMethod.mobileStatus.rawValue]?.first?.moment else { return grouped }
 
+        let moment = PairingMoment(sessionId: published.sessionId, state: declared ?? published.state)
         var records = grouped
-        records[ManagementMethod.mobilePairStart.rawValue] = grouped[ManagementMethod.mobilePairStart.rawValue]?
-            .filter { $0.moment?.sessionId == moment.sessionId }
         records[ManagementMethod.mobilePairGet.rawValue] = grouped[ManagementMethod.mobilePairGet.rawValue]?
             .filter { $0.moment == moment }
 
@@ -377,6 +398,54 @@ struct FixtureManagementTransport: ManagementTransport {
         payload.append(Data("}".utf8))
 
         return payload
+    }
+}
+
+/// The answers that speak of the phone channel, over the contract's own
+/// goldens (M60).
+///
+/// The goldens are a running channel with one phone paired and a window
+/// waiting for a decision. The machine's channel may be switched off, waiting
+/// for the restart its switch asks for, or in another moment of that window,
+/// and these say so in the fields that report it, leaving every other byte
+/// the contract's.
+struct FixturePhoneAnswers {
+    let channel: FixturePhoneChannel
+
+    /// `mobile.status`: the switch, whether the channel runs, and the window,
+    /// in the moment the machine is in. A channel that is not running pairs
+    /// nobody and has no window.
+    func status(_ golden: [String: Any]) -> [String: Any] {
+        var status = golden
+        status["enabled"] = channel.switchedOn
+        status["started"] = channel.running
+        if !channel.running {
+            status["paired_devices"] = 0
+            status["pairing"] = NSNull()
+        } else if let moment = channel.moment, var pairing = golden["pairing"] as? [String: Any] {
+            pairing["state"] = moment
+            status["pairing"] = pairing
+        }
+
+        return status
+    }
+
+    /// `setup.state.get` with the phone channel's row after the inventory
+    /// channels, as PROTOCOL.md publishes it and the golden predates: always
+    /// configured, `ok` and `listener` while it is on, nothing while it is off.
+    func withChannel(_ state: [String: Any]) -> [String: Any] {
+        let on = channel.switchedOn
+        let row: [String: Any] = [
+            "name": PhoneChannel.name,
+            "enabled": on,
+            "configured": true,
+            "status": on ? "ok" : NSNull(),
+            "mode": on ? "listener" : NSNull()
+        ]
+        var reshaped = state
+        reshaped["channels"] = (state["channels"] as? [[String: Any]] ?? []) + [row]
+
+        return reshaped
     }
 }
 

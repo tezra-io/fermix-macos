@@ -17,8 +17,10 @@ public struct ChannelRowModel: Identifiable, Equatable, Sendable {
     public let statusPane: SettingsPane?
     public let enabled: Bool
     public let configured: Bool
-    /// Whether the row can be set up and switched on. The phone channel is not,
-    /// until the phone app ships: its row says so and offers no controls.
+    /// The row's one button: the way into its credentials, or for the phone
+    /// the way into pairing or its phones (M60 §3.2).
+    public let actionTitle: String
+    /// Whether the row can be set up and switched on.
     public let available: Bool
 
     public var id: String { name }
@@ -58,33 +60,55 @@ public enum ChannelRowProjection {
     public static func rows(
         _ channels: [ManagementSetupChannel],
         titledBy sections: [ManagementSettingsSection],
-        imessage: IMessageChannelFacts
+        imessage: IMessageChannelFacts,
+        phone: PhoneRow
     ) -> [ChannelRowModel] {
-        let titles = Dictionary(
-            sections.compactMap { section in section.channelName.map { ($0, section.title) } },
-            uniquingKeysWith: { first, _ in first }
-        )
-
-        return channels.map { channel in
+        channels.map { channel in
             ChannelRowModel(
                 name: channel.name,
-                title: titles[channel.name] ?? channel.name,
-                status: status(of: channel, imessage: imessage),
+                title: title(of: channel.name, titledBy: sections),
+                status: status(of: channel, imessage: imessage, phone: phone),
                 statusPane: statusPane(of: channel, imessage: imessage),
                 enabled: channel.enabled,
                 configured: channel.configured,
+                actionTitle: actionTitle(of: channel, phone: phone),
                 available: !unavailable.contains(channel.name)
             )
         }
     }
 
-    /// A switched-on iMessage row reads the helper's probe and nothing else
-    /// (M54 §10.1); every other row, and iMessage switched off, reads the
-    /// snapshot's own two facts.
+    /// A channel's title from the daemon's own section index, or its wire
+    /// identifier where the index has no section for it.
+    static func title(of channel: String, titledBy sections: [ManagementSettingsSection]) -> String {
+        sections.first { $0.channelName == channel }?.title ?? channel
+    }
+
+    /// The phone row reads the phone channel's own two reads, whatever its
+    /// switch says (M60 §3.2); a switched-on iMessage row reads the helper's
+    /// probe and nothing else (M54 §10.1); every other row, and iMessage
+    /// switched off, reads the snapshot's own two facts.
+    static func status(
+        of channel: ManagementSetupChannel,
+        imessage: IMessageChannelFacts,
+        phone: PhoneRow
+    ) -> String {
+        guard channel.name != PhoneChannel.name else { return phone.status }
+
+        return status(of: channel, imessage: imessage)
+    }
+
     static func status(of channel: ManagementSetupChannel, imessage: IMessageChannelFacts) -> String {
         guard channel.name == IMessageChannelStatus.channel, channel.enabled else { return status(of: channel) }
 
         return IMessageChannelStatus.status(imessage.probe, refusal: imessage.refusal)
+    }
+
+    /// The phone row's button pairs a phone or opens the phones; every other
+    /// row's sets the channel up or changes it.
+    static func actionTitle(of channel: ManagementSetupChannel, phone: PhoneRow) -> String {
+        guard channel.name != PhoneChannel.name else { return phone.actionTitle }
+
+        return channel.configured ? ProductStrings[.channelManage] : ProductStrings[.channelSetUp]
     }
 
     /// Only a switched-on iMessage row points anywhere: at Permissions, while
@@ -229,6 +253,8 @@ struct ChannelsPane: View {
     @ObservedObject var model: SettingsModel
     /// The one ledger, whose iMessage probe is the iMessage row's status.
     @ObservedObject var permissions: PermissionLedger
+    /// The phone channel's reads and its one sheet (M60).
+    @ObservedObject var phone: PhonePairingModel
     /// The Fermix Messages install the iMessage switch runs before its write.
     /// Owned here rather than by the row, so it outlives the row scrolling out
     /// of view.
@@ -238,6 +264,7 @@ struct ChannelsPane: View {
     init(model: SettingsModel) {
         self.model = model
         self.permissions = model.permissions
+        self.phone = model.phone
         _imessageInstall = StateObject(wrappedValue: model.makeJobRunner())
     }
 
@@ -253,10 +280,27 @@ struct ChannelsPane: View {
         .sheet(item: $editing) { row in
             ChannelSheet(row: row, model: model) { editing = nil }
         }
+        // The one Phone sheet, in place of the generic channel sheet. It is up
+        // for as long as the model says, which is what lets the last setup
+        // screen open Channels with it showing.
+        .sheet(isPresented: $phone.isPresented) {
+            PhoneSheet(
+                model: phone,
+                settings: model,
+                title: ChannelRowProjection.title(of: PhoneChannel.name, titledBy: model.sections(for: .channels))
+            )
+        }
         // The probe never prompts. It is read once the daemon has said the
         // channel exists, and again on every return to the app, which is when
         // a person comes back from System Settings.
         .task(id: model.publishesIMessage) { await model.refreshIMessagePermissions() }
+        // The phone row is read when the pane appears and again when its
+        // switch moves, which is when its status does.
+        .task(id: phoneSwitch) {
+            guard phoneSwitch != nil else { return }
+
+            await phone.readRow()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await model.refreshIMessagePermissions() }
         }
@@ -266,8 +310,14 @@ struct ChannelsPane: View {
         ChannelRowProjection.rows(
             model.setupState.value?.channels ?? [],
             titledBy: model.sections(for: .channels),
-            imessage: IMessageChannelFacts(probe: permissions.imessage, refusal: permissions.imessageRefusal)
+            imessage: IMessageChannelFacts(probe: permissions.imessage, refusal: permissions.imessageRefusal),
+            phone: phone.row
         )
+    }
+
+    /// The phone channel's switch, where the daemon lists the channel at all.
+    private var phoneSwitch: Bool? {
+        model.setupState.value?.channels.first { $0.name == PhoneChannel.name }?.enabled
     }
 
     /// Sections of this pane that are not one channel's credentials, which the
@@ -280,9 +330,21 @@ struct ChannelsPane: View {
     private var channels: some View {
         Section(ProductStrings[.settingsChannelsSection]) {
             ForEach(rows) { row in
-                ChannelRow(row: row, model: model, install: imessageInstall) { editing = row }
+                ChannelRow(row: row, model: model, install: imessageInstall) { open(row) }
             }
         }
+    }
+
+    /// A row's button. The phone row pairs a phone; while its phones have no
+    /// page of their own it changes the channel's connection rows, as every
+    /// other row does.
+    private func open(_ row: ChannelRowModel) {
+        guard row.name == PhoneChannel.name, phone.row.opens == .pair else {
+            editing = row
+            return
+        }
+
+        phone.present(.pair)
     }
 }
 
@@ -346,8 +408,8 @@ struct ChannelRow: View {
                 }
 
                 if row.available {
-                    Button(row.configured ? ProductStrings[.channelManage] : ProductStrings[.channelSetUp], action: edit)
-                        .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.channelSetUp], row.title))
+                    Button(row.actionTitle, action: edit)
+                        .accessibilityLabel(ProductStrings.commaPair(row.actionTitle, row.title))
                 }
 
                 // Stated, not inherited: a `Toggle` nested inside a row's
