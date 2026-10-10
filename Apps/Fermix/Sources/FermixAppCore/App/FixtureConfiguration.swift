@@ -118,7 +118,8 @@ enum FixtureStart: Equatable {
 /// Turn on steps are a channel that is not running: switched off, or switched
 /// on and waiting for the restart its switch asks for. Taking Turn on runs the
 /// app's own restart transaction against the fixture machine, which starts the
-/// channel as its switch says, and the window then waits for a scan.
+/// channel as its switch says, and the window then waits for a scan. Phones is
+/// the golden's one paired phone, which the row's Change… opens.
 enum FixturePhoneStart: String, CaseIterable {
     case turnOn = "turn-on"
     case restart
@@ -126,9 +127,10 @@ enum FixturePhoneStart: String, CaseIterable {
     case compare
     case paired
     case ended
+    case phones
 
     /// What the sheet is opened for.
-    var intent: PhoneSheetIntent { .pair }
+    var intent: PhoneSheetIntent { self == .phones ? .phones : .pair }
 
     /// The channel the machine has: running, with the window in the moment the
     /// step is read from.
@@ -140,6 +142,7 @@ enum FixturePhoneStart: String, CaseIterable {
         case .compare: return FixturePhoneChannel(switchedOn: true, running: true, moment: "awaiting_decision")
         case .paired: return FixturePhoneChannel(switchedOn: true, running: true, moment: "approved")
         case .ended: return FixturePhoneChannel(switchedOn: true, running: true, moment: "expired")
+        case .phones: return .published
         }
     }
 }
@@ -155,6 +158,9 @@ struct FixturePhoneChannel: Equatable {
     /// The state `mobile.pair.get` answers in, as the golden published for
     /// it. Nil is the moment `mobile.status` itself publishes.
     let moment: String?
+    /// The paired phones forgotten on this run, which the paired-device list
+    /// no longer carries.
+    var forgotten: Set<String> = []
 
     /// The goldens as published: a running channel, read in the moment its
     /// status names.
@@ -400,6 +406,11 @@ final class FixtureMachine: @unchecked Sendable {
     /// channel only at the next boot.
     func switchPhone(_ on: Bool) {
         withLock { phone.switchedOn = on }
+    }
+
+    /// A paired phone was forgotten, from the file as from a running channel.
+    func forgetPhone(_ device: String) {
+        withLock { _ = phone.forgotten.insert(device) }
     }
 
     func isRegistered(_ principal: LoginItemPrincipal) -> Bool {

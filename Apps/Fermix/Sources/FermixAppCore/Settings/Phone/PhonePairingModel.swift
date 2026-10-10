@@ -20,6 +20,8 @@ public final class PhonePairingModel: ObservableObject {
     @Published public var isPresented = false
     /// A decision on its way to the daemon, which holds both buttons.
     @Published public private(set) var isDeciding = false
+    /// Forget, asked in a phone's own row (decision 9).
+    @Published public private(set) var forgetting = PhoneForgetting()
 
     /// The app's one journaled restart, which Turn on takes.
     ///
@@ -76,8 +78,7 @@ public final class PhonePairingModel: ObservableObject {
         case .pair:
             run { await self.pair() }
         case .phones:
-            step = .phones
-            run { await self.readRow() }
+            showPhones()
         }
     }
 
@@ -92,6 +93,7 @@ public final class PhonePairingModel: ObservableObject {
     public func closed() {
         work?.cancel()
         isDeciding = false
+        forgetting = PhoneForgetting()
 
         let open = step.openSession
         step = .waiting(session: nil)
@@ -106,6 +108,18 @@ public final class PhonePairingModel: ObservableObject {
         guard case .turnOn(let turnOn) = step, turnOn.progress == .idle else { return }
 
         run { await self.switchOnAndRestart(turnOn) }
+    }
+
+    /// The phones, with the phone just paired among them: Done on Paired,
+    /// and what the row's Change… opens.
+    public func showPhones() {
+        step = .phones
+        run { await self.readRow() }
+    }
+
+    /// Pair another phone, from the phones.
+    public func pairAnother() {
+        run { await self.pair() }
     }
 
     public func approve() {
@@ -128,6 +142,35 @@ public final class PhonePairingModel: ObservableObject {
             run {
                 if let session { await self.cancel(session) }
                 await self.open()
+            }
+        }
+    }
+
+    // MARK: - Forgetting a phone
+
+    /// The row asks first: its button becomes Forget this phone and Cancel.
+    public func askToForget(_ device: String) {
+        forgetting.ask(device)
+    }
+
+    public func withdrawForget() {
+        forgetting.withdraw()
+    }
+
+    /// The second press forgets the phone the row asked about. The list is
+    /// read again before the row stops saying so, so a forgotten phone leaves
+    /// the list rather than offering Forget once more; a refusal stays under
+    /// its row in the daemon's words.
+    public func forget() {
+        guard let device = forgetting.confirm() else { return }
+
+        run {
+            do {
+                _ = try await self.gateway.revokeMobileDevice(id: device)
+                await self.readRow()
+                self.forgetting.finished(device, refusal: nil)
+            } catch {
+                self.forgetting.finished(device, refusal: self.refusal(error, "mobile.devices.revoke"))
             }
         }
     }

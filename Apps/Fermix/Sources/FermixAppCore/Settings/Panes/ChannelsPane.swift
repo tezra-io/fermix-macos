@@ -335,16 +335,16 @@ struct ChannelsPane: View {
         }
     }
 
-    /// A row's button. The phone row pairs a phone; while its phones have no
-    /// page of their own it changes the channel's connection rows, as every
-    /// other row does.
+    /// A row's button. The phone row opens the Phone sheet for what its
+    /// button says, pairing a phone or the phones; every other row opens its
+    /// credentials.
     private func open(_ row: ChannelRowModel) {
-        guard row.name == PhoneChannel.name, phone.row.opens == .pair else {
+        guard row.name == PhoneChannel.name else {
             editing = row
             return
         }
 
-        phone.present(.pair)
+        phone.present(phone.row.opens)
     }
 }
 

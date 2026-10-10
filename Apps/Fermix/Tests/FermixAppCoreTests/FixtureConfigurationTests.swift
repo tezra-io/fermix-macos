@@ -907,6 +907,18 @@ struct FixtureConfigurationTests {
         #expect(try await client.startPairing().session.state == .awaitingScan)
     }
 
+    @Test("a forgotten phone leaves the fixture's list and its count")
+    func forgottenPhoneLeaves() async throws {
+        let machine = FixtureMachine(daemonUp: true, phone: FixturePhoneStart.phones.channel)
+        let client = try await Self.negotiatedClient(machine: machine)
+        let phone = try #require(try await client.mobileDevices().devices.first)
+
+        _ = try await client.revokeMobileDevice(id: phone.deviceId)
+
+        #expect(try await client.mobileDevices().devices.isEmpty)
+        #expect(try await client.mobileStatus().pairedDevices == 0)
+    }
+
     // MARK: - The machine a transaction moves
 
     /// `Restart now` is the Restart sheet's primary action and one of the

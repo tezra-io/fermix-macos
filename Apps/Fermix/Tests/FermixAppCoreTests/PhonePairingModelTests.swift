@@ -358,6 +358,100 @@ struct PhonePairingModelTests {
         #expect(harness.model.step == .ended(PhoneEnding(sentence: sentence, action: .pairAgain)))
     }
 
+    // MARK: - Phones
+
+    @Test("Change… opens the phones and reads them")
+    func changeOpensThePhones() async throws {
+        let harness = try PhoneHarness(polls: 0)
+
+        harness.model.present(.phones)
+        #expect(harness.model.step == .phones)
+        await harness.model.settle()
+
+        #expect(harness.model.devices.value?.devices.map(\.name) == ["Sam's phone"])
+        #expect(!harness.gateway.calls.contains(.v2(.mobilePairStart)), "the phones open no window")
+    }
+
+    @Test("Done on Paired goes on to the phones, with the new phone read again")
+    func pairedDoneShowsThePhones() async throws {
+        let harness = try PhoneHarness(polls: 1)
+        harness.model.present(.pair)
+        await harness.model.settle()
+        harness.model.approve()
+        await harness.model.settle()
+        let listsBefore = harness.gateway.calls.filter { $0 == .v2(.mobileDevicesList) }.count
+
+        harness.model.showPhones()
+        await harness.model.settle()
+
+        #expect(harness.model.step == .phones)
+        #expect(harness.gateway.calls.filter { $0 == .v2(.mobileDevicesList) }.count == listsBefore + 1)
+    }
+
+    @Test("Pair another phone opens a window from the phones")
+    func pairAnother() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        harness.model.present(.phones)
+        await harness.model.settle()
+
+        harness.model.pairAnother()
+        await harness.model.settle()
+
+        guard case .scan = harness.model.step else {
+            Issue.record("expected Scan, got \(harness.model.step)")
+            return
+        }
+    }
+
+    /// Forget asks in the row, with no dialog over the sheet: the first press
+    /// forgets nothing, Cancel takes the question back, and only the second
+    /// press forgets the phone, which then leaves the list.
+    @Test("Forget asks in the row, and only Forget this phone forgets it")
+    func forgetTakesTwoPresses() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        let device = "3f4a1a55-69a0-4f8a-9132-17d6ac728f84"
+        harness.model.present(.phones)
+        await harness.model.settle()
+
+        harness.model.askToForget(device)
+        #expect(harness.model.forgetting.asking == device)
+        harness.model.withdrawForget()
+        harness.model.forget()
+        await harness.model.settle()
+        #expect(harness.gateway.revokedDevices.isEmpty, "a question taken back forgets nothing")
+
+        harness.model.askToForget(device)
+        harness.gateway.mobileDevicesResult = try PairingGolden.devices { $0["devices"] = [[String: Any]]() }
+        harness.model.forget()
+        await harness.model.settle()
+
+        #expect(harness.gateway.revokedDevices == [device])
+        #expect(harness.model.devices.value?.devices.isEmpty == true, "the forgotten phone leaves the list")
+        #expect(harness.model.forgetting == PhoneForgetting())
+    }
+
+    @Test("a refused Forget stays under its row in the daemon's words")
+    func refusedForget() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        let device = "3f4a1a55-69a0-4f8a-9132-17d6ac728f84"
+        harness.gateway.v2Failures[.mobileDevicesRevoke] = try ManagementRefusal.published("unavailable_owner_decision")
+        harness.model.present(.phones)
+        await harness.model.settle()
+
+        harness.model.askToForget(device)
+        harness.model.forget()
+        await harness.model.settle()
+
+        #expect(
+            harness.model.forgetting.refusals[device]
+                == "Only the owner can pair or forget a phone; run this from your own terminal."
+        )
+        #expect(harness.model.devices.value?.devices.count == 1)
+
+        harness.model.closed()
+        #expect(harness.model.forgetting == PhoneForgetting(), "a closed sheet asks nothing")
+    }
+
     // MARK: - The row
 
     @Test("the row reads the channel and its phones")

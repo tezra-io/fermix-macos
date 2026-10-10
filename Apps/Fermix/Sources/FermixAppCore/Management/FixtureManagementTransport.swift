@@ -69,6 +69,9 @@ struct FixtureManagementTransport: ManagementTransport {
             machine.switchPhone(on)
             return try Self.envelope(requestId: identifier, result: try phoneSwitchApplied(params))
         }
+        if method == ManagementMethod.mobileDevicesRevoke.rawValue, let device = params["device_id"] as? String {
+            machine.forgetPhone(device)
+        }
         guard let published = candidates(for: method) else {
             throw Defect.methodHasNoAnswer(method)
         }
@@ -147,6 +150,8 @@ struct FixtureManagementTransport: ManagementTransport {
             return try reshape(result, method: method) { readiness.overview($0, setupState: setupState) }
         case ManagementMethod.mobileStatus.rawValue:
             return try reshape(result, method: method, with: phone.status)
+        case ManagementMethod.mobileDevicesList.rawValue:
+            return try reshape(result, method: method, with: phone.devices)
         default:
             return result
         }
@@ -455,6 +460,7 @@ struct FixturePhoneAnswers {
         var status = golden
         status["enabled"] = channel.switchedOn
         status["started"] = channel.running
+        status["paired_devices"] = max(0, (golden["paired_devices"] as? Int ?? 0) - channel.forgotten.count)
         if !channel.running {
             status["paired_devices"] = 0
             status["pairing"] = NSNull()
@@ -464,6 +470,17 @@ struct FixturePhoneAnswers {
         }
 
         return status
+    }
+
+    /// `mobile.devices.list`: the golden's phones, less the ones forgotten.
+    func devices(_ golden: [String: Any]) -> [String: Any] {
+        let phones = golden["devices"] as? [[String: Any]] ?? []
+        var list = golden
+        list["devices"] = phones.filter { phone in
+            !channel.forgotten.contains(phone["device_id"] as? String ?? "")
+        }
+
+        return list
     }
 
     /// `setup.state.get` with the phone channel's row after the inventory

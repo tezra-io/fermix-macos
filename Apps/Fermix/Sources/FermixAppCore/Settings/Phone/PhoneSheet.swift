@@ -50,9 +50,7 @@ struct PhoneSheet: View {
                 act: model.turnOn
             )
         case .phones:
-            // Not reached: the phones row changes the channel's connection
-            // rows.
-            EmptyView()
+            PhonePhonesStep(model: model, settings: settings, done: model.dismiss)
         case .scan(let scan):
             PhoneScanStep(scan: scan, heading: $headingFocused, cancel: model.dismiss)
         case .compare(let compare):
@@ -64,7 +62,7 @@ struct PhoneSheet: View {
                 approve: model.approve
             )
         case .paired(let name):
-            PhonePairedStep(name: name, heading: $headingFocused, done: model.dismiss)
+            PhonePairedStep(name: name, heading: $headingFocused, done: model.showPhones)
         case .ended(let ending):
             PhoneEndedStep(ending: ending, heading: $headingFocused, done: model.dismiss, act: model.takeEndingAction)
         }
@@ -316,7 +314,129 @@ private struct PhoneCompareStep: View {
     }
 }
 
-/// Paired: the phone's name, and Done.
+/// Phones: each paired phone with Forget asked in its own row, Pair another
+/// phone under them, then the channel's connection rows exactly as the daemon
+/// publishes them, drawn by the one descriptor renderer (§3.3). The switch
+/// stays on the Channels row, so it is not drawn twice.
+private struct PhonePhonesStep: View {
+    @ObservedObject var model: PhonePairingModel
+    @ObservedObject var settings: SettingsModel
+    let done: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.m) {
+            // The same grouped form the pane draws, so a row does not change
+            // shape between the pane and the sheet.
+            Form {
+                Section {
+                    phones
+
+                    Button(ProductStrings[pairTitle], action: model.pairAnother)
+                        .disabled(model.forgetting.forgetting != nil)
+                }
+
+                Section {
+                    DescriptorRows(
+                        model: settings,
+                        section: PhoneChannel.section,
+                        excluding: [PhoneChannel.switchKey]
+                    )
+                }
+            }
+            .formStyle(.grouped)
+            .showsAmbientGround()
+            .rowActions()
+            .fixedSize(horizontal: false, vertical: true)
+
+            PhoneButtons {
+                PrimaryAction(ProductStrings[.settingsSheetDone], size: .row, action: done)
+            }
+        }
+        .task { await settings.loadChannelSection(PhoneChannel.name) }
+    }
+
+    @ViewBuilder
+    private var phones: some View {
+        switch model.devices {
+        case .loaded(let answer):
+            ForEach(answer.devices, id: \.deviceId) { device in
+                PhoneDeviceRow(
+                    device: device,
+                    forgetting: model.forgetting,
+                    ask: { model.askToForget(device.deviceId) },
+                    withdraw: model.withdrawForget,
+                    forget: model.forget
+                )
+            }
+        case .unread, .loading:
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityHidden(true)
+        case .requiresNewerEngine:
+            PhoneNote(text: ProductStrings[.daemonErrorRequiresNewerEngine])
+        case .unavailable(let sentence):
+            PhoneNote(text: sentence)
+        }
+    }
+
+    /// Another phone once one is paired, and a phone while none is.
+    private var pairTitle: ProductStringKey {
+        model.devices.value?.devices.isEmpty == false ? .phonePairAnother : .phonePair
+    }
+}
+
+/// One paired phone: its name, its model and when it was last seen, and
+/// Forget, which asks in the row before it forgets anything.
+private struct PhoneDeviceRow: View {
+    let device: ManagementMobileDevice
+    let forgetting: PhoneForgetting
+    let ask: () -> Void
+    let withdraw: () -> Void
+    let forget: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+            LabeledContent {
+                HStack(spacing: Spacing.xs) {
+                    if forgetting.asking == device.deviceId {
+                        Button(ProductStrings[.phoneForgetConfirm], action: forget)
+                            .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.phoneForgetConfirm], device.name))
+
+                        Button(ProductStrings[.settingsSheetCancel], action: withdraw)
+                    } else {
+                        Button(ProductStrings[.phoneForget], action: ask)
+                            .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.phoneForget], device.name))
+                    }
+                }
+                .disabled(forgetting.forgetting != nil)
+            } label: {
+                VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+                    Text(device.name)
+
+                    Text(detail)
+                        .fermixType(Typography.style(.calloutSmall))
+                        .foregroundStyle(Palette.secondary.color)
+                }
+            }
+
+            if let refusal = forgetting.refusals[device.deviceId] {
+                Text(refusal)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.warning.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// The model, and when the phone was last seen where the daemon says so.
+    private var detail: String {
+        guard let seen = PhoneWording.seen(device.lastSeen, now: Date()) else { return device.model }
+
+        return ProductStrings.middot(device.model, seen)
+    }
+}
+
+/// Paired: the phone's name, and Done, which goes on to the phones.
 private struct PhonePairedStep: View {
     let name: String
     let heading: AccessibilityFocusState<Bool>.Binding
