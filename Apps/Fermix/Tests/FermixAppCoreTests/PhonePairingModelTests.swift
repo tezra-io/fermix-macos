@@ -235,6 +235,129 @@ struct PhonePairingModelTests {
         #expect(gateway.cancelledPairings == [Self.session])
     }
 
+    // MARK: - Turn on
+
+    @Test("a channel that is not running opens on Turn on, and opens no window")
+    func notRunningOpensTurnOn() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        harness.gateway.mobileStatusResult = try PairingGolden.status {
+            $0["enabled"] = false
+            $0["started"] = false
+        }
+
+        harness.model.present(.pair)
+        await harness.model.settle()
+
+        #expect(harness.model.step == .turnOn(PhoneTurnOn(throwsSwitch: true)))
+        #expect(!harness.gateway.calls.contains(.v2(.mobilePairStart)))
+    }
+
+    /// Turn on throws the switch, takes the app's one restart, and opens the
+    /// window on the channel that restart started.
+    @Test("Turn on and restart Fermix writes the switch, restarts, and opens the window")
+    func turnOnWritesRestartsAndOpens() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        harness.gateway.mobileStatusResult = try PairingGolden.status {
+            $0["enabled"] = false
+            $0["started"] = false
+        }
+        harness.restarter.restarted = { harness.gateway.mobileStatusResult = nil }
+        harness.model.present(.pair)
+        await harness.model.settle()
+
+        harness.model.turnOn()
+        await harness.model.settle()
+
+        #expect(harness.gateway.appliedSettings == [
+            SettingsWrite(section: PhoneChannel.section, values: [PhoneChannel.switchKey: .flag(true)])
+        ])
+        #expect(harness.restarter.restarts == 1)
+        guard case .scan = harness.model.step else {
+            Issue.record("expected Scan, got \(harness.model.step)")
+            return
+        }
+        #expect(harness.model.row.status == "Sam's phone", "the row follows the restart")
+    }
+
+    @Test("Restart Fermix restarts without writing the switch it already has")
+    func restartOnly() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        harness.gateway.mobileStatusResult = try PairingGolden.status { $0["started"] = false }
+        harness.restarter.restarted = { harness.gateway.mobileStatusResult = nil }
+        harness.model.present(.pair)
+        await harness.model.settle()
+        #expect(harness.model.step == .turnOn(PhoneTurnOn(throwsSwitch: false)))
+
+        harness.model.turnOn()
+        await harness.model.settle()
+
+        #expect(harness.gateway.appliedSettings.isEmpty)
+        #expect(harness.restarter.restarts == 1)
+        guard case .scan = harness.model.step else {
+            Issue.record("expected Scan, got \(harness.model.step)")
+            return
+        }
+    }
+
+    @Test("a refused restart stays on Turn on in its own words, with the switch already thrown")
+    func refusedRestartStays() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        harness.gateway.mobileStatusResult = try PairingGolden.status {
+            $0["enabled"] = false
+            $0["started"] = false
+        }
+        harness.restarter.refusal = ProductStrings[.lifecycleServiceBusy]
+        harness.model.present(.pair)
+        await harness.model.settle()
+
+        harness.model.turnOn()
+        await harness.model.settle()
+
+        #expect(harness.model.step == .turnOn(PhoneTurnOn(throwsSwitch: false, refusal: ProductStrings[.lifecycleServiceBusy])))
+        #expect(!harness.gateway.calls.contains(.v2(.mobilePairStart)))
+    }
+
+    @Test("a refused switch stays on Turn on with the daemon's sentence, and restarts nothing")
+    func refusedSwitchStays() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        harness.gateway.mobileStatusResult = try PairingGolden.status {
+            $0["enabled"] = false
+            $0["started"] = false
+        }
+        harness.gateway.v2Failures[.settingsApply] = try ManagementRefusal.published("unavailable_owner_decision")
+        harness.model.present(.pair)
+        await harness.model.settle()
+
+        harness.model.turnOn()
+        await harness.model.settle()
+
+        #expect(harness.model.step == .turnOn(PhoneTurnOn(
+            throwsSwitch: true,
+            refusal: "Only the owner can pair or forget a phone; run this from your own terminal."
+        )))
+        #expect(harness.restarter.restarts == 0)
+    }
+
+    /// The window is asked for whatever the restart did, so a channel that
+    /// still could not start says why in the daemon's sentence rather than
+    /// asking for a second restart.
+    @Test("after the restart a channel that still cannot start ends with the daemon's sentence")
+    func stillNotStarted() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        harness.gateway.mobileStatusResult = try PairingGolden.status { $0["started"] = false }
+        let sentence = "The mobile channel could not start this boot. See the daemon log."
+        harness.gateway.pairingStartResult = try PairingGolden.start("mobile_pair_start_channel_off") {
+            $0["failure"] = ["code": "refused", "sentence": sentence]
+        }
+        harness.model.present(.pair)
+        await harness.model.settle()
+
+        harness.model.turnOn()
+        await harness.model.settle()
+
+        #expect(harness.model.step == .ended(PhoneEnding(sentence: sentence, action: .pairAgain)))
+    }
+
     // MARK: - The row
 
     @Test("the row reads the channel and its phones")
@@ -267,9 +390,52 @@ struct PhonePairingModelTests {
     // MARK: - Helpers
 
     static func model(polls: Int) throws -> (PhonePairingModel, FakeDaemonGateway) {
-        let gateway = try SettingsFixture.gateway()
+        let harness = try PhoneHarness(polls: polls)
 
-        return (PhonePairingModel(gateway: gateway, sleeper: LimitedSleeper(allowing: polls)), gateway)
+        return (harness.model, harness.gateway)
+    }
+}
+
+/// One phone model over the fixture daemon, with the settings model it hangs
+/// off and the restart it takes. The settings model is held here because the
+/// phone model only borrows it, as it does in the app.
+@MainActor
+struct PhoneHarness {
+    let gateway: FakeDaemonGateway
+    let settings: SettingsModel
+    let model: PhonePairingModel
+    let restarter = PhoneRestarter()
+
+    init(polls: Int) throws {
+        gateway = try SettingsFixture.gateway()
+        settings = SettingsFixture.model(gateway: gateway)
+        model = PhonePairingModel(settings: settings, sleeper: LimitedSleeper(allowing: polls))
+        model.restarter = restarter
+        PhoneHarness.retained.append(settings)
+    }
+
+    /// Every settings model a case built, kept for the length of the run: the
+    /// phone model's reference to it is unowned, as in the app, where the
+    /// settings model owns the phone model.
+    static var retained: [SettingsModel] = []
+}
+
+/// The app's restart, recorded. A restart that works starts the channel as
+/// its switch says, which is what the daemon does at boot.
+@MainActor
+final class PhoneRestarter: DaemonRestarting {
+    private(set) var restarts = 0
+    /// The sentence a refusal answers with, or nil where the restart worked.
+    var refusal: String?
+    /// What the restart changes about the daemon, run when it works.
+    var restarted: () -> Void = {}
+
+    func restartDaemonAwaitingCompletion() async -> String? {
+        restarts += 1
+        guard refusal == nil else { return refusal }
+
+        restarted()
+        return nil
     }
 }
 

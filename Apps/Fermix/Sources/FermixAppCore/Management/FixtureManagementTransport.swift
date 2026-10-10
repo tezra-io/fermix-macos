@@ -64,6 +64,11 @@ struct FixtureManagementTransport: ManagementTransport {
         else {
             throw Defect.requestIsIncomplete
         }
+        let params = frame["params"] as? [String: Any] ?? [:]
+        if method == ManagementMethod.settingsApply.rawValue, let on = Self.phoneSwitch(in: params) {
+            machine.switchPhone(on)
+            return try Self.envelope(requestId: identifier, result: try phoneSwitchApplied(params))
+        }
         guard let published = candidates(for: method) else {
             throw Defect.methodHasNoAnswer(method)
         }
@@ -71,7 +76,7 @@ struct FixtureManagementTransport: ManagementTransport {
         let result = try Self.resolve(
             published,
             method: method,
-            params: Self.selectable(method: method, params: frame["params"] as? [String: Any] ?? [:])
+            params: Self.selectable(method: method, params: params)
         )
 
         // The daemon commits the shutdown and then answers, in that order.
@@ -94,6 +99,37 @@ struct FixtureManagementTransport: ManagementTransport {
         let running = machine.phoneChannel.running
         return records[method]?.filter { ($0.moment?.sessionId != nil) == running }
     }
+
+    /// The phone channel's switch, where a write sets it.
+    private static func phoneSwitch(in params: [String: Any]) -> Bool? {
+        guard params["section"] as? String == PhoneChannel.section,
+              let values = params["values"] as? [String: Any]
+        else { return nil }
+
+        return values[PhoneChannel.switchKey] as? Bool
+    }
+
+    /// The write that throws the phone channel's switch, answered as the
+    /// contract's own `settings.apply` golden answers a boot-bound write: the
+    /// keys it applied, and the restart the home already reports. The golden
+    /// publishes no write of this section, and Turn on is looked at through
+    /// this one.
+    private func phoneSwitchApplied(_ params: [String: Any]) throws -> Data {
+        let method = ManagementMethod.settingsApply.rawValue
+        guard let golden = records[method]?.first(where: { $0.name == Self.bootBoundWrite }) else {
+            throw Defect.methodHasNoAnswer(method)
+        }
+
+        let keys = ((params["values"] as? [String: Any]) ?? [:]).keys.sorted()
+        return try reshape(golden.result, method: method) { applied in
+            var answer = applied
+            answer["applied"] = keys
+            return answer
+        }
+    }
+
+    /// The golden write whose rows need a restart.
+    private static let bootBoundWrite = "settings_apply"
 
     /// The golden answer, with this home's own two facts written into it.
     ///

@@ -21,7 +21,16 @@ public final class PhonePairingModel: ObservableObject {
     /// A decision on its way to the daemon, which holds both buttons.
     @Published public private(set) var isDeciding = false
 
-    private let gateway: any DaemonQuerying
+    /// The app's one journaled restart, which Turn on takes.
+    ///
+    /// Handed in by the composition once the coordinator that owns it exists,
+    /// which is after the settings model this hangs off: the one backwards
+    /// edge, as the coordinator's own callbacks into the surfaces are.
+    public weak var restarter: (any DaemonRestarting)?
+
+    /// The one settings model, which owns the switch's write and the count of
+    /// what a restart would interrupt. It owns this model, so it outlives it.
+    private unowned let settings: SettingsModel
     private let sleeper: any Sleeping
     private let log = AppLog.logger(.app)
     /// The sheet's one piece of work at a time: opening a window, deciding,
@@ -30,10 +39,12 @@ public final class PhonePairingModel: ObservableObject {
     /// The cancel a closing sheet sends, which outlives the sheet.
     private var closing: Task<Void, Never>?
 
-    public init(gateway: any DaemonQuerying, sleeper: any Sleeping) {
-        self.gateway = gateway
+    public init(settings: SettingsModel, sleeper: any Sleeping) {
+        self.settings = settings
         self.sleeper = sleeper
     }
+
+    private var gateway: any DaemonQuerying { settings.gateway }
 
     /// What the Phone row says and opens (§3.2).
     public var row: PhoneRow { PhoneRowProjection.row(status: status, devices: devices) }
@@ -41,8 +52,9 @@ public final class PhonePairingModel: ObservableObject {
     // MARK: - The row
 
     /// Reads the channel and its phones, which is everything the row states.
+    /// A refusal is published where the row reads it.
     public func readRow() async {
-        _ = await readStatus()
+        _ = try? await readStatus()
         await readDevices()
     }
 
@@ -88,6 +100,14 @@ public final class PhonePairingModel: ObservableObject {
         closing = Task { await self.cancel(open) }
     }
 
+    /// Turn on's one button: the switch where it is off, then the restart
+    /// that starts the channel, then the window (§3.3).
+    public func turnOn() {
+        guard case .turnOn(let turnOn) = step, turnOn.progress == .idle else { return }
+
+        run { await self.switchOnAndRestart(turnOn) }
+    }
+
     public func approve() {
         decide(approved: true)
     }
@@ -126,8 +146,46 @@ public final class PhonePairingModel: ObservableObject {
         work = Task { await body() }
     }
 
+    /// Pairing begins on the channel as it stands: Turn on while it is not
+    /// running, and the window once it is.
     private func pair() async {
         step = .waiting(session: nil)
+
+        do {
+            await take(.status(try await readStatus()))
+        } catch {
+            await take(.refused(ManagementMessage.sentence(for: error)))
+            return
+        }
+        guard step == .waiting(session: nil) else { return }
+
+        await open()
+    }
+
+    /// Turn on: the switch, where this step throws it, and the restart, each
+    /// shown as it runs. A refusal stays on the step in its own words. After
+    /// the restart the window is asked for whatever the channel did, so a
+    /// channel that still could not start says why in the daemon's sentence.
+    private func switchOnAndRestart(_ turnOn: PhoneTurnOn) async {
+        if turnOn.throwsSwitch {
+            step = .turnOn(PhoneTurnOn(throwsSwitch: true, progress: .applying))
+            let key = SettingsDraftKey(section: PhoneChannel.section, key: PhoneChannel.switchKey)
+            guard await settings.apply(section: key.section, key: key.key, value: .flag(true)) else {
+                step = .turnOn(PhoneTurnOn(throwsSwitch: true, refusal: settings.message(for: key)))
+                return
+            }
+        }
+
+        step = .turnOn(PhoneTurnOn(throwsSwitch: false, progress: .restarting))
+        guard let restarter else { preconditionFailure("the composition hands the phone the app's restart") }
+
+        if let refusal = await restarter.restartDaemonAwaitingCompletion() {
+            step = .turnOn(PhoneTurnOn(throwsSwitch: false, refusal: refusal))
+            return
+        }
+        guard !Task.isCancelled else { return }
+
+        await readRow()
         await open()
     }
 
@@ -233,7 +291,7 @@ public final class PhonePairingModel: ObservableObject {
 
     // MARK: - Reads
 
-    private func readStatus() async -> ManagementMobileStatus? {
+    private func readStatus() async throws -> ManagementMobileStatus {
         if status.value == nil { publish(.loading, to: \.status) }
 
         do {
@@ -243,7 +301,7 @@ public final class PhonePairingModel: ObservableObject {
         } catch {
             publish(.failure(error), to: \.status)
             _ = refusal(error, "mobile.status")
-            return nil
+            throw error
         }
     }
 

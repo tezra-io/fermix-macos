@@ -41,9 +41,17 @@ struct PhoneSheet: View {
         switch model.step {
         case .waiting:
             PhoneWaitingStep()
-        case .turnOn, .phones:
-            // Not reached: pairing opens straight onto the window, and the
-            // phones row changes the channel's connection rows.
+        case .turnOn(let turnOn):
+            PhoneTurnOnStep(
+                turnOn: turnOn,
+                settings: settings,
+                heading: $headingFocused,
+                cancel: model.dismiss,
+                act: model.turnOn
+            )
+        case .phones:
+            // Not reached: the phones row changes the channel's connection
+            // rows.
             EmptyView()
         case .scan(let scan):
             PhoneScanStep(scan: scan, heading: $headingFocused, cancel: model.dismiss)
@@ -140,6 +148,78 @@ private struct PhoneWaitingStep: View {
             .controlSize(.small)
             .frame(maxWidth: .infinity, minHeight: HitTarget.button)
             .accessibilityHidden(true)
+    }
+}
+
+/// Turn on: shown while the channel is not running (§3.3). What the switch
+/// does, in the daemon's own footer for it; what a restart would interrupt,
+/// as the Restart sheet says it; and the one button that says it restarts.
+private struct PhoneTurnOnStep: View {
+    let turnOn: PhoneTurnOn
+    @ObservedObject var settings: SettingsModel
+    let heading: AccessibilityFocusState<Bool>.Binding
+    let cancel: () -> Void
+    let act: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.m) {
+            if let footer {
+                PhoneLead(text: footer, heading: heading)
+            }
+
+            RestartInFlightLine(count: settings.conversationsInFlight)
+            progress
+
+            if let refusal = turnOn.refusal {
+                Text(refusal)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.warning.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            PhoneButtons {
+                Button(ProductStrings[.settingsSheetCancel], action: cancel)
+                    .buttonStyle(SecondaryButtonStyle(.row))
+
+                PrimaryAction(ProductStrings[turnOn.actionKey], size: .row, action: act)
+                    .disabled(turnOn.progress != .idle)
+            }
+        }
+        .task {
+            await settings.loadChannelSection(PhoneChannel.name)
+            await settings.readConversationsInFlight()
+        }
+    }
+
+    /// The daemon's own footer for the channel's switch.
+    private var footer: String? {
+        settings.section(PhoneChannel.section).value?.rows
+            .first { $0.key == PhoneChannel.switchKey }?
+            .footer
+    }
+
+    @ViewBuilder
+    private var progress: some View {
+        switch turnOn.progress {
+        case .idle:
+            EmptyView()
+        case .applying:
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityHidden(true)
+        case .restarting:
+            HStack(spacing: Spacing.xs) {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityHidden(true)
+
+                Text(ProductStrings[.lifecycleRestarting])
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.updatesFrequently)
+        }
     }
 }
 

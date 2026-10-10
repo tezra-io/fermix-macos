@@ -111,7 +111,7 @@ public final class SettingsModel: ObservableObject {
     /// The phone channel's row and sheet (M60). It hangs off this model for
     /// the ledger's reason: the Channels pane and the last setup screen open
     /// the one sheet, so there is one instance for both.
-    public private(set) lazy var phone = PhonePairingModel(gateway: gateway, sleeper: sleeper)
+    public private(set) lazy var phone = PhonePairingModel(settings: self, sleeper: sleeper)
 
     /// Each write the daemon accepted: a row, a secret, the primary provider.
     /// The overview reader reads after every one, since a save is what sets

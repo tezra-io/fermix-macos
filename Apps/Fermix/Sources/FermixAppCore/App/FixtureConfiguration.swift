@@ -114,8 +114,14 @@ enum FixtureStart: Equatable {
 /// Each one is a phone channel on the fixture machine, never a step set on the
 /// sheet: the sheet opens the way the row's button opens it, and the daemon's
 /// golden answers walk it to the step. A window waiting for a scan stays on
-/// Scan; every other moment is read a second after the window opens.
+/// Scan; every other moment is read a second after the window opens. The two
+/// Turn on steps are a channel that is not running: switched off, or switched
+/// on and waiting for the restart its switch asks for. Taking Turn on runs the
+/// app's own restart transaction against the fixture machine, which starts the
+/// channel as its switch says, and the window then waits for a scan.
 enum FixturePhoneStart: String, CaseIterable {
+    case turnOn = "turn-on"
+    case restart
     case scan
     case compare
     case paired
@@ -128,6 +134,8 @@ enum FixturePhoneStart: String, CaseIterable {
     /// step is read from.
     var channel: FixturePhoneChannel {
         switch self {
+        case .turnOn: return FixturePhoneChannel(switchedOn: false, running: false, moment: "awaiting_scan")
+        case .restart: return FixturePhoneChannel(switchedOn: true, running: false, moment: "awaiting_scan")
         case .scan: return FixturePhoneChannel(switchedOn: true, running: true, moment: "awaiting_scan")
         case .compare: return FixturePhoneChannel(switchedOn: true, running: true, moment: "awaiting_decision")
         case .paired: return FixturePhoneChannel(switchedOn: true, running: true, moment: "approved")
@@ -387,6 +395,12 @@ final class FixtureMachine: @unchecked Sendable {
     var currentPid: Int32 { withLock { pid } }
     var daemonRunning: Bool { withLock { running } }
     var phoneChannel: FixturePhoneChannel { withLock { phone } }
+
+    /// The phone channel's switch was written. Like the daemon's, it moves the
+    /// channel only at the next boot.
+    func switchPhone(_ on: Bool) {
+        withLock { phone.switchedOn = on }
+    }
 
     func isRegistered(_ principal: LoginItemPrincipal) -> Bool {
         withLock { registered.contains(principal) }

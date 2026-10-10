@@ -881,6 +881,32 @@ struct FixtureConfigurationTests {
         #expect(phone.configured)
     }
 
+    /// Turn on is looked at end to end on the fixture: the switch is written
+    /// and the channel waits for the restart, and the restart the app's own
+    /// transaction commits starts it, as the daemon's boot does.
+    @Test("throwing the phone switch waits for the restart, which starts the channel")
+    func phoneSwitchWaitsForTheRestart() async throws {
+        let machine = FixtureMachine(daemonUp: true, phone: FixturePhoneStart.turnOn.channel)
+        let client = try await Self.negotiatedClient(machine: machine)
+
+        let applied = try await client.applySettings(
+            section: PhoneChannel.section,
+            values: [PhoneChannel.switchKey: .flag(true)]
+        )
+        #expect(applied.applied == [PhoneChannel.switchKey])
+        #expect(applied.restart.required)
+
+        let owed = try await client.mobileStatus()
+        #expect(owed.enabled)
+        #expect(!owed.started)
+        #expect(try await client.startPairing().session.state == .failed)
+
+        machine.shutdownCommitted()
+
+        #expect(try await client.mobileStatus().started)
+        #expect(try await client.startPairing().session.state == .awaitingScan)
+    }
+
     // MARK: - The machine a transaction moves
 
     /// `Restart now` is the Restart sheet's primary action and one of the
