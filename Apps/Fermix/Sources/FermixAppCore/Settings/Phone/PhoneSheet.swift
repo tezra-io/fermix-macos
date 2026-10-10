@@ -49,8 +49,6 @@ struct PhoneSheet: View {
                 cancel: model.dismiss,
                 act: model.turnOn
             )
-        case .phones:
-            PhonePhonesStep(model: model, settings: settings, done: model.dismiss)
         case .scan(let scan):
             PhoneScanStep(scan: scan, heading: $headingFocused, cancel: model.dismiss)
         case .compare(let compare):
@@ -65,6 +63,8 @@ struct PhoneSheet: View {
             PhonePairedStep(name: name, heading: $headingFocused, done: model.showPhones)
         case .ended(let ending):
             PhoneEndedStep(ending: ending, heading: $headingFocused, done: model.dismiss, act: model.takeEndingAction)
+        case .phones:
+            PhonePhonesStep(model: model, settings: settings, done: model.dismiss)
         }
     }
 

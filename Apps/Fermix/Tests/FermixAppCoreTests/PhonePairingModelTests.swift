@@ -97,10 +97,12 @@ struct PhonePairingModelTests {
         model.present(.pair)
         await model.settle()
 
+        // The window closing takes the sheet with it, with no Cancel pressed.
         model.closed()
         await model.settle()
 
         #expect(gateway.cancelledPairings == [Self.session])
+        #expect(!model.isPresented, "a sheet that left with its window is not put back up")
     }
 
     @Test("closing the sheet once the session has ended cancels nothing")

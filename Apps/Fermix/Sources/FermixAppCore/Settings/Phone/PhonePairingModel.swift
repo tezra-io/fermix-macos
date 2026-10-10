@@ -89,8 +89,11 @@ public final class PhonePairingModel: ObservableObject {
     }
 
     /// The sheet left the screen, however it left: the window it was showing
-    /// is cancelled, and nothing it was following is followed any more.
+    /// is cancelled, and nothing it was following is followed any more. A
+    /// sheet that left with its window is down too, so Channels does not put
+    /// it back up empty the next time it appears.
     public func closed() {
+        isPresented = false
         work?.cancel()
         isDeciding = false
         forgetting = PhoneForgetting()
