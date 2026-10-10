@@ -4,6 +4,8 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Channels: you can pair your Android phone from the Mac, with no Terminal. The Phone row's Pair a phone… turns the phone channel on and restarts Fermix where it needs to, saying so first, then shows a code to scan and asks you to approve only when both screens show the same six digits. Once a phone is paired the row names it, and Change… lists your phones, forgets one or pairs another. The last setup screen offers Pair your Android phone as an optional step.
+
 ## 0.4.1 (2026-10-08)
 
 - Voice: a call keeps hearing you when macOS reconfigures the microphone during it, which it can do on the first call after Fermix starts.

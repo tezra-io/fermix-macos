@@ -51,6 +51,19 @@ struct AppRouteTests {
         }
     }
 
+    /// The pairing link is the phone's, never a route of this app: it carries
+    /// the one-time secret, and the parser refuses a route it does not publish
+    /// and any query (M60 §3.8).
+    @Test("the phone's pairing link is refused, not opened")
+    func pairingLinkIsRefused() {
+        #expect(throws: AppRouteError.unexpectedParameters("pair")) {
+            _ = try AppRoute.parse(URL(string: "fermix://pair?v=2&profile=fermix&secret=EXAMPLE")!)
+        }
+        #expect(throws: AppRouteError.unknownRoute("pair")) {
+            _ = try AppRoute.parse(URL(string: "fermix://pair")!)
+        }
+    }
+
     /// The wire and the route speak one vocabulary, so a section the daemon
     /// assigns to a pane and a url that opens it cannot drift.
     @Test("every pane slug is the wire value the daemon publishes")

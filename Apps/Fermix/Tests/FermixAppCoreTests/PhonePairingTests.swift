@@ -538,6 +538,19 @@ struct PhonePairingTests {
         #expect(PhoneWording.seen("yesterday", now: now, locale: english) == nil)
     }
 
+    // MARK: - The platform
+
+    /// The platform is named in exactly two strings, so the day another phone
+    /// app ships is a two-string change (decision 2).
+    @Test("Android is named in the setup row and the Scan line and nowhere else")
+    func androidIsNamedTwice() {
+        let naming = ProductStringKey.allCases.filter { ProductStrings[$0].contains("Android") }
+
+        #expect(Set(naming) == [.readyNextPhone, .phoneScanLine])
+        #expect(ProductStrings[.readyNextPhone] == "Pair your Android phone")
+        #expect(ProductStrings[.phoneScanLine] == "On your Android phone, open Fermix and scan this code.")
+    }
+
     // MARK: - Helpers
 
     static let unreadable = PhoneSheetStep.ended(

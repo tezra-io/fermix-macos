@@ -235,6 +235,8 @@ public final class PhonePairingModel: ObservableObject {
     /// Opens the window and follows it. A window open somewhere else is read
     /// from `mobile.status`, which names it.
     private func open() async {
+        guard !Task.isCancelled else { return }
+
         step = .waiting(session: nil)
 
         do {

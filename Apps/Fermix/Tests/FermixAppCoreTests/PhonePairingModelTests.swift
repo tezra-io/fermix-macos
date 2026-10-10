@@ -132,10 +132,14 @@ struct PhonePairingModelTests {
     func lateStartIsCancelled() async throws {
         let (model, gateway) = try Self.model(polls: 0)
         let gate = AsyncGate()
-        gateway.pairingStartGate = { await gate.wait() }
+        let opening = CountingBox()
+        gateway.pairingStartGate = {
+            opening.increment()
+            await gate.wait()
+        }
 
         model.present(.pair)
-        await Task.yield()
+        while opening.count == 0 { await Task.yield() }
         model.closed()
         gate.release()
         await model.settle()

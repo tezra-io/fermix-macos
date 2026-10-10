@@ -130,6 +130,9 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// one still running: the goldens publish both already completed.
     var imessageJobStarted: ManagementJob?
 
+    /// The section index, where a case needs one the golden does not publish.
+    var settingsSectionsResult: ManagementSettingsInventory?
+
     /// The phone channel, where a case needs answers the goldens do not give:
     /// another moment of the channel, of the start, or of the window.
     var mobileStatusResult: ManagementMobileStatus?

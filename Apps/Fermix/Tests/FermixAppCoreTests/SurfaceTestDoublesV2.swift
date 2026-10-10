@@ -41,7 +41,9 @@ extension FakeDaemonGateway {
     // MARK: - Settings
 
     func settingsSections() async throws -> ManagementSettingsInventory {
-        try answer(.settingsSections, "settings_sections")
+        let published: ManagementSettingsInventory = try answer(.settingsSections, "settings_sections")
+
+        return settingsSectionsResult ?? published
     }
 
     /// One section's rows, from the record the contract publishes *for that

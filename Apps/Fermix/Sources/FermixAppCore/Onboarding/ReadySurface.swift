@@ -26,6 +26,9 @@ struct ReadySurface: View {
         // answering yet" block against a daemon that was up. Connect your AI
         // already reads readiness on appear for the same reason.
         .task { await model.refreshReadiness() }
+        // The section index, which says whether the phone can be paired from
+        // here.
+        .task { await model.readNextSteps() }
     }
 
     /// The refusal is a state, not a crash: a gate that arrives after Ready has
@@ -107,8 +110,10 @@ struct ReadySurface: View {
         return ProductStrings.middot(primary.label, named)
     }
 
-    /// Two deep links into Settings, the advisory row where the daemon reported
-    /// one, and the existing unchecked CLI row.
+    /// The deep links into Settings, the advisory row where the daemon reported
+    /// one, and the existing unchecked CLI row. Pairing a phone is offered
+    /// between the channels and the voice where the daemon publishes the phone
+    /// channel, and it opens Channels with the Phone sheet up (M60 §3.6).
     ///
     /// The section label above them is gone: every row already names what it
     /// opens and carries its own chevron, so the eyebrow was a heading over
@@ -129,6 +134,12 @@ struct ReadySurface: View {
 
                 NextStepRow(title: ProductStrings[.readyNextChannels], symbol: "bubble.left.and.bubble.right") {
                     model.open(.settings(.channels))
+                }
+
+                if model.offersPhonePairing {
+                    NextStepRow(title: ProductStrings[.readyNextPhone], symbol: "smartphone") {
+                        model.openPhonePairing()
+                    }
                 }
 
                 NextStepRow(title: ProductStrings[.readyNextVoice], symbol: "waveform") {
