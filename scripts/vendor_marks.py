@@ -11,7 +11,8 @@ an owner-run step, never a build gate.
 Two records, so neither can be edited alone:
 
   PROVENANCE.json  one record per vendor, and the hash of the roster below
-  ROSTER.json      the vendored snapshot of fermix's provider and channel sets
+  ROSTER.json      the vendored snapshot of fermix's channel and plugin sets, and
+                   the providers this app has a mark for
 
 Completeness is checked against ROSTER.json and runs everywhere, including on a
 runner with no fermix checkout. The only thing a checkout adds is *upstream
@@ -368,12 +369,18 @@ def check_upstream(roster: dict, fermix_repo: Path | None) -> None:
         if not path.is_file():
             raise Failure(f"roster source is missing at {path}")
 
-    upstream_providers = sorted(set(PROVIDER_ID.findall(descriptor.read_text(encoding="utf-8"))))
-    if upstream_providers != sorted(roster["providers"]):
-        raise Failure(
-            "provider roster drifted: fermix publishes "
-            f"{upstream_providers} and {ROSTER_FILE} carries {sorted(roster['providers'])}"
-        )
+    # Which providers exist is the engine's data, read at runtime like its
+    # models: a provider with no mark here draws its name beside the neutral
+    # symbol. So a provider fermix adds or retires is a note for whoever wants
+    # to vendor its mark, never a failure, and the descriptor file is not
+    # hashed, since it changes for reasons that touch no mark.
+    upstream_providers = set(PROVIDER_ID.findall(descriptor.read_text(encoding="utf-8")))
+    unmarked = sorted(upstream_providers - set(roster["providers"]))
+    retired = sorted(set(roster["providers"]) - upstream_providers)
+    if unmarked:
+        print(f"check_vendor_marks: note: fermix publishes providers with no mark here, drawn by name: {unmarked}")
+    if retired:
+        print(f"check_vendor_marks: note: marks for providers fermix no longer publishes: {retired}")
 
     excluded = set((roster.get("channel_exclusions") or {}).keys())
     upstream_channels = set(CHANNEL_KEY.findall(setup_live.read_text(encoding="utf-8"))) - excluded
@@ -439,7 +446,7 @@ def check_upstream(roster: dict, fermix_repo: Path | None) -> None:
                 f"{path} hashes to {actual} but {ROSTER_FILE} pins {pinned}; re-vendor the mark"
             )
 
-    for kind in ("provider", "channel", "plugin"):
+    for kind in ("channel", "plugin"):
         path = fermix_repo / source[f"{kind}s"]["path"]
         actual = sha256_of(path.read_bytes())
         if actual != source[f"{kind}s"]["sha256"]:
