@@ -267,6 +267,35 @@ struct CompanionProtocolTests {
 
     /// Rule 5 of the contract: an unrecognized server event is logged, never
     /// silently dropped, so it decodes to a value that carries its type.
+    /// The vendored goldens carry no preview, so the line is built in the
+    /// schema's `linkPreviewCard` shape: with and without its optional fields.
+    @Test("a history row keeps its media refs, its kind and its stored link previews")
+    func historyRowKeepsItsMedia() throws {
+        let line = Data(#"""
+        {"type":"history_page","profile_id":"main","history_head_seq":7,"messages":[{"server_seq":7,"role":"user","content":"see https://x.test/a and https://y.test","kind":"media","ts":"2026-10-11T17:16:19Z","media_refs":[{"ref":"3f46f7693efbeb011de675f80f03d6e94717a4150e38a1bac1e6dad75a0d95c3","kind":"audio","mime":"audio/ogg","size_bytes":33419,"filename":"voice-note.ogg"}],"link_previews":[{"url":"https://x.test/a","site":"X","title":"A page","description":"What it says","image_ref":"9214332e155bb4042b5019c575d43397cba703a76fe3246218546f13d4055569"},{"url":"https://www.y.test/","site":"Y","title":"Y home"}]}]}
+        """#.utf8)
+
+        guard case .historyPage(let page) = try CompanionServerEvent.decode(line), let exported = page.messages.first else {
+            Issue.record("the page did not decode")
+            return
+        }
+        let row = CompanionRow(exported)
+
+        #expect(row.kind == "media")
+        #expect(row.mediaRefs.map(\.kind) == ["audio"])
+        #expect(row.mediaRefs.first?.filename == "voice-note.ogg")
+        #expect(row.linkPreviews == [
+            CompanionLinkPreview(
+                url: "https://x.test/a",
+                site: "X",
+                title: "A page",
+                description: "What it says",
+                imageRef: "9214332e155bb4042b5019c575d43397cba703a76fe3246218546f13d4055569"
+            ),
+            CompanionLinkPreview(url: "https://www.y.test/", site: "Y", title: "Y home", description: nil, imageRef: nil)
+        ])
+    }
+
     @Test("an unknown event type is preserved and never fatal")
     func unknownEventIsPreserved() throws {
         let event = try CompanionServerEvent.decode(Data(#"{"type":"weather","sunny":true}"#.utf8))

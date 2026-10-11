@@ -16,8 +16,41 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
     public let inReplyTo: String?
     /// On a reply held from its turn's `text_done`, that turn.
     public let turnId: String?
+    /// The history message's kind, `text` or `media`, where the event that
+    /// brought the row carried it.
+    public let kind: String?
+    /// The files the row refers to, by ref. Only a history page carries them:
+    /// a live `row` and a `text_done` bring none.
+    public let mediaRefs: [CompanionMediaRef]
+    /// The link previews the engine stored on the row. Only a history page
+    /// carries them.
+    public let linkPreviews: [CompanionLinkPreview]
 
     public var id: Int { serverSeq }
+
+    init(
+        serverSeq: Int,
+        text: String,
+        role: String?,
+        timestamp: String?,
+        clientMsgId: String?,
+        inReplyTo: String?,
+        turnId: String?,
+        kind: String? = nil,
+        mediaRefs: [CompanionMediaRef] = [],
+        linkPreviews: [CompanionLinkPreview] = []
+    ) {
+        self.serverSeq = serverSeq
+        self.text = text
+        self.role = role
+        self.timestamp = timestamp
+        self.clientMsgId = clientMsgId
+        self.inReplyTo = inReplyTo
+        self.turnId = turnId
+        self.kind = kind
+        self.mediaRefs = mediaRefs
+        self.linkPreviews = linkPreviews
+    }
 }
 
 extension CompanionRow {
@@ -30,7 +63,10 @@ extension CompanionRow {
             timestamp: row.timestamp,
             clientMsgId: row.clientMsgId,
             inReplyTo: row.inReplyTo,
-            turnId: nil
+            turnId: nil,
+            kind: row.kind,
+            mediaRefs: row.mediaRefs,
+            linkPreviews: row.linkPreviews ?? []
         )
     }
 
@@ -43,7 +79,8 @@ extension CompanionRow {
             timestamp: row.timestamp,
             clientMsgId: row.clientMsgId,
             inReplyTo: nil,
-            turnId: nil
+            turnId: nil,
+            kind: row.kind
         )
     }
 

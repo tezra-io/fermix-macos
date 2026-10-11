@@ -215,7 +215,18 @@ enum CompanionServerWire {
             "media_refs": row.mediaRefs.map(mediaRef),
             "client_msg_id": row.clientMsgId,
             "in_reply_to": row.inReplyTo,
-            "metadata": row.metadata.map { $0.mapValues(value) }
+            "metadata": row.metadata.map { $0.mapValues(value) },
+            "link_previews": row.linkPreviews.map { $0.map(linkPreview) }
+        ])
+    }
+
+    private static func linkPreview(_ preview: CompanionLinkPreview) -> [String: Any] {
+        present([
+            "url": preview.url,
+            "site": preview.site,
+            "title": preview.title,
+            "description": preview.description,
+            "image_ref": preview.imageRef
         ])
     }
 

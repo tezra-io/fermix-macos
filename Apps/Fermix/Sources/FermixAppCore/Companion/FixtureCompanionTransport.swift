@@ -313,7 +313,8 @@ enum FixtureCompanionScript {
             mediaRefs: [],
             clientMsgId: clientMsgId,
             inReplyTo: inReplyTo,
-            metadata: nil
+            metadata: nil,
+            linkPreviews: nil
         )
     }
 }

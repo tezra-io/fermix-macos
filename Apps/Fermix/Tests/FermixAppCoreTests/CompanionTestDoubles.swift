@@ -57,7 +57,8 @@ enum CompanionEvents {
             mediaRefs: [],
             clientMsgId: nil,
             inReplyTo: nil,
-            metadata: nil
+            metadata: nil,
+            linkPreviews: nil
         )
     }
 

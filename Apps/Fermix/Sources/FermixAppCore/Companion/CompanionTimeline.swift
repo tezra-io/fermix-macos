@@ -20,6 +20,9 @@ public struct CompanionTimelineRow: Equatable, Sendable, Decodable {
     public let inReplyTo: String?
     /// An object the contract leaves open, kept as the daemon sent it.
     public let metadata: [String: CompanionJSONValue]?
+    /// The link previews the engine stored on the row, at most four. The key
+    /// is present only when there is one.
+    public let linkPreviews: [CompanionLinkPreview]?
 
     private enum CodingKeys: String, CodingKey {
         case role, content, kind, metadata
@@ -28,6 +31,24 @@ public struct CompanionTimelineRow: Equatable, Sendable, Decodable {
         case mediaRefs = "media_refs"
         case clientMsgId = "client_msg_id"
         case inReplyTo = "in_reply_to"
+        case linkPreviews = "link_previews"
+    }
+}
+
+/// A link preview the engine stored on a row that touches the phone: it read
+/// the page itself, and stored the card under the address it reached after
+/// redirects, which need not be the one written in the row's text.
+public struct CompanionLinkPreview: Equatable, Sendable, Decodable {
+    public let url: String
+    public let site: String
+    public let title: String
+    public let description: String?
+    /// The preview's picture, a media ref like any other.
+    public let imageRef: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case url, site, title, description
+        case imageRef = "image_ref"
     }
 }
 
