@@ -27,7 +27,7 @@ let newestPagePull = historyPull(.before(seq: CompanionReducer.newestPageBound))
 enum CompanionEvents {
     static let profile = CompanionProtocol.profileId
 
-    static func hello(_ minimum: Int = 1, _ maximum: Int = 1) -> CompanionServerEvent {
+    static func hello(_ minimum: Int = 1, _ maximum: Int = 2) -> CompanionServerEvent {
         .serverHello(minVersion: minimum, maxVersion: maximum)
     }
 
@@ -40,7 +40,9 @@ enum CompanionEvents {
                 role: role,
                 text: "row \(seq)",
                 timestamp: "2026-09-25T09:00:00Z",
-                clientMsgId: clientMsgId
+                clientMsgId: clientMsgId,
+                kind: "text",
+                metadata: nil
             )
         )
     }

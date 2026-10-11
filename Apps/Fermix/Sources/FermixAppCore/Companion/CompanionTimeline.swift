@@ -33,8 +33,8 @@ public struct CompanionTimelineRow: Equatable, Sendable, Decodable {
 
 /// A timeline row announced live as it is written outside a turn's
 /// completion: the sender's own message, a slash command's answer, a scheduled
-/// delivery, a row written from the phone. It carries fewer fields than the
-/// exported row, and its text is `text` rather than `content`.
+/// delivery, a row written from the phone, a Live call's row. It carries fewer
+/// fields than the exported row, and its text is `text` rather than `content`.
 public struct CompanionAnnouncedRow: Equatable, Sendable, Decodable {
     public let profileId: String
     public let serverSeq: Int
@@ -44,9 +44,13 @@ public struct CompanionAnnouncedRow: Equatable, Sendable, Decodable {
     public let timestamp: String
     /// On a user's row, for the sender to match its outbox.
     public let clientMsgId: String?
+    /// The history message's own `kind` and `metadata` (version 2): a Live
+    /// call's row carries `metadata.call`.
+    public let kind: String?
+    public let metadata: [String: CompanionJSONValue]?
 
     private enum CodingKeys: String, CodingKey {
-        case role, text
+        case role, text, kind, metadata
         case profileId = "profile_id"
         case serverSeq = "server_seq"
         case timestamp = "ts"

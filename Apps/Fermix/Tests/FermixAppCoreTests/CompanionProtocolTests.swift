@@ -46,6 +46,11 @@ struct CompanionProtocolTests {
             .msg(clientMsgId: "mac-1", profileId: main, text: "What is on my calendar today?"),
             .command(clientMsgId: "mac-2", profileId: main, name: "confirm", args: "opaque-token"),
             .cancel(profileId: main, clientMsgId: "mac-3"),
+            .cancelTask(
+                profileId: main,
+                clientMsgId: "mac-4",
+                task: CompanionTaskRef(callUuid: "3f2b8c1e-5a4d-4e6f-9b8a-7c6d5e4f3a2b", taskId: "dg_01HA", revision: 1)
+            ),
             .historyPull(profileId: main, cursor: .after(seq: 0), limit: 50),
             .historyPull(profileId: main, cursor: .before(seq: 120), limit: 50),
             .historySearch(profileId: main, query: "dentist", limit: 20, beforeSeq: nil),
@@ -101,7 +106,7 @@ struct CompanionProtocolTests {
             return try CompanionServerEvent.decode(fixture.line)
         }
 
-        #expect(try event("server_hello") == .serverHello(minVersion: 1, maxVersion: 1))
+        #expect(try event("server_hello") == .serverHello(minVersion: 1, maxVersion: 2))
 
         let duplicate = try event("accepted") { $0.object["duplicate"] as? Bool == true }
         #expect(duplicate == .accepted(CompanionAccepted(clientMsgId: "mac-1", duplicate: true, serverSeq: 13)))
@@ -114,6 +119,19 @@ struct CompanionProtocolTests {
         )
         #expect(try event("text_done") == .textDone(turnId: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10."))
         #expect(try event("turn_error") == .turnError(turnId: "turn-mac-3", code: "cancelled", message: "cancelled"))
+        #expect(try event("turn_done") == .turnDone(turnId: "turn-mac-5"))
+
+        guard case .row(let call) = try event("row", where: { $0.object["metadata"] != nil }) else {
+            Issue.record("no golden row carries a Live call's metadata")
+            return
+        }
+        #expect(call.kind == "text")
+        guard case .object(let facts)? = call.metadata?["call"] else {
+            Issue.record("the call row's metadata has no call")
+            return
+        }
+        #expect(facts["event"] == .string("shared"))
+        #expect(facts["task_id"] == .string("dg_01H9"))
         #expect(
             try event("approval_resolved") == .approvalResolved(
                 approvalId: "sandbox-bhw-xTAySHRgYU9X7p4sNoI3EvHmKLZlouMRAn73iic",
@@ -142,8 +160,8 @@ struct CompanionProtocolTests {
         }
         #expect(refusal.reason == "unsupported_protocol_version")
         #expect(refusal.direction == .clientTooNew)
-        #expect(refusal.clientVersion == 2)
-        #expect(refusal.window == CompanionVersionWindow(minimum: 1, maximum: 1))
+        #expect(refusal.clientVersion == 3)
+        #expect(refusal.window == CompanionVersionWindow(minimum: 1, maximum: 2))
     }
 
     /// The contract takes exactly one cursor, and the Swift value is the only
@@ -272,12 +290,12 @@ struct CompanionProtocolTests {
 
     @Test("a version window names the side that must update")
     func windowNamesTheOutdatedSide() {
-        let window = CompanionVersionWindow(minimum: 2, maximum: 3)
+        let window = CompanionVersionWindow(minimum: 3, maximum: 4)
 
-        #expect(window.contains(2))
+        #expect(window.contains(3))
         #expect(!window.contains(CompanionProtocol.version))
-        #expect(window.direction(for: 1) == .clientTooOld)
-        #expect(window.direction(for: 4) == .clientTooNew)
+        #expect(window.direction(for: 2) == .clientTooOld)
+        #expect(window.direction(for: 5) == .clientTooNew)
     }
 }
 

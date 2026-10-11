@@ -274,6 +274,31 @@ struct CompanionReducerTests {
         #expect(chat.lastError == "The reply did not finish: The provider is busy")
     }
 
+    /// Version 2: during a voice call a typed message may be material for the
+    /// call rather than a request, and the agent may leave it unanswered.
+    @Test("a turn that wrote no reply ends with nothing kept and nothing said")
+    func turnDoneEndsQuietly() {
+        var chat = CompanionChat.holding(1...12)
+        chat.receive(.turnStarted(profileId: "main", turnId: "turn-mac-5", inReplyTo: "mac-5"))
+        chat.receive(.textDelta(turnId: "turn-mac-5", text: "Partial"))
+
+        chat.receive(.turnDone(turnId: "turn-mac-5"))
+
+        #expect(chat.turn == nil)
+        #expect(chat.lastError == nil)
+        #expect(chat.seqs == Array(1...12))
+    }
+
+    @Test("another turn's turn_done leaves the turn being answered alone")
+    func turnDoneForAnotherTurn() {
+        var chat = CompanionChat.holding(1...12)
+        chat.receive(.turnStarted(profileId: "main", turnId: "turn-mac-6", inReplyTo: "mac-6"))
+
+        chat.receive(.turnDone(turnId: "turn-mac-5"))
+
+        #expect(chat.turn?.turnId == "turn-mac-6")
+    }
+
     // MARK: - The outbox
 
     @Test("a message enters the outbox and is answered with its line")

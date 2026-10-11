@@ -122,6 +122,8 @@ enum CompanionServerWire {
             return ["turn_id": turnId, "server_seq": serverSeq, "text": text]
         case .turnError(let turnId, let code, let message):
             return ["turn_id": turnId, "code": code, "message": message]
+        case .turnDone(let turnId):
+            return ["turn_id": turnId]
         case .row(let row):
             return announced(row)
         case .approval(let approval):
@@ -174,7 +176,9 @@ enum CompanionServerWire {
             "role": row.role,
             "text": row.text,
             "ts": row.timestamp,
-            "client_msg_id": row.clientMsgId
+            "client_msg_id": row.clientMsgId,
+            "kind": row.kind,
+            "metadata": row.metadata.map { $0.mapValues(value) }
         ])
     }
 

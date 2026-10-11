@@ -117,7 +117,7 @@ struct CompanionSessionTests {
         let harness = Harness()
         harness.session.connect()
 
-        harness.socket.deliver(E.hello(2, 3))
+        harness.socket.deliver(E.hello(3, 4))
 
         #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateApp]))
         #expect(harness.socket.closeCount == 1)
@@ -129,7 +129,7 @@ struct CompanionSessionTests {
         let harness = Harness()
         harness.session.connect()
 
-        harness.socket.deliver(E.hello(0, 0))
+        harness.socket.deliver(E.hello(1, 1))
 
         #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
         #expect(harness.scheduler.liveCount == 0)
@@ -140,13 +140,13 @@ struct CompanionSessionTests {
         let tooNew = Harness()
         tooNew.session.connect()
         tooNew.socket.deliver(
-            E.refusal("unsupported_protocol_version", direction: .clientTooNew, window: .init(minimum: 0, maximum: 0))
+            E.refusal("unsupported_protocol_version", direction: .clientTooNew, window: .init(minimum: 1, maximum: 1))
         )
 
         let tooOld = Harness()
         tooOld.session.connect()
         tooOld.socket.deliver(
-            E.refusal("unsupported_protocol_version", direction: .clientTooOld, window: .init(minimum: 2, maximum: 2))
+            E.refusal("unsupported_protocol_version", direction: .clientTooOld, window: .init(minimum: 3, maximum: 3))
         )
 
         #expect(tooNew.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
@@ -172,7 +172,7 @@ struct CompanionSessionTests {
     func connectAfterRefusal() {
         let harness = Harness()
         harness.session.connect()
-        harness.socket.deliver(E.hello(2, 2))
+        harness.socket.deliver(E.hello(3, 3))
 
         harness.session.connect()
         harness.socket.deliver(E.hello())
@@ -466,7 +466,7 @@ struct CompanionSessionTests {
         harness.socket.deliver(E.row(1))
         harness.socket.deliver(E.hello())
         harness.socket.deliver(.unrecognized(type: "reaction"))
-        harness.socket.deliver(E.hello(2, 2))
+        harness.socket.deliver(E.hello(3, 3))
 
         #expect(harness.model.rows.isEmpty)
         #expect(harness.model.connection == .connected)

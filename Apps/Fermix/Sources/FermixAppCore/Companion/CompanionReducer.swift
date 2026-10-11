@@ -177,6 +177,9 @@ enum CompanionReducer {
         case .turnError(let turnId, let code, let message):
             end(turnId, in: &chat)
             chat.lastError = sentence(forTurnError: code, message: message)
+        case .turnDone(let turnId):
+            // The turn wrote no reply: its draft goes with it.
+            end(turnId, in: &chat)
         case .row(let row):
             return applyLive(CompanionRow(row), into: &chat)
         case .approval(let approval):

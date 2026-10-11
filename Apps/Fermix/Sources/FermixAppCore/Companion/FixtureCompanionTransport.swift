@@ -184,7 +184,9 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             role: row.role,
             text: row.content,
             timestamp: row.timestamp,
-            clientMsgId: clientMsgId
+            clientMsgId: clientMsgId,
+            kind: "text",
+            metadata: nil
         )))
 
         repliesWritten += 1
