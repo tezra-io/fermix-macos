@@ -131,6 +131,11 @@ public final class CompanionSession {
         update { CompanionReducer.clearSearch(&$0) }
     }
 
+    /// **+N** and **Show fewer** on a row's strip.
+    public func toggleStrip(_ seq: Int) {
+        update { CompanionReducer.toggleStrip(seq, in: &$0) }
+    }
+
     /// The surface showed the newest held row.
     public func newestRowSeen() {
         guard phase == .connected else { return }

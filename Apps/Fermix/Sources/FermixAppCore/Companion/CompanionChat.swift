@@ -199,4 +199,7 @@ struct CompanionChat: Equatable, Sendable {
     /// The read frontier, as the daemon last reported it or this client last
     /// advanced it.
     var readUpToSeq = 0
+    /// The rows whose strip shows every item, by seq (M66 §3.2). Kept here
+    /// rather than in a row's view, which a lazy transcript drops off screen.
+    var openStrips: Set<Int> = []
 }

@@ -121,6 +121,13 @@ enum CompanionReducer {
         chat.search = nil
     }
 
+    /// Opens a row's strip to every item, or folds it back to the ones that fit.
+    static func toggleStrip(_ seq: Int, in chat: inout CompanionChat) {
+        if chat.openStrips.remove(seq) == nil {
+            chat.openStrips.insert(seq)
+        }
+    }
+
     /// The newest held row was seen. The frontier moves once per row, and never
     /// behind where the daemon already has it.
     static func newestRowSeen(_ chat: inout CompanionChat) -> [CompanionClientEvent] {

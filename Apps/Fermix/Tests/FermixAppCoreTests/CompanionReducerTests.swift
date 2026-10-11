@@ -274,6 +274,19 @@ struct CompanionReducerTests {
         #expect(chat.lastError == "The reply did not finish: The provider is busy")
     }
 
+    @Test("a strip opens and folds by its row's seq, and the rows are untouched")
+    func stripsOpenAndFold() {
+        var chat = CompanionChat.holding(1...12)
+
+        CompanionReducer.toggleStrip(7, in: &chat)
+        CompanionReducer.toggleStrip(9, in: &chat)
+        #expect(chat.openStrips == [7, 9])
+
+        CompanionReducer.toggleStrip(7, in: &chat)
+        #expect(chat.openStrips == [9])
+        #expect(chat.seqs == Array(1...12))
+    }
+
     /// Version 2: during a voice call a typed message may be material for the
     /// call rather than a request, and the agent may leave it unanswered.
     @Test("a turn that wrote no reply ends with nothing kept and nothing said")

@@ -55,6 +55,8 @@ public final class CompanionModel: ObservableObject {
     @Published public private(set) var search: CompanionSearch?
     /// The latest failure, in a sentence, until the next request.
     @Published public private(set) var lastError: String?
+    /// The rows whose strip shows every item, by seq.
+    @Published public private(set) var openStrips: Set<Int> = []
 
     init() {}
 
@@ -74,6 +76,7 @@ public final class CompanionModel: ObservableObject {
         publish(\.approvals, chat.approvals)
         publish(\.search, chat.search)
         publish(\.lastError, chat.lastError)
+        publish(\.openStrips, chat.openStrips)
     }
 
     private func publish<Value: Equatable>(_ field: ReferenceWritableKeyPath<CompanionModel, Value>, _ value: Value) {
