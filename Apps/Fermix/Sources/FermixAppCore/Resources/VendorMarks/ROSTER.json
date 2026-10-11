@@ -17,8 +17,8 @@
     "plugins": {
       "path": "apps/fermix_core/priv/plugins/index.json",
       "symbol": "the static plugin catalog",
-      "sha256": "cab5d5eef60ea7d7cd04104303dbeaca47ac1dbe5fcd3e34dce35544146a74a0",
-      "generated_at": "2026-09-29T00:00:00Z",
+      "sha256": "81f301033b6064b752905448963ea97d46ac8ef7a3fcc60cc955bd57b9095792",
+      "generated_at": "2026-10-07T01:07:38Z",
       "bundled": {
         "path": "apps/fermix_core/priv/plugins/catalog.json",
         "symbol": "the plugins the engine ships inside itself, which Registry.list unions into every install",

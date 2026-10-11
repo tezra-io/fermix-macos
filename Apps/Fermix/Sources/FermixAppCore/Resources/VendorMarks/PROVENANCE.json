@@ -18,7 +18,7 @@
     "plugins": "apps/fermix_core/priv/plugins/index.json and catalog.json (the static catalog and the bundled set)",
     "features": "apps/fermix_web/lib/fermix_web_web/live/setup_live (the three native driver logos)",
     "roster": "ROSTER.json",
-    "roster_sha256": "fe93723cbef433f63b7362f0085aa622780fcf1b9c4c9b383032933120adc60f",
+    "roster_sha256": "e91fecd7c0517fadc84651146093d5289e0ff7cbdb77c7dfd1b8fdd29e639755",
     "provider_count": 8,
     "channel_count": 6,
     "plugin_count": 13,
