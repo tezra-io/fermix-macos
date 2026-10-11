@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// Reads and writes `launcher.json` in this build's Application Support folder
@@ -11,11 +10,17 @@ public struct BootstrapStore {
     private let location: BootstrapLocation
     private let fileManager: FileManager
     private let validator: BootstrapHomeValidator
+    private let file: JournalFile
 
     public init(location: BootstrapLocation, fileManager: FileManager = .default) {
         self.location = location
         self.fileManager = fileManager
         self.validator = BootstrapHomeValidator(location: location, fileManager: fileManager)
+        self.file = JournalFile(
+            directory: location.directoryURL,
+            name: BootstrapLocation.recordName,
+            fileManager: fileManager
+        )
     }
 
     public var recordURL: URL { location.recordURL }
@@ -205,76 +210,27 @@ public struct BootstrapStore {
     /// Clears the bootstrap, as in-app uninstall does. Removing a record that is
     /// not there is reported, not treated as success.
     public func remove() throws {
-        let path = location.recordURL.path
-        guard fileManager.fileExists(atPath: path) else {
-            throw BootstrapStoreError.absent(path: path)
+        guard file.exists else {
+            throw BootstrapStoreError.absent(path: file.url.path)
         }
-        guard unlink(path) == 0 else {
-            throw BootstrapStoreError.writeFailed(path: path, errno: errno)
+
+        do {
+            try file.remove()
+        } catch let failure as JournalFileError {
+            throw BootstrapStoreError(failure)
         }
     }
 
     // MARK: - Writing
 
-    /// Create, fill, flush, then rename over the record: a reader either sees
-    /// the previous record or the new one, never a half-written file. The
-    /// temporary file is created owner-only and carries that mode across the
-    /// rename, and it is removed on every failure path.
+    /// Through the one file layer every record beside the bundle uses: a
+    /// reader sees the previous record or the new one, never a half-written
+    /// file, and the directory is flushed so the rename survives a power loss.
     private func write(_ data: Data) throws {
-        try createDirectory()
-
-        let finalPath = location.recordURL.path
-        let temporaryPath = finalPath + ".tmp-\(UUID().uuidString)"
-        let descriptor = open(temporaryPath, O_WRONLY | O_CREAT | O_EXCL, 0o600)
-        guard descriptor >= 0 else {
-            throw BootstrapStoreError.writeFailed(path: temporaryPath, errno: errno)
-        }
-
         do {
-            try writeAll(data, to: descriptor, path: temporaryPath)
-            guard fsync(descriptor) == 0 else {
-                throw BootstrapStoreError.writeFailed(path: temporaryPath, errno: errno)
-            }
-            Darwin.close(descriptor)
-        } catch {
-            Darwin.close(descriptor)
-            unlink(temporaryPath)
-            throw error
-        }
-
-        guard rename(temporaryPath, finalPath) == 0 else {
-            let code = errno
-            unlink(temporaryPath)
-            throw BootstrapStoreError.writeFailed(path: finalPath, errno: code)
-        }
-    }
-
-    private func writeAll(_ data: Data, to descriptor: Int32, path: String) throws {
-        var offset = 0
-        while offset < data.count {
-            let written = data.withUnsafeBytes { raw -> Int in
-                guard let base = raw.baseAddress else { return -1 }
-                return Darwin.write(descriptor, base.advanced(by: offset), data.count - offset)
-            }
-            guard written > 0 else {
-                throw BootstrapStoreError.writeFailed(path: path, errno: errno)
-            }
-            offset += written
-        }
-    }
-
-    private func createDirectory() throws {
-        do {
-            try fileManager.createDirectory(
-                at: location.directoryURL,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-        } catch {
-            throw BootstrapStoreError.directoryCreationFailed(
-                path: location.directoryURL.path,
-                code: (error as NSError).code
-            )
+            try file.write(data)
+        } catch let failure as JournalFileError {
+            throw BootstrapStoreError(failure)
         }
     }
 
@@ -283,6 +239,21 @@ public struct BootstrapStore {
             return try validator.normalize(path)
         } catch let defect as BootstrapHomeDefect {
             throw BootstrapStoreError.invalidHome(defect)
+        }
+    }
+}
+
+private extension BootstrapStoreError {
+    /// The file layer's failure in the store's own vocabulary, so callers keep
+    /// catching one error type.
+    init(_ failure: JournalFileError) {
+        switch failure {
+        case .readFailed(let path, _):
+            self = .unreadable(path: path)
+        case .writeFailed(let path, let code):
+            self = .writeFailed(path: path, errno: code)
+        case .directoryCreationFailed(let path, let code):
+            self = .directoryCreationFailed(path: path, code: code)
         }
     }
 }

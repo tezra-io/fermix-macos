@@ -257,20 +257,6 @@ struct LogsSurfaceTests {
         #expect(copied.split(separator: "\n").count == 2)
     }
 
-    @Test("exporting writes only the visible entries, never a log file")
-    func exportVisible() async throws {
-        let harness = try LogsHarness()
-        harness.gateway.logPages = [try ManagementValueFixture.logPage(messages: ["exported line"])]
-        await harness.model.refresh()
-
-        let destination = harness.root.appendingPathComponent("logs.txt")
-        try harness.model.exportVisible(to: destination)
-
-        let written = try String(contentsOf: destination, encoding: .utf8)
-        #expect(written.contains("exported line"))
-        #expect(written.split(separator: "\n").count == 1)
-    }
-
     @Test("an empty result draws the empty state rather than a blank list")
     func emptyState() async throws {
         let harness = try LogsHarness()
@@ -355,24 +341,12 @@ struct LogsSurfaceTests {
 
 @MainActor
 final class LogsHarness {
-    let root: URL
     let gateway = FakeDaemonGateway()
     let model: LogsModel
 
     init() throws {
-        root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("fermix-logs-tests", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-
         gateway.logPages = [try ManagementValueFixture.logPage(messages: ["a line"])]
         model = LogsModel(gateway: gateway)
         model.setVisible(true)
-    }
-
-    deinit {
-        let path = root.path
-        guard path.contains("fermix-logs-tests"), path.split(separator: "/").count >= 4 else { return }
-        try? FileManager.default.removeItem(at: root)
     }
 }

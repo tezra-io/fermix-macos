@@ -42,8 +42,8 @@ public final class UserDefaultsSettingsPaneStore: SettingsPaneStoring {
 /// Settings window, Home and onboarding, so the three cannot hold three
 /// different answers to "what is configured". It owns the `setup.state.get`
 /// snapshot, the per-section descriptor cache, the restart and external-change
-/// state, the engine reconcile state, the running jobs, the selected pane and
-/// the per-pane drafts.
+/// state, the engine reconcile state, the selected pane and the per-pane
+/// drafts.
 ///
 /// It decides nothing the daemon decides: every label, bound, option and
 /// refusal sentence here came off the wire.
@@ -60,7 +60,6 @@ public final class SettingsModel: ObservableObject {
     /// surface" (M34 §7.1, §7.2). Home writes the build comparison into it
     /// after every `hello`; the reads below write the other half.
     @Published public internal(set) var engineReconcile = EngineReconcile()
-    @Published public internal(set) var jobs: [ManagementJob] = []
     /// Uncommitted edits, so a rebuilt pane keeps what was typed into it.
     @Published public internal(set) var drafts: [SettingsDraftKey: ManagementSettingValue] = [:]
     /// The daemon's refusal for one row, shown under that row.

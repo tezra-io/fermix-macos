@@ -113,11 +113,6 @@ public actor ManagementGateway: DaemonQuerying {
         self.makeClient = makeClient
     }
 
-    /// A gateway for one Fermix home's `daemon.sock`.
-    public static func forHome(_ record: BootstrapRecord) -> ManagementGateway {
-        ManagementGateway { try ManagementClient.connected(to: record) }
-    }
-
     /// The window `hello` reported, once it has been negotiated.
     public var window: ManagementProtocolRange? {
         negotiatedHello?.protocolRange

@@ -84,14 +84,6 @@ public protocol InstallationProbing {
     func installedCopies() -> [String]
 }
 
-extension InstallationProbing {
-    /// How many copies are installed. Zero is one as far as this gate is
-    /// concerned: the running app is the copy.
-    public func installedCopyCount() -> Int {
-        max(installedCopies().count, 1)
-    }
-}
-
 public struct BundleInstallationProbe: InstallationProbing {
     /// The two legacy unit paths the migration recognizes, mirrored from
     /// `Fermix.CLI.Service` (`io.tezra.fermix`).

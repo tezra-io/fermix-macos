@@ -66,14 +66,3 @@ public struct ThemedColor: Equatable, Sendable {
         }
     }
 }
-
-/// A two-stop gradient token, used by the desktop backdrop.
-public struct ThemedGradient: Equatable, Sendable {
-    public let start: ThemedColor
-    public let end: ThemedColor
-
-    public init(start: ThemedColor, end: ThemedColor) {
-        self.start = start
-        self.end = end
-    }
-}

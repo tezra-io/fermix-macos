@@ -4,8 +4,8 @@ import Foundation
 ///
 /// Every one of them mints a job view and hands it to a `JobRunner`, so the row
 /// that shows it, the poll that follows it and the cancel that stops it are the
-/// same three pieces everywhere. The model records the running jobs so a pane
-/// reopened over one can find it.
+/// same three pieces everywhere. A pane reopened over a running job finds it
+/// through `JobRunner.attach(kind:)`, which asks the daemon.
 extension SettingsModel {
 
     /// A runner wired to this model's gateway and its injected sleeper, so a
@@ -159,35 +159,14 @@ extension SettingsModel {
         await start(runner) { try await self.gateway.startProviderProbe(provider: provider) }
     }
 
-    /// Starts one job and records it. A refusal is the daemon's own sentence on
-    /// the row rather than a silent no-op.
+    /// Starts one job. A refusal is the daemon's own sentence on the row rather
+    /// than a silent no-op.
     private func start(_ runner: JobRunner, _ mint: @escaping () async throws -> ManagementJob) async {
         do {
             let job = try await mint()
             runner.start(job)
-            note(job)
         } catch {
             runner.adopt(failure: ManagementMessage.sentence(for: error))
-            noteReconcile(error)
-        }
-    }
-
-    /// Records what is running, so a pane can tell that work is in flight
-    /// without holding a runner of its own.
-    func note(_ job: ManagementJob) {
-        jobs.removeAll { $0.jobId == job.jobId }
-        guard job.status == .running else { return }
-
-        jobs.append(job)
-    }
-
-    /// Re-reads what the daemon is running. The panes re-attach from this, which
-    /// is why a closed sheet never orphans an install.
-    public func refreshJobs() async {
-        do {
-            jobs = try await gateway.jobs().jobs.filter { $0.status == .running }
-        } catch {
-            log.error("job list refused: \(ManagementMessage.sentence(for: error), privacy: .public)")
             noteReconcile(error)
         }
     }
