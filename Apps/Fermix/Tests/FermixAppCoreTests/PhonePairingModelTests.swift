@@ -254,7 +254,7 @@ struct PhonePairingModelTests {
         harness.model.present(.pair)
         await harness.model.settle()
 
-        #expect(harness.model.step == .turnOn(PhoneTurnOn(throwsSwitch: true)))
+        #expect(harness.model.step == .turnOn(PhoneTurnOn(.switchOnAndRestart)))
         #expect(!harness.gateway.calls.contains(.v2(.mobilePairStart)))
     }
 
@@ -292,7 +292,7 @@ struct PhonePairingModelTests {
         harness.restarter.restarted = { harness.gateway.mobileStatusResult = nil }
         harness.model.present(.pair)
         await harness.model.settle()
-        #expect(harness.model.step == .turnOn(PhoneTurnOn(throwsSwitch: false)))
+        #expect(harness.model.step == .turnOn(PhoneTurnOn(.restart)))
 
         harness.model.turnOn()
         await harness.model.settle()
@@ -319,7 +319,7 @@ struct PhonePairingModelTests {
         harness.model.turnOn()
         await harness.model.settle()
 
-        #expect(harness.model.step == .turnOn(PhoneTurnOn(throwsSwitch: false, refusal: ProductStrings[.lifecycleServiceBusy])))
+        #expect(harness.model.step == .turnOn(PhoneTurnOn(.restart, refusal: ProductStrings[.lifecycleServiceBusy])))
         #expect(!harness.gateway.calls.contains(.v2(.mobilePairStart)))
     }
 
@@ -338,7 +338,7 @@ struct PhonePairingModelTests {
         await harness.model.settle()
 
         #expect(harness.model.step == .turnOn(PhoneTurnOn(
-            throwsSwitch: true,
+            .switchOnAndRestart,
             refusal: "Only the owner can pair or forget a phone; run this from your own terminal."
         )))
         #expect(harness.restarter.restarts == 0)
@@ -361,6 +361,60 @@ struct PhonePairingModelTests {
         harness.model.turnOn()
         await harness.model.settle()
 
+        #expect(harness.model.step == .ended(PhoneEnding(sentence: sentence, action: .pairAgain)))
+    }
+
+    /// An engine that starts the channel in place says so on the switch's
+    /// row, and Turn on then restarts nothing: the window opens on the
+    /// channel the switch started.
+    @Test("Turn on where the switch starts the channel in place writes it and opens the window, with no restart")
+    func turnOnInPlace() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        harness.gateway.sectionResults[PhoneChannel.section] = try PairingGolden.inPlaceSection()
+        harness.gateway.mobileStatusResult = try PairingGolden.status {
+            $0["enabled"] = false
+            $0["started"] = false
+        }
+        harness.model.present(.pair)
+        await harness.model.settle()
+        #expect(harness.model.step == .turnOn(PhoneTurnOn(.switchOn)))
+
+        harness.gateway.mobileStatusResult = nil
+        harness.model.turnOn()
+        await harness.model.settle()
+
+        #expect(harness.gateway.appliedSettings == [
+            SettingsWrite(section: PhoneChannel.section, values: [PhoneChannel.switchKey: .flag(true)])
+        ])
+        #expect(harness.restarter.restarts == 0)
+        guard case .scan = harness.model.step else {
+            Issue.record("expected Scan, got \(harness.model.step)")
+            return
+        }
+    }
+
+    /// A switch that could not start the channel in place is not followed by
+    /// a restart nobody asked for: the window is asked for, and the daemon
+    /// says why it is not open.
+    @Test("a switch that could not start the channel in place ends with the daemon's sentence, and restarts nothing")
+    func inPlaceStillNotStarted() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        harness.gateway.sectionResults[PhoneChannel.section] = try PairingGolden.inPlaceSection()
+        harness.gateway.mobileStatusResult = try PairingGolden.status {
+            $0["enabled"] = false
+            $0["started"] = false
+        }
+        let sentence = "The phone channel is on but could not start. See the daemon log."
+        harness.gateway.pairingStartResult = try PairingGolden.start("mobile_pair_start_channel_off") {
+            $0["failure"] = ["code": "refused", "sentence": sentence]
+        }
+        harness.model.present(.pair)
+        await harness.model.settle()
+
+        harness.model.turnOn()
+        await harness.model.settle()
+
+        #expect(harness.restarter.restarts == 0)
         #expect(harness.model.step == .ended(PhoneEnding(sentence: sentence, action: .pairAgain)))
     }
 

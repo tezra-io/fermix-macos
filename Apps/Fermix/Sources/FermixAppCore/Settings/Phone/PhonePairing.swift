@@ -139,21 +139,37 @@ public struct PhoneTurnOn: Equatable, Sendable {
         case restarting
     }
 
-    /// Whether this step throws the switch, or the switch is already on and
-    /// only the restart is owed.
-    public let throwsSwitch: Bool
+    /// What the one button does, which its words say.
+    public enum Action: Equatable, Sendable {
+        /// Throws the switch, which starts the channel in place.
+        case switchOn
+        /// Throws the switch and restarts, since the channel starts only at
+        /// boot.
+        case switchOnAndRestart
+        /// Restarts: the switch is on already and the channel did not start.
+        case restart
+
+        public var throwsSwitch: Bool { self != .restart }
+        public var restarts: Bool { self != .switchOn }
+    }
+
+    public let action: Action
     public var progress: Progress
     /// What refused it, as written, where something did.
     public var refusal: String?
 
-    public init(throwsSwitch: Bool, progress: Progress = .idle, refusal: String? = nil) {
-        self.throwsSwitch = throwsSwitch
+    public init(_ action: Action, progress: Progress = .idle, refusal: String? = nil) {
+        self.action = action
         self.progress = progress
         self.refusal = refusal
     }
 
     public var actionKey: ProductStringKey {
-        throwsSwitch ? .phoneTurnOnAndRestart : .phoneTurnOnRestart
+        switch action {
+        case .switchOn: return .channelEnable
+        case .switchOnAndRestart: return .phoneTurnOnAndRestart
+        case .restart: return .phoneTurnOnRestart
+        }
     }
 }
 
@@ -204,8 +220,9 @@ public struct PhoneEnding: Equatable, Sendable {
 
 /// One answer from the daemon, as the sheet takes it.
 public enum PhoneAnswer: Equatable, Sendable {
-    /// `mobile.status`, read as pairing begins.
-    case status(ManagementMobileStatus)
+    /// `mobile.status`, read as pairing begins, and whether the channel's
+    /// switch says on its own row that it starts the channel in place.
+    case status(ManagementMobileStatus, switchStartsInPlace: Bool)
     /// `mobile.pair.start`'s answer.
     case started(ManagementPairingStart)
     /// `mobile.pair.start` refused `busy`, with the session `mobile.status`
@@ -238,8 +255,8 @@ public struct PhoneTransition: Equatable, Sendable {
 public enum PhonePairing {
     public static func reduce(_ step: PhoneSheetStep, _ answer: PhoneAnswer) -> PhoneTransition {
         switch answer {
-        case .status(let status):
-            return opening(status)
+        case .status(let status, let switchStartsInPlace):
+            return opening(status, switchStartsInPlace: switchStartsInPlace)
         case .started(let started):
             return start(started)
         case .busy(let pairing):
@@ -252,13 +269,14 @@ public enum PhonePairing {
     }
 
     /// Pairing begins on the channel as it stands: Turn on while it is not
-    /// running, and the window opening once it is.
-    private static func opening(_ status: ManagementMobileStatus) -> PhoneTransition {
-        guard status.started else {
-            return PhoneTransition(.turnOn(PhoneTurnOn(throwsSwitch: !status.enabled)))
-        }
+    /// running, and the window opening once it is. A switch that is off is
+    /// thrown, with a restart unless its row says it starts the channel in
+    /// place; one that is on owes the restart that starts the channel.
+    private static func opening(_ status: ManagementMobileStatus, switchStartsInPlace: Bool) -> PhoneTransition {
+        guard !status.started else { return PhoneTransition(.waiting(session: nil)) }
+        guard !status.enabled else { return PhoneTransition(.turnOn(PhoneTurnOn(.restart))) }
 
-        return PhoneTransition(.waiting(session: nil))
+        return PhoneTransition(.turnOn(PhoneTurnOn(switchStartsInPlace ? .switchOn : .switchOnAndRestart)))
     }
 
     /// The window the start opened, or the daemon's refusal of it. The link is

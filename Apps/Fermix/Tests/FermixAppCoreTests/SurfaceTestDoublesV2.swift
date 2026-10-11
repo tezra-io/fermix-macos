@@ -59,6 +59,7 @@ extension FakeDaemonGateway {
         try checkNegotiation(for: .settingsGet)
 
         if let providerSettings, providerSettings.section == section { return try providerSettings.read() }
+        if let rows = sectionResults[section] { return rows }
 
         return try FakeDaemonGateway.fixtureResult(
             selecting: ["section": section],

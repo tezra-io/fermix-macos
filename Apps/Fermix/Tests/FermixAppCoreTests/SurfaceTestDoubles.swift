@@ -99,6 +99,10 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// is exactly what the side-effect line exists to surface.
     var settingsAppliedResult: ManagementSettingsApplied?
     var providerSettings: StatefulProviderSettings?
+    /// The rows `settings.get` answers for a section, where a case needs a
+    /// descriptor the golden cannot express: the vendored engine's phone
+    /// switch waits for a restart, and a newer engine's does not.
+    var sectionResults: [String: ManagementSettingsSectionRows] = [:]
 
     /// What the surfaces wrote, in order.
     var appliedSettings: [SettingsWrite] = []

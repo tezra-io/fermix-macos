@@ -21,23 +21,47 @@ struct PhonePairingTests {
     @Test("pairing opens the window on a running channel and Turn on on one that is not")
     func openingFollowsTheChannel() throws {
         let running = try PairingGolden.status()
-        #expect(PhonePairing.reduce(.waiting(session: nil), .status(running)).step == .waiting(session: nil))
+        for inPlace in [false, true] {
+            #expect(
+                PhonePairing.reduce(.waiting(session: nil), .status(running, switchStartsInPlace: inPlace)).step
+                    == .waiting(session: nil)
+            )
+        }
 
         let owed = try PairingGolden.status { $0["started"] = false }
-        #expect(
-            PhonePairing.reduce(.waiting(session: nil), .status(owed)).step
-                == .turnOn(PhoneTurnOn(throwsSwitch: false))
-        )
+        for inPlace in [false, true] {
+            #expect(
+                PhonePairing.reduce(.waiting(session: nil), .status(owed, switchStartsInPlace: inPlace)).step
+                    == .turnOn(PhoneTurnOn(.restart)),
+                "a switch that is on and did not start the channel owes a restart however it starts it"
+            )
+        }
 
         let off = try PairingGolden.status {
             $0["enabled"] = false
             $0["started"] = false
         }
-        let turnOn = PhonePairing.reduce(.waiting(session: nil), .status(off)).step
-        #expect(turnOn == .turnOn(PhoneTurnOn(throwsSwitch: true)))
-        guard case .turnOn(let step) = turnOn else { return }
-        #expect(step.actionKey == .phoneTurnOnAndRestart)
-        #expect(PhoneTurnOn(throwsSwitch: false).actionKey == .phoneTurnOnRestart)
+        #expect(
+            PhonePairing.reduce(.waiting(session: nil), .status(off, switchStartsInPlace: false)).step
+                == .turnOn(PhoneTurnOn(.switchOnAndRestart))
+        )
+        #expect(
+            PhonePairing.reduce(.waiting(session: nil), .status(off, switchStartsInPlace: true)).step
+                == .turnOn(PhoneTurnOn(.switchOn))
+        )
+    }
+
+    /// The button says what it does: Turn on alone where the switch starts the
+    /// channel in place, and the restart wherever one follows.
+    @Test("Turn on's button and its restart follow what the step does")
+    func turnOnSaysWhatItDoes() {
+        #expect(PhoneTurnOn(.switchOn).actionKey == .channelEnable)
+        #expect(PhoneTurnOn(.switchOnAndRestart).actionKey == .phoneTurnOnAndRestart)
+        #expect(PhoneTurnOn(.restart).actionKey == .phoneTurnOnRestart)
+
+        #expect(PhoneTurnOn.Action.switchOn.throwsSwitch && !PhoneTurnOn.Action.switchOn.restarts)
+        #expect(PhoneTurnOn.Action.switchOnAndRestart.throwsSwitch && PhoneTurnOn.Action.switchOnAndRestart.restarts)
+        #expect(!PhoneTurnOn.Action.restart.throwsSwitch && PhoneTurnOn.Action.restart.restarts)
     }
 
     // MARK: - Every transition, on the goldens
@@ -348,7 +372,7 @@ struct PhonePairingTests {
             .paired(name: "Sam's phone"),
             .ended(PhoneEnding(sentence: "Pairing was cancelled.", action: .pairAgain)),
             .phones,
-            .turnOn(PhoneTurnOn(throwsSwitch: true)),
+            .turnOn(PhoneTurnOn(.switchOnAndRestart)),
             .waiting(session: nil)
         ]
         for step in ended {
@@ -665,6 +689,18 @@ enum PairingGolden {
 
     static func devices(_ change: (inout [String: Any]) -> Void = { _ in }) throws -> ManagementMobileDevices {
         try decode("mobile_devices_list", change)
+    }
+
+    /// The phone section as an engine that starts the channel in place
+    /// publishes it: its switch waits for no restart, and its other rows do.
+    static func inPlaceSection() throws -> ManagementSettingsSectionRows {
+        try decode("settings_get_channels_mobile") { section in
+            section["rows"] = (section["rows"] as? [[String: Any]] ?? []).map { row in
+                guard row["key"] as? String == PhoneChannel.switchKey else { return row }
+
+                return row.merging(["restart": false]) { _, new in new }
+            }
+        }
     }
 
     static func decode<Value: Decodable>(_ name: String, _ change: (inout [String: Any]) -> Void) throws -> Value {

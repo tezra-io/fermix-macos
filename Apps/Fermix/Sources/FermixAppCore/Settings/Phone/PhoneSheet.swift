@@ -150,8 +150,9 @@ private struct PhoneWaitingStep: View {
 }
 
 /// Turn on: shown while the channel is not running (§3.3). What the switch
-/// does, in the daemon's own footer for it; what a restart would interrupt,
-/// as the Restart sheet says it; and the one button that says it restarts.
+/// does, in the daemon's own footer for it; where the button restarts, what a
+/// restart would interrupt, as the Restart sheet says it; and the one button,
+/// which says whether it restarts.
 private struct PhoneTurnOnStep: View {
     let turnOn: PhoneTurnOn
     @ObservedObject var settings: SettingsModel
@@ -165,7 +166,9 @@ private struct PhoneTurnOnStep: View {
                 PhoneLead(text: footer, heading: heading)
             }
 
-            RestartInFlightLine(count: settings.conversationsInFlight)
+            if turnOn.action.restarts {
+                RestartInFlightLine(count: settings.conversationsInFlight)
+            }
             progress
 
             if let refusal = turnOn.refusal {
@@ -183,10 +186,7 @@ private struct PhoneTurnOnStep: View {
                     .disabled(turnOn.progress != .idle)
             }
         }
-        .task {
-            await settings.loadChannelSection(PhoneChannel.name)
-            await settings.readConversationsInFlight()
-        }
+        .task { await settings.readConversationsInFlight() }
     }
 
     /// The daemon's own footer for the channel's switch.

@@ -60,8 +60,8 @@ public final class PhonePairingModel: ObservableObject {
         await readDevices()
     }
 
-    /// A restart finished. The channel starts only at boot, so a row that has
-    /// been read is read again.
+    /// A restart finished, which starts the channel where its switch is on,
+    /// so a row that has been read is read again.
     func restartCompleted() async {
         guard status != .unread else { return }
 
@@ -105,12 +105,12 @@ public final class PhonePairingModel: ObservableObject {
         closing = Task { await self.cancel(open) }
     }
 
-    /// Turn on's one button: the switch where it is off, then the restart
-    /// that starts the channel, then the window (§3.3).
+    /// Turn on's one button: the switch where it is off, the restart where
+    /// the channel waits for one, then the window (§3.3).
     public func turnOn() {
         guard case .turnOn(let turnOn) = step, turnOn.progress == .idle else { return }
 
-        run { await self.switchOnAndRestart(turnOn) }
+        run { await self.turnOnChannel(turnOn.action) }
     }
 
     /// The phones, with the phone just paired among them: Done on Paired,
@@ -198,7 +198,8 @@ public final class PhonePairingModel: ObservableObject {
         step = .waiting(session: nil)
 
         do {
-            await take(.status(try await readStatus()))
+            let status = try await readStatus()
+            await take(.status(status, switchStartsInPlace: await switchStartsInPlace()))
         } catch {
             await take(.refused(ManagementMessage.sentence(for: error)))
             return
@@ -208,26 +209,40 @@ public final class PhonePairingModel: ObservableObject {
         await open()
     }
 
-    /// Turn on: the switch, where this step throws it, and the restart, each
-    /// shown as it runs. A refusal stays on the step in its own words. After
-    /// the restart the window is asked for whatever the channel did, so a
-    /// channel that still could not start says why in the daemon's sentence.
-    private func switchOnAndRestart(_ turnOn: PhoneTurnOn) async {
-        if turnOn.throwsSwitch {
-            step = .turnOn(PhoneTurnOn(throwsSwitch: true, progress: .applying))
+    /// Whether the channel's switch says on its own row that throwing it
+    /// starts the channel in place. The engine this app pins starts the
+    /// channel only at boot and marks the row as waiting for a restart; a
+    /// newer one starts it at once and does not.
+    private func switchStartsInPlace() async -> Bool {
+        await settings.loadChannelSection(PhoneChannel.name)
+        let row = settings.section(PhoneChannel.section).value?.rows.first { $0.key == PhoneChannel.switchKey }
+
+        return row?.restart == false
+    }
+
+    /// Turn on: the switch, where this step throws it, and the restart, where
+    /// the channel waits for one, each shown as it runs. A refusal stays on
+    /// the step in its own words. Then the window is asked for whatever the
+    /// channel did, so a channel that still could not start says why in the
+    /// daemon's sentence.
+    private func turnOnChannel(_ action: PhoneTurnOn.Action) async {
+        if action.throwsSwitch {
+            step = .turnOn(PhoneTurnOn(action, progress: .applying))
             let key = SettingsDraftKey(section: PhoneChannel.section, key: PhoneChannel.switchKey)
             guard await settings.apply(section: key.section, key: key.key, value: .flag(true)) else {
-                step = .turnOn(PhoneTurnOn(throwsSwitch: true, refusal: settings.message(for: key)))
+                step = .turnOn(PhoneTurnOn(action, refusal: settings.message(for: key)))
                 return
             }
         }
 
-        step = .turnOn(PhoneTurnOn(throwsSwitch: false, progress: .restarting))
-        guard let restarter else { preconditionFailure("the composition hands the phone the app's restart") }
+        if action.restarts {
+            step = .turnOn(PhoneTurnOn(.restart, progress: .restarting))
+            guard let restarter else { preconditionFailure("the composition hands the phone the app's restart") }
 
-        if let refusal = await restarter.restartDaemonAwaitingCompletion() {
-            step = .turnOn(PhoneTurnOn(throwsSwitch: false, refusal: refusal))
-            return
+            if let refusal = await restarter.restartDaemonAwaitingCompletion() {
+                step = .turnOn(PhoneTurnOn(.restart, refusal: refusal))
+                return
+            }
         }
         guard !Task.isCancelled else { return }
 
