@@ -53,6 +53,17 @@ public struct ChatPictureFacts: Equatable, Sendable {
         self.pixels = pixels
         self.animated = animated
     }
+
+    /// The facts from a picture's own header, which the file writes and so may
+    /// claim anything. A size whose area overflows, or a side that is not
+    /// positive, counts as past every ceiling: the tile shows its icon, and
+    /// nothing traps on the multiplication.
+    public init(width: Int, height: Int, animated: Bool) {
+        let area = width.multipliedReportingOverflow(by: height)
+        let sane = width > 0 && height > 0 && !area.overflow
+
+        self.init(pixels: sane ? area.partialValue : .max, animated: animated)
+    }
 }
 
 /// The budgets previews are made within (M66 §3.7): starting numbers, to be

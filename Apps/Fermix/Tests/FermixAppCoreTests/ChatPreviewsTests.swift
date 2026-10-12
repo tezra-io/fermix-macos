@@ -277,3 +277,17 @@ struct ChatPreviewsTests {
         #expect(reader.appLookups == [.mpeg4Movie, .quickTimeMovie])
     }
 }
+
+/// A picture's header is the file's own claim, so its size is never trusted
+/// to multiply safely.
+@Suite("Chat picture facts")
+struct ChatPictureFactsTests {
+    @Test("a header's size is its area, and one that overflows or is not positive is past every ceiling")
+    func headerSizeNeverTraps() {
+        #expect(ChatPictureFacts(width: 400, height: 300, animated: false).pixels == 120_000)
+        #expect(ChatPictureFacts(width: Int.max, height: 2, animated: false).pixels == .max)
+        #expect(ChatPictureFacts(width: 4_294_967_295, height: 4_294_967_295, animated: false).pixels == .max)
+        #expect(ChatPictureFacts(width: 0, height: 300, animated: false).pixels == .max)
+        #expect(ChatPictureFacts(width: -1, height: -1, animated: true).pixels == .max)
+    }
+}

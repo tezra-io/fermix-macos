@@ -25,7 +25,7 @@ public struct SystemMediaReader: ChatMediaReading {
               let height = properties[kCGImagePropertyPixelHeight] as? Int
         else { return nil }
 
-        return ChatPictureFacts(pixels: width * height, animated: CGImageSourceGetCount(source) > 1)
+        return ChatPictureFacts(width: width, height: height, animated: CGImageSourceGetCount(source) > 1)
     }
 
     public func thumbnail(of file: URL, size: CGSize, scale: Double) async throws -> CGImage {
