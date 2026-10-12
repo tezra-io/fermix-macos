@@ -8,9 +8,8 @@ import SwiftUI
 ///   reader keeps their place when it lands: the newest row stays on the bottom
 ///   edge if it was there, and otherwise the row that was at the top stays at
 ///   the top.
-/// - A held row changing height in place, read again with more in it or its
-///   strip opened or folded, leaves the reader where they were by the same
-///   rule.
+/// - A held row changing height in place, read again with more in it, leaves
+///   the reader where they were by the same rule.
 /// - The newest row on screen, in a window that is in front, is read, and the
 ///   session moves the read frontier the phone shares.
 ///

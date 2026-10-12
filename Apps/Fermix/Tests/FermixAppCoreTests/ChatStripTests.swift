@@ -5,8 +5,8 @@ import Testing
 
 /// A row's strip, worked out from its content alone: which items, in which
 /// order, each destination once, a stored preview paired with the address it
-/// was made from by the engine's own rule, and how many tiles fit a column
-/// with **+N** counted. No disk: the home is text, as the paths are.
+/// was made from by the engine's own rule, how wide its tiles are, and how a
+/// sideways row moves. No disk: the home is text, as the paths are.
 @Suite("Chat strip")
 struct ChatStripTests {
     private static let home = ChatHome(roots: ["/Users/me/.fermix"])
@@ -240,34 +240,41 @@ struct ChatStripTests {
 
     // MARK: - The fit
 
-    /// Section 3.2's worked examples.
-    @Test("720 points: three tiles of 200 by 133, with or without +N")
+    /// As wide as lets up to three of a row show whole, between 120 and 200
+    /// points; a row with more scrolls, so no room is held back for a control.
+    @Test("720 points: tiles of 200 by 133, however many the row has")
     func fitWide() {
-        #expect(ChatStripFit.of(count: 3, width: 720) == ChatStripFit(tileWidth: 200, shown: 3, more: 0))
-        #expect(ChatStripFit.of(count: 6, width: 720) == ChatStripFit(tileWidth: 200, shown: 3, more: 3))
-        #expect(ChatStripFit.of(count: 6, width: 720).tileSize.height.rounded() == 133)
+        #expect(ChatStripFit.itemWidth(count: 1, width: 720) == 200)
+        #expect(ChatStripFit.itemWidth(count: 3, width: 720) == 200)
+        #expect(ChatStripFit.itemWidth(count: 6, width: 720) == 200)
+        #expect(ChatStripFit.tileSize(width: 200).height.rounded() == 133)
     }
 
-    @Test("430 points: three tiles of 138, or with more, two of about 180 and +N")
+    @Test("430 points: three whole tiles of 138, or two of 200 where the row has two")
     func fitMiddle() {
-        #expect(ChatStripFit.of(count: 3, width: 430) == ChatStripFit(tileWidth: 138, shown: 3, more: 0))
-
-        let more = ChatStripFit.of(count: 6, width: 430)
-        #expect(more.shown == 2)
-        #expect(more.more == 4)
-        #expect(abs(more.tileWidth - 180) < 2)
+        #expect(ChatStripFit.itemWidth(count: 3, width: 430) == 138)
+        #expect(ChatStripFit.itemWidth(count: 6, width: 430) == 138)
+        #expect(ChatStripFit.itemWidth(count: 2, width: 430) == 200)
     }
 
-    @Test("300 points: two tiles of 146, or one and +N")
+    @Test("300 points: two whole tiles of 146, or one of 200")
     func fitNarrow() {
-        #expect(ChatStripFit.of(count: 2, width: 300) == ChatStripFit(tileWidth: 146, shown: 2, more: 0))
-        #expect(ChatStripFit.of(count: 3, width: 300) == ChatStripFit(tileWidth: 200, shown: 1, more: 2))
-        #expect(ChatStripFit.of(count: 1, width: 300) == ChatStripFit(tileWidth: 200, shown: 1, more: 0))
+        #expect(ChatStripFit.itemWidth(count: 2, width: 300) == 146)
+        #expect(ChatStripFit.itemWidth(count: 6, width: 300) == 146)
+        #expect(ChatStripFit.itemWidth(count: 1, width: 300) == 200)
     }
 
-    @Test("a column too narrow for one tile and +N still shows one, at the narrowest width")
+    @Test("a column too narrow for one whole tile still shows one, at the narrowest width")
     func fitTooNarrow() {
-        #expect(ChatStripFit.of(count: 4, width: 100) == ChatStripFit(tileWidth: 120, shown: 1, more: 3))
+        #expect(ChatStripFit.itemWidth(count: 4, width: 100) == 120)
+    }
+
+    /// A row that fits sits on its side; one wider than its room scrolls.
+    @Test("a row's width is its items and the gaps between them")
+    func rowWidth() {
+        #expect(ChatStripFit.rowWidth(count: 3, itemWidth: 200) == 616)
+        #expect(ChatStripFit.rowWidth(count: 1, itemWidth: 200) == 200)
+        #expect(ChatStripFit.rowWidth(count: 0, itemWidth: 200) == 0)
     }
 
     @Test("the reading column is the column's width, or the body less its gutters")
@@ -277,41 +284,52 @@ struct ChatStripTests {
         #expect(ChatMetrics.column(inBody: 20) == 0)
     }
 
-    // MARK: - Rows once open
+    // MARK: - Moving along a row
 
-    /// Open, every tile shows in rows of the folded strip's own count, and
-    /// **Show fewer** ends the last row where it fits, or takes its own.
-    @Test("an open strip's rows hold the folded count, and Show fewer ends the last where it fits")
-    func openRows() {
-        let tile = CGSize(width: 200, height: 133)
-        let fewer = CGSize(width: 96, height: 24)
-        let rows = ChatStripRows(perRow: 3, groups: [6], trailing: false, endsWithControl: true)
-
-        #expect(rows.rows(of: Array(repeating: tile, count: 6) + [fewer], width: 720) == [[0, 1, 2], [3, 4, 5, 6]])
-        #expect(rows.rows(of: Array(repeating: tile, count: 6) + [fewer], width: 700) == [[0, 1, 2], [3, 4, 5], [6]])
-
-        let folded = ChatStripRows(perRow: 2, groups: [2], trailing: true, endsWithControl: true)
-        let narrow = CGSize(width: 179, height: 119)
-        let more = CGSize(width: 40, height: 24)
-        #expect(folded.rows(of: [narrow, narrow, more], width: 430) == [[0, 1, 2]])
+    @Test("the arrow keys move one item along, held at the first and the last")
+    func navigation() {
+        #expect(ChatStripNavigation.index(from: 2, by: 1, count: 6) == 3)
+        #expect(ChatStripNavigation.index(from: 2, by: -1, count: 6) == 1)
+        #expect(ChatStripNavigation.index(from: 5, by: 1, count: 6) == 5)
+        #expect(ChatStripNavigation.index(from: 0, by: -1, count: 6) == 0)
+        #expect(ChatStripNavigation.index(from: 0, by: 1, count: 1) == 0)
     }
 
-    /// Previews and cards never share a row: the previews' rows come first,
-    /// then the cards' at the same width, and the control ends the last.
-    @Test("previews and cards each take rows of their own, the cards after")
-    func groupedRows() {
-        let tile = CGSize(width: 200, height: 133)
-        let card = CGSize(width: 200, height: 52)
-        let more = CGSize(width: 40, height: 24)
+    /// An end has more past it while the row is not resting there, a point of
+    /// slack aside.
+    @Test("an end fades and offers its arrow only while there is more past it")
+    func edges() {
+        let start = ChatStripEdges(ChatStripScroll(offset: 0, content: 1024, container: 430))
+        #expect(start == ChatStripEdges(leading: false, trailing: true))
 
-        let folded = ChatStripRows(perRow: 3, groups: [1, 2], trailing: false, endsWithControl: true)
-        #expect(folded.rows(of: [tile, card, card, more], width: 720) == [[0], [1, 2, 3]])
+        let middle = ChatStripEdges(ChatStripScroll(offset: 300, content: 1024, container: 430))
+        #expect(middle == ChatStripEdges(leading: true, trailing: true))
 
-        let open = ChatStripRows(perRow: 3, groups: [4, 4], trailing: false, endsWithControl: false)
-        #expect(open.rows(of: Array(repeating: tile, count: 4) + Array(repeating: card, count: 4), width: 720) == [[0, 1, 2], [3], [4, 5, 6], [7]])
+        let end = ChatStripEdges(ChatStripScroll(offset: 593.5, content: 1024, container: 430))
+        #expect(end == ChatStripEdges(leading: true, trailing: false))
+    }
 
-        let cardsOnly = ChatStripRows(perRow: 3, groups: [0, 2], trailing: false, endsWithControl: false)
-        #expect(cardsOnly.rows(of: [card, card], width: 720) == [[0, 1]])
+    /// The left and right arrow keys, while the row itself has focus, move it
+    /// by one item and the gap after it.
+    @Test("an arrow key moves a focused row by one item, and never past either end")
+    func stepping() {
+        let scroll = ChatStripScroll(offset: 300, content: 1024, container: 430)
+
+        #expect(ChatStripEdges.step(from: scroll, item: 138, forward: true) == 446)
+        #expect(ChatStripEdges.step(from: scroll, item: 138, forward: false) == 154)
+        #expect(ChatStripEdges.step(from: ChatStripScroll(offset: 100, content: 1024, container: 430), item: 138, forward: false) == 0)
+        #expect(ChatStripEdges.step(from: ChatStripScroll(offset: 500, content: 1024, container: 430), item: 138, forward: true) == 594)
+        #expect(ChatStripEdges.step(from: ChatStripScroll(offset: 0, content: 300, container: 430), item: 138, forward: true) == 0)
+    }
+
+    @Test("an arrow moves the row on by what it shows, and never past either end")
+    func paging() {
+        let scroll = ChatStripScroll(offset: 300, content: 1024, container: 430)
+
+        #expect(ChatStripEdges.page(from: scroll, forward: true) == 594)
+        #expect(ChatStripEdges.page(from: scroll, forward: false) == 0)
+        #expect(ChatStripEdges.page(from: ChatStripScroll(offset: 0, content: 1024, container: 430), forward: true) == 430)
+        #expect(ChatStripEdges.page(from: ChatStripScroll(offset: 0, content: 300, container: 430), forward: true) == 0)
     }
 
     // MARK: - The text
@@ -441,16 +459,18 @@ struct ChatStripTests {
         #expect(unreadable.strip(for: row(4)).items.isEmpty)
     }
 
-    /// The toggle is the session's for the surface's life: a keystroke that
-    /// redraws the surface makes a new one, and must not redraw every row.
+    /// The media is one object for the app's life, so two contexts are the
+    /// same when it and the column are: a keystroke that redraws the surface
+    /// must not redraw every row.
     @MainActor
-    @Test("two strip contexts are the same when their media, width and open strips are")
+    @Test("two strip contexts are the same when their media and column width are")
     func contextEquality() {
         let media = ChatMedia(home: { URL(fileURLWithPath: "/h") }, player: AppPlayer(engine: FakePlaybackEngine()), reader: FakeMediaReader(), deadlines: ManualDeadlineScheduler())
-        let context = ChatStripContext(media: media, columnWidth: 720, openStrips: [3], toggle: { _ in })
+        let other = ChatMedia(home: { URL(fileURLWithPath: "/h") }, player: AppPlayer(engine: FakePlaybackEngine()), reader: FakeMediaReader(), deadlines: ManualDeadlineScheduler())
+        let context = ChatStripContext(media: media, columnWidth: 720)
 
-        #expect(context == ChatStripContext(media: media, columnWidth: 720, openStrips: [3], toggle: { _ in }))
-        #expect(context != ChatStripContext(media: media, columnWidth: 430, openStrips: [3], toggle: { _ in }))
-        #expect(context != ChatStripContext(media: media, columnWidth: 720, openStrips: [], toggle: { _ in }))
+        #expect(context == ChatStripContext(media: media, columnWidth: 720))
+        #expect(context != ChatStripContext(media: media, columnWidth: 430))
+        #expect(context != ChatStripContext(media: other, columnWidth: 720))
     }
 }

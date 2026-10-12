@@ -280,19 +280,6 @@ struct CompanionReducerTests {
         #expect(chat.lastError == "The reply did not finish: The provider is busy")
     }
 
-    @Test("a strip opens and folds by its row's seq, and the rows are untouched")
-    func stripsOpenAndFold() {
-        var chat = CompanionChat.holding(1...12)
-
-        CompanionReducer.toggleStrip(7, in: &chat)
-        CompanionReducer.toggleStrip(9, in: &chat)
-        #expect(chat.openStrips == [7, 9])
-
-        CompanionReducer.toggleStrip(7, in: &chat)
-        #expect(chat.openStrips == [9])
-        #expect(chat.seqs == Array(1...12))
-    }
-
     /// Version 2: during a voice call a typed message may be material for the
     /// call rather than a request, and the agent may leave it unanswered.
     @Test("a turn that wrote no reply ends with nothing kept and nothing said")
@@ -822,20 +809,16 @@ struct CompanionReducerTests {
 
     // MARK: - Replacing a row
 
-    @Test("a row read again replaces the held one at its seq, keeps its strip open, and says its height changed")
-    func replacedRowKeepsItsStripAndIsAChange() {
+    @Test("a row read again replaces the held one at its seq, and says its height changed")
+    func replacedRowIsAChange() {
         var chat = CompanionChat.holding(1...10)
         chat.receive(M.announced(11, role: "assistant"))
-        CompanionReducer.toggleStrip(11, in: &chat)
-        let toggled = chat.reshape
 
         chat.receive(M.page([M.exported(11, role: "assistant", refs: [M.picture])], head: 11))
 
         #expect(chat.seqs == Array(1...11))
         #expect(chat.row(11)?.mediaRefs == [M.picture])
-        #expect(chat.openStrips == [11])
         #expect(chat.reshape?.seqs == [11])
-        #expect(chat.reshape != toggled)
     }
 
     /// A reply held from its `text_done` comes back with its role and time:
@@ -850,18 +833,5 @@ struct CompanionReducerTests {
 
         #expect(chat.row(11)?.role == "assistant")
         #expect(chat.reshape == nil)
-    }
-
-    @Test("each strip opened or folded is a change of its row's height of its own")
-    func toggledStripIsAChange() {
-        var chat = CompanionChat.holding(1...12)
-
-        CompanionReducer.toggleStrip(7, in: &chat)
-        let opened = chat.reshape
-        CompanionReducer.toggleStrip(7, in: &chat)
-
-        #expect(opened?.seqs == [7])
-        #expect(chat.reshape?.seqs == [7])
-        #expect(chat.reshape != opened)
     }
 }

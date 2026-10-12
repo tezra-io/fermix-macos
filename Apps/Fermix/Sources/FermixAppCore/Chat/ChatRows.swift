@@ -62,10 +62,9 @@ private struct ChatRow: View {
             if let context, let strip, !strip.items.isEmpty {
                 ChatStripView(
                     strip: strip,
-                    seq: row.serverSeq,
                     trailing: user,
                     width: context.columnWidth - (user ? ChatMetrics.userRowLeadingRoom : 0),
-                    context: context
+                    media: context.media
                 )
             }
         }

@@ -373,36 +373,30 @@ struct ChatHome: Equatable, Sendable {
     }
 }
 
-/// How many items a strip shows at a width, and how wide (M66 §3.2): 3:2
-/// preview tiles and cards of the same width, `stripGap` apart, between 120
-/// and 200 points wide, as many to a row as fit up to three. With more items
-/// than it shows, **+N** follows the last, and the room it takes is counted
-/// before the items are.
-struct ChatStripFit: Equatable {
-    /// The width of every preview tile and card in the strip.
-    let tileWidth: Double
-    /// The items the folded strip shows, and how many a row holds.
-    let shown: Int
-    /// The items it does not show while folded, the N of **+N**.
-    let more: Int
-
-    var tileSize: CGSize {
-        CGSize(width: tileWidth, height: tileWidth / ChatMetrics.stripTileAspect)
-    }
-
-    /// The fit of `count` items in `width`. A column too narrow for one tile
-    /// and **+N** still shows one, at the narrowest width.
-    static func of(count: Int, width: Double) -> ChatStripFit {
+/// How wide a strip's tiles and cards are (M66 §3.2): 3:2 preview tiles and
+/// cards of the same width, `stripGap` apart, between 120 and 200 points
+/// wide, and as wide as lets up to three of a row show whole in the column.
+/// A row with more than that scrolls sideways (`ChatStripView`).
+enum ChatStripFit {
+    /// The width for a row of `count` items in `width`. A column too narrow
+    /// for one whole item still shows one, at the narrowest width.
+    static func itemWidth(count: Int, width: Double) -> Double {
         for shown in stride(from: min(ChatMetrics.stripMostTiles, count), through: 1, by: -1) {
-            let more = count - shown
             let gaps = Double(shown - 1) * ChatMetrics.stripGap
-            let control = more > 0 ? ChatMetrics.stripGap + ChatMetrics.stripMoreWidth : 0
-            let tile = min(ChatMetrics.stripTileWidths.upperBound, (width - gaps - control) / Double(shown))
-            if tile >= ChatMetrics.stripTileWidths.lowerBound {
-                return ChatStripFit(tileWidth: tile, shown: shown, more: more)
-            }
+            let item = min(ChatMetrics.stripTileWidths.upperBound, (width - gaps) / Double(shown))
+            if item >= ChatMetrics.stripTileWidths.lowerBound { return item }
         }
 
-        return ChatStripFit(tileWidth: ChatMetrics.stripTileWidths.lowerBound, shown: min(count, 1), more: max(count - 1, 0))
+        return ChatMetrics.stripTileWidths.lowerBound
+    }
+
+    /// A preview tile at that width, 3:2.
+    static func tileSize(width: Double) -> CGSize {
+        CGSize(width: width, height: width / ChatMetrics.stripTileAspect)
+    }
+
+    /// How wide a row of `count` items at `itemWidth` is, gaps included.
+    static func rowWidth(count: Int, itemWidth: Double) -> Double {
+        Double(count) * itemWidth + Double(max(count - 1, 0)) * ChatMetrics.stripGap
     }
 }

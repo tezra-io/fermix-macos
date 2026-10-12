@@ -81,19 +81,6 @@ struct ChatPlaceTests {
         #expect(ChatPlace(atBottom: false, visible: reading, items: Self.items(of: chat)) == before)
     }
 
-    @Test("a strip opened above the reader is a change of height, and the item at the top of the view is held")
-    func stripOpenedAboveTheReader() {
-        var chat = Self.chatWithAVoiceNoteAbove()
-        let reading: Set<ChatItemID> = [.row(11), .row(12)]
-        let published = chat.reshape
-
-        CompanionReducer.toggleStrip(11, in: &chat)
-
-        #expect(chat.reshape != published)
-        #expect(chat.reshape?.seqs == [11])
-        #expect(ChatPlace(atBottom: false, visible: reading, items: Self.items(of: chat)) == .top(.row(11)))
-    }
-
     @Test("a reader on the bottom edge follows the newest row through a change of height")
     func bottomEdgeFollowsThroughAChange() {
         var chat = Self.chatWithAVoiceNoteAbove()

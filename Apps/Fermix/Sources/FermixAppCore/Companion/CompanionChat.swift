@@ -253,7 +253,7 @@ public struct CompanionReshape: Equatable, Sendable {
     /// Counts the changes.
     public let id: Int
     /// The rows that changed: rows history brought again with different
-    /// content, or the row whose strip opened or folded.
+    /// content.
     public let seqs: Set<Int>
 }
 
@@ -297,9 +297,6 @@ struct CompanionChat: Equatable, Sendable {
     /// The read frontier, as the daemon last reported it or this client last
     /// advanced it.
     var readUpToSeq = 0
-    /// The rows whose strip shows every item, by seq (M66 §3.2). Kept here
-    /// rather than in a row's view, which a lazy transcript drops off screen.
-    var openStrips: Set<Int> = []
     /// The latest change to a held row's height.
     var reshape: CompanionReshape?
 }

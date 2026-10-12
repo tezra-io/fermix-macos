@@ -55,11 +55,9 @@ public final class CompanionModel: ObservableObject {
     @Published public private(set) var search: CompanionSearch?
     /// The latest failure, in a sentence, until the next request.
     @Published public private(set) var lastError: String?
-    /// The rows whose strip shows every item, by seq.
-    @Published public private(set) var openStrips: Set<Int> = []
     /// The latest change to a held row's height: a row history brought again
-    /// with different content, or a strip opened or folded. The transcript
-    /// keeps its reader's place against it.
+    /// with different content. The transcript keeps its reader's place
+    /// against it.
     @Published public private(set) var reshape: CompanionReshape?
 
     init() {}
@@ -80,7 +78,6 @@ public final class CompanionModel: ObservableObject {
         publish(\.approvals, chat.approvals)
         publish(\.search, chat.search)
         publish(\.lastError, chat.lastError)
-        publish(\.openStrips, chat.openStrips)
         publish(\.reshape, chat.reshape)
     }
 

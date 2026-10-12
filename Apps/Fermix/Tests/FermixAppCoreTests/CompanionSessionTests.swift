@@ -456,22 +456,6 @@ struct CompanionSessionTests {
         #expect(harness.scheduler.liveCount == 0)
     }
 
-    @Test("a strip opened or folded reaches the model as a change of its row's height")
-    func toggledStripReachesTheModel() {
-        let harness = Harness()
-        harness.connected()
-        harness.socket.deliver(E.backward([10, 11, 12], head: 12))
-
-        harness.session.toggleStrip(11)
-        let opened = harness.model.reshape
-        harness.session.toggleStrip(11)
-
-        #expect(opened?.seqs == [11])
-        #expect(harness.model.reshape?.seqs == [11])
-        #expect(harness.model.reshape != opened)
-        #expect(harness.model.openStrips.isEmpty)
-    }
-
     // MARK: - Routing
 
     @Test("a live row reaches the model, and a gap is pulled rather than shown")

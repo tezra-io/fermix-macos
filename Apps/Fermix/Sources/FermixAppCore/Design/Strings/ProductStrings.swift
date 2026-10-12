@@ -447,11 +447,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatSearchSearching = "chat.search.searching"
     case chatSearchNoMatches = "chat.search.noMatches"
     case chatSearchOlder = "chat.search.older"
-    // A row's strip (M66 §6). **+N** names how many items it does not show,
-    // and VoiceOver reads that count in words.
-    case chatStripMoreFormat = "chat.strip.moreFormat"
-    case chatStripMoreSpokenFormat = "chat.strip.moreSpokenFormat"
-    case chatStripShowFewer = "chat.strip.showFewer"
+    // A row's strip (M66 §6).
     /// A tile whose file is gone, or whose bytes the engine no longer holds.
     case chatTileNotAvailable = "chat.tile.notAvailable"
     /// A PDF's page count, the key chosen in code by the count, since the

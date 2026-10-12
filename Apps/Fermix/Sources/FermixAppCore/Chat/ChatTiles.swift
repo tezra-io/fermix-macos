@@ -9,16 +9,9 @@ struct ChatStripContext: Equatable, Sendable {
     let media: ChatMedia
     /// The reading column's width, which a strip fits its tiles to.
     let columnWidth: Double
-    /// The rows whose strip shows every item.
-    let openStrips: Set<Int>
-    /// **+N** and **Show fewer**: the session's own toggle.
-    let toggle: @MainActor @Sendable (Int) -> Void
 
-    /// The toggle is the session's for the surface's whole life, so two
-    /// contexts are the same when the rest is: a keystroke in the composer
-    /// redraws the surface, and must not redraw every row with it.
     static func == (lhs: ChatStripContext, rhs: ChatStripContext) -> Bool {
-        lhs.media === rhs.media && lhs.columnWidth == rhs.columnWidth && lhs.openStrips == rhs.openStrips
+        lhs.media === rhs.media && lhs.columnWidth == rhs.columnWidth
     }
 }
 
@@ -35,123 +28,288 @@ private struct ChatStripContextKey: EnvironmentKey {
     static let defaultValue: ChatStripContext? = nil
 }
 
-/// A row's strip (M66 §3.2): its previews first, in rows of as many as fit
-/// up to three, then its cards in rows of the same width, and **+N** after
-/// the last when it has more than three. Folded, it shows three items at
-/// most, previews first; open, every item, built only then, and **Show
-/// fewer** at the end. Nothing scrolls sideways and nothing opens over the
-/// chat.
+/// A row's strip (M66 §3.2): its previews in one sideways row, then its cards
+/// in another, each on the row's side. A row with more than fits scrolls
+/// sideways, by trackpad or a shifted wheel, by the arrows at its ends, or by
+/// the arrow keys from tile to tile; a plain wheel still scrolls the
+/// transcript. Nothing opens over the chat.
 struct ChatStripView: View {
     let strip: ChatStrip
-    let seq: Int
     /// Whether the row is the person's, drawn on the trailing side.
     let trailing: Bool
     /// The width the strip may take.
     let width: Double
-    let context: ChatStripContext
+    let media: ChatMedia
 
     var body: some View {
-        let fit = ChatStripFit.of(count: strip.items.count, width: width)
-        let open = fit.more > 0 && context.openStrips.contains(seq)
-        let count = open ? strip.items.count : fit.shown
-        let previews = Array(strip.previews.prefix(count))
-        let cards = Array(strip.cards.prefix(count - previews.count))
+        let previews = strip.previews.map(ChatStripItem.file)
 
-        ChatStripRows(perRow: fit.shown, groups: [previews.count, cards.count], trailing: trailing, endsWithControl: fit.more > 0) {
-            ForEach(previews, id: \.self) { file in
-                ChatPreviewTile(named: ChatNamedFile(file: file), size: fit.tileSize, media: context.media)
-            }
-            ForEach(cards) { item in
-                ChatCard(item: item, width: fit.tileWidth, media: context.media)
+        VStack(alignment: trailing ? .trailing : .leading, spacing: ChatMetrics.stripTopGap) {
+            if !previews.isEmpty {
+                let tile = ChatStripFit.tileSize(width: ChatStripFit.itemWidth(count: previews.count, width: width))
+                ChatStripLane(items: previews, itemWidth: tile.width, width: width, trailing: trailing) { item in
+                    if case .file(let file) = item {
+                        ChatPreviewTile(named: ChatNamedFile(file: file), size: tile, media: media)
+                    }
+                }
             }
 
-            if fit.more > 0 {
-                control(open: open, more: fit.more)
+            if !strip.cards.isEmpty {
+                let card = ChatStripFit.itemWidth(count: strip.cards.count, width: width)
+                ChatStripLane(items: strip.cards, itemWidth: card, width: width, trailing: trailing) { item in
+                    ChatCard(item: item, width: card, media: media)
+                }
             }
         }
         .accessibilityElement(children: .contain)
     }
+}
+
+/// One sideways row of a strip. While it fits it sits on the row's side, as
+/// a row of words does; once it does not, it takes the whole width, starts at
+/// its first item and scrolls. An end with more past it fades, and, under the
+/// pointer, carries an arrow that moves the row on by what it shows.
+///
+/// A row that scrolls takes focus as a whole, whatever the keyboard
+/// navigation setting: a click on its empty space or on an arrow gives it
+/// focus, and then the left and right arrow keys move it by one item and
+/// Escape lets it go. Its arrows stay out while it has focus, beside the
+/// system's own focus ring, which the app never suppresses (redlines §9).
+/// With keyboard navigation on, Tab also reaches each item, and while an item
+/// has focus the arrow keys move focus from item to item instead, bringing
+/// each into view. Neither ever takes an arrow key from anything else that
+/// has focus, the composer among them.
+private struct ChatStripLane<Tile: View>: View {
+    let items: [ChatStripItem]
+    let itemWidth: Double
+    let width: Double
+    let trailing: Bool
+    @ViewBuilder let tile: (ChatStripItem) -> Tile
+
+    @State private var position = ScrollPosition(idType: String.self, edge: .leading)
+    @State private var scroll = ChatStripScroll(offset: 0, content: 0, container: 0)
+    @State private var hovering = false
+    /// The item with focus, under keyboard navigation.
+    @FocusState private var focused: String?
+    /// Whether the row itself has focus.
+    @FocusState private var laneFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if ChatStripFit.rowWidth(count: items.count, itemWidth: itemWidth) <= width {
+            row
+                .frame(width: width, alignment: trailing ? .trailing : .leading)
+        } else {
+            let edges = ChatStripEdges(scroll)
+
+            ScrollView(.horizontal) {
+                row
+                    .scrollTargetLayout()
+                    .contentShape(Rectangle())
+                    .onTapGesture { laneFocused = true }
+            }
+            .scrollIndicators(.never)
+            .scrollPosition($position)
+            .onScrollGeometryChange(for: ChatStripScroll.self, of: ChatStripScroll.init) { _, now in
+                scroll = now
+            }
+            .mask { ChatStripFade(edges: edges) }
+            .overlay(alignment: .leading) {
+                arrow(forward: false, shown: (hovering || laneFocused) && edges.leading)
+            }
+            .overlay(alignment: .trailing) {
+                arrow(forward: true, shown: (hovering || laneFocused) && edges.trailing)
+            }
+            .onHover { hovering = $0 }
+            // A row takes focus the way a text field does, on a click and
+            // whatever the keyboard navigation setting: a plain focusable
+            // view on macOS takes it only with that setting on, which is
+            // not the default. A tile with focus answers the keys first,
+            // inside the row.
+            .focusable(true, interactions: .edit)
+            .focused($laneFocused)
+            .onKeyPress(.leftArrow) { step(forward: false) }
+            .onKeyPress(.rightArrow) { step(forward: true) }
+            .onExitCommand { laneFocused = false }
+            .frame(width: width)
+        }
+    }
+
+    private var row: some View {
+        HStack(spacing: ChatMetrics.stripGap) {
+            ForEach(items) { item in
+                tile(item)
+                    .focused($focused, equals: item.id)
+            }
+        }
+        .onKeyPress(.leftArrow) { move(by: -1) }
+        .onKeyPress(.rightArrow) { move(by: 1) }
+    }
+
+    /// An end's arrow: a small round control in the secondary capsule's own
+    /// fill and border. VoiceOver reaches every tile itself and is not shown
+    /// it.
+    private func arrow(forward: Bool, shown: Bool) -> some View {
+        Button {
+            laneFocused = true
+            page(forward: forward)
+        } label: {
+            Image(systemName: forward ? "chevron.right" : "chevron.left")
+        }
+        .buttonStyle(ChatStripArrowStyle())
+        .focusable(false)
+        .padding(.horizontal, ChatMetrics.stripArrowInset)
+        .opacity(shown ? 1 : 0)
+        .allowsHitTesting(shown)
+        .animation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade), value: shown)
+        .accessibilityHidden(true)
+    }
+
+    /// Moves the row on by what it shows.
+    private func page(forward: Bool) {
+        slide(to: ChatStripEdges.page(from: scroll, forward: forward))
+    }
+
+    /// Moves the row on by one item and its gap.
+    private func step(forward: Bool) -> KeyPress.Result {
+        slide(to: ChatStripEdges.step(from: scroll, item: itemWidth, forward: forward))
+        return .handled
+    }
+
+    private func slide(to offset: Double) {
+        withAnimation(scrollAnimation) {
+            position.scrollTo(x: offset)
+        }
+    }
+
+    /// Moves focus to the item beside the focused one, the first and last
+    /// holding at their end, and brings it into view.
+    private func move(by step: Int) -> KeyPress.Result {
+        guard let focused, let index = items.firstIndex(where: { $0.id == focused }) else { return .ignored }
+
+        let next = items[ChatStripNavigation.index(from: index, by: step, count: items.count)].id
+        self.focused = next
+        withAnimation(scrollAnimation) {
+            position.scrollTo(id: next)
+        }
+        return .handled
+    }
+
+    /// A scroll is travel, which Reduce Motion drops entirely rather than
+    /// shortening, as it does an entrance's.
+    private var scrollAnimation: Animation? {
+        reduceMotion ? nil : MotionTable.spec(.stepCrossfade).animation
+    }
+}
+
+/// Where a sideways row stands, read off its scroll geometry.
+struct ChatStripScroll: Equatable {
+    let offset: Double
+    let content: Double
+    let container: Double
+
+    init(offset: Double, content: Double, container: Double) {
+        self.offset = offset
+        self.content = content
+        self.container = container
+    }
+
+    init(_ geometry: ScrollGeometry) {
+        offset = geometry.contentOffset.x
+        content = geometry.contentSize.width
+        container = geometry.containerSize.width
+    }
+}
+
+/// Which ends of a sideways row have more past them, a point of slack at each
+/// so a row resting at its end reads as there.
+struct ChatStripEdges: Equatable {
+    let leading: Bool
+    let trailing: Bool
+
+    static let slack: Double = 1
+
+    init(leading: Bool, trailing: Bool) {
+        self.leading = leading
+        self.trailing = trailing
+    }
+
+    init(_ scroll: ChatStripScroll) {
+        leading = scroll.offset > Self.slack
+        trailing = scroll.offset + scroll.container < scroll.content - Self.slack
+    }
+
+    /// Where a page towards one end lands: one visible width along, and never
+    /// past either end.
+    static func page(from scroll: ChatStripScroll, forward: Bool) -> Double {
+        along(scroll, by: forward ? scroll.container : -scroll.container)
+    }
+
+    /// Where a step of one item towards one end lands: the item and the gap
+    /// after it along, and never past either end.
+    static func step(from scroll: ChatStripScroll, item: Double, forward: Bool) -> Double {
+        let distance = item + ChatMetrics.stripGap
+        return along(scroll, by: forward ? distance : -distance)
+    }
+
+    private static func along(_ scroll: ChatStripScroll, by distance: Double) -> Double {
+        min(max(scroll.offset + distance, 0), max(scroll.content - scroll.container, 0))
+    }
+}
+
+/// Moving along a row by the arrow keys.
+enum ChatStripNavigation {
+    /// The item `step` along from `index`, held at the first and the last.
+    static func index(from index: Int, by step: Int, count: Int) -> Int {
+        min(max(index + step, 0), max(count - 1, 0))
+    }
+}
+
+/// The mask a sideways row is drawn through: whole, but fading out at an end
+/// with more past it. A mask's colours are only how much shows.
+private struct ChatStripFade: View {
+    let edges: ChatStripEdges
+
+    var body: some View {
+        HStack(spacing: 0) {
+            end(fades: edges.leading, from: .trailing, to: .leading)
+            Rectangle()
+            end(fades: edges.trailing, from: .leading, to: .trailing)
+        }
+    }
 
     @ViewBuilder
-    private func control(open: Bool, more: Int) -> some View {
-        if open {
-            Button(ProductStrings[.chatStripShowFewer]) { context.toggle(seq) }
-                .buttonStyle(SecondaryButtonStyle(.row))
+    private func end(fades: Bool, from: UnitPoint, to: UnitPoint) -> some View {
+        if fades {
+            LinearGradient(colors: [.black, .clear], startPoint: from, endPoint: to)
+                .frame(width: ChatMetrics.stripFadeWidth)
         } else {
-            Button(String(format: ProductStrings[.chatStripMoreFormat], more)) { context.toggle(seq) }
-                .buttonStyle(SecondaryButtonStyle(.row))
-                .accessibilityLabel(String(format: ProductStrings[.chatStripMoreSpokenFormat], more))
+            Rectangle()
+                .frame(width: ChatMetrics.stripFadeWidth)
         }
     }
 }
 
-/// The strip's rows: each group (the previews, then the cards) left to
-/// right, `perRow` to a row, no row holding two groups, then the control at
-/// the end of the last row where it fits and on a row of its own where it
-/// does not. Each row sits on the strip's side, and each item is centred on
-/// its row's height.
-struct ChatStripRows: Layout {
-    let perRow: Int
-    /// How many subviews each group has, in order.
-    let groups: [Int]
-    let trailing: Bool
-    /// Whether the last subview is **+N** or **Show fewer** rather than an
-    /// item.
-    let endsWithControl: Bool
+/// An end's arrow: round, at the regular control's height, in the secondary
+/// capsule's fill and border with an ink glyph, and the pressed fill while
+/// held.
+private struct ChatStripArrowStyle: ButtonStyle {
+    @Environment(\.colorSchemeContrast) private var contrast
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        let room = proposal.width.map(Double.init)
-        let rows = rows(of: sizes, width: room)
-        let widest = rows.map { width(of: $0, sizes: sizes) }.max() ?? 0
-        let height = rows.map { height(of: $0, sizes: sizes) }.reduce(0, +) + Double(max(rows.count - 1, 0)) * ChatMetrics.stripGap
-
-        return CGSize(width: room ?? widest, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        var top = bounds.minY
-        for row in rows(of: sizes, width: bounds.width) {
-            let rowHeight = height(of: row, sizes: sizes)
-            var leading = trailing ? bounds.maxX - width(of: row, sizes: sizes) : bounds.minX
-            for index in row {
-                let size = sizes[index]
-                subviews[index].place(
-                    at: CGPoint(x: leading, y: top + (rowHeight - size.height) / 2),
-                    proposal: ProposedViewSize(size)
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .fermixType(Typography.style(.calloutSmall).weight(.semibold))
+            .foregroundStyle(ButtonRecipe.secondaryLabel.color)
+            .frame(width: HitTarget.rowAction, height: HitTarget.rowAction)
+            .background(Circle().fill((configuration.isPressed ? Palette.base300 : ButtonRecipe.secondaryFill).color))
+            .overlay(
+                Circle().strokeBorder(
+                    contrast == .increased
+                        ? Palette.hairline(.standard, increaseContrast: true).color
+                        : ButtonRecipe.secondaryBorder.color,
+                    lineWidth: Stroke.hairline
                 )
-                leading += size.width + ChatMetrics.stripGap
-            }
-            top += rowHeight + ChatMetrics.stripGap
-        }
-    }
-
-    /// The subviews' indices row by row.
-    func rows(of sizes: [CGSize], width: Double?) -> [[Int]] {
-        var rows: [[Int]] = []
-        var start = 0
-        for count in groups {
-            let end = start + count
-            rows += stride(from: start, to: end, by: max(perRow, 1)).map { Array($0 ..< min($0 + perRow, end)) }
-            start = end
-        }
-        guard endsWithControl, let control = sizes.indices.last else { return rows }
-
-        if let last = rows.last, self.width(of: last, sizes: sizes) + ChatMetrics.stripGap + sizes[control].width <= width ?? .infinity {
-            rows[rows.count - 1].append(control)
-        } else {
-            rows.append([control])
-        }
-        return rows
-    }
-
-    private func width(of row: [Int], sizes: [CGSize]) -> Double {
-        row.map { sizes[$0].width }.reduce(0, +) + Double(max(row.count - 1, 0)) * ChatMetrics.stripGap
-    }
-
-    private func height(of row: [Int], sizes: [CGSize]) -> Double {
-        row.map { sizes[$0].height }.max() ?? 0
+            )
     }
 }
 
@@ -231,6 +389,10 @@ private struct ChatPreviewTile: View {
             }
         }
         .buttonStyle(ChatTileButtonStyle())
+        .onKeyPress(.return) {
+            openURL(named.file)
+            return .handled
+        }
         .disabled(state == .notAvailable)
         .help(named.name)
         .accessibilityLabel(ProductStrings.commaPair(named.name, ChatPreviewPolicy.kindWord(family)))
@@ -328,6 +490,10 @@ private struct ChatFileCard: View {
             }
         }
         .buttonStyle(ChatTileButtonStyle())
+        .onKeyPress(.return) {
+            openURL(named.file)
+            return .handled
+        }
         .disabled(missing)
         .accessibilityLabel(ProductStrings.commaPair(named.name, kind))
         .accessibilityValue(missing ? ProductStrings[.chatTileNotAvailable] : "")
@@ -389,6 +555,10 @@ private struct ChatLinkCard: View {
             }
         }
         .buttonStyle(ChatTileButtonStyle())
+        .onKeyPress(.return) {
+            openURL(link.address)
+            return .handled
+        }
         .help(link.address.absoluteString)
         .accessibilityLabel(ProductStrings.commaPair(title, ProductStrings[.chatKindLink]))
     }

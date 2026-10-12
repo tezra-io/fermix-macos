@@ -135,15 +135,6 @@ enum CompanionReducer {
         chat.search = nil
     }
 
-    /// Opens a row's strip to every item, or folds it back to the ones that
-    /// fit. Either changes the row's height.
-    static func toggleStrip(_ seq: Int, in chat: inout CompanionChat) {
-        if chat.openStrips.remove(seq) == nil {
-            chat.openStrips.insert(seq)
-        }
-        reshape([seq], in: &chat)
-    }
-
     /// The newest held row was seen. The frontier moves once per row, and never
     /// behind where the daemon already has it.
     static func newestRowSeen(_ chat: inout CompanionChat) -> [CompanionClientEvent] {
@@ -368,9 +359,9 @@ enum CompanionReducer {
     /// still below the head the read goes on from it, ahead of any read
     /// waiting.
     ///
-    /// A row the page brings again replaces the held one at its seq, keeping
-    /// its strip open or folded, and a row that now draws differently is a
-    /// change of height the transcript holds the reader against.
+    /// A row the page brings again replaces the held one at its seq, and a
+    /// row that now draws differently is a change of height the transcript
+    /// holds the reader against.
     private static func merge(_ page: CompanionHistoryPage, into chat: inout CompanionChat) -> [CompanionClientEvent] {
         let answered = chat.historyPull
         chat.historyPull = nil

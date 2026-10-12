@@ -46,16 +46,18 @@ enum ChatMetrics {
     /// a strip's tiles'.
     static let rowRadius: Double = 16
     /// A strip's tiles (M66 §3.2): 3:2, between 120 and 200 points wide, at
-    /// most three to a row, `stripGap` apart.
+    /// most three of a row whole in the column, `stripGap` apart.
     static let stripTileAspect: Double = 3.0 / 2.0
     static let stripTileWidths: ClosedRange<Double> = 120 ... 200
     static let stripMostTiles = 3
     static let stripGap: Double = Spacing.xs
-    /// The room **+N** is counted at before it is drawn: the row capsule
-    /// holding "+99", so the fit never has to measure the button.
-    static let stripMoreWidth: Double = 56
-    /// Between a row's words, or its voice note, and its strip.
+    /// Between a row's words, or its voice note, and its strip, and between
+    /// the strip's previews and its cards.
     static let stripTopGap: Double = Spacing.xs
+    /// How far a sideways row fades out at an end with more past it.
+    static let stripFadeWidth: Double = Spacing.l
+    /// How far a sideways row's arrow sits in from its edge.
+    static let stripArrowInset: Double = Spacing.xs
     /// A preview tile's icon, where its preview is not drawn.
     static let tileIconSize: Double = 40
     /// How strongly the band under a page's name covers the page: enough
@@ -170,15 +172,10 @@ struct ChatSurfaceView: View {
         let items = ChatTimeline.items(of: model)
 
         column(items)
-            // Every row reads its media, its strip's width and whether its
-            // strip is open from here: the transcript builds its rows with
-            // nothing of their own to pass them (M66 §3.2).
-            .environment(\.chatStrips, ChatStripContext(
-                media: media,
-                columnWidth: ChatMetrics.column(inBody: bodyWidth),
-                openStrips: model.openStrips,
-                toggle: { session.toggleStrip($0) }
-            ))
+            // Every row reads its media and its strip's width from here: the
+            // transcript builds its rows with nothing of their own to pass
+            // them (M66 §3.2).
+            .environment(\.chatStrips, ChatStripContext(media: media, columnWidth: ChatMetrics.column(inBody: bodyWidth)))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onGeometryChange(for: Double.self) { proxy in
                 proxy.size.width
