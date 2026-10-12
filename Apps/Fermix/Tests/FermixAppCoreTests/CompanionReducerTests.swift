@@ -4,6 +4,7 @@ import Testing
 @testable import FermixAppCore
 
 private typealias E = CompanionEvents
+private typealias M = CompanionMediaRows
 
 /// Reducer steps written as the chat's own, so a case reads as the sequence of
 /// events it replays.
@@ -28,10 +29,15 @@ extension CompanionChat {
     }
 
     fileprivate var seqs: [Int] { rows.map(\.serverSeq) }
+
+    fileprivate func row(_ seq: Int) -> CompanionRow? {
+        rows.first { $0.serverSeq == seq }
+    }
 }
 
-/// The chat's state machine: the contract's client cursor rule, the outbox,
-/// turns, approvals, search and the read frontier, with no socket and no clock.
+/// The chat's state machine: the contract's client cursor rule, the queue of
+/// reads, rows kept current, the outbox, turns, approvals, search and the read
+/// frontier, with no socket and no clock.
 @Suite("Companion reducer")
 struct CompanionReducerTests {
     // MARK: - The catch-up read
@@ -43,7 +49,7 @@ struct CompanionReducerTests {
         var chat = CompanionChat()
 
         #expect(chat.negotiated() == [newestPagePull])
-        #expect(chat.historyPull == .before(seq: Int.max))
+        #expect(chat.historyPull == .catchUp(.before(seq: Int.max)))
     }
 
     @Test("the newest page becomes the held window and its newest row the cursor")
@@ -549,5 +555,313 @@ struct CompanionReducerTests {
         CompanionReducer.disconnected(&chat)
 
         #expect(chat.search?.hits == [E.hit(8)])
+    }
+
+    // MARK: - The queue of reads
+
+    /// A page does not say which read it answers, so one is out at a time and
+    /// the rest wait their turn: the catch-up read, then paging, then rows
+    /// read again (M66 §3.6).
+    @Test("reads are served catch-up first, then paging, then rows read again")
+    func readsAreServedInOrder() {
+        var chat = CompanionChat.holding(1...10, older: true)
+        #expect(chat.receive(M.voiceNote(11)) == [M.read(after: 10, limit: 1)])
+        chat.receive(M.page([M.note(11)], head: 11))
+
+        // While the catch-up read is out, the voice note is due a read and the
+        // reader reaches the top: both wait.
+        #expect(chat.receive(E.row(13)) == [historyPull(.after(seq: 11))])
+        #expect(chat.receive(E.row(12, role: "assistant")).isEmpty)
+        #expect(CompanionReducer.pullOlder(&chat).isEmpty)
+        #expect(chat.olderWaiting == 1)
+        #expect(chat.rowsToRead == [11, 12])
+
+        // The catch-up page brings 12, so the row read is left with the note.
+        #expect(chat.receive(E.forward([12, 13], head: 13, next: 13)) == [historyPull(.before(seq: 1))])
+        #expect(chat.receive(E.backward([], head: 13)) == [M.read(after: 10, limit: 1)])
+        #expect(chat.receive(M.page([M.note(11, text: "Pick up milk")], head: 13)).isEmpty)
+        #expect(chat.historyPull == nil)
+    }
+
+    @Test("a page that stops below the head is read on before any read waiting")
+    func catchUpGoesBeforeWaitingReads() {
+        var chat = CompanionChat.holding(1...10, older: true)
+        chat.receive(M.announced(11))
+        _ = CompanionReducer.pullOlder(&chat)
+
+        // Rows were written while the row read was out.
+        #expect(chat.receive(M.page([M.exported(11, refs: [M.picture])], head: 14)) == [historyPull(.after(seq: 11))])
+        #expect(chat.receive(E.forward([12, 13, 14], head: 14, next: 14)) == [historyPull(.before(seq: 1))])
+    }
+
+    @Test("rows asked to be read while a read is out wait as one read of just the rows they span")
+    func rowsToReadWaitAsOne() {
+        var chat = CompanionChat.holding(1...10)
+
+        #expect(chat.receive(M.announced(11, role: "assistant")) == [M.read(after: 10, limit: 1)])
+        #expect(chat.receive(M.announced(12, role: "assistant")).isEmpty)
+        #expect(chat.receive(M.announced(13, role: "assistant")).isEmpty)
+
+        #expect(
+            chat.receive(M.page([M.exported(11, role: "assistant", refs: [M.picture])], head: 13))
+                == [M.read(after: 11, limit: 2)]
+        )
+    }
+
+    @Test("a page for a cursor already waiting or out is asked once")
+    func pagingIsAskedOncePerCursor() {
+        var chat = CompanionChat.holding(8...10, older: true)
+        chat.receive(E.row(12))
+
+        #expect(CompanionReducer.pullOlder(&chat).isEmpty)
+        #expect(CompanionReducer.pullOlder(&chat).isEmpty)
+        #expect(chat.receive(E.forward([11, 12], head: 12, next: 12)) == [historyPull(.before(seq: 8))])
+        #expect(CompanionReducer.pullOlder(&chat).isEmpty)
+        #expect(chat.olderWaiting == nil)
+    }
+
+    /// A page stops at about 60 KiB, so a long row can end a row read early.
+    @Test("a row read that a page did not reach is read on from where the page stopped")
+    func rowReadReadsOnPastAShortPage() {
+        var chat = CompanionChat.holding(1...10, older: true)
+        _ = CompanionReducer.pullOlder(&chat)
+        chat.receive(M.announced(11, role: "assistant"))
+        chat.receive(M.announced(12, role: "assistant"))
+
+        #expect(chat.receive(E.backward([], head: 12)) == [M.read(after: 10, limit: 2)])
+        #expect(
+            chat.receive(M.page([M.exported(11, role: "assistant", refs: [M.picture])], head: 12))
+                == [M.read(after: 11, limit: 1)]
+        )
+        #expect(chat.receive(M.page([], head: 12)).isEmpty)
+        #expect(chat.rowsToRead.isEmpty)
+        #expect(chat.historyPull == nil)
+    }
+
+    @Test("a row read asks from just below its lowest row for no more than one page, and nothing is no read")
+    func rowReadSpansAtMostAPage() {
+        #expect(CompanionRowRead([40])?.afterSeq == 39)
+        #expect(CompanionRowRead([40])?.limit == 1)
+        #expect(CompanionRowRead([40, 44])?.limit == 5)
+        #expect(CompanionRowRead([1, 500])?.limit == CompanionProtocol.historyPageLimit)
+        #expect(CompanionRowRead([]) == nil)
+    }
+
+    @Test("rows being read when the connection drops are read after the next catch-up; a page asked for is not")
+    func rowReadsOutliveADroppedConnection() {
+        var chat = CompanionChat.holding(1...10, older: true)
+        chat.receive(M.announced(11))
+        _ = CompanionReducer.pullOlder(&chat)
+
+        CompanionReducer.disconnected(&chat)
+
+        #expect(chat.olderWaiting == nil)
+        #expect(chat.negotiated() == [historyPull(.after(seq: 11))])
+        #expect(chat.receive(E.forward([], head: 11, next: 11)) == [M.read(after: 10, limit: 1)])
+    }
+
+    // MARK: - Keeping rows current, stage 1
+
+    @Test("a media row announced is read once for its files, and a row of another kind is not")
+    func mediaRowIsReadOnce() {
+        var chat = CompanionChat.holding(1...10)
+
+        #expect(chat.receive(M.announced(11, role: "assistant")) == [M.read(after: 10, limit: 1)])
+        #expect(chat.row(11)?.mediaRefs == [])
+        #expect(chat.receive(E.row(12)).isEmpty)
+
+        #expect(chat.receive(M.page([M.exported(11, role: "assistant", refs: [M.picture])], head: 12)).isEmpty)
+        #expect(chat.row(11)?.mediaRefs == [M.picture])
+        #expect(chat.awaitingTranscript.isEmpty)
+        #expect(chat.receive(E.row(13, role: "assistant")).isEmpty)
+    }
+
+    /// The engine writes its reply to a voice note only once the transcript
+    /// is stored or has failed, so an assistant's row is when to read the
+    /// note, and the page says whether that row is the note's reply.
+    @Test("an assistant row reads a waiting voice note up to itself; a user row and this Mac's own reply do not")
+    func voiceNoteIsReadUpToItsReply() {
+        var chat = CompanionChat.holding(1...10)
+        chat.receive(M.voiceNote(11))
+        chat.receive(M.page([M.note(11)], head: 11))
+        #expect(chat.awaitingTranscript == [11: M.request(11)])
+
+        #expect(chat.receive(E.row(12)).isEmpty)
+        #expect(chat.receive(.textDone(turnId: "turn-mac-1", serverSeq: 13, text: "Noted.")).isEmpty)
+        #expect(chat.awaitingTranscript == [11: M.request(11)])
+
+        #expect(chat.receive(E.row(14, role: "assistant")) == [M.read(after: 10, limit: 4)])
+        let page = [M.note(11, text: "Pick up milk"), E.exported(12), E.exported(13), M.reply(14, to: 11, text: "Added to your list.")]
+        #expect(chat.receive(M.page(page, head: 14)).isEmpty)
+        #expect(chat.row(11)?.text == "Pick up milk")
+        #expect(chat.awaitingTranscript.isEmpty)
+        #expect(chat.receive(E.row(15, role: "assistant")).isEmpty)
+    }
+
+    @Test("a delivery between a voice note and its reply costs one read, and the note waits on until its reply settles it")
+    func deliveryLeavesTheNoteWaiting() {
+        var chat = CompanionChat.holding(1...10)
+        chat.receive(M.voiceNote(11))
+        chat.receive(M.page([M.note(11)], head: 11))
+
+        #expect(chat.receive(E.row(12, role: "assistant")) == [M.read(after: 10, limit: 2)])
+        #expect(chat.receive(M.page([M.note(11), E.exported(12)], head: 12)).isEmpty)
+        #expect(chat.awaitingTranscript == [11: M.request(11)])
+
+        #expect(chat.receive(E.row(13, role: "assistant")) == [M.read(after: 10, limit: 3)])
+        let page = [M.note(11, text: "Pick up milk"), E.exported(12), M.reply(13, to: 11, text: "Added to your list.")]
+        #expect(chat.receive(M.page(page, head: 13)).isEmpty)
+        #expect(chat.row(11)?.text == "Pick up milk")
+        #expect(chat.awaitingTranscript.isEmpty)
+        #expect(chat.receive(E.row(14, role: "assistant")).isEmpty)
+    }
+
+    @Test("a reply saying a voice note could not be transcribed settles it with no text")
+    func failedTranscriptIsSettledByItsReply() {
+        var chat = CompanionChat.holding(1...10)
+        chat.receive(M.voiceNote(11))
+        chat.receive(M.page([M.note(11)], head: 11))
+
+        #expect(chat.receive(E.row(12, role: "assistant")) == [M.read(after: 10, limit: 2)])
+        let page = [M.note(11), M.reply(12, to: 11, text: "I couldn't transcribe that voice note.")]
+        #expect(chat.receive(M.page(page, head: 12)).isEmpty)
+        #expect(chat.row(11)?.text == "")
+        #expect(chat.awaitingTranscript.isEmpty)
+        #expect(chat.receive(E.row(13, role: "assistant")).isEmpty)
+    }
+
+    /// A reply can reach a page ahead of its own announcement, or after a
+    /// reconnect lost it, in a page that does not carry the note.
+    @Test("a page bringing a voice note's reply without the note reads the note once more, and that read is final")
+    func replyWithoutItsNoteReadsTheNote() {
+        var chat = CompanionChat.holding(1...10)
+        chat.receive(M.voiceNote(11))
+        chat.receive(M.page([M.note(11)], head: 11))
+
+        #expect(chat.receive(E.row(13)) == [historyPull(.after(seq: 11))])
+        let page = [M.reply(12, to: 11, text: "Added to your list."), E.exported(13)]
+        #expect(chat.receive(M.page(page, head: 13)) == [M.read(after: 10, limit: 1)])
+        #expect(chat.awaitingTranscript.isEmpty)
+        #expect(chat.receive(M.page([M.note(11, text: "Pick up milk")], head: 13)).isEmpty)
+        #expect(chat.row(11)?.text == "Pick up milk")
+    }
+
+    /// A reply comes soon after its note; one that has not come a page of
+    /// rows later is not waited for, so no read ever spans more than a page.
+    @Test("a voice note is waited for no more once an assistant row is announced a page of rows past it")
+    func waitEndsAPageOfRowsOn() {
+        var chat = CompanionChat.holding(1...10)
+        chat.receive(M.voiceNote(11))
+        chat.receive(M.page([M.note(11)], head: 11))
+
+        #expect(chat.receive(E.row(210, role: "assistant")) == [historyPull(.after(seq: 11))])
+        #expect(chat.rowsToRead == [11, 210])
+        #expect(CompanionRowRead(chat.rowsToRead)?.limit == CompanionProtocol.historyPageLimit)
+        #expect(chat.awaitingTranscript == [11: M.request(11)])
+
+        chat.receive(E.row(211, role: "assistant"))
+        #expect(chat.awaitingTranscript.isEmpty)
+        #expect(chat.rowsToRead == [11, 210])
+    }
+
+    @Test("a media row from the person that records no request is not waited for")
+    func noteWithoutARequestIsNotWaitedFor() {
+        var chat = CompanionChat.holding(1...10)
+        chat.receive(M.announced(11))
+        chat.receive(M.page([M.exported(11, refs: [M.voice])], head: 11))
+
+        #expect(chat.awaitingTranscript.isEmpty)
+        #expect(chat.receive(E.row(12, role: "assistant")).isEmpty)
+    }
+
+    @Test("a voice note read at launch or by paging with no text is final as read")
+    func voiceNoteFromHistoryIsNotReadAgain() {
+        var chat = CompanionChat()
+        chat.negotiated()
+        chat.receive(
+            .historyPage(
+                CompanionHistoryPage(
+                    profileId: E.profile,
+                    messages: [E.exported(9), M.exported(10, refs: [M.voice])],
+                    historyHeadSeq: 10,
+                    nextAfterSeq: nil,
+                    nextBeforeSeq: 9
+                )
+            )
+        )
+        _ = CompanionReducer.pullOlder(&chat)
+        chat.receive(
+            .historyPage(
+                CompanionHistoryPage(
+                    profileId: E.profile,
+                    messages: [M.exported(8, refs: [M.voice])],
+                    historyHeadSeq: 10,
+                    nextAfterSeq: nil,
+                    nextBeforeSeq: nil
+                )
+            )
+        )
+
+        #expect(chat.receive(E.row(11, role: "assistant")).isEmpty)
+        #expect(chat.rowsToRead.isEmpty)
+    }
+
+    @Test("a media row that a page brings needs no read of its own")
+    func pageBroughtRowIsNotReadAgain() {
+        var chat = CompanionChat.holding(1...10)
+        chat.receive(E.row(12))
+
+        #expect(chat.receive(M.announced(11, role: "assistant")).isEmpty)
+        #expect(chat.rowsToRead == [11])
+        #expect(
+            chat.receive(M.page([M.exported(11, role: "assistant", refs: [M.picture]), E.exported(12)], head: 12))
+                .isEmpty
+        )
+        #expect(chat.rowsToRead.isEmpty)
+    }
+
+    // MARK: - Replacing a row
+
+    @Test("a row read again replaces the held one at its seq, keeps its strip open, and says its height changed")
+    func replacedRowKeepsItsStripAndIsAChange() {
+        var chat = CompanionChat.holding(1...10)
+        chat.receive(M.announced(11, role: "assistant"))
+        CompanionReducer.toggleStrip(11, in: &chat)
+        let toggled = chat.reshape
+
+        chat.receive(M.page([M.exported(11, role: "assistant", refs: [M.picture])], head: 11))
+
+        #expect(chat.seqs == Array(1...11))
+        #expect(chat.row(11)?.mediaRefs == [M.picture])
+        #expect(chat.openStrips == [11])
+        #expect(chat.reshape?.seqs == [11])
+        #expect(chat.reshape != toggled)
+    }
+
+    /// A reply held from its `text_done` comes back with its role and time:
+    /// nothing it draws changed.
+    @Test("a row brought again with the same text, files and previews is no change of height")
+    func unchangedRowIsNoChange() {
+        var chat = CompanionChat.holding(8...10)
+        chat.receive(.textDone(turnId: "turn-1", serverSeq: 11, text: "row 11"))
+        chat.receive(E.row(13))
+
+        chat.receive(E.forward([11, 12, 13], head: 13, next: 13))
+
+        #expect(chat.row(11)?.role == "assistant")
+        #expect(chat.reshape == nil)
+    }
+
+    @Test("each strip opened or folded is a change of its row's height of its own")
+    func toggledStripIsAChange() {
+        var chat = CompanionChat.holding(1...12)
+
+        CompanionReducer.toggleStrip(7, in: &chat)
+        let opened = chat.reshape
+        CompanionReducer.toggleStrip(7, in: &chat)
+
+        #expect(opened?.seqs == [7])
+        #expect(chat.reshape?.seqs == [7])
+        #expect(chat.reshape != opened)
     }
 }

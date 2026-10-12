@@ -96,6 +96,19 @@ extension CompanionRow {
             turnId: turnId
         )
     }
+
+    /// Whether two rows at one seq draw alike: the same text, files and
+    /// previews (M66 §3.1). Who wrote a row and when are not what changes its
+    /// height when history brings it again.
+    func drawsAlike(_ other: CompanionRow) -> Bool {
+        text == other.text && mediaRefs == other.mediaRefs && linkPreviews == other.linkPreviews
+    }
+
+    /// A voice note whose transcript is not stored yet: a row with an `audio`
+    /// ref (M66 §3.4) and no text, as history last had it.
+    var awaitsTranscript: Bool {
+        text.isEmpty && mediaRefs.contains { $0.kind == "audio" }
+    }
 }
 
 /// The turn answering now, as its live events describe it. Deltas are
@@ -174,6 +187,76 @@ struct CompanionCommandRoute: Equatable {
     }
 }
 
+/// A history read as it was sent, which is how its page is taken. A page does
+/// not say which read it answers, so one is out at a time.
+enum CompanionPull: Equatable, Sendable {
+    /// The rows after the cursor, or the newest page for a chat that holds
+    /// none.
+    case catchUp(CompanionHistoryCursor)
+    /// The page before the oldest held row, which the reader scrolled to.
+    case older(beforeSeq: Int)
+    /// Held rows read again for what their announcement could not carry.
+    case rows(CompanionRowRead)
+
+    var event: CompanionClientEvent {
+        .historyPull(profileId: CompanionProtocol.profileId, cursor: cursor, limit: limit)
+    }
+
+    var cursor: CompanionHistoryCursor {
+        switch self {
+        case .catchUp(let cursor): return cursor
+        case .older(let beforeSeq): return .before(seq: beforeSeq)
+        case .rows(let read): return .after(seq: read.afterSeq)
+        }
+    }
+
+    /// A full page for the catch-up read and paging; a row read asks only for
+    /// the rows it reads.
+    private var limit: Int {
+        switch self {
+        case .catchUp, .older: return CompanionProtocol.historyPageLimit
+        case .rows(let read): return read.limit
+        }
+    }
+}
+
+/// Held rows read again in one read: from just below the lowest, as far as the
+/// highest, within one page.
+struct CompanionRowRead: Equatable, Sendable {
+    let seqs: Set<Int>
+    let afterSeq: Int
+    let limit: Int
+
+    /// Nil when there is nothing to read.
+    init?(_ seqs: Set<Int>) {
+        guard let lowest = seqs.min(), let highest = seqs.max() else { return nil }
+
+        self.seqs = seqs
+        afterSeq = lowest - 1
+        limit = min(highest - lowest + 1, CompanionProtocol.historyPageLimit)
+    }
+
+    /// The rows the page answering this read did not reach: a page stops at
+    /// about 60 KiB, so a long row can end it before the highest. An empty
+    /// page found no row from the lowest on, so there is nothing left to read.
+    func unreached(by page: CompanionHistoryPage) -> Set<Int> {
+        guard let reached = page.messages.last?.serverSeq else { return [] }
+
+        return seqs.filter { $0 > reached }
+    }
+}
+
+/// Rows whose height changed in place: what the transcript holds the reader's
+/// place against (M66 §3.8). Each change is a new value, so two changes to the
+/// same rows are two changes to an observer.
+public struct CompanionReshape: Equatable, Sendable {
+    /// Counts the changes.
+    public let id: Int
+    /// The rows that changed: rows history brought again with different
+    /// content, or the row whose strip opened or folded.
+    public let seqs: Set<Int>
+}
+
 /// Everything the chat holds, as one value the reducer reads and writes. The
 /// model publishes it and the session is the only writer.
 struct CompanionChat: Equatable, Sendable {
@@ -194,12 +277,29 @@ struct CompanionChat: Equatable, Sendable {
     var search: CompanionSearch?
     /// The latest failure, in a sentence, until the next request.
     var lastError: String?
-    /// The one history pull out. The cursor rule never asks twice at once.
-    var historyPull: CompanionHistoryCursor?
+    /// The one history read out. The reads asked meanwhile wait below it, one
+    /// of each at most, and are served in order (M66 §3.6): the catch-up read,
+    /// which is never kept waiting, then paging, then rows read again.
+    var historyPull: CompanionPull?
+    /// Paging waiting for the read out: the page before this seq, the oldest
+    /// held row when it was asked for.
+    var olderWaiting: Int?
+    /// Held rows to read again, waiting for the read out. One read serves
+    /// them all.
+    var rowsToRead: Set<Int> = []
+    /// The person's media rows announced in this session with no text, which
+    /// may be voice notes waiting for their transcript (M66 §3.6, stage 1), by
+    /// seq, with the request each recorded: its reply names that request in
+    /// `in_reply_to`. A row leaves when history shows it is no voice note or
+    /// has its text, when a page brings its reply, or when an assistant's row
+    /// is announced a page of rows past it.
+    var awaitingTranscript: [Int: String] = [:]
     /// The read frontier, as the daemon last reported it or this client last
     /// advanced it.
     var readUpToSeq = 0
     /// The rows whose strip shows every item, by seq (M66 §3.2). Kept here
     /// rather than in a row's view, which a lazy transcript drops off screen.
     var openStrips: Set<Int> = []
+    /// The latest change to a held row's height.
+    var reshape: CompanionReshape?
 }

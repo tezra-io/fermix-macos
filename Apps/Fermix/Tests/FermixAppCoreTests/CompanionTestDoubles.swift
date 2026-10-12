@@ -14,7 +14,8 @@ func wireObject(companion event: CompanionClientEvent) throws -> NSDictionary {
     try wireObject(event.line())
 }
 
-/// The pull a case expects on the wire: every pull asks for a full page.
+/// A catch-up or paging pull a case expects on the wire, which asks for a full
+/// page. A row read asks only for the rows it spans (`CompanionMediaRows.read`).
 func historyPull(_ cursor: CompanionHistoryCursor) -> CompanionClientEvent {
     .historyPull(profileId: CompanionProtocol.profileId, cursor: cursor, limit: CompanionProtocol.historyPageLimit)
 }

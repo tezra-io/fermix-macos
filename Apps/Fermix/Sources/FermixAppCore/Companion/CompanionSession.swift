@@ -107,7 +107,8 @@ public final class CompanionSession {
         reduce { CompanionReducer.answer(approvalId, approve: approve, clientMsgId: clientMsgId, into: &$0) }
     }
 
-    /// The page before the oldest held row. Refused while a pull is out.
+    /// The page before the oldest held row. It waits for a read out, and
+    /// asking again for the same page asks nothing more.
     public func pullOlder() {
         guard phase == .connected else { return }
 

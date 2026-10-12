@@ -8,6 +8,9 @@ import SwiftUI
 ///   reader keeps their place when it lands: the newest row stays on the bottom
 ///   edge if it was there, and otherwise the row that was at the top stays at
 ///   the top.
+/// - A held row changing height in place, read again with more in it or its
+///   strip opened or folded, leaves the reader where they were by the same
+///   rule.
 /// - The newest row on screen, in a window that is in front, is read, and the
 ///   session moves the read frontier the phone shares.
 ///
@@ -80,6 +83,9 @@ struct ChatTranscript: View {
             .onChange(of: model.rows.first?.serverSeq) {
                 pageArrived(proxy)
             }
+            .onChange(of: model.reshape) {
+                reshaped(proxy)
+            }
             .onChange(of: reveal) {
                 revealing = reveal
                 advanceReveal(proxy)
@@ -129,6 +135,20 @@ struct ChatTranscript: View {
         guard let place else { return }
 
         self.place = nil
+        hold(place, proxy)
+    }
+
+    /// Held rows changed height in place (M66 §3.8). The items on screen are
+    /// still the ones read before the change, which is not laid out yet, so
+    /// the reader's place is taken from them and held across it. A reveal
+    /// under way scrolls to its hit instead.
+    private func reshaped(_ proxy: ScrollViewProxy) {
+        guard revealing == nil, let place = ChatPlace(atBottom: atBottom, visible: visible, items: items) else { return }
+
+        hold(place, proxy)
+    }
+
+    private func hold(_ place: ChatPlace, _ proxy: ScrollViewProxy) {
         switch place {
         case .newest(let id): proxy.scrollTo(id, anchor: .bottom)
         case .top(let id): proxy.scrollTo(id, anchor: .top)
@@ -205,7 +225,9 @@ struct ChatViewport: Equatable {
     }
 }
 
-/// Where the reader was, as the one item a page landing must not move.
+/// Where the reader was, as the one item a page landing, or a held row
+/// changing height, must not move. An item's id is its row's seq, so a row
+/// history brings again is the same item before and after.
 enum ChatPlace: Equatable {
     /// The reader was on the bottom edge: the newest item stays there.
     case newest(ChatItemID)

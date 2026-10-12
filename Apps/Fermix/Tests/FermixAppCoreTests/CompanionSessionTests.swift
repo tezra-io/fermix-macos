@@ -4,6 +4,7 @@ import Testing
 @testable import FermixAppCore
 
 private typealias E = CompanionEvents
+private typealias M = CompanionMediaRows
 
 /// A session over the real adapter on a fake line socket, with a clock the case
 /// drives and message ids it can name.
@@ -350,7 +351,7 @@ struct CompanionSessionTests {
 
     // MARK: - Reads
 
-    @Test("older rows are refused while a pull is out, then pulled below the oldest row")
+    @Test("older rows wait while a pull is out, then are pulled below the oldest row once")
     func pullOlderWaitsForThePullOut() throws {
         let harness = Harness()
         harness.connected()
@@ -364,7 +365,10 @@ struct CompanionSessionTests {
         harness.socket.deliver(E.forward([11, 12], head: 12, next: 12))
         harness.session.pullOlder()
 
-        #expect(try harness.sent().last == wireObject(companion: historyPull(.before(seq: 8))))
+        #expect(
+            try harness.sent()
+                == wire(hello, newestPagePull, historyPull(.after(seq: 10)), historyPull(.before(seq: 8)))
+        )
     }
 
     @Test("a search is sent with the contract's limit, answered, and cleared")
@@ -429,6 +433,43 @@ struct CompanionSessionTests {
                 .readState(profileId: "main", readUpToSeq: 13)
             ))
         )
+    }
+
+    /// Stage 1 reads a row again only on announcements the daemon already
+    /// sends (M66 §3.6): nothing is scheduled to look again later.
+    @Test("a voice note is read for its file, then for its transcript when its reply is announced, with no timer")
+    func voiceNoteIsKeptCurrentWithNoTimer() throws {
+        let harness = Harness()
+        harness.connected()
+        harness.socket.deliver(E.backward([10, 11, 12], head: 12))
+
+        harness.socket.deliver(M.voiceNote(13))
+        harness.socket.deliver(M.page([M.note(13)], head: 13))
+        harness.socket.deliver(E.row(14, role: "assistant"))
+        harness.socket.deliver(
+            M.page([M.note(13, text: "Pick up milk"), M.reply(14, to: 13, text: "row 14")], head: 14)
+        )
+
+        #expect(try harness.sent() == wire(hello, newestPagePull, M.read(after: 12, limit: 1), M.read(after: 12, limit: 2)))
+        #expect(harness.model.rows.first { $0.serverSeq == 13 }?.text == "Pick up milk")
+        #expect(harness.model.reshape?.seqs == [13])
+        #expect(harness.scheduler.liveCount == 0)
+    }
+
+    @Test("a strip opened or folded reaches the model as a change of its row's height")
+    func toggledStripReachesTheModel() {
+        let harness = Harness()
+        harness.connected()
+        harness.socket.deliver(E.backward([10, 11, 12], head: 12))
+
+        harness.session.toggleStrip(11)
+        let opened = harness.model.reshape
+        harness.session.toggleStrip(11)
+
+        #expect(opened?.seqs == [11])
+        #expect(harness.model.reshape?.seqs == [11])
+        #expect(harness.model.reshape != opened)
+        #expect(harness.model.openStrips.isEmpty)
     }
 
     // MARK: - Routing

@@ -27,8 +27,9 @@ public enum CompanionProtocol {
     /// wire's three seconds.
     public static let handshakeTimeout: TimeInterval = 3
 
-    /// The most rows one `history_pull` may ask for, which is the page every
-    /// pull asks for: the contract's ceiling.
+    /// The most rows one `history_pull` may ask for, which is the page the
+    /// catch-up read and paging ask for: the contract's ceiling. A row read
+    /// asks only for the rows it reads.
     public static let historyPageLimit = 200
 
     /// The most hits one `history_search` may ask for, and the page every
