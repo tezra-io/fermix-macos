@@ -42,6 +42,14 @@ enum ReplyLinks {
         ChatText.links(in: reply).filter(isAddress)
     }
 
+    /// The address text is when it is one from end to end, written with its
+    /// scheme, as a code span's whole text or a link's destination is read.
+    static func address(wholly text: Substring) -> URL? {
+        guard hasScheme(text), !text.contains(where: \.isWhitespace), let url = URL(string: String(text)) else { return nil }
+
+        return url
+    }
+
     /// The addresses written in plain text, each as the range it covers and
     /// the address it opens.
     static func addresses(inText text: String) -> [(range: Range<String.Index>, url: URL)] {

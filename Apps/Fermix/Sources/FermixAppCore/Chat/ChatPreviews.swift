@@ -5,8 +5,8 @@ import UniformTypeIdentifiers
 /// A preview made of a file's content at its tile's pixel size, and what the
 /// tile writes over it.
 struct ChatPreview: Equatable, Sendable {
-    /// The thumbnail, decoded at the tile's pixel size and never larger: no
-    /// full-size picture is kept.
+    /// The thumbnail, already cut to fill the tile at its pixel size and never
+    /// larger: no full-size picture is kept, and the tile draws it as it is.
     let image: CGImage
     let detail: ChatPreviewDetail?
 
@@ -101,10 +101,30 @@ struct ChatPreviewKey: Hashable, Sendable {
 struct ChatPreviewRequest: Sendable {
     let file: URL
     let family: ChatFileFamily
-    /// The tile's picture area, in points, and the screen's scale.
+    /// The tile, in points, and the screen's scale.
     let size: CGSize
     let scale: Double
     let key: ChatPreviewKey
+
+    /// What Quick Look is asked for: a square twice the tile's width. Its
+    /// thumbnail fits inside, so this is the box that comes back large enough
+    /// to fill a 3:2 tile for a page up to twice as tall as it is wide and a
+    /// picture up to three times as wide as it is tall; past that, it is
+    /// enlarged a little to fill.
+    var box: CGSize {
+        CGSize(width: size.width * 2, height: size.width * 2)
+    }
+
+    /// The tile's own pixels, which the preview is cut to.
+    var pixels: CGSize {
+        CGSize(width: key.pixelWidth, height: key.pixelHeight)
+    }
+
+    /// Where the preview is held as it is cut: a page by its head, which is
+    /// where its title is, and anything else by its middle.
+    var anchor: ChatPreviewCover.Anchor {
+        family == .pdf || family == .document ? .top : .center
+    }
 
     init(_ facts: ChatFileFacts, size: CGSize, scale: Double) {
         file = facts.file
@@ -304,12 +324,60 @@ final class ChatPreviews {
             break
         }
 
+        let thumbnail: CGImage
         do {
-            let image = try await reader.thumbnail(of: request.file, size: request.size, scale: request.scale)
-            return .made(ChatPreview(image: image, detail: detail))
+            thumbnail = try await reader.thumbnail(of: request.file, size: request.box, scale: request.scale)
         } catch {
             return Task.isCancelled ? .dropped : .failed
         }
+        guard let image = ChatPreviewCover.image(thumbnail, filling: request.pixels, anchor: request.anchor) else { return .failed }
+
+        return .made(ChatPreview(image: image, detail: detail))
+    }
+}
+
+/// A thumbnail cut to fill its tile edge to edge: scaled until it covers the
+/// tile, what spills over cut away, and drawn once at the tile's pixels, so
+/// the cache holds only what is shown.
+enum ChatPreviewCover {
+    enum Anchor: Sendable {
+        /// The head stays: a page's title, a document's first lines.
+        case top
+        case center
+    }
+
+    /// Where a source is drawn, in the target's own coordinates (the origin
+    /// at the bottom left, as Core Graphics has it), to cover the target: by
+    /// the larger of the two scales, centred across, and held at the top or
+    /// the middle.
+    static func rect(of source: CGSize, covering target: CGSize, anchor: Anchor) -> CGRect {
+        let scale = max(target.width / source.width, target.height / source.height)
+        let drawn = CGSize(width: source.width * scale, height: source.height * scale)
+        let bottom = anchor == .top ? target.height - drawn.height : (target.height - drawn.height) / 2
+
+        return CGRect(origin: CGPoint(x: (target.width - drawn.width) / 2, y: bottom), size: drawn)
+    }
+
+    /// The source cut to fill `pixels`, or nil where no bitmap of that size
+    /// can be made.
+    static func image(_ source: CGImage, filling pixels: CGSize, anchor: Anchor) -> CGImage? {
+        guard pixels.width >= 1, pixels.height >= 1,
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                  data: nil,
+                  width: Int(pixels.width),
+                  height: Int(pixels.height),
+                  bitsPerComponent: 8,
+                  bytesPerRow: 0,
+                  space: space,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else { return nil }
+
+        let size = CGSize(width: source.width, height: source.height)
+        context.interpolationQuality = .high
+        context.draw(source, in: rect(of: size, covering: pixels, anchor: anchor))
+        return context.makeImage()
     }
 }
 

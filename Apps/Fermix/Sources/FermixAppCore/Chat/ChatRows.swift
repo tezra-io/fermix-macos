@@ -25,10 +25,12 @@ struct ChatItemView: View {
 
 /// A finished row, on its side: its words, or its voice note with its words
 /// as the transcript; under them the sound files it names in the Fermix home,
-/// each playable where it is (M66 §3.4); and then its strip (§3.1). A row with no
-/// words, a picture Fermix sent to the phone, draws its strip alone. A turn
-/// still being written is no row yet, so nothing here looks at the disk while
-/// a reply streams.
+/// each playable where it is (M66 §3.4); and then its strip (§3.1). Its words
+/// are the strip's text, without the lines that only name what the strip and
+/// the players show. A row with no other words, a picture Fermix sent to the
+/// phone or a reply that only lists what it made, draws its strip alone. A
+/// turn still being written is no row yet, so nothing here looks at the disk
+/// while a reply streams.
 private struct ChatRow: View {
     let row: CompanionRow
     let marked: [String]
@@ -38,15 +40,16 @@ private struct ChatRow: View {
     var body: some View {
         let user = ChatSpeaker.isUser(row.role)
         let strip = context?.media.strip(for: row)
+        let words = strip?.text ?? row.text
 
         VStack(alignment: user ? .trailing : .leading, spacing: ChatMetrics.stripTopGap) {
             if strip?.voiceNote != nil {
-                ChatVoiceNote(transcript: text(user: user), speaker: row.role)
-            } else if !row.text.isEmpty {
+                ChatVoiceNote(transcript: text(words, user: user), speaker: row.role)
+            } else if !words.isEmpty {
                 if user {
-                    ChatUserRow(text: text(user: user), sending: false)
+                    ChatUserRow(text: text(words, user: user), sending: false)
                 } else {
-                    ChatReplyRow(text: text(user: user), speaker: row.role)
+                    ChatReplyRow(text: text(words, user: user), speaker: row.role)
                 }
             }
 
@@ -71,8 +74,8 @@ private struct ChatRow: View {
 
     /// The person's own words as they typed them; Fermix's as a reply, its
     /// paths and addresses links.
-    private func text(user: Bool) -> AttributedString {
-        let drawn = user ? ChatText.plain(row.text) : ChatText.reply(row.text, home: NSHomeDirectory())
+    private func text(_ words: String, user: Bool) -> AttributedString {
+        let drawn = user ? ChatText.plain(words) : ChatText.reply(words, home: NSHomeDirectory())
         return ChatText.marking(marked, in: drawn)
     }
 }

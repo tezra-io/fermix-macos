@@ -54,6 +54,28 @@ struct ChatPreviewPolicyTests {
         }
     }
 
+    /// Read from a path's own type before the disk is asked, as the strip
+    /// reads it to choose a tile's kind.
+    @Test("by its type, a picture other than an SVG, a video, a PDF and a document are drawn by their content")
+    func showsContentByType() {
+        for path in ["/a.png", "/a.heic", "/a.mov", "/a.pdf", "/a.docx", "/a.key", "/a.pages"] {
+            #expect(ChatPreviewPolicy.showsContent(ChatPreviewPolicy.type(ofPath: path) ?? .data), "\(path)")
+        }
+        for path in ["/a.svg", "/a.html", "/a.csv", "/a.md", "/a.mp3", "/a.zip"] {
+            #expect(!ChatPreviewPolicy.showsContent(ChatPreviewPolicy.type(ofPath: path) ?? .data), "\(path)")
+        }
+    }
+
+    /// A card asks for no preview, so a file it finds is ready at once,
+    /// whatever its type and place.
+    @Test("a card is Loading, then Ready, Opens outside or Not available, and never waits on a preview")
+    func cardStates() {
+        #expect(ChatPreviewPolicy.cardState(of: .reading) == .loading)
+        #expect(ChatPreviewPolicy.cardState(of: .missing) == .notAvailable)
+        #expect(ChatPreviewPolicy.cardState(of: .found(F.facts("/h/shot.png"))) == .ready(nil))
+        #expect(ChatPreviewPolicy.cardState(of: .found(F.facts("/h/book.epub"))) == .opensOutside)
+    }
+
     // MARK: - Families and Opens outside
 
     @Test("each type has its family and its word")

@@ -56,11 +56,16 @@ enum ChatMetrics {
     static let stripMoreWidth: Double = 56
     /// Between a row's words, or its voice note, and its strip.
     static let stripTopGap: Double = Spacing.xs
-    /// How far a tile's picture sits in from the tile's edges. Its own
-    /// corners are the tile's less this, so the two curves run parallel.
-    static let tileInset: Double = Spacing.xs
-    /// A tile's icon, where the icon is its picture.
+    /// A preview tile's icon, where its preview is not drawn.
     static let tileIconSize: Double = 40
+    /// How strongly the band under a page's name covers the page: enough
+    /// that the name keeps its contrast on any page, little enough that the
+    /// page still reads through it.
+    static let tileScrimStrength: Double = 0.9
+    /// A compact card: one line of name over one of detail beside its icon,
+    /// as tall as a sidebar row with room for both lines.
+    static let cardHeight: Double = 52
+    static let cardIconSize: Double = 28
     /// How strongly a tile is drawn while the pointer holds it down.
     static let tilePressedStrength: Double = 0.7
     /// How long a tile waits on its preview before it shows the quiet

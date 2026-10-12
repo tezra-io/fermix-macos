@@ -173,14 +173,24 @@ enum ChatPreviewPolicy {
         }
     }
 
-    /// Whether a tile draws the file's content rather than its icon: a
-    /// picture, a video's frame, a PDF's first page or a document's
-    /// thumbnail, and only for a file inside the Fermix home.
-    static func drawsContent(_ facts: ChatFileFacts) -> Bool {
-        guard facts.insideHome else { return false }
+    /// Whether a type is one a tile draws by its content: a picture other
+    /// than an SVG, a video's frame, a PDF's first page or a document's
+    /// thumbnail. A path the strip reads as one, inside the Fermix home, is a
+    /// preview tile, and keeps that shape whatever its file turns out to be.
+    static func showsContent(_ type: UTType) -> Bool {
+        showsContent(family(of: type), type)
+    }
 
-        switch family(of: facts) {
-        case .picture: return !facts.type.conforms(to: .svg)
+    /// Whether a tile draws the file's content rather than its icon: a type
+    /// drawn by its content, as the disk finds it, and only for a file
+    /// inside the Fermix home where it really lands.
+    static func drawsContent(_ facts: ChatFileFacts) -> Bool {
+        facts.insideHome && showsContent(family(of: facts), facts.type)
+    }
+
+    private static func showsContent(_ family: ChatFileFamily, _ type: UTType) -> Bool {
+        switch family {
+        case .picture: return !type.conforms(to: .svg)
         case .video, .pdf, .document: return true
         case .sound, .page, .text, .data, .other: return false
         }
@@ -190,14 +200,19 @@ enum ChatPreviewPolicy {
     /// what its preview came to, nil while none was asked for or it is still
     /// being made.
     static func state(of lookup: ChatFileLookup, outcome: ChatPreviewOutcome?) -> ChatTileState {
+        let card = cardState(of: lookup)
+        guard card == .ready(nil), case .found(let facts) = lookup, drawsContent(facts) else { return card }
+
+        return state(of: outcome)
+    }
+
+    /// The state of a file drawn as a card, which asks for no preview: its
+    /// icon is its picture once it is found.
+    static func cardState(of lookup: ChatFileLookup) -> ChatTileState {
         switch lookup {
         case .reading: return .loading
         case .missing: return .notAvailable
-        case .found(let facts):
-            if family(of: facts) == .other { return .opensOutside }
-            guard drawsContent(facts) else { return .ready(nil) }
-
-            return state(of: outcome)
+        case .found(let facts): return family(of: facts) == .other ? .opensOutside : .ready(nil)
         }
     }
 

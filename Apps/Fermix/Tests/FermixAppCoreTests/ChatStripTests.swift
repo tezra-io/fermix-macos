@@ -30,7 +30,16 @@ struct ChatStripTests {
 
     /// Each item as one short line, so a whole strip reads as a list.
     private static func described(_ strip: ChatStrip) -> [String] {
-        strip.items.map { item in
+        described(Strip(cards: strip.items))
+    }
+
+    /// Any run of items, as `described` lists a strip's.
+    private struct Strip {
+        let cards: [ChatStripItem]
+    }
+
+    private static func described(_ strip: Strip) -> [String] {
+        strip.cards.map { item in
             switch item {
             case .media(let ref): return "ref \(ref.filename ?? "")"
             case .file(let file): return "file \(file.path)"
@@ -42,20 +51,45 @@ struct ChatStripTests {
     // MARK: - Order and membership
 
     /// A preview that is no address's stands on its own before the paths,
-    /// and an address's own preview is drawn at the address's place.
-    @Test("refs, then loose previews, then paths worth seeing, then addresses, each once")
+    /// and an address's own preview is drawn at the address's place. A page
+    /// Fermix made draws its content, so it leads, ahead of every card.
+    @Test("previews lead; then refs, loose previews, paths worth seeing and addresses, each once")
     func order() {
         let strip = Self.strip(
-            "See https://b.com/x and /Users/me/.fermix/workspace/report.pdf, then https://b.com/x again.",
+            "See https://b.com/x and /Users/me/.fermix/workspace/report.pdf, then https://b.com/x and ~/notes.pdf again.",
             refs: [Self.ref("photo.png")],
             previews: [Self.preview("https://b.com/x"), Self.preview("https://c.com/z")]
         )
 
         #expect(Self.described(strip) == [
+            "file /Users/me/.fermix/workspace/report.pdf",
             "ref photo.png",
             "link https://c.com/z = https://c.com/z",
-            "file /Users/me/.fermix/workspace/report.pdf",
+            "file /Users/me/notes.pdf",
             "link https://b.com/x = https://b.com/x",
+        ])
+    }
+
+    /// A tile's kind is read from its path, before the disk is asked, so it
+    /// keeps its shape whatever the file turns out to be: a preview only for
+    /// what is drawn by its content, and only inside the home.
+    @Test("a preview is a path inside the home to a picture, a video, a PDF or a document; the rest are cards")
+    func previewsAndCards() {
+        let strip = Self.strip(
+            "Made /Users/me/.fermix/w/shot.png, /Users/me/.fermix/w/clip.mov, /Users/me/.fermix/w/q3.docx and "
+                + "/Users/me/.fermix/w/Notes.pages, besides /Users/me/.fermix/w/logo.svg, /Users/me/.fermix/w/page.html, "
+                + "/Users/me/.fermix/w/table.csv, ~/Desktop/far.png and https://a.com/x",
+            refs: [Self.ref("phone.png")]
+        )
+
+        #expect(strip.previews.map(\.lastPathComponent) == ["shot.png", "clip.mov", "q3.docx", "Notes.pages"])
+        #expect(Self.described(Strip(cards: strip.cards)) == [
+            "ref phone.png",
+            "file /Users/me/.fermix/w/logo.svg",
+            "file /Users/me/.fermix/w/page.html",
+            "file /Users/me/.fermix/w/table.csv",
+            "file /Users/me/Desktop/far.png",
+            "link https://a.com/x",
         ])
     }
 
@@ -251,15 +285,106 @@ struct ChatStripTests {
     func openRows() {
         let tile = CGSize(width: 200, height: 133)
         let fewer = CGSize(width: 96, height: 24)
-        let rows = ChatStripRows(perRow: 3, trailing: false, endsWithControl: true)
+        let rows = ChatStripRows(perRow: 3, groups: [6], trailing: false, endsWithControl: true)
 
         #expect(rows.rows(of: Array(repeating: tile, count: 6) + [fewer], width: 720) == [[0, 1, 2], [3, 4, 5, 6]])
         #expect(rows.rows(of: Array(repeating: tile, count: 6) + [fewer], width: 700) == [[0, 1, 2], [3, 4, 5], [6]])
 
-        let folded = ChatStripRows(perRow: 2, trailing: true, endsWithControl: true)
+        let folded = ChatStripRows(perRow: 2, groups: [2], trailing: true, endsWithControl: true)
         let narrow = CGSize(width: 179, height: 119)
         let more = CGSize(width: 40, height: 24)
         #expect(folded.rows(of: [narrow, narrow, more], width: 430) == [[0, 1, 2]])
+    }
+
+    /// Previews and cards never share a row: the previews' rows come first,
+    /// then the cards' at the same width, and the control ends the last.
+    @Test("previews and cards each take rows of their own, the cards after")
+    func groupedRows() {
+        let tile = CGSize(width: 200, height: 133)
+        let card = CGSize(width: 200, height: 52)
+        let more = CGSize(width: 40, height: 24)
+
+        let folded = ChatStripRows(perRow: 3, groups: [1, 2], trailing: false, endsWithControl: true)
+        #expect(folded.rows(of: [tile, card, card, more], width: 720) == [[0], [1, 2, 3]])
+
+        let open = ChatStripRows(perRow: 3, groups: [4, 4], trailing: false, endsWithControl: false)
+        #expect(open.rows(of: Array(repeating: tile, count: 4) + Array(repeating: card, count: 4), width: 720) == [[0, 1, 2], [3], [4, 5, 6], [7]])
+
+        let cardsOnly = ChatStripRows(perRow: 3, groups: [0, 2], trailing: false, endsWithControl: false)
+        #expect(cardsOnly.rows(of: [card, card], width: 720) == [[0, 1]])
+    }
+
+    // MARK: - The text
+
+    /// A reply that only lists what it made says nothing the strip does not:
+    /// its text goes, and the row draws its strip alone.
+    @Test("a reply that is only a list of what it made draws no text")
+    func onlyAList() {
+        let strip = Self.strip(
+            "- /Users/me/.fermix/w/shot.png\n* `~/.fermix/w/report.pdf`\n• [clip.mov](/Users/me/.fermix/w/clip.mov)\n"
+                + "1. https://a.com/x\n2) <https://b.com/y>\n  [https://c.com/z](https://c.com/z)."
+        )
+
+        #expect(strip.items.count == 6)
+        #expect(strip.text.isEmpty)
+    }
+
+    /// Only a line that names one thing the strip shows, and nothing more,
+    /// goes. A link inside a sentence, a markdown link with words of its own
+    /// and a path with no tile all stay, and the gap the list left closes.
+    @Test("prose stays, and a line that only names a tile goes, its gap closing")
+    func mixedProse() {
+        let text = """
+            I saved the screenshot to /Users/me/.fermix/w/shot.png as asked.
+
+            Files:
+            - /Users/me/.fermix/w/shot.png
+            - /etc/hosts
+            - [the report](/Users/me/.fermix/w/report.pdf)
+
+            - https://a.com/x
+
+            See [the docs](https://a.com/docs) too.
+            """
+        let strip = Self.strip(text)
+
+        #expect(strip.text == """
+            I saved the screenshot to /Users/me/.fermix/w/shot.png as asked.
+
+            Files:
+            - /etc/hosts
+            - [the report](/Users/me/.fermix/w/report.pdf)
+
+            See [the docs](https://a.com/docs) too.
+            """)
+    }
+
+    @Test("a line in a fenced block is never touched")
+    func fencedCode() {
+        let text = "Run this:\n```\n/Users/me/.fermix/w/shot.png\nhttps://a.com/x\n```\n/Users/me/.fermix/w/shot.png"
+        let strip = Self.strip(text)
+
+        #expect(strip.text == "Run this:\n```\n/Users/me/.fermix/w/shot.png\nhttps://a.com/x\n```")
+    }
+
+    /// The person's own message follows the same rule: the picture they
+    /// named is under it, so the line that only names it goes.
+    @Test("a person's own message loses the line that only names its picture")
+    func ownMessage() {
+        let text = "Can you look at this?\n~/Desktop/shot.png"
+
+        #expect(Self.strip(text).text == "Can you look at this?")
+        #expect(Self.strip("What is in ~/Desktop/shot.png?").text == "What is in ~/Desktop/shot.png?")
+    }
+
+    @Test("a text that loses no line is kept exactly, and a sound Fermix made counts as shown")
+    func untouched() {
+        let text = "  Indented\n\n\nTwo gaps, and /usr/bin/python3\n"
+        #expect(Self.strip(text).text == text)
+
+        let sound = Self.strip("Recorded it:\n\n/Users/me/.fermix/w/take.m4a")
+        #expect(sound.text == "Recorded it:")
+        #expect(sound.sounds.count == 1)
     }
 
     // MARK: - Kept per content

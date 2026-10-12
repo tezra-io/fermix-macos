@@ -1,14 +1,14 @@
 import CoreGraphics
 import Foundation
 
-/// What a finished row shows under its text (M66 §3.1): its tiles, in order,
-/// each destination once, and the two things a row draws that are not tiles,
-/// its voice note and the sound files Fermix made, which play where they are
-/// (§3.4).
+/// What a finished row shows under its text (M66 §3.1): its tiles, each
+/// destination once, the two things a row draws that are not tiles, its voice
+/// note and the sound files Fermix made, which play where they are (§3.4),
+/// and its text less the lines that only name what the row already shows.
 ///
 /// It is worked out from the row's content alone and never looks at the disk:
 /// whether a file is there, and what it looks like, is each tile's to find out
-/// once it is on screen. The tiles come in this order:
+/// once it is on screen. The items are found in this order:
 ///
 /// 1. The row's media refs, in their order.
 /// 2. The stored link previews whose address is not one the text links to.
@@ -17,6 +17,12 @@ import Foundation
 ///    path that is only talked about (`/etc/hosts`) stays a link in the text.
 /// 4. The web addresses the text links to, each with its stored preview where
 ///    it has one.
+///
+/// They are drawn in two kinds, each keeping that order: first the previews,
+/// the paths inside the Fermix home to a picture, a video or a page, which
+/// draw what the file holds; then every other item as a compact card. An
+/// item's kind is read from its path, so a tile keeps its shape whatever its
+/// file turns out to be.
 struct ChatStrip: Equatable {
     /// The `kind` the engine gives a phone's recorded voice.
     static let voiceKind = "audio"
@@ -24,10 +30,23 @@ struct ChatStrip: Equatable {
     /// The row's voice note, its first `audio` ref, drawn as its chip with
     /// the row's text as its transcript.
     let voiceNote: CompanionMediaRef?
-    let items: [ChatStripItem]
+    /// The files whose tiles draw what they hold.
+    let previews: [URL]
+    /// Every other item, as a compact card.
+    let cards: [ChatStripItem]
     /// The sound files inside the Fermix home the text names, in reading
     /// order: each plays in the row rather than showing as a tile.
     let sounds: [URL]
+    /// The row's text as it is drawn: less every line that only names a file
+    /// or an address the row shows, which the tile says better
+    /// (`withoutShownLines`). Empty where nothing else was written, and the
+    /// row then draws its strip alone.
+    let text: String
+
+    /// Every item, previews first: the order they are drawn and counted in.
+    var items: [ChatStripItem] {
+        previews.map(ChatStripItem.file) + cards
+    }
 
     /// The strip of a row's content. `userHome` is what `~` reads as, and
     /// `home` the Fermix home, nil where it could not be read, which leaves
@@ -47,7 +66,23 @@ struct ChatStrip: Equatable {
         let links = addresses.map { address in
             ChatStripItem.link(ChatStripLink(address: address, preview: previews.first { $0.written == address }?.preview))
         }
-        items = Self.unique(refs + loose + files + links)
+        let items = Self.unique(refs + loose + files + links)
+        self.previews = items.compactMap { Self.preview($0, home: home) }
+        cards = items.filter { Self.preview($0, home: home) == nil }
+
+        let shown = Set(items.map(\.id) + sounds.map { ChatStripItem.file($0).id })
+        self.text = Self.withoutShownLines(text, shown: shown, userHome: userHome)
+    }
+
+    /// The file an item draws a preview of: a path inside the Fermix home
+    /// whose type is drawn by its content. A ref has no bytes in the app's
+    /// hands yet, and a link is drawn from its address.
+    private static func preview(_ item: ChatStripItem, home: ChatHome?) -> URL? {
+        guard case .file(let file) = item, home?.contains(file) == true,
+              ChatPreviewPolicy.type(ofPath: file.path).map(ChatPreviewPolicy.showsContent) == true
+        else { return nil }
+
+        return file
     }
 
     /// A path is a tile when it names something inside the Fermix home or a
@@ -73,6 +108,112 @@ struct ChatStrip: Equatable {
     private static func unique(_ items: [ChatStripItem]) -> [ChatStripItem] {
         var seen: Set<String> = []
         return items.filter { seen.insert($0.id).inserted }
+    }
+
+    // MARK: - The text
+
+    /// The text less every line that names, and only names, something the
+    /// row shows under it: a line whose whole content, once its indent, a
+    /// list marker (`-`, `*`, `+`, `•`, `1.`) and a code span round it are set
+    /// aside, is one path or address with a tile or a player. A bare path or
+    /// address, one in code, and a markdown link whose words are its own
+    /// destination or that file's bare name all count; a link inside a
+    /// sentence, and a markdown link with words of its own, stay. Nothing in a
+    /// fenced block is touched. Where a line goes, a blank line on either side
+    /// of it closes up, and the text loses any blank lines at its ends. A text
+    /// that loses no line is returned as it was.
+    static func withoutShownLines(_ text: String, shown: Set<String>, userHome: String) -> String {
+        var kept: [Substring] = []
+        var fenced = false
+        var dropped = false
+        var droppedSinceKept = false
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("```") {
+                fenced.toggle()
+            } else if !fenced, let named = destination(ofLine: line, userHome: userHome), shown.contains(named) {
+                dropped = true
+                droppedSinceKept = true
+                continue
+            }
+            if droppedSinceKept, isBlank(line), kept.last.map(isBlank) == true { continue }
+
+            kept.append(line)
+            droppedSinceKept = false
+        }
+        guard dropped else { return text }
+
+        while kept.first.map(isBlank) == true { kept.removeFirst() }
+        while kept.last.map(isBlank) == true { kept.removeLast() }
+        return kept.joined(separator: "\n")
+    }
+
+    /// The one destination a line names, as its item's id, or nil for a line
+    /// that says anything more.
+    private static func destination(ofLine line: Substring, userHome: String) -> String? {
+        let body = withoutListMarker(Substring(line.trimmingCharacters(in: .whitespaces)))
+        var closed = body
+        while let last = closed.last, sentenceMarks.contains(last) {
+            closed = closed.dropLast()
+        }
+        if closed.count > 2, closed.first == "`", closed.last == "`" {
+            return destination(wholly: closed.dropFirst().dropLast(), userHome: userHome)
+        }
+        if let link = closed.wholeMatch(of: #/\[(.+)\]\((.+)\)/#) {
+            return destination(ofLink: link.output.1, to: link.output.2, userHome: userHome)
+        }
+
+        return bareDestination(body, userHome: userHome)
+    }
+
+    /// A markdown link's destination, where its words are that destination
+    /// or the bare name of the file it is.
+    private static func destination(ofLink words: Substring, to target: Substring, userHome: String) -> String? {
+        let words = words.filter { $0 != "`" }
+        let target = target.hasPrefix("<") && target.hasSuffix(">") ? target.dropFirst().dropLast() : target
+        guard words == target || words == (target as NSString).lastPathComponent else { return nil }
+
+        return destination(wholly: target, userHome: userHome)
+    }
+
+    /// Text that is one path or one address from end to end.
+    private static func destination(wholly text: Substring, userHome: String) -> String? {
+        guard !text.contains("`") else { return nil }
+        if let file = ReplyPaths.file(wholly: text, home: userHome) { return ChatStripItem.file(file).id }
+
+        return ReplyLinks.address(wholly: text).map { ChatStripItem.link(ChatStripLink(address: $0, preview: nil)).id }
+    }
+
+    /// Plain text that is one bare path or one address, with nothing round it
+    /// but the marks that open or close a sentence.
+    private static func bareDestination(_ text: Substring, userHome: String) -> String? {
+        let string = String(text)
+        let paths = ReplyPaths.barePaths(in: string)
+        if paths.count == 1, let path = paths.first, onlyMarks(string, besides: path) {
+            return ChatStripItem.file(ReplyPaths.fileURL(String(ReplyPaths.withoutLineReference(string[path])), home: userHome)).id
+        }
+        let addresses = ReplyLinks.addresses(inText: string)
+        guard addresses.count == 1, let address = addresses.first, onlyMarks(string, besides: address.range) else { return nil }
+
+        return ChatStripItem.link(ChatStripLink(address: address.url, preview: nil)).id
+    }
+
+    private static func onlyMarks(_ text: String, besides range: Range<String.Index>) -> Bool {
+        (text[..<range.lowerBound] + text[range.upperBound...]).allSatisfy { $0.isPunctuation || $0.isSymbol }
+    }
+
+    /// A list item's text, its marker gone: `-`, `*`, `+` or `•`, or a number
+    /// and a full stop or bracket, then a space.
+    private static func withoutListMarker(_ line: Substring) -> Substring {
+        guard let marker = line.prefixMatch(of: #/(?:[-*+•]|[0-9]+[.)])\s+/#) else { return line }
+
+        return line[marker.range.upperBound...]
+    }
+
+    /// The marks that end a sentence after a code span or a link.
+    private static let sentenceMarks: Set<Character> = [".", ",", ";", ":", "!", "?"]
+
+    private static func isBlank(_ line: Substring) -> Bool {
+        line.allSatisfy(\.isWhitespace)
     }
 
     // MARK: - Stored previews
@@ -232,14 +373,15 @@ struct ChatHome: Equatable, Sendable {
     }
 }
 
-/// How many tiles a strip shows at a width, and how wide (M66 §3.2): 3:2
-/// tiles, `stripGap` apart, between 120 and 200 points wide, as many as fit
-/// up to three. With more items than it shows, **+N** follows the last tile,
-/// and the room it takes is counted before the tiles are.
+/// How many items a strip shows at a width, and how wide (M66 §3.2): 3:2
+/// preview tiles and cards of the same width, `stripGap` apart, between 120
+/// and 200 points wide, as many to a row as fit up to three. With more items
+/// than it shows, **+N** follows the last, and the room it takes is counted
+/// before the items are.
 struct ChatStripFit: Equatable {
+    /// The width of every preview tile and card in the strip.
     let tileWidth: Double
-    /// The tiles the folded strip shows, and how many a row holds once it
-    /// is open.
+    /// The items the folded strip shows, and how many a row holds.
     let shown: Int
     /// The items it does not show while folded, the N of **+N**.
     let more: Int

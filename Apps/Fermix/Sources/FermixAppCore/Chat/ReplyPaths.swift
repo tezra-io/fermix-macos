@@ -60,7 +60,14 @@ enum ReplyPaths {
     /// reference after it aside.
     private static func codePath(_ run: AttributedString.Runs.Run, in reply: AttributedString, home: String) -> URL? {
         guard isCode(run) else { return nil }
-        let path = withoutLineReference(Substring(reply[run.range].characters))
+
+        return file(wholly: Substring(reply[run.range].characters), home: home)
+    }
+
+    /// The file text names when it is a path from end to end, a line
+    /// reference after it aside, as a code span's whole text is read.
+    static func file(wholly text: Substring, home: String) -> URL? {
+        let path = withoutLineReference(text)
         return isPath(path) ? fileURL(String(path), home: home) : nil
     }
 

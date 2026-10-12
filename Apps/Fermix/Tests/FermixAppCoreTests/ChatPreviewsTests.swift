@@ -30,6 +30,21 @@ struct ChatPreviewsTests {
         Dictionary(uniqueKeysWithValues: numbers.map { (file($0), ChatPictureFacts(pixels: 400 * 300, animated: false)) })
     }
 
+    /// A made preview as its picture's size and its detail: every preview is
+    /// cut to its tile's pixels, 400 by 266 for these 200-by-133 tiles at
+    /// twice the scale.
+    private struct Made: Equatable {
+        let width: Int
+        let height: Int
+        let detail: ChatPreviewDetail?
+    }
+
+    private static func made(_ outcome: ChatPreviewOutcome) -> Made? {
+        guard case .made(let preview) = outcome else { return nil }
+
+        return Made(width: preview.image.width, height: preview.image.height, detail: preview.detail)
+    }
+
     private static func waitUntil(_ condition: () -> Bool) async throws {
         for _ in 0..<10_000 {
             if condition() { return }
@@ -65,7 +80,7 @@ struct ChatPreviewsTests {
 
         let image = FakeMediaReader.image()
         reader.finish(Self.file(1), with: image)
-        #expect(await first.value == .made(ChatPreview(image: image, detail: nil)))
+        #expect(Self.made(await first.value) == Made(width: 400, height: 266, detail: nil))
         try await Self.waitUntil { reader.thumbnailsAsked.count == 3 }
         #expect(previews.waitingCount == 0)
 
@@ -86,10 +101,9 @@ struct ChatPreviewsTests {
         for _ in 0..<100 { await Task.yield() }
         #expect(reader.thumbnailsAsked.count == 1)
 
-        let image = FakeMediaReader.image()
-        reader.finish(Self.file(1), with: image)
-        let made = ChatPreviewOutcome.made(ChatPreview(image: image, detail: nil))
-        #expect(await first.value == made)
+        reader.finish(Self.file(1), with: FakeMediaReader.image())
+        let made = await first.value
+        #expect(Self.made(made) == Made(width: 400, height: 266, detail: nil))
         #expect(await second.value == made)
 
         #expect(await previews.preview(Self.request(1)) == made)
@@ -209,10 +223,49 @@ struct ChatPreviewsTests {
             lengths: [URL(fileURLWithPath: "/h/clip.mp4"): 42]
         )
 
-        #expect(await ChatPreviews.make(Self.request(1, path: "/h/wave.gif"), with: reader) == .made(ChatPreview(image: image, detail: .animated)))
-        #expect(await ChatPreviews.make(Self.request(2, path: "/h/report.pdf"), with: reader) == .made(ChatPreview(image: image, detail: .pages(12))))
-        #expect(await ChatPreviews.make(Self.request(3, path: "/h/clip.mp4"), with: reader) == .made(ChatPreview(image: image, detail: .length(42))))
-        #expect(await ChatPreviews.make(Self.request(4, path: "/h/q3.docx"), with: reader) == .made(ChatPreview(image: image, detail: nil)))
+        #expect(Self.made(await ChatPreviews.make(Self.request(1, path: "/h/wave.gif"), with: reader)) == Made(width: 400, height: 266, detail: .animated))
+        #expect(Self.made(await ChatPreviews.make(Self.request(2, path: "/h/report.pdf"), with: reader)) == Made(width: 400, height: 266, detail: .pages(12)))
+        #expect(Self.made(await ChatPreviews.make(Self.request(3, path: "/h/clip.mp4"), with: reader)) == Made(width: 400, height: 266, detail: .length(42)))
+        #expect(Self.made(await ChatPreviews.make(Self.request(4, path: "/h/q3.docx"), with: reader)) == Made(width: 400, height: 266, detail: nil))
+    }
+
+    // MARK: - Filling the tile
+
+    /// Quick Look's thumbnail fits inside what it is asked for, so it is
+    /// asked for a square twice the tile's width: large enough to fill the
+    /// tile for a page twice as tall as wide or a picture three times as wide
+    /// as tall.
+    @Test("Quick Look is asked for a square twice the tile's width, and a page is held by its head")
+    func askedForEnough() {
+        #expect(Self.request(1).box == CGSize(width: 400, height: 400))
+        #expect(Self.request(1).pixels == CGSize(width: 400, height: 266))
+        #expect(Self.request(1, path: "/h/report.pdf").anchor == .top)
+        #expect(Self.request(2, path: "/h/q3.docx").anchor == .top)
+        #expect(Self.request(3, path: "/h/shot.png").anchor == .center)
+        #expect(Self.request(4, path: "/h/clip.mp4").anchor == .center)
+    }
+
+    /// Core Graphics puts the origin at the bottom left: a page held by its
+    /// head is drawn so its top meets the tile's top, and what spills over
+    /// falls off the bottom.
+    @Test("a preview covers its tile, cut at the sides or the foot, never letterboxed")
+    func cover() {
+        let tile = CGSize(width: 400, height: 267)
+
+        let page = ChatPreviewCover.rect(of: CGSize(width: 100, height: 200), covering: tile, anchor: .top)
+        #expect(page == CGRect(x: 0, y: -533, width: 400, height: 800))
+
+        let shot = ChatPreviewCover.rect(of: CGSize(width: 100, height: 200), covering: tile, anchor: .center)
+        #expect(shot == CGRect(x: 0, y: -266.5, width: 400, height: 800))
+
+        let wide = ChatPreviewCover.rect(of: CGSize(width: 300, height: 100), covering: tile, anchor: .center)
+        #expect(wide.minX < 0)
+        #expect(wide.height == 267)
+        #expect(abs(wide.midX - 200) < 0.001)
+
+        let cut = ChatPreviewCover.image(FakeMediaReader.image(width: 3, height: 9), filling: tile, anchor: .top)
+        #expect(cut?.width == 400)
+        #expect(cut?.height == 267)
     }
 
     @Test("a video AVFoundation cannot play opens outside, and no frame is made of it")
