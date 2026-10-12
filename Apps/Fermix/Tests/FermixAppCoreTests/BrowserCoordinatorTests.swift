@@ -60,7 +60,7 @@ struct BrowserCoordinatorTests {
 
         #expect(harness.model.tabs.map(\.id) == [first.id])
         #expect(harness.model.selectedTabID == first.id)
-        #expect(harness.page(1).actions == ["stop"])
+        #expect(harness.page(1).actions == ["close"])
         #expect(harness.model.isOpen)
     }
 

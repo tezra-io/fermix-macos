@@ -398,6 +398,21 @@
 "chat.search.searching" = "Searching";
 "chat.search.noMatches" = "No messages match";
 "chat.search.older" = "Show older matches";
+"chat.strip.moreFormat" = "+%lld";
+"chat.strip.moreSpokenFormat" = "%lld more";
+"chat.strip.showFewer" = "Show fewer";
+"chat.tile.notAvailable" = "Not available";
+"chat.tile.pages.one" = "1 page";
+"chat.tile.pages.many" = "%lld pages";
+"chat.voiceNote" = "Voice note";
+"chat.kind.picture" = "Picture";
+"chat.kind.video" = "Video";
+"chat.kind.sound" = "Sound";
+"chat.kind.pdf" = "PDF";
+"chat.kind.document" = "Document";
+"chat.kind.page" = "Page";
+"chat.kind.file" = "File";
+"chat.kind.link" = "Link";
 
 /* MARK: Browser */
 "browser.notice.notAnAddress" = "Enter a web address, such as fermix.ai.";
@@ -881,3 +896,11 @@
 "provider.details" = "Details…";
 "provider.signOut" = "Sign out";
 "settings.voice.microphoneSection" = "Microphone";
+
+/* MARK: - Browser media (M66) */
+"browser.zoomIn" = "Zoom in";
+"browser.zoomOut" = "Zoom out";
+"browser.actualSize" = "Actual size";
+"browser.zoomToFit" = "Zoom to fit";
+"media.play" = "Play";
+"media.pause" = "Pause";

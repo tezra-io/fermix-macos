@@ -13,9 +13,12 @@ import Foundation
 /// beside them, as a link opened in a browser lands in the window already
 /// there. Closing the last tab closes the pane.
 ///
-/// A file on this Mac opens here too (plan §8.2), in a file tab beside the
-/// web tabs, or in an app named for it, or only in Finder (`openFile`). No
-/// file is ever handed to the Mac by its path alone.
+/// A file on this Mac opens here too (plan §8.2, M66 §3.5), in a file tab
+/// beside the web tabs: WebKit's for what WebKit draws, the app's one player
+/// in AVKit's view for sound and film, and Quick Look's view for every other
+/// document. What the pane does not show is only shown in Finder, and a
+/// sound or a film the player cannot play goes to an app named for it
+/// (`openFile`). No file is ever handed to the Mac by its path alone.
 ///
 /// The host's side of the daemon's `browser_host` wire runs through here too:
 /// a task's tabs, their release, the availability the host reports and its
@@ -32,6 +35,11 @@ public final class BrowserCoordinator {
     private let makeEngine: BrowserEngineMaking
     private let profile: WebsiteProfileRecord
     private let workspace: any WorkspaceLinkOpening
+    /// The app's one player, which a media tab plays on and which says
+    /// whether a sound or a film can play at all.
+    private let player: AppPlayer
+    /// The views the pane's own viewers draw in, AVKit's and Quick Look's.
+    private let viewers: any BrowserViewerMaking
     /// The Fermix home, inside which a file the person opens loads without a
     /// question. Resolved per open from the bootstrap record, as the host's
     /// roots are; a home that cannot be resolved has nothing inside it.
@@ -67,11 +75,17 @@ public final class BrowserCoordinator {
     private var systemPanelShown = false
     /// Where each tab's page is now.
     private var placed: [BrowserTab.ID: BrowserPagePlace] = [:]
+    /// A file outside the Fermix home the person opened while something
+    /// else was asking: kept, one deep, and asked about as soon as the pane
+    /// is free to ask. A later one replaces it.
+    private var keptFile: (file: BrowserLocalFile, kind: BrowserFileKind)?
 
     public init(
         makeEngine: @escaping BrowserEngineMaking,
         profile: WebsiteProfileRecord,
         workspace: any WorkspaceLinkOpening,
+        player: AppPlayer,
+        viewers: any BrowserViewerMaking,
         home: @escaping () throws -> URL,
         session: any SessionAvailabilityReporting,
         deadlines: any DeadlineScheduling,
@@ -82,6 +96,8 @@ public final class BrowserCoordinator {
         self.makeEngine = makeEngine
         self.profile = profile
         self.workspace = workspace
+        self.player = player
+        self.viewers = viewers
         self.home = home
         self.session = session
         self.deadlines = deadlines
@@ -107,8 +123,8 @@ public final class BrowserCoordinator {
     /// A file on this Mac a person asked for, from a reply or a page, decided
     /// on where its link really lands (`BrowserLocalFile`): nothing there
     /// opens the pane on the sentence that says so; one the pane shows opens
-    /// in a new file tab, in front; a document goes to the app named for its
-    /// type; and everything else is only shown in Finder.
+    /// in a new file tab, in front, a sound or a film once AVFoundation says
+    /// it can play it; and everything else is only shown in Finder.
     public func openFile(_ link: URL) {
         guard let file = BrowserLocalFile(link) else {
             model.notice = ProductStrings[.browserNoticeFileMissing]
@@ -116,9 +132,9 @@ public final class BrowserCoordinator {
             return
         }
 
-        switch file.opening(workspace) {
+        switch file.opening() {
+        case .show(.media): openMedia(file)
         case .show(let kind): openFileTab(file, as: kind)
-        case .open(let app): open(file.url, with: app)
         case .reveal: workspace.reveal(file.url)
         }
     }
@@ -188,18 +204,12 @@ public final class BrowserCoordinator {
         placePages()
     }
 
-    /// Hides the pane and keeps its tabs. A dialog waiting over the pane is
-    /// answered as dismissed, because nobody can see it to answer it. The
-    /// pane is closed first: a dismissed file question closes its tab, which
-    /// may be the last, and that close finds the pane already going.
+    /// The person hides the pane, which keeps its tabs. A file kept behind
+    /// the question it answers goes with it: the person hid the pane it would
+    /// be asked in.
     public func closePane() {
-        guard model.isOpen else { return }
-
-        model.isOpen = false
-        answer(.dismissed)
-        model.notice = nil
-        paneShown(false)
-        placePages()
+        keptFile = nil
+        hidePane()
     }
 
     /// The page in front, in the person's own browser.
@@ -224,12 +234,21 @@ public final class BrowserCoordinator {
         workspace.reveal(file)
     }
 
-    /// The person's answer to the dialog over the pane.
+    /// The person's answer to the dialog over the pane. A file kept behind
+    /// it is asked about first, so a Cancel that closes the last tab does not
+    /// close the pane only for the next question to open it again.
     public func answer(_ answer: BrowserDialogAnswer) {
         guard let request = model.dialog else { return }
 
         model.dialog = nil
+        askKeptFile()
         request.answer(answer)
+    }
+
+    /// The page in front, a step larger or smaller, at its actual size, or a
+    /// picture fitted to the pane.
+    public func zoom(_ zoom: BrowserZoom) {
+        model.selectedTab?.zoom(zoom)
     }
 
     // MARK: - Where the pages are
@@ -352,7 +371,23 @@ public final class BrowserCoordinator {
     private func makePersonTab(_ profile: BrowserProfile) -> BrowserTab? {
         guard let engine = resolvedEngine() else { return nil }
 
-        let tab = engine.makeTab(profile: profile)
+        return registered(engine.makeTab(profile: profile))
+    }
+
+    /// A file tab: WebKit's file page for what WebKit draws, and the pane's
+    /// own viewer for the rest, which needs no website profile.
+    private func makeFileTab(_ kind: BrowserFileKind) -> BrowserTab? {
+        switch kind {
+        case .image, .pdf, .html, .text:
+            return makePersonTab(.file)
+        case .media:
+            return registered(BrowserTab(profile: .file, page: BrowserMediaPage(player: player, surface: viewers.mediaSurface(player))))
+        case .document:
+            return registered(BrowserTab(profile: .file, page: BrowserDocumentPage(preview: viewers.documentPreview())))
+        }
+    }
+
+    private func registered(_ tab: BrowserTab) -> BrowserTab {
         tab.delegate = self
         model.host.openPersonTab(tab.id)
 
@@ -396,7 +431,8 @@ public final class BrowserCoordinator {
     /// Takes tabs out together, as one close or one task's release, so no page
     /// is placed while a tab that is going is still listed. The tab in front
     /// goes to its nearest neighbour that stays, and the last tab takes the
-    /// pane with it.
+    /// pane with it. A question that went with a tab frees the pane to ask
+    /// about a kept file, once the tabs have settled.
     private func remove(_ going: Set<BrowserTab.ID>) {
         let tabs = model.tabs
         let front = tabs.firstIndex { $0.id == model.selectedTabID }
@@ -404,9 +440,10 @@ public final class BrowserCoordinator {
             retire(tab)
         }
         model.tabs.removeAll { going.contains($0.id) }
+        defer { askKeptFile() }
         guard let last = model.tabs.last else {
             model.selectedTabID = nil
-            closePane()
+            hidePane()
             return
         }
         guard let front, going.contains(tabs[front].id) else { return }
@@ -415,12 +452,36 @@ public final class BrowserCoordinator {
     }
 
     /// A tab that is going answers any dialog its page is waiting on, and its
-    /// page answers anything it asks from now on by itself.
+    /// page answers anything it asks from now on by itself, and lets go of
+    /// what it holds.
     private func retire(_ tab: BrowserTab) {
-        if model.dialog?.tabID == tab.id { answer(.dismissed) }
+        if model.dialog?.tabID == tab.id { dismissDialog() }
         tab.delegate = nil
-        tab.stop()
+        tab.close()
         unplace(tab)
+    }
+
+    /// The dialog over the pane, answered as dismissed because nobody can see
+    /// it to answer it: its tab is going, or the pane is.
+    private func dismissDialog() {
+        guard let request = model.dialog else { return }
+
+        model.dialog = nil
+        request.answer(.dismissed)
+    }
+
+    /// Hides the pane and keeps its tabs. A dialog waiting over the pane is
+    /// dismissed. The pane is closed first: a dismissed file question closes
+    /// its tab, which may be the last, and that close finds the pane already
+    /// going.
+    private func hidePane() {
+        guard model.isOpen else { return }
+
+        model.isOpen = false
+        dismissDialog()
+        model.notice = nil
+        paneShown(false)
+        placePages()
     }
 
     /// A link, to the person's browser or the app that owns its scheme. A
@@ -443,12 +504,33 @@ public final class BrowserCoordinator {
             model.notice = ProductStrings[.browserNoticeFileMissing]
             return
         }
+
+        handOver(file)
+    }
+
+    private func handOver(_ file: BrowserLocalFile) {
         guard let app = file.documentApplication(workspace) else {
             workspace.reveal(file.url)
             return
         }
 
         open(file.url, with: app)
+    }
+
+    /// A sound or a film, in a media tab where AVFoundation says it can play
+    /// it, which it reads from the file itself and never from its name;
+    /// what it cannot play goes to its app, as a tile's Opens outside does.
+    private func openMedia(_ file: BrowserLocalFile) {
+        Task { [weak self, player] in
+            let playable = await player.isPlayable(file.url)
+            guard let self else { return }
+
+            if playable {
+                openFileTab(file, as: .media)
+            } else {
+                handOver(file)
+            }
+        }
     }
 
     /// A file, handed to the app named for it as a document. Where the app
@@ -465,15 +547,19 @@ public final class BrowserCoordinator {
     /// comes to the front with the pane open, with the app it offers its file
     /// to decided now. Inside the Fermix home its file loads at once, an HTML
     /// file with leave to read its own folder for its images and stylesheets;
-    /// outside it, the one file loads only on the person's answer, and no tab
-    /// is made while something else is asking, since the question could not
-    /// be put.
+    /// outside it, whatever its kind, the one file loads only on the person's
+    /// answer. No tab is made while something else is asking, since the
+    /// question could not be put: the file is kept and asked about next.
     private func openFileTab(_ file: BrowserLocalFile, as kind: BrowserFileKind) {
         let inside = isInsideHome(file.url)
-        guard inside || nothingIsAsking else { return }
-        guard let tab = makePersonTab(.file) else { return }
+        guard inside || nothingIsAsking else {
+            keptFile = (file, kind)
+            return
+        }
+        guard let tab = makeFileTab(kind) else { return }
 
         tab.file = file.url
+        tab.fileKind = kind
         tab.fileApp = file.documentApplication(workspace)
         add(tab)
         guard inside else {
@@ -482,6 +568,14 @@ public final class BrowserCoordinator {
         }
 
         tab.loadFile(file.url, as: kind, readAccess: kind == .html ? file.url.deletingLastPathComponent() : file.url)
+    }
+
+    /// The file kept behind a question, asked about now that nothing is.
+    private func askKeptFile() {
+        guard nothingIsAsking, let kept = keptFile else { return }
+
+        keptFile = nil
+        openFileTab(kept.file, as: kept.kind)
     }
 
     private func isInsideHome(_ file: URL) -> Bool {
@@ -532,6 +626,7 @@ public final class BrowserCoordinator {
         show { [weak self] chosen in
             self?.systemPanelShown = false
             answer(chosen)
+            self?.askKeptFile()
         }
     }
 

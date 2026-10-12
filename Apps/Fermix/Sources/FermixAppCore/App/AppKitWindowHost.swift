@@ -31,6 +31,8 @@ struct AppSurfaces {
     let browser: BrowserCoordinator
     /// Where a link in the owner's content opens.
     let links: ContentLinkOpener
+    /// What the chat's rows draw under their words (M66).
+    let chatMedia: ChatMedia
 
     func view(for kind: WindowKind) -> NSView {
         switch kind {
@@ -47,7 +49,8 @@ struct AppSurfaces {
                     openRecovery: openRecovery,
                     restart: restart,
                     browser: browser,
-                    links: links
+                    links: links,
+                    chatMedia: chatMedia
                 )
             )
             // The primary window's toolbar and title are SwiftUI's, hosted in

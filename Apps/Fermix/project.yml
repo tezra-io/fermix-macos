@@ -126,6 +126,26 @@ targets:
       base:
         PRODUCT_NAME: FermixBrowser
 
+  # The one place that imports AVKit, QuickLookUI and QuickLookThumbnailing,
+  # for the same reason again: FermixAgent links FermixAppCore and must never
+  # load a viewer it never shows. A static library linked into the GUI
+  # executable, like FermixBrowser. All three are the system's, so there is
+  # no package to pin.
+  FermixViewers:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Sources/FermixViewers
+    dependencies:
+      - target: FermixAppCore
+        embed: false
+      - sdk: AVKit.framework
+      - sdk: QuickLookUI.framework
+      - sdk: QuickLookThumbnailing.framework
+    settings:
+      base:
+        PRODUCT_NAME: FermixViewers
+
   # The GUI, the menu bar, the windows, and the only microphone principal. It
   # is also the only target that links the updater: the package appears here as
   # well as on FermixSparkle because a static library carries no link of its
@@ -148,6 +168,8 @@ targets:
         embed: false
       - package: RiveRuntime
       - target: FermixBrowser
+        embed: false
+      - target: FermixViewers
         embed: false
     settings:
       base:

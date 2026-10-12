@@ -584,8 +584,15 @@ extension AppEnvironment {
     /// The fixture configuration's boundary: a throwaway home, the contract's
     /// golden answers, and probes that report the declared machine. The mascot
     /// is the real renderer the executable handed in, so a fixture capture
-    /// shows the animation the product draws.
-    static func fixture(_ launch: FixtureLaunch, mascot: any MascotRendering) throws -> AppEnvironment {
+    /// shows the animation the product draws, and so are the pane's viewers
+    /// and the chat's media reader, so a capture shows a film, a document and
+    /// a tile's preview as the product draws them.
+    static func fixture(
+        _ launch: FixtureLaunch,
+        mascot: any MascotRendering,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
+    ) throws -> AppEnvironment {
         let location = try FixtureRoot.prepared(for: launch.startSlug)
         let contract = try ManagementContract.vendored()
         // One machine behind every seam that can see it, so a transaction the
@@ -625,6 +632,8 @@ extension AppEnvironment {
             // Fake pages, so the pane is looked at with no web engine and no
             // network behind it.
             makeBrowser: { _ in FixtureBrowserEngine() },
+            viewers: viewers,
+            mediaReader: mediaReader,
             // A session with nothing to hear: the fixture's Mac is unlocked
             // and awake for the whole run.
             session: SessionAvailability(standing: [], distributed: NotificationCenter(), workspace: NotificationCenter()),
@@ -669,8 +678,13 @@ extension AppComposition {
     /// The same graph as `AppComposition()`, standing on the fixture
     /// environment. There is no branch inside the product configuration: the
     /// two roots differ only in what they are handed.
-    convenience init(fixture launch: FixtureLaunch, mascot: any MascotRendering) throws {
-        self.init(environment: try .fixture(launch, mascot: mascot))
+    convenience init(
+        fixture launch: FixtureLaunch,
+        mascot: any MascotRendering,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
+    ) throws {
+        self.init(environment: try .fixture(launch, mascot: mascot, viewers: viewers, mediaReader: mediaReader))
     }
 
     /// Opens what the launch asked for.

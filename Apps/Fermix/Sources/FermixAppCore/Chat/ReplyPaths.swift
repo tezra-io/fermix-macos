@@ -43,6 +43,13 @@ enum ReplyPaths {
         return linked
     }
 
+    /// The files a drawn reply links to, in reading order: the paths made
+    /// links here and the markdown links to a path. The strip under the row
+    /// reads this list, so its tiles and the text's links are the same files.
+    static func files(in reply: AttributedString) -> [URL] {
+        ChatText.links(in: reply).filter(\.isFileURL)
+    }
+
     private static func link(_ range: Range<AttributedString.Index>, to file: URL, in reply: inout AttributedString, look: Look) {
         reply[range].link = file
         reply[range].foregroundColor = look.ink

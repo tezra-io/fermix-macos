@@ -42,11 +42,39 @@ enum ChatMetrics {
         bottom: (HitTarget.button - HitTarget.rowAction) / 2,
         trailing: (HitTarget.button - HitTarget.rowAction) / 2
     )
-    /// A message's own corners, the approval card's and the call box's.
+    /// A message's own corners, the approval card's and the call box's, and
+    /// a strip's tiles'.
     static let rowRadius: Double = 16
+    /// A strip's tiles (M66 §3.2): 3:2, between 120 and 200 points wide, at
+    /// most three to a row, `stripGap` apart.
+    static let stripTileAspect: Double = 3.0 / 2.0
+    static let stripTileWidths: ClosedRange<Double> = 120 ... 200
+    static let stripMostTiles = 3
+    static let stripGap: Double = Spacing.xs
+    /// The room **+N** is counted at before it is drawn: the row capsule
+    /// holding "+99", so the fit never has to measure the button.
+    static let stripMoreWidth: Double = 56
+    /// Between a row's words, or its voice note, and its strip.
+    static let stripTopGap: Double = Spacing.xs
+    /// How far a tile's picture sits in from the tile's edges. Its own
+    /// corners are the tile's less this, so the two curves run parallel.
+    static let tileInset: Double = Spacing.xs
+    /// A tile's icon, where the icon is its picture.
+    static let tileIconSize: Double = 40
+    /// How strongly a tile is drawn while the pointer holds it down.
+    static let tilePressedStrength: Double = 0.7
+    /// How long a tile waits on its preview before it shows the quiet
+    /// progress mark: a preview made in less never shows one.
+    static let tileProgressDelay: Duration = .milliseconds(300)
     /// How long typing in the search field pauses before the daemon is asked,
     /// so a word being typed is one search rather than one per letter.
     static let searchPause: Duration = .milliseconds(300)
+
+    /// The reading column inside a body this wide: the column's own width,
+    /// or the body less its gutters where the body is narrower.
+    static func column(inBody width: Double) -> Double {
+        min(columnWidth, max(0, width - 2 * columnGutter))
+    }
 }
 
 /// Chat: the one conversation with Fermix (redlines §8 decision 36).
@@ -92,6 +120,10 @@ struct ChatSurfaceView: View {
     let settings: SettingsModel
     /// Where a link in a reply opens.
     let links: ContentLinkOpener
+    /// The chat's media: the Fermix home, each row's strip and the previews
+    /// made for its tiles. Built once by the composition, so a preview made
+    /// is still there when the person comes back to Chat (M66).
+    let media: ChatMedia
     /// The toolbar's commands: "Show browser" (plan §4.10) and the call.
     let router: any CommandPerforming
 
@@ -101,6 +133,10 @@ struct ChatSurfaceView: View {
     @State private var query = ""
     @State private var resultsShown = false
     @State private var reveal: ChatReveal?
+    /// The body's width, which the reading column and every strip in it are
+    /// fitted to. It starts at the width a full column takes, the usual
+    /// window's, so the first frame is fitted already.
+    @State private var bodyWidth = ChatMetrics.columnWidth + 2 * ChatMetrics.columnGutter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -110,6 +146,7 @@ struct ChatSurfaceView: View {
         gate: VoiceCallGate,
         settings: SettingsModel,
         links: ContentLinkOpener,
+        media: ChatMedia,
         router: any CommandPerforming
     ) {
         self.session = session
@@ -119,6 +156,7 @@ struct ChatSurfaceView: View {
         self.gate = gate
         self.settings = settings
         self.links = links
+        self.media = media
         self.router = router
         _draft = State(initialValue: session.draft)
     }
@@ -127,7 +165,21 @@ struct ChatSurfaceView: View {
         let items = ChatTimeline.items(of: model)
 
         column(items)
+            // Every row reads its media, its strip's width and whether its
+            // strip is open from here: the transcript builds its rows with
+            // nothing of their own to pass them (M66 §3.2).
+            .environment(\.chatStrips, ChatStripContext(
+                media: media,
+                columnWidth: ChatMetrics.column(inBody: bodyWidth),
+                openStrips: model.openStrips,
+                toggle: { session.toggleStrip($0) }
+            ))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onGeometryChange(for: Double.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                bodyWidth = width
+            }
             // The call floats at the body's top right, in the margin beside
             // the centred column; only a body too narrow for that margin puts
             // it over the transcript's trailing edge (`ChatCallBox.overlapsColumn`).
@@ -155,6 +207,9 @@ struct ChatSurfaceView: View {
             // The session connects the first time a surface asks and then stays
             // connected, so coming back to Chat asks nothing new.
             .task { session.connect() }
+            // The next visit reads the Fermix home again, as the browser
+            // reads it at each open.
+            .onDisappear { media.surfaceLeft() }
             // A link in a reply opens where the person's preference says,
             // through the one content link opener, never through SwiftUI's own
             // hop to the default browser.

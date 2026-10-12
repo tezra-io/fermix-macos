@@ -447,6 +447,29 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatSearchSearching = "chat.search.searching"
     case chatSearchNoMatches = "chat.search.noMatches"
     case chatSearchOlder = "chat.search.older"
+    // A row's strip (M66 §6). **+N** names how many items it does not show,
+    // and VoiceOver reads that count in words.
+    case chatStripMoreFormat = "chat.strip.moreFormat"
+    case chatStripMoreSpokenFormat = "chat.strip.moreSpokenFormat"
+    case chatStripShowFewer = "chat.strip.showFewer"
+    /// A tile whose file is gone, or whose bytes the engine no longer holds.
+    case chatTileNotAvailable = "chat.tile.notAvailable"
+    /// A PDF's page count, the key chosen in code by the count, since the
+    /// catalogue has no plural rules.
+    case chatTilePagesOne = "chat.tile.pages.one"
+    case chatTilePagesMany = "chat.tile.pages.many"
+    /// A voice note's chip, and its name where VoiceOver reads it.
+    case chatVoiceNote = "chat.voiceNote"
+    /// The word for what a tile is, after its name: one per kind, the app's
+    /// own rather than the system's type description.
+    case chatKindPicture = "chat.kind.picture"
+    case chatKindVideo = "chat.kind.video"
+    case chatKindSound = "chat.kind.sound"
+    case chatKindPDF = "chat.kind.pdf"
+    case chatKindDocument = "chat.kind.document"
+    case chatKindPage = "chat.kind.page"
+    case chatKindFile = "chat.kind.file"
+    case chatKindLink = "chat.kind.link"
 
     // The browser pane. Its one sentence says why something the person asked
     // for did not happen, or what became of a file they saved.
@@ -1011,6 +1034,21 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case timeHours = "time.hours"
     case timeMinute = "time.minute"
     case timeMinutes = "time.minutes"
+
+    // MARK: - Browser media (M66)
+
+    /// The pane's zoom of the page in front, by key: a step either way, a
+    /// page at its own size or a picture at its actual size, and a picture
+    /// fitted to the pane. A picture tab also draws the last two as its one
+    /// zoom control.
+    case browserZoomIn = "browser.zoomIn"
+    case browserZoomOut = "browser.zoomOut"
+    case browserActualSize = "browser.actualSize"
+    case browserZoomToFit = "browser.zoomToFit"
+    /// The one player's two actions: a media tab's Play while another holds
+    /// the player, and a sound's button and VoiceOver actions in the chat.
+    case mediaPlay = "media.play"
+    case mediaPause = "media.pause"
 
     /// The one recorded exception to the sentence-case rule (M34 §14 decision
     /// 4): macOS menu titles.

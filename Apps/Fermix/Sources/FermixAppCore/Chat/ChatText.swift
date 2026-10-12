@@ -115,7 +115,9 @@ enum ChatText {
     /// `~` read as `home`, which the caller passes so the text alone decides
     /// what is drawn. A path keeps the reply's own `ink`, because blue on
     /// every path read as noise, and is underlined in `faint`, because ink
-    /// alone passed for plain text (owner, 2026-10-04).
+    /// alone passed for plain text (owner, 2026-10-04). A web address written
+    /// out (`ReplyLinks`) is drawn the same way, being the text it is too
+    /// (M66 §3.1); a markdown link's own words stay blue.
     static func reply(_ text: String, home: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
@@ -126,10 +128,16 @@ enum ChatText {
             attributed[run.range].foregroundColor = Palette.accentText.color
         }
 
-        return ReplyPaths.linked(attributed, home: home, look: pathLook)
+        return ReplyPaths.linked(ReplyLinks.linked(attributed, look: pathLook), home: home, look: pathLook)
     }
 
     static let pathLook = ReplyPaths.Look(ink: Palette.ink.color, underline: Palette.faint.color)
+
+    /// Every link a drawn reply carries, in reading order, a link drawn over
+    /// several runs (a bold word inside it) counted once.
+    static func links(in reply: AttributedString) -> [URL] {
+        reply.runs[\.link].compactMap { link, _ in link }
+    }
 
     static func plain(_ text: String) -> AttributedString {
         AttributedString(text)

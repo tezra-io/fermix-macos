@@ -92,7 +92,7 @@ let package = Package(
         // that plist is generated from Product.json, never hand-written.
         .executableTarget(
             name: "Fermix",
-            dependencies: ["FermixAppCore", "FermixSparkle", "FermixRive", "FermixBrowser"],
+            dependencies: ["FermixAppCore", "FermixSparkle", "FermixRive", "FermixBrowser", "FermixViewers"],
             exclude: ["Info.plist", "Fermix.entitlements"],
             linkerSettings: [
                 .unsafeFlags(
@@ -148,6 +148,17 @@ let package = Package(
         // pages on it. WebKit is the system's, so there is no package to pin.
         .target(
             name: "FermixBrowser",
+            dependencies: ["FermixAppCore"]
+        ),
+        // The one place in the repository that imports AVKit, QuickLookUI and
+        // QuickLookThumbnailing, for the same reason again: FermixAgent links
+        // FermixAppCore and must never load a viewer it never shows. The core
+        // declares the seams, the pane's `BrowserViewerMaking` and the chat's
+        // `ChatMediaReading`, and this target, linked by the GUI executable
+        // alone, draws a film, a document and a tile's preview on them. All
+        // three are the system's, so there is no package to pin.
+        .target(
+            name: "FermixViewers",
             dependencies: ["FermixAppCore"]
         ),
         // The daemon launcher that SMAppService.agent registers.

@@ -10,6 +10,10 @@ public struct BrowserPageState: Equatable, Sendable {
     public var canGoBack: Bool
     public var canGoForward: Bool
     public var hasOnlySecureContent: Bool
+    /// Whether the page is magnified, by a pinch or a picture's zoom, rather
+    /// than drawn at its own scale: a picture tab is then not fitted to the
+    /// pane.
+    public var isMagnified: Bool
 
     public init(
         url: URL? = nil,
@@ -18,7 +22,8 @@ public struct BrowserPageState: Equatable, Sendable {
         estimatedProgress: Double = 0,
         canGoBack: Bool = false,
         canGoForward: Bool = false,
-        hasOnlySecureContent: Bool = false
+        hasOnlySecureContent: Bool = false,
+        isMagnified: Bool = false
     ) {
         self.url = url
         self.title = title
@@ -27,24 +32,33 @@ public struct BrowserPageState: Equatable, Sendable {
         self.canGoBack = canGoBack
         self.canGoForward = canGoForward
         self.hasOnlySecureContent = hasOnlySecureContent
+        self.isMagnified = isMagnified
     }
 }
 
-/// A page zoom step.
+/// A zoom step. A page zooms its layout and text; a picture tab zooms the
+/// picture itself, as a pinch does (M66 §3.5).
 public enum BrowserZoom: Sendable {
     case larger
     case smaller
+    /// A page at its own size; a picture at one of its pixels to a point.
     case actualSize
+    /// A picture whole in the pane, as WebKit fits it; a page, which has no
+    /// fit of its own, at its own size.
+    case fit
 
     /// The zoom factors a page steps through, the ladder a Mac browser uses.
     public static let levels: [Double] = [0.5, 0.75, 0.85, 1, 1.15, 1.25, 1.5, 1.75, 2, 2.5, 3]
 
-    /// The factor one step away from `current`, held at the ends of the ladder.
+    /// The factor one step away from `current`, held at the ends of the
+    /// ladder. A factor already past an end, which a pinch or a picture's
+    /// actual size can reach, is held where it is rather than stepped the
+    /// wrong way.
     public func factor(from current: Double) -> Double {
         switch self {
-        case .actualSize: return 1
-        case .larger: return Self.levels.first { $0 > current } ?? Self.levels[Self.levels.count - 1]
-        case .smaller: return Self.levels.last { $0 < current } ?? Self.levels[0]
+        case .actualSize, .fit: return 1
+        case .larger: return Self.levels.first { $0 > current } ?? max(current, Self.levels[Self.levels.count - 1])
+        case .smaller: return Self.levels.last { $0 < current } ?? min(current, Self.levels[0])
         }
     }
 }
@@ -110,9 +124,10 @@ public protocol BrowserPage: AnyObject {
     func load(_ url: URL)
     /// A file on this Mac, shown as `kind`, on a page of the file profile,
     /// which loads nothing before its network rule is in place. `readAccess`
-    /// is the file itself, or the folder an HTML file inside the Fermix home
-    /// sits in, so a report's own images and stylesheets show. Reload shows
-    /// the file again, reading text afresh.
+    /// is what WebKit may read: the file itself, or the folder an HTML file
+    /// inside the Fermix home sits in, so a report's own images and
+    /// stylesheets show. The pane's own viewers grant nothing, and take only
+    /// the file. Reload shows the file again, reading text afresh.
     func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL)
     func back()
     func forward()
@@ -120,6 +135,10 @@ public protocol BrowserPage: AnyObject {
     func stop()
     func find(_ text: String)
     func zoom(_ zoom: BrowserZoom)
+    /// The tab is going and is never shown again: the page stops what it is
+    /// doing and lets go of what it holds. The pane's window does not close
+    /// with a tab, so nothing else tells it.
+    func close()
 }
 
 /// What a page tells the tab that holds it.
@@ -194,6 +213,10 @@ public final class BrowserTab: ObservableObject, Identifiable {
     /// for the person's answer before anything loads, so the page has nothing
     /// to report yet. The coordinator's to set, once; nil for every other tab.
     @Published public internal(set) var file: URL?
+    /// What a file tab shows its file as, decided by the coordinator as the
+    /// tab opens, which says which controls its file has; nil for every other
+    /// tab.
+    @Published public internal(set) var fileKind: BrowserFileKind?
     /// The app a file tab offers its file to, decided by the coordinator as
     /// the tab opens; nil where it offers none. The offer is decided again
     /// when the person takes it, from the file as it is then.
@@ -205,6 +228,7 @@ public final class BrowserTab: ObservableObject, Identifiable {
     @Published public private(set) var canGoBack = false
     @Published public private(set) var canGoForward = false
     @Published public private(set) var hasOnlySecureContent = false
+    @Published public private(set) var isMagnified = false
 
     private let page: any BrowserPage
 
@@ -235,6 +259,7 @@ public final class BrowserTab: ObservableObject, Identifiable {
     public func stop() { page.stop() }
     public func find(_ text: String) { page.find(text) }
     public func zoom(_ zoom: BrowserZoom) { page.zoom(zoom) }
+    public func close() { page.close() }
 
     /// Writes only what moved: every write publishes, and progress alone
     /// reports many times a second while a page loads.
@@ -246,6 +271,7 @@ public final class BrowserTab: ObservableObject, Identifiable {
         if canGoBack != state.canGoBack { canGoBack = state.canGoBack }
         if canGoForward != state.canGoForward { canGoForward = state.canGoForward }
         if hasOnlySecureContent != state.hasOnlySecureContent { hasOnlySecureContent = state.hasOnlySecureContent }
+        if isMagnified != state.isMagnified { isMagnified = state.isMagnified }
     }
 }
 

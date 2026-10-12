@@ -182,6 +182,12 @@ struct SidebarSelectionFeedbackTests {
                 preference: InMemoryLinkPreferenceStore(),
                 browser: browser.coordinator,
                 workspace: RecordingWorkspaceOpener()
+            ),
+            chatMedia: ChatMedia(
+                home: { URL(fileURLWithPath: "/nonexistent/home") },
+                player: browser.player,
+                reader: FakeMediaReader(),
+                deadlines: ManualDeadlineScheduler()
             )
         )
     }

@@ -2,6 +2,7 @@ import FermixAppCore
 import FermixBrowser
 import FermixRive
 import FermixSparkle
+import FermixViewers
 import Foundation
 
 // Top-level code in `main.swift` runs on the main thread before any other work
@@ -18,11 +19,14 @@ import Foundation
 // The mascot renderer is handed in the same way and for the same reason: it
 // links the Rive runtime, which the agent must not load either. So is the
 // browser pane's engine, which links WebKit; it arrives as a factory because
-// it is built over the website profile on the pane's first tab.
+// it is built over the website profile on the pane's first tab. So are the
+// pane's viewers and the chat's media reader, which link AVKit and Quick Look.
 MainActor.assumeIsolated {
     FermixApp.main(
         updater: SparkleUpdater(),
         mascot: RiveMascotRenderer(),
-        browser: { WebKitBrowserEngine(websiteProfile: $0) }
+        browser: { WebKitBrowserEngine(websiteProfile: $0) },
+        viewers: SystemBrowserViewers(),
+        mediaReader: SystemMediaReader()
     )
 }

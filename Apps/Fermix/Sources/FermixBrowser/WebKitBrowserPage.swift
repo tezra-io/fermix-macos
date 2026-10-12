@@ -63,8 +63,25 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     func back() { webView.goBack() }
     func forward() { webView.goForward() }
     func stop() { webView.stopLoading() }
+    func close() { webView.stopLoading() }
     func find(_ text: String) { webView.find(text, configuration: WKFindConfiguration()) { _ in } }
-    func zoom(_ zoom: BrowserZoom) { webView.pageZoom = zoom.factor(from: webView.pageZoom) }
+
+    /// A page zooms its layout and its text. A picture zooms the picture
+    /// itself, by the view's magnification, which is what a pinch sets: a
+    /// picture's page zoom is the size WebKit fits it to, which never shows
+    /// it larger (M66 §3.5).
+    func zoom(_ zoom: BrowserZoom) {
+        guard shownFile?.kind == .image else {
+            webView.pageZoom = zoom.factor(from: webView.pageZoom)
+            return
+        }
+        guard zoom == .actualSize else {
+            magnify(to: zoom.factor(from: webView.magnification))
+            return
+        }
+
+        magnifyToActualSize()
+    }
 
     /// Text a file page was given as data is read again, since WebKit would
     /// show it as first read; every other page, a file page's image, PDF or
@@ -148,6 +165,32 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         return url.path == shownFile.url.path
     }
 
+    /// A picture larger than the pane is drawn by WebKit shrunk to fit it,
+    /// and only WebKit knows by how much, so the two widths are read in the
+    /// app's own content world, where nothing of the file's runs: a file
+    /// page's scripts stay off, and the read is two numbers. One pixel of the
+    /// picture to a point is that much magnified.
+    private func magnifyToActualSize() {
+        webView.callAsyncJavaScript(Self.pictureScale, arguments: [:], in: nil, in: .defaultClient) { [weak self] result in
+            guard case .success(let value) = result, let scale = value as? Double, scale.isFinite, scale > 0 else { return }
+
+            self?.magnify(to: scale)
+        }
+    }
+
+    /// How much smaller than its own size WebKit draws the picture.
+    private static let pictureScale = """
+        const picture = document.images[0];
+        return picture && picture.width > 0 ? picture.naturalWidth / picture.width : 1;
+        """
+
+    /// Magnified about the middle of what the pane shows, and said, since no
+    /// observation reports a magnification.
+    private func magnify(to factor: Double) {
+        webView.setMagnification(factor, centeredAt: CGPoint(x: webView.bounds.midX, y: webView.bounds.midY))
+        report()
+    }
+
     /// Every published property the tab shows, each reporting the whole state.
     private func observe() {
         let report: (WKWebView) -> Void = { [weak self] _ in
@@ -173,7 +216,8 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
                 estimatedProgress: webView.estimatedProgress,
                 canGoBack: webView.canGoBack,
                 canGoForward: webView.canGoForward,
-                hasOnlySecureContent: webView.hasOnlySecureContent
+                hasOnlySecureContent: webView.hasOnlySecureContent,
+                isMagnified: webView.magnification != 1
             )
         )
     }

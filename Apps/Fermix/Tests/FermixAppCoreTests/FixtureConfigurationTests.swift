@@ -320,7 +320,7 @@ struct FixtureConfigurationTests {
     @Test("the fixture environment hands the voice its scripted daemon and the silent engine")
     func fixtureVoiceSeams() throws {
         for start in [FixtureStart.chatCall, .failedChatCall, .surface(.pet)] {
-            let environment = try AppEnvironment.fixture(FixtureLaunch(start: start), mascot: StillMascot())
+            let environment = try AppEnvironment.fixture(FixtureLaunch(start: start), mascot: StillMascot(), viewers: FakeBrowserViewers(), mediaReader: FakeMediaReader())
 
             #expect(environment.realtimeLines is FixtureRealtimeTransport)
             #expect(environment.voiceAudio is FixtureAudioEngine)
@@ -340,6 +340,8 @@ struct FixtureConfigurationTests {
             makeEngine: { _ in FixtureBrowserEngine() },
             profile: WebsiteProfileRecord(location: BrowserProfileLocation().location),
             workspace: FixtureWorkspaceOpener(),
+            player: AppPlayer(engine: FakePlaybackEngine()),
+            viewers: FakeBrowserViewers(),
             home: { throw CocoaError(.fileNoSuchFile) },
             session: FakeSessionAvailability(),
             deadlines: ManualDeadlineScheduler(),
@@ -366,6 +368,8 @@ struct FixtureConfigurationTests {
             makeEngine: { _ in FixtureBrowserEngine() },
             profile: WebsiteProfileRecord(location: BrowserProfileLocation().location),
             workspace: FixtureWorkspaceOpener(),
+            player: AppPlayer(engine: FakePlaybackEngine()),
+            viewers: FakeBrowserViewers(),
             home: { place.home },
             session: FakeSessionAvailability(),
             deadlines: ManualDeadlineScheduler(),
@@ -991,7 +995,7 @@ struct FixtureConfigurationTests {
     @MainActor
     @Test("the fixture environment stands every seam on one machine")
     func oneMachineBehindEverySeam() throws {
-        let environment = try AppEnvironment.fixture(FixtureLaunch(start: .surface(.home)), mascot: StillMascot())
+        let environment = try AppEnvironment.fixture(FixtureLaunch(start: .surface(.home)), mascot: StillMascot(), viewers: FakeBrowserViewers(), mediaReader: FakeMediaReader())
         let socket = environment.location.defaultFermixHome
             .appendingPathComponent("daemon.sock").path
 

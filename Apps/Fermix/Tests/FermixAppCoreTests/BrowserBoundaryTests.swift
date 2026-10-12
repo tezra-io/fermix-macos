@@ -271,6 +271,17 @@ struct BrowserZoomTests {
         #expect(BrowserZoom.larger.factor(from: 1.1) == 1.15)
         #expect(BrowserZoom.smaller.factor(from: 1.1) == 1)
     }
+
+    /// A pinch, or a picture's actual size, can leave the ladder: a step
+    /// from there never goes the wrong way.
+    @Test("a factor past an end of the ladder is held where it is, and a fit is the page's own size")
+    func zoomPastTheLadder() {
+        #expect(BrowserZoom.larger.factor(from: 3.4) == 3.4)
+        #expect(BrowserZoom.smaller.factor(from: 3.4) == 3)
+        #expect(BrowserZoom.smaller.factor(from: 0.3) == 0.3)
+        #expect(BrowserZoom.larger.factor(from: 0.3) == 0.5)
+        #expect(BrowserZoom.fit.factor(from: 3.4) == 1)
+    }
 }
 
 /// The one persistent website profile's identity (plan §4.6).
