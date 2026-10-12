@@ -296,6 +296,18 @@ check_rive_framework() {
 # animation runtime is held to the same rule through its own GUI-only target:
 # the agent draws nothing, and a framework it links is one it loads at every
 # spawn.
+# The system frameworks only the GUI may load, for the reason the two bundled
+# ones are refused: the agent links the same core library, and one dependency
+# edit there would put a web engine, a media player or a document viewer into
+# the launcher launchd keeps running. The trailing slash keeps a Swift overlay
+# such as libswiftWebKit.dylib from passing for the framework.
+GUI_ONLY_SYSTEM_FRAMEWORKS=(
+  "WebKit.framework/"
+  "AVKit.framework/"
+  "QuickLookUI.framework/"
+  "QuickLookThumbnailing.framework/"
+)
+
 check_framework_linkage() {
   local gui agent name
   gui="$APP/Contents/MacOS/$GUI_EXECUTABLE"
@@ -308,9 +320,9 @@ check_framework_linkage() {
   otool -l "$gui" | grep -q "$FRAMEWORKS_RPATH" ||
     fail "the GUI carries no $FRAMEWORKS_RPATH runtime search path"
 
-  for name in "$SPARKLE_FRAMEWORK_NAME" "$RIVE_FRAMEWORK_NAME"; do
+  for name in "$SPARKLE_FRAMEWORK_NAME" "$RIVE_FRAMEWORK_NAME" "${GUI_ONLY_SYSTEM_FRAMEWORKS[@]}"; do
     if otool -L "$agent" | grep -q "$name"; then
-      fail "the agent links $name; only the GUI may"
+      fail "the agent links ${name%/}; only the GUI may"
     fi
   done
 }

@@ -555,6 +555,17 @@ expect_refusal "an agent that links the animation runtime is refused" \
   "the agent links $RIVE_FRAMEWORK_NAME; only the GUI may" \
   "$VERIFY" "$app" universal unsigned
 
+# The system's viewers and web engine are the GUI's alone for the same reason:
+# a viewer imported into the core library would reach the agent unnoticed.
+for framework in WebKit AVKit QuickLookUI QuickLookThumbnailing; do
+  app="$(fresh_bundle "agent-with-$framework")"
+  fake_app_build_stub "$app/Contents/MacOS/$AGENT_EXECUTABLE" \
+    -arch arm64 -arch x86_64 -framework "$framework"
+  expect_refusal "an agent that links $framework is refused" \
+    "the agent links $framework.framework; only the GUI may" \
+    "$VERIFY" "$app" universal unsigned
+done
+
 echo "verify_staged_app_test: the update policy in the Info.plist"
 
 app="$(fresh_bundle wrong-feed)"
