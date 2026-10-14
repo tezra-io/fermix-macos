@@ -139,6 +139,7 @@ final class FixtureBrowserPage: BrowserPage {
 
     func reload() { show() }
     func stop() {}
+    func close() {}
     func find(_ text: String) {}
     func zoom(_ zoom: BrowserZoom) {}
 

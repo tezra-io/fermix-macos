@@ -90,7 +90,7 @@ struct IMessageSetupTests {
 
         #expect(ChannelRowProjection.statusPane(of: on, imessage: facts) == .permissions)
         #expect(ChannelRowProjection.statusPane(of: off, imessage: facts) == nil)
-        #expect(ChannelRowProjection.rows([on], titledBy: [], imessage: facts).first?.statusPane == .permissions)
+        #expect(ChannelRowProjection.rows([on], titledBy: [], imessage: facts, phone: .unanswered).first?.statusPane == .permissions)
     }
 
     /// A confirmation the daemon refused, such as an owner that is this Mac's
@@ -148,7 +148,7 @@ struct IMessageSetupTests {
         #expect(ChannelRowProjection.status(of: off, imessage: ready) == ProductStrings[.channelStatusOff])
         #expect(ChannelRowProjection.status(of: telegram, imessage: notInstalled) == ProductStrings[.channelStatusConnected])
 
-        let rows = ChannelRowProjection.rows([configured, telegram], titledBy: [], imessage: notInstalled)
+        let rows = ChannelRowProjection.rows([configured, telegram], titledBy: [], imessage: notInstalled, phone: .unanswered)
         #expect(rows.first { $0.name == "imessage" }?.status == ProductStrings[.channelStatusHelperNotInstalled])
     }
 

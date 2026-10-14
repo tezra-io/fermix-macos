@@ -55,6 +55,8 @@ struct MainWindowView: View {
     let browser: BrowserCoordinator
     /// Where a link in a reply opens: the pane or the person's own browser.
     let links: ContentLinkOpener
+    /// What the chat's rows draw under their words (M66).
+    let chatMedia: ChatMedia
 
     var body: some View {
         presented
@@ -376,6 +378,7 @@ struct MainWindowView: View {
                 gate: surfaces.callGate,
                 settings: settings,
                 links: links,
+                media: chatMedia,
                 router: router
             )
         case .home:

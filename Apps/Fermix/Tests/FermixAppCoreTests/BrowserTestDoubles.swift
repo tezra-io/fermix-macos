@@ -28,6 +28,7 @@ final class FakeBrowserPage: BrowserPage {
     func stop() { actions.append("stop") }
     func find(_ text: String) { actions.append("find \(text)") }
     func zoom(_ zoom: BrowserZoom) { actions.append("zoom \(zoom)") }
+    func close() { actions.append("close") }
 }
 
 /// A file a page was asked to show, as what, and what it may read: the file
@@ -72,6 +73,7 @@ final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
     func stop() {}
     func find(_ text: String) {}
     func zoom(_ zoom: BrowserZoom) {}
+    func close() {}
 
     func waitUntilReady() async throws {
         readyWaits += 1
@@ -442,11 +444,16 @@ final class BrowserRecord {
     var primaryWindowPresented = 0
 }
 
-/// A coordinator over fake pages and a throwaway support folder.
+/// A coordinator over fake pages and a throwaway support folder, with the
+/// app's one player over a fake engine and the pane's own viewers over fake
+/// views.
 @MainActor
 struct BrowserHarness {
     let engine = FakeBrowserEngine()
     let workspace = RecordingWorkspaceOpener()
+    let playback = FakePlaybackEngine()
+    let player: AppPlayer
+    let viewers = FakeBrowserViewers()
     let record = BrowserRecord()
     let session: FakeSessionAvailability
     /// The quit's bound, fired by hand.
@@ -461,6 +468,7 @@ struct BrowserHarness {
     init(availability: BrowserAvailability = .available, home: URL? = nil) {
         location = BrowserProfileLocation().location
         session = FakeSessionAvailability(availability)
+        player = AppPlayer(engine: playback)
         coordinator = BrowserCoordinator(
             makeEngine: { [engine, record] profile in
                 record.enginesBuilt.append(profile)
@@ -468,6 +476,8 @@ struct BrowserHarness {
             },
             profile: WebsiteProfileRecord(location: location),
             workspace: workspace,
+            player: player,
+            viewers: viewers,
             home: {
                 guard let home else { throw CocoaError(.fileNoSuchFile) }
                 return home
@@ -486,6 +496,12 @@ struct BrowserHarness {
 
     /// The corner window's fake.
     var hostWindow: FakePageStage { engine.stage }
+
+    /// Lets the main actor run what a step left queued: the check of whether
+    /// a sound or a film can play, which a media file waits on before its tab.
+    func settle() async {
+        for _ in 0..<8 { await Task.yield() }
+    }
 }
 
 /// A throwaway support folder, the one the website profile record lives in.

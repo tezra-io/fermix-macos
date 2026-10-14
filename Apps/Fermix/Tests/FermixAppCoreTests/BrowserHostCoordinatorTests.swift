@@ -252,7 +252,7 @@ struct BrowserHostCoordinatorTests {
         #expect(!harness.pane.holds(task.view))
         #expect(!harness.hostWindow.holds(task.view))
         #expect(!harness.model.isOpen, "the pane with no tab stayed open")
-        #expect(harness.page(0).actions.contains("stop"))
+        #expect(harness.page(0).actions.contains("close"))
     }
 
     @Test("a release of the tab in front and its popup brings the nearest tab that stays to the front")

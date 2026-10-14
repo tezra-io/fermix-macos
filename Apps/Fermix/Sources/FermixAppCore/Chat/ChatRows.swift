@@ -9,10 +9,8 @@ struct ChatItemView: View {
 
     var body: some View {
         switch item {
-        case .row(let row) where ChatSpeaker.isUser(row.role):
-            ChatUserRow(text: ChatText.marking(marked, in: ChatText.plain(row.text)), sending: false)
         case .row(let row):
-            ChatReplyRow(text: ChatText.marking(marked, in: ChatText.reply(row.text, home: NSHomeDirectory())), speaker: row.role)
+            ChatRow(row: row, marked: marked)
         case .turn(let turn):
             ChatTurnRow(turn: turn)
         case .approval(let approval, let answering):
@@ -22,6 +20,62 @@ struct ChatItemView: View {
         case .error(let sentence):
             ChatErrorRow(sentence: sentence)
         }
+    }
+}
+
+/// A finished row, on its side: its words, or its voice note with its words
+/// as the transcript; under them the sound files it names in the Fermix home,
+/// each playable where it is (M66 §3.4); and then its strip (§3.1). Its words
+/// are the strip's text, without the lines that only name what the strip and
+/// the players show. A row with no other words, a picture Fermix sent to the
+/// phone or a reply that only lists what it made, draws its strip alone. A
+/// turn still being written is no row yet, so nothing here looks at the disk
+/// while a reply streams.
+private struct ChatRow: View {
+    let row: CompanionRow
+    let marked: [String]
+
+    @Environment(\.chatStrips) private var context
+
+    var body: some View {
+        let user = ChatSpeaker.isUser(row.role)
+        let strip = context?.media.strip(for: row)
+        let words = strip?.text ?? row.text
+
+        VStack(alignment: user ? .trailing : .leading, spacing: ChatMetrics.stripTopGap) {
+            if strip?.voiceNote != nil {
+                ChatVoiceNote(transcript: text(words, user: user), speaker: row.role)
+            } else if !words.isEmpty {
+                if user {
+                    ChatUserRow(text: text(words, user: user), sending: false)
+                } else {
+                    ChatReplyRow(text: text(words, user: user), speaker: row.role)
+                }
+            }
+
+            if let context, let strip {
+                ForEach(strip.sounds, id: \.self) { sound in
+                    ChatSoundRow(url: sound, name: sound.lastPathComponent, player: context.media.player)
+                }
+            }
+
+            if let context, let strip, !strip.items.isEmpty {
+                ChatStripView(
+                    strip: strip,
+                    trailing: user,
+                    width: context.columnWidth - (user ? ChatMetrics.userRowLeadingRoom : 0),
+                    media: context.media
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
+    }
+
+    /// The person's own words as they typed them; Fermix's as a reply, its
+    /// paths and addresses links.
+    private func text(_ words: String, user: Bool) -> AttributedString {
+        let drawn = user ? ChatText.plain(words) : ChatText.reply(words, home: NSHomeDirectory())
+        return ChatText.marking(marked, in: drawn)
     }
 }
 

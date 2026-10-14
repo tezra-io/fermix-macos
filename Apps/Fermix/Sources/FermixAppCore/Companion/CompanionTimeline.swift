@@ -20,6 +20,9 @@ public struct CompanionTimelineRow: Equatable, Sendable, Decodable {
     public let inReplyTo: String?
     /// An object the contract leaves open, kept as the daemon sent it.
     public let metadata: [String: CompanionJSONValue]?
+    /// The link previews the engine stored on the row, at most four. The key
+    /// is present only when there is one.
+    public let linkPreviews: [CompanionLinkPreview]?
 
     private enum CodingKeys: String, CodingKey {
         case role, content, kind, metadata
@@ -28,13 +31,31 @@ public struct CompanionTimelineRow: Equatable, Sendable, Decodable {
         case mediaRefs = "media_refs"
         case clientMsgId = "client_msg_id"
         case inReplyTo = "in_reply_to"
+        case linkPreviews = "link_previews"
+    }
+}
+
+/// A link preview the engine stored on a row that touches the phone: it read
+/// the page itself, and stored the card under the address it reached after
+/// redirects, which need not be the one written in the row's text.
+public struct CompanionLinkPreview: Equatable, Sendable, Decodable {
+    public let url: String
+    public let site: String
+    public let title: String
+    public let description: String?
+    /// The preview's picture, a media ref like any other.
+    public let imageRef: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case url, site, title, description
+        case imageRef = "image_ref"
     }
 }
 
 /// A timeline row announced live as it is written outside a turn's
 /// completion: the sender's own message, a slash command's answer, a scheduled
-/// delivery, a row written from the phone. It carries fewer fields than the
-/// exported row, and its text is `text` rather than `content`.
+/// delivery, a row written from the phone, a Live call's row. It carries fewer
+/// fields than the exported row, and its text is `text` rather than `content`.
 public struct CompanionAnnouncedRow: Equatable, Sendable, Decodable {
     public let profileId: String
     public let serverSeq: Int
@@ -44,9 +65,13 @@ public struct CompanionAnnouncedRow: Equatable, Sendable, Decodable {
     public let timestamp: String
     /// On a user's row, for the sender to match its outbox.
     public let clientMsgId: String?
+    /// The history message's own `kind` and `metadata` (version 2): a Live
+    /// call's row carries `metadata.call`.
+    public let kind: String?
+    public let metadata: [String: CompanionJSONValue]?
 
     private enum CodingKeys: String, CodingKey {
-        case role, text
+        case role, text, kind, metadata
         case profileId = "profile_id"
         case serverSeq = "server_seq"
         case timestamp = "ts"

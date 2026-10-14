@@ -481,6 +481,29 @@ public final class OnboardingModel: ObservableObject {
         route(destination)
     }
 
+    /// Whether Ready offers to pair a phone: exactly when the daemon's section
+    /// index lists the phone channel's section, so an engine without the
+    /// channel shows nothing (M60 §3.6).
+    public var offersPhonePairing: Bool {
+        settings.inventory.value?.contains { $0.id == PhoneChannel.section } ?? false
+    }
+
+    /// Reads what Ready's next steps depend on that nothing has read yet: the
+    /// section index, which a setup that took no restart never asked for.
+    public func readNextSteps() async {
+        guard settings.inventory.value == nil else { return }
+
+        await settings.loadInventory()
+    }
+
+    /// Pair your Android phone: Settings on Channels with the Phone sheet up,
+    /// by the same in-process open the other rows use plus the sheet to
+    /// present. The `fermix://` grammar does not change.
+    public func openPhonePairing() {
+        settings.phone.present(.pair)
+        route(.settings(.channels))
+    }
+
     /// The boot-failure card's primary action. Doctor answers from the running
     /// daemon, so on a daemon that never started it reports exactly that.
     public func openDoctor() {

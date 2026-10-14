@@ -54,6 +54,15 @@ final class FakeVoiceAudioEngine: VoiceAudioEngine, @unchecked Sendable {
     /// How many requests are waiting on the prompt now.
     var pendingPermissionRequests: Int { waitersLock.withLock { permissionWaiters.count } }
 
+    /// Holds `prepareCapture` open, the way the real engine's first warm-up
+    /// in a process takes over a second off the main thread.
+    var suspendsPrepare = false
+    /// Every warm-up waiting, oldest first.
+    private var prepareWaiters: [CheckedContinuation<Void, any Error>] = []
+
+    /// How many warm-ups are waiting now.
+    var pendingPrepares: Int { waitersLock.withLock { prepareWaiters.count } }
+
     func requestCapturePermission() async throws {
         calls.append(.requestPermission)
         if let permissionError { throw permissionError }
@@ -75,9 +84,24 @@ final class FakeVoiceAudioEngine: VoiceAudioEngine, @unchecked Sendable {
         }
     }
 
-    func prepareCapture() throws {
+    func prepareCapture() async throws {
         calls.append(.prepareCapture)
         if let prepareError { throw prepareError }
+        guard suspendsPrepare else { return }
+
+        try await withCheckedThrowingContinuation { continuation in
+            waitersLock.withLock { prepareWaiters.append(continuation) }
+        }
+    }
+
+    /// The oldest waiting warm-up finishes, or fails with `error`.
+    func finishPrepare(throwing error: (any Error)? = nil) {
+        let waiter = waitersLock.withLock { prepareWaiters.isEmpty ? nil : prepareWaiters.removeFirst() }
+        if let error {
+            waiter?.resume(throwing: error)
+        } else {
+            waiter?.resume()
+        }
     }
 
     func beginStreaming(onChunk: @escaping @Sendable (Data) -> Void) throws {

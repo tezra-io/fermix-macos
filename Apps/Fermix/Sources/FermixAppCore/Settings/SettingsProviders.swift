@@ -75,7 +75,6 @@ extension SettingsModel {
                 authorizeURL: started.authorizeURL.flatMap(URL.init(string:)),
                 expiresInMs: started.expiresInMs
             )
-            note(started.job)
 
             return nil
         } catch {
@@ -122,7 +121,6 @@ extension SettingsModel {
             let started = try await gateway.startAuthImport(source: source)
             signingInProvider = provider
             runner.start(started)
-            note(started)
             return nil
         } catch {
             signingInProvider = nil

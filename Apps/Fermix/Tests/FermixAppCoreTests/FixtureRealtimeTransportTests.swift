@@ -280,7 +280,7 @@ struct FixtureRealtimeTransportTests {
         let chunks = ChunkCounter()
 
         try await engine.requestCapturePermission()
-        try engine.prepareCapture()
+        try await engine.prepareCapture()
         try engine.beginStreaming(onChunk: { _ in chunks.count() })
         engine.setCaptureMuted(false)
         engine.play(base64PCM16: FixtureRealtimeScript.silence)

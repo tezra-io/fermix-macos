@@ -14,7 +14,8 @@ func wireObject(companion event: CompanionClientEvent) throws -> NSDictionary {
     try wireObject(event.line())
 }
 
-/// The pull a case expects on the wire: every pull asks for a full page.
+/// A catch-up or paging pull a case expects on the wire, which asks for a full
+/// page. A row read asks only for the rows it spans (`CompanionMediaRows.read`).
 func historyPull(_ cursor: CompanionHistoryCursor) -> CompanionClientEvent {
     .historyPull(profileId: CompanionProtocol.profileId, cursor: cursor, limit: CompanionProtocol.historyPageLimit)
 }
@@ -27,7 +28,7 @@ let newestPagePull = historyPull(.before(seq: CompanionReducer.newestPageBound))
 enum CompanionEvents {
     static let profile = CompanionProtocol.profileId
 
-    static func hello(_ minimum: Int = 1, _ maximum: Int = 1) -> CompanionServerEvent {
+    static func hello(_ minimum: Int = 1, _ maximum: Int = 2) -> CompanionServerEvent {
         .serverHello(minVersion: minimum, maxVersion: maximum)
     }
 
@@ -40,7 +41,9 @@ enum CompanionEvents {
                 role: role,
                 text: "row \(seq)",
                 timestamp: "2026-09-25T09:00:00Z",
-                clientMsgId: clientMsgId
+                clientMsgId: clientMsgId,
+                kind: "text",
+                metadata: nil
             )
         )
     }
@@ -55,7 +58,8 @@ enum CompanionEvents {
             mediaRefs: [],
             clientMsgId: nil,
             inReplyTo: nil,
-            metadata: nil
+            metadata: nil,
+            linkPreviews: nil
         )
     }
 

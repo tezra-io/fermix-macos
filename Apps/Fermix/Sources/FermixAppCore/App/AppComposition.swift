@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 
 /// Everything the GUI is, assembled once.
@@ -76,15 +77,32 @@ final class AppComposition {
     /// The one place a content link is opened: the pane or the person's own
     /// browser, by their preference. Sign-in and the installer never use it.
     let links: ContentLinkOpener
+    /// The app's one player (M66 §3.4), for the chat's sounds and the pane's
+    /// media tabs. Built before the pane, which plays on it.
+    let player: AppPlayer
+    /// What the chat's rows draw under their words: the strips, their
+    /// previews and the sounds (M66).
+    let chatMedia: ChatMedia
 
     /// The shipped configuration: this Mac, this account, this bundle, and the
-    /// updater, mascot renderer and browser engine the executable owns.
+    /// updater, mascot renderer, browser engine, pane viewers and media reader
+    /// the executable owns.
     convenience init(
         updater: any UpdaterDriving,
         mascot: any MascotRendering,
-        browser: @escaping BrowserEngineMaking
+        browser: @escaping BrowserEngineMaking,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
     ) {
-        self.init(environment: .product(updater: updater, mascot: mascot, browser: browser))
+        self.init(
+            environment: .product(
+                updater: updater,
+                mascot: mascot,
+                browser: browser,
+                viewers: viewers,
+                mediaReader: mediaReader
+            )
+        )
     }
 
     init(environment: AppEnvironment) {
@@ -98,7 +116,8 @@ final class AppComposition {
         model = AppModel()
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
-        browser = Self.buildBrowser(environment: environment, store: store, location: location, windows: windows)
+        player = AppPlayer(engine: AVFoundationPlayback())
+        browser = Self.buildBrowser(environment: environment, store: store, location: location, windows: windows, player: player)
         browserHost = Self.buildBrowserHost(
             environment: environment,
             store: store,
@@ -110,6 +129,12 @@ final class AppComposition {
             preference: environment.linkPreference,
             browser: browser,
             workspace: environment.workspace
+        )
+        chatMedia = ChatMedia(
+            home: { [store] in try store.resolvedHome() },
+            player: player,
+            reader: environment.mediaReader,
+            deadlines: MainQueueDeadlineScheduler()
         )
         voiceCall = VoiceCallModel()
         voice = Self.buildVoice(
@@ -210,6 +235,10 @@ final class AppComposition {
         // model is built with this coordinator's own router.
         coordinator.resumeAssistant = { [surfaces] stage in surfaces.onboarding.resume(at: stage) }
         coordinator.showUninstallNotice = { [surfaces] shown in surfaces.doctor.uninstallNoticeShown = shown }
+        // Turning the phone channel on takes the app's one restart, and the
+        // phone hangs off the settings model, which is built before the
+        // coordinator that owns that restart.
+        settings.phone.restarter = coordinator
         // A login launch opens nothing, so Home's own refresh never runs and
         // the menu bar would have no answer to draw.
         coordinator.readDaemonCondition = { [surfaces] in Task { await surfaces.home.refresh() } }
@@ -225,22 +254,36 @@ final class AppComposition {
             restart: { [coordinator] in coordinator.restartDaemon() },
             mascot: mascot,
             browser: browser,
-            links: links
+            links: links,
+            chatMedia: chatMedia
         )
         // Every report goes through the coordinator, which owns whether a window
         // is on screen; the pet, the browser and the chat's call box read
         // that answer rather than the raw signal. A task's page leaves a
         // covered pane for the host window, which SwiftUI cannot see happen,
-        // and the box's mascot parks while its window is off screen.
-        windowHost.onVisibilityChanged = { [petModel, windows, browser, voiceCall] kind, visible in
+        // and the box's mascot parks while its window is off screen. The one
+        // player stops when the window closes, and plays on while it is only
+        // covered.
+        windowHost.onVisibilityChanged = { [petModel, windows, browser, voiceCall, player] kind, visible in
             let onScreen = windows.visibilityChanged(visible, for: kind)
             switch kind {
             case .pet: petModel.setWindowVisible(onScreen)
             case .main:
                 browser.windowVisibilityChanged(onScreen)
                 voiceCall.mainWindowVisibilityChanged(onScreen)
+                if !windows.isOpen(.main) { player.stop() }
             }
         }
+
+        // The player's other two stops: a call coming up, from its start
+        // until its last frame, and the window leaving Chat, for a settings
+        // presentation as for another surface.
+        player.follow(
+            calls: voiceCall.$voice.map { $0.phase == .starting || $0.callActive }.eraseToAnyPublisher(),
+            chatShown: model.$route.combineLatest(settingsPresentation.$isShowing)
+                .map { route, showingSettings in route == .chat && !showingSettings }
+                .eraseToAnyPublisher()
+        )
 
         // Home's Background switch reads through to the status item, so a
         // Command-drag off the bar while that window is open is a change only
@@ -295,20 +338,24 @@ final class AppComposition {
     }
 
     /// The browser pane: the engine the executable handed in, the website
-    /// profile's record in this account's support folder, this account's
-    /// Fermix home, the session's availability, and the window's room for the
-    /// pane. The quit's bound is a run-loop timer, which fires while AppKit
-    /// holds the termination.
+    /// profile's record in this account's support folder, the app's one
+    /// player and the system's own viewers for what WebKit does not draw,
+    /// this account's Fermix home, the session's availability, and the
+    /// window's room for the pane. The quit's bound is a run-loop timer,
+    /// which fires while AppKit holds the termination.
     private static func buildBrowser(
         environment: AppEnvironment,
         store: BootstrapStore,
         location: BootstrapLocation,
-        windows: WindowCoordinator
+        windows: WindowCoordinator,
+        player: AppPlayer
     ) -> BrowserCoordinator {
         BrowserCoordinator(
             makeEngine: environment.makeBrowser,
             profile: WebsiteProfileRecord(location: location),
             workspace: environment.workspace,
+            player: player,
+            viewers: environment.viewers,
             // Resolved per open from the bootstrap record, as the host's
             // workspace and browser roots are, so a file opens silently only
             // under the home the record names now.

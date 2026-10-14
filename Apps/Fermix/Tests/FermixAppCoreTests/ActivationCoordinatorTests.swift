@@ -1137,7 +1137,7 @@ final class PermissionCountingAudioEngine: VoiceAudioEngine, @unchecked Sendable
         if let permissionError { throw permissionError }
     }
 
-    func prepareCapture() throws {}
+    func prepareCapture() async throws {}
     func beginStreaming(onChunk: @escaping @Sendable (Data) -> Void) throws {}
     func setCaptureMuted(_ muted: Bool) {}
     func play(base64PCM16 encoded: String) {}

@@ -184,7 +184,9 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             role: row.role,
             text: row.content,
             timestamp: row.timestamp,
-            clientMsgId: clientMsgId
+            clientMsgId: clientMsgId,
+            kind: "text",
+            metadata: nil
         )))
 
         repliesWritten += 1
@@ -311,7 +313,8 @@ enum FixtureCompanionScript {
             mediaRefs: [],
             clientMsgId: clientMsgId,
             inReplyTo: inReplyTo,
-            metadata: nil
+            metadata: nil,
+            linkPreviews: nil
         )
     }
 }

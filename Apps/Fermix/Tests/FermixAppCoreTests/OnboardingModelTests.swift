@@ -237,6 +237,44 @@ struct OnboardingModelTests {
         #expect(harness.routes == [.settings(.channels), .settings(.voice)])
     }
 
+    /// Pairing a phone is offered on Ready exactly where the daemon's section
+    /// index lists the phone channel, so an engine without it shows nothing
+    /// (M60 §3.6).
+    @Test("Ready offers to pair a phone only where the daemon publishes the phone channel")
+    func phoneRowFollowsTheSectionIndex() async throws {
+        let published = try OnboardingHarness()
+        #expect(!published.model.offersPhonePairing, "nothing is offered before the index is read")
+
+        await published.model.readNextSteps()
+        #expect(published.model.offersPhonePairing)
+
+        let without = try OnboardingHarness()
+        without.gateway.settingsSectionsResult = try PairingGolden.decode("settings_sections") { inventory in
+            let sections = inventory["sections"] as? [[String: Any]] ?? []
+            inventory["sections"] = sections.filter { $0["id"] as? String != PhoneChannel.section }
+        }
+        await without.model.readNextSteps()
+
+        #expect(without.model.settings.inventory.value?.isEmpty == false, "the index was read")
+        #expect(!without.model.offersPhonePairing)
+    }
+
+    /// The row opens Settings on Channels by the route every next step takes,
+    /// with the Phone sheet up for pairing.
+    @Test("Pair your Android phone opens Channels with the Phone sheet up")
+    func phoneRowOpensThePhoneSheet() async throws {
+        let harness = try OnboardingHarness()
+        let phone = harness.model.settings.phone
+
+        harness.model.openPhonePairing()
+
+        #expect(harness.routes == [.settings(.channels)])
+        #expect(phone.isPresented)
+
+        phone.closed()
+        await phone.settle()
+    }
+
     // MARK: - Readiness
 
     /// Readiness comes off `setup.state.get` through the one settings model, so

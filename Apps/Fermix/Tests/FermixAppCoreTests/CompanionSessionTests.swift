@@ -4,6 +4,7 @@ import Testing
 @testable import FermixAppCore
 
 private typealias E = CompanionEvents
+private typealias M = CompanionMediaRows
 
 /// A session over the real adapter on a fake line socket, with a clock the case
 /// drives and message ids it can name.
@@ -117,7 +118,7 @@ struct CompanionSessionTests {
         let harness = Harness()
         harness.session.connect()
 
-        harness.socket.deliver(E.hello(2, 3))
+        harness.socket.deliver(E.hello(3, 4))
 
         #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateApp]))
         #expect(harness.socket.closeCount == 1)
@@ -129,7 +130,7 @@ struct CompanionSessionTests {
         let harness = Harness()
         harness.session.connect()
 
-        harness.socket.deliver(E.hello(0, 0))
+        harness.socket.deliver(E.hello(1, 1))
 
         #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
         #expect(harness.scheduler.liveCount == 0)
@@ -140,13 +141,13 @@ struct CompanionSessionTests {
         let tooNew = Harness()
         tooNew.session.connect()
         tooNew.socket.deliver(
-            E.refusal("unsupported_protocol_version", direction: .clientTooNew, window: .init(minimum: 0, maximum: 0))
+            E.refusal("unsupported_protocol_version", direction: .clientTooNew, window: .init(minimum: 1, maximum: 1))
         )
 
         let tooOld = Harness()
         tooOld.session.connect()
         tooOld.socket.deliver(
-            E.refusal("unsupported_protocol_version", direction: .clientTooOld, window: .init(minimum: 2, maximum: 2))
+            E.refusal("unsupported_protocol_version", direction: .clientTooOld, window: .init(minimum: 3, maximum: 3))
         )
 
         #expect(tooNew.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
@@ -172,7 +173,7 @@ struct CompanionSessionTests {
     func connectAfterRefusal() {
         let harness = Harness()
         harness.session.connect()
-        harness.socket.deliver(E.hello(2, 2))
+        harness.socket.deliver(E.hello(3, 3))
 
         harness.session.connect()
         harness.socket.deliver(E.hello())
@@ -350,7 +351,7 @@ struct CompanionSessionTests {
 
     // MARK: - Reads
 
-    @Test("older rows are refused while a pull is out, then pulled below the oldest row")
+    @Test("older rows wait while a pull is out, then are pulled below the oldest row once")
     func pullOlderWaitsForThePullOut() throws {
         let harness = Harness()
         harness.connected()
@@ -364,7 +365,10 @@ struct CompanionSessionTests {
         harness.socket.deliver(E.forward([11, 12], head: 12, next: 12))
         harness.session.pullOlder()
 
-        #expect(try harness.sent().last == wireObject(companion: historyPull(.before(seq: 8))))
+        #expect(
+            try harness.sent()
+                == wire(hello, newestPagePull, historyPull(.after(seq: 10)), historyPull(.before(seq: 8)))
+        )
     }
 
     @Test("a search is sent with the contract's limit, answered, and cleared")
@@ -431,6 +435,27 @@ struct CompanionSessionTests {
         )
     }
 
+    /// Stage 1 reads a row again only on announcements the daemon already
+    /// sends (M66 §3.6): nothing is scheduled to look again later.
+    @Test("a voice note is read for its file, then for its transcript when its reply is announced, with no timer")
+    func voiceNoteIsKeptCurrentWithNoTimer() throws {
+        let harness = Harness()
+        harness.connected()
+        harness.socket.deliver(E.backward([10, 11, 12], head: 12))
+
+        harness.socket.deliver(M.voiceNote(13))
+        harness.socket.deliver(M.page([M.note(13)], head: 13))
+        harness.socket.deliver(E.row(14, role: "assistant"))
+        harness.socket.deliver(
+            M.page([M.note(13, text: "Pick up milk"), M.reply(14, to: 13, text: "row 14")], head: 14)
+        )
+
+        #expect(try harness.sent() == wire(hello, newestPagePull, M.read(after: 12, limit: 1), M.read(after: 12, limit: 2)))
+        #expect(harness.model.rows.first { $0.serverSeq == 13 }?.text == "Pick up milk")
+        #expect(harness.model.reshape?.seqs == [13])
+        #expect(harness.scheduler.liveCount == 0)
+    }
+
     // MARK: - Routing
 
     @Test("a live row reaches the model, and a gap is pulled rather than shown")
@@ -466,7 +491,7 @@ struct CompanionSessionTests {
         harness.socket.deliver(E.row(1))
         harness.socket.deliver(E.hello())
         harness.socket.deliver(.unrecognized(type: "reaction"))
-        harness.socket.deliver(E.hello(2, 2))
+        harness.socket.deliver(E.hello(3, 3))
 
         #expect(harness.model.rows.isEmpty)
         #expect(harness.model.connection == .connected)

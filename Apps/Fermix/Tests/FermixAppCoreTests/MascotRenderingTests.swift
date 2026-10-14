@@ -81,7 +81,7 @@ struct MascotAnimationTests {
         #expect(adapter.contains { $0.text.contains(".allowsHitTesting(false)") })
 
         let pet = try #require(try SourceTree.swiftFiles(matching: "Pet/PetView.swift").first?.text)
-        #expect(pet.contains(".onTapGesture { model.toggleCall() }"))
+        #expect(pet.contains(".onTapGesture { model.mascotClicked() }"))
         #expect(pet.contains("host: .floatingWindow"))
     }
 }

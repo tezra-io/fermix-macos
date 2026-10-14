@@ -46,6 +46,11 @@ struct CompanionProtocolTests {
             .msg(clientMsgId: "mac-1", profileId: main, text: "What is on my calendar today?"),
             .command(clientMsgId: "mac-2", profileId: main, name: "confirm", args: "opaque-token"),
             .cancel(profileId: main, clientMsgId: "mac-3"),
+            .cancelTask(
+                profileId: main,
+                clientMsgId: "mac-4",
+                task: CompanionTaskRef(callUuid: "3f2b8c1e-5a4d-4e6f-9b8a-7c6d5e4f3a2b", taskId: "dg_01HA", revision: 1)
+            ),
             .historyPull(profileId: main, cursor: .after(seq: 0), limit: 50),
             .historyPull(profileId: main, cursor: .before(seq: 120), limit: 50),
             .historySearch(profileId: main, query: "dentist", limit: 20, beforeSeq: nil),
@@ -101,7 +106,7 @@ struct CompanionProtocolTests {
             return try CompanionServerEvent.decode(fixture.line)
         }
 
-        #expect(try event("server_hello") == .serverHello(minVersion: 1, maxVersion: 1))
+        #expect(try event("server_hello") == .serverHello(minVersion: 1, maxVersion: 2))
 
         let duplicate = try event("accepted") { $0.object["duplicate"] as? Bool == true }
         #expect(duplicate == .accepted(CompanionAccepted(clientMsgId: "mac-1", duplicate: true, serverSeq: 13)))
@@ -114,6 +119,19 @@ struct CompanionProtocolTests {
         )
         #expect(try event("text_done") == .textDone(turnId: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10."))
         #expect(try event("turn_error") == .turnError(turnId: "turn-mac-3", code: "cancelled", message: "cancelled"))
+        #expect(try event("turn_done") == .turnDone(turnId: "turn-mac-5"))
+
+        guard case .row(let call) = try event("row", where: { $0.object["metadata"] != nil }) else {
+            Issue.record("no golden row carries a Live call's metadata")
+            return
+        }
+        #expect(call.kind == "text")
+        guard case .object(let facts)? = call.metadata?["call"] else {
+            Issue.record("the call row's metadata has no call")
+            return
+        }
+        #expect(facts["event"] == .string("shared"))
+        #expect(facts["task_id"] == .string("dg_01H9"))
         #expect(
             try event("approval_resolved") == .approvalResolved(
                 approvalId: "sandbox-bhw-xTAySHRgYU9X7p4sNoI3EvHmKLZlouMRAn73iic",
@@ -142,8 +160,8 @@ struct CompanionProtocolTests {
         }
         #expect(refusal.reason == "unsupported_protocol_version")
         #expect(refusal.direction == .clientTooNew)
-        #expect(refusal.clientVersion == 2)
-        #expect(refusal.window == CompanionVersionWindow(minimum: 1, maximum: 1))
+        #expect(refusal.clientVersion == 3)
+        #expect(refusal.window == CompanionVersionWindow(minimum: 1, maximum: 2))
     }
 
     /// The contract takes exactly one cursor, and the Swift value is the only
@@ -249,6 +267,35 @@ struct CompanionProtocolTests {
 
     /// Rule 5 of the contract: an unrecognized server event is logged, never
     /// silently dropped, so it decodes to a value that carries its type.
+    /// The vendored goldens carry no preview, so the line is built in the
+    /// schema's `linkPreviewCard` shape: with and without its optional fields.
+    @Test("a history row keeps its media refs, its kind and its stored link previews")
+    func historyRowKeepsItsMedia() throws {
+        let line = Data(#"""
+        {"type":"history_page","profile_id":"main","history_head_seq":7,"messages":[{"server_seq":7,"role":"user","content":"see https://x.test/a and https://y.test","kind":"media","ts":"2026-10-11T17:16:19Z","media_refs":[{"ref":"3f46f7693efbeb011de675f80f03d6e94717a4150e38a1bac1e6dad75a0d95c3","kind":"audio","mime":"audio/ogg","size_bytes":33419,"filename":"voice-note.ogg"}],"link_previews":[{"url":"https://x.test/a","site":"X","title":"A page","description":"What it says","image_ref":"9214332e155bb4042b5019c575d43397cba703a76fe3246218546f13d4055569"},{"url":"https://www.y.test/","site":"Y","title":"Y home"}]}]}
+        """#.utf8)
+
+        guard case .historyPage(let page) = try CompanionServerEvent.decode(line), let exported = page.messages.first else {
+            Issue.record("the page did not decode")
+            return
+        }
+        let row = CompanionRow(exported)
+
+        #expect(row.kind == "media")
+        #expect(row.mediaRefs.map(\.kind) == ["audio"])
+        #expect(row.mediaRefs.first?.filename == "voice-note.ogg")
+        #expect(row.linkPreviews == [
+            CompanionLinkPreview(
+                url: "https://x.test/a",
+                site: "X",
+                title: "A page",
+                description: "What it says",
+                imageRef: "9214332e155bb4042b5019c575d43397cba703a76fe3246218546f13d4055569"
+            ),
+            CompanionLinkPreview(url: "https://www.y.test/", site: "Y", title: "Y home", description: nil, imageRef: nil)
+        ])
+    }
+
     @Test("an unknown event type is preserved and never fatal")
     func unknownEventIsPreserved() throws {
         let event = try CompanionServerEvent.decode(Data(#"{"type":"weather","sunny":true}"#.utf8))
@@ -272,12 +319,12 @@ struct CompanionProtocolTests {
 
     @Test("a version window names the side that must update")
     func windowNamesTheOutdatedSide() {
-        let window = CompanionVersionWindow(minimum: 2, maximum: 3)
+        let window = CompanionVersionWindow(minimum: 3, maximum: 4)
 
-        #expect(window.contains(2))
+        #expect(window.contains(3))
         #expect(!window.contains(CompanionProtocol.version))
-        #expect(window.direction(for: 1) == .clientTooOld)
-        #expect(window.direction(for: 4) == .clientTooNew)
+        #expect(window.direction(for: 2) == .clientTooOld)
+        #expect(window.direction(for: 5) == .clientTooNew)
     }
 }
 

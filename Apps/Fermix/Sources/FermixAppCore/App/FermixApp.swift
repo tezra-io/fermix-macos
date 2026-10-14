@@ -21,11 +21,18 @@ public enum FermixApp {
     /// - Parameter browser: the browser pane's engine, built over the website
     ///   profile, handed in for the same reason: its implementation links
     ///   WebKit.
+    /// - Parameter viewers: the pane's own viewers, handed in for the same
+    ///   reason: their implementation links AVKit and QuickLookUI.
+    /// - Parameter mediaReader: what the Mac's own frameworks say of a file a
+    ///   chat tile names, handed in for the same reason: its implementation
+    ///   links QuickLookThumbnailing.
     @MainActor
     public static func main(
         updater: any UpdaterDriving,
         mascot: any MascotRendering,
-        browser: @escaping BrowserEngineMaking
+        browser: @escaping BrowserEngineMaking,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
     ) {
         // Maintenance entry, before any AppKit UI: the login-item
         // registrations belong to this bundle identity, so only the app
@@ -45,7 +52,9 @@ public enum FermixApp {
         application.setActivationPolicy(.accessory)
         installSIGTERMHandler()
 
-        let delegate = AppDelegate(plan: launchPlan(updater: updater, mascot: mascot, browser: browser))
+        let delegate = AppDelegate(
+            plan: launchPlan(updater: updater, mascot: mascot, browser: browser, viewers: viewers, mediaReader: mediaReader)
+        )
         application.delegate = delegate
         application.run()
     }
@@ -82,7 +91,9 @@ public enum FermixApp {
     private static func launchPlan(
         updater: any UpdaterDriving,
         mascot: any MascotRendering,
-        browser: @escaping BrowserEngineMaking
+        browser: @escaping BrowserEngineMaking,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
     ) -> AppLaunchPlan {
         let arguments = CommandLine.arguments
         let fixture = fixtureRequest(arguments)
@@ -91,17 +102,26 @@ public enum FermixApp {
 
         if fixture != nil, development { refuse(DevelopmentEngineLaunchRequest.Refusal.combinedWithFixture) }
         if fixture != nil, background { refuse(BackgroundLaunchRequest.Refusal.combinedWithFixture) }
-        if let fixture { return fixturePlan(named: fixture, mascot: mascot) }
+        if let fixture { return fixturePlan(named: fixture, mascot: mascot, viewers: viewers, mediaReader: mediaReader) }
         if development {
             return developmentEnginePlan(
                 registerBackground: arguments.contains(DevelopmentEngineLaunchRequest.registrationFlag),
                 updater: updater,
                 mascot: mascot,
-                browser: browser
+                browser: browser,
+                viewers: viewers,
+                mediaReader: mediaReader
             )
         }
 
-        return .product(updater: updater, mascot: mascot, browser: browser, background: background)
+        return .product(
+            updater: updater,
+            mascot: mascot,
+            browser: browser,
+            viewers: viewers,
+            mediaReader: mediaReader,
+            background: background
+        )
     }
 
     /// The surface a fixture launch named, or nil where it asked for none.
@@ -144,7 +164,12 @@ public enum FermixApp {
 
     #if DEBUG
     @MainActor
-    private static func fixturePlan(named name: String, mascot: any MascotRendering) -> AppLaunchPlan {
+    private static func fixturePlan(
+        named name: String,
+        mascot: any MascotRendering,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
+    ) -> AppLaunchPlan {
         guard let start = FixtureStart(name: name) else {
             FileHandle.standardError.write(
                 Data("surfaces: \(FixtureStart.publishedNames.joined(separator: ", "))\n".utf8)
@@ -152,22 +177,36 @@ public enum FermixApp {
             refuse(.unknownStart(name))
         }
 
-        return .fixture(FixtureLaunch(start: start), mascot: mascot)
+        return .fixture(FixtureLaunch(start: start), mascot: mascot, viewers: viewers, mediaReader: mediaReader)
     }
     @MainActor
     private static func developmentEnginePlan(
         registerBackground: Bool,
         updater: any UpdaterDriving,
         mascot: any MascotRendering,
-        browser: @escaping BrowserEngineMaking
+        browser: @escaping BrowserEngineMaking,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
     ) -> AppLaunchPlan {
-        .developmentEngine(registerBackground: registerBackground, updater: updater, mascot: mascot, browser: browser)
+        .developmentEngine(
+            registerBackground: registerBackground,
+            updater: updater,
+            mascot: mascot,
+            browser: browser,
+            viewers: viewers,
+            mediaReader: mediaReader
+        )
     }
     #else
     /// A release build has no fixture configuration compiled into it, so the
     /// flag names nothing this binary can do.
     @MainActor
-    private static func fixturePlan(named _: String, mascot _: any MascotRendering) -> AppLaunchPlan {
+    private static func fixturePlan(
+        named _: String,
+        mascot _: any MascotRendering,
+        viewers _: any BrowserViewerMaking,
+        mediaReader _: any ChatMediaReading
+    ) -> AppLaunchPlan {
         refuse(FixtureLaunchRequest.Refusal.notAvailableInThisBuild)
     }
 
@@ -178,7 +217,9 @@ public enum FermixApp {
         registerBackground: Bool,
         updater: any UpdaterDriving,
         mascot: any MascotRendering,
-        browser: @escaping BrowserEngineMaking
+        browser: @escaping BrowserEngineMaking,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
     ) -> AppLaunchPlan {
         refuse(DevelopmentEngineLaunchRequest.Refusal.notAvailableInThisBuild)
     }
@@ -256,10 +297,14 @@ struct AppLaunchPlan {
         updater: any UpdaterDriving,
         mascot: any MascotRendering,
         browser: @escaping BrowserEngineMaking,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading,
         background: Bool
     ) -> AppLaunchPlan {
         AppLaunchPlan(
-            compose: { AppComposition(updater: updater, mascot: mascot, browser: browser) },
+            compose: {
+                AppComposition(updater: updater, mascot: mascot, browser: browser, viewers: viewers, mediaReader: mediaReader)
+            },
             present: { composition in openLaunchReason(composition, background: background) }
         )
     }
@@ -278,11 +323,16 @@ struct AppLaunchPlan {
     #if DEBUG
     /// The fixture launch: the same graph over the contract's golden answers,
     /// opened at the surface the argument named.
-    static func fixture(_ launch: FixtureLaunch, mascot: any MascotRendering) -> AppLaunchPlan {
+    static func fixture(
+        _ launch: FixtureLaunch,
+        mascot: any MascotRendering,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
+    ) -> AppLaunchPlan {
         AppLaunchPlan(
             compose: {
                 do {
-                    return try AppComposition(fixture: launch, mascot: mascot)
+                    return try AppComposition(fixture: launch, mascot: mascot, viewers: viewers, mediaReader: mediaReader)
                 } catch {
                     // A bundle whose own golden fixtures cannot be read is
                     // broken, exactly as an unreadable product configuration is.
@@ -309,12 +359,20 @@ struct AppLaunchPlan {
         registerBackground: Bool = false,
         updater: any UpdaterDriving,
         mascot: any MascotRendering,
-        browser: @escaping BrowserEngineMaking
+        browser: @escaping BrowserEngineMaking,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
     ) -> AppLaunchPlan {
         AppLaunchPlan(
             compose: {
                 AppComposition(
-                    environment: .developmentEngine(updater: updater, mascot: mascot, browser: browser)
+                    environment: .developmentEngine(
+                        updater: updater,
+                        mascot: mascot,
+                        browser: browser,
+                        viewers: viewers,
+                        mediaReader: mediaReader
+                    )
                 )
             },
             present: { composition in

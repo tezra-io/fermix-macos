@@ -46,6 +46,13 @@ struct AppEnvironment {
     /// implementation links WebKit, which the agent must never load. A factory,
     /// because the engine is built over the website profile on the first tab.
     let makeBrowser: BrowserEngineMaking
+    /// The pane's own viewers, AVKit's player view and Quick Look's preview
+    /// view, behind the same kind of seam: the agent shows neither.
+    let viewers: any BrowserViewerMaking
+    /// What the Mac's own frameworks say of a file a chat tile names, behind
+    /// the same kind of seam: its thumbnails are Quick Look's, which the agent
+    /// never makes.
+    let mediaReader: any ChatMediaReading
     /// Whether the pane's tabs can be driven now: this Mac's screen lock,
     /// display sleep and the app's own quit.
     let session: any SessionAvailabilityReporting
@@ -87,9 +94,18 @@ extension AppEnvironment {
     static func product(
         updater: any UpdaterDriving,
         mascot: any MascotRendering,
-        browser: @escaping BrowserEngineMaking
+        browser: @escaping BrowserEngineMaking,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
     ) -> AppEnvironment {
-        onThisMac(activation: .installed, updater: updater, mascot: mascot, browser: browser)
+        onThisMac(
+            activation: .installed,
+            updater: updater,
+            mascot: mascot,
+            browser: browser,
+            viewers: viewers,
+            mediaReader: mediaReader
+        )
     }
 
     /// The boundary this Mac provides, under one declared activation plan.
@@ -98,15 +114,18 @@ extension AppEnvironment {
     /// `DevelopmentEngineConfiguration.swift` is the second caller: the two
     /// differ in exactly this one value and in nothing else.
     ///
-    /// The updater, the mascot renderer and the browser engine are the three
-    /// values this library cannot build: their implementations link Sparkle,
-    /// the Rive runtime and WebKit, which only the GUI executable may do
-    /// (M34 §6), so the executable hands them in.
+    /// The updater, the mascot renderer, the browser engine, the pane's
+    /// viewers and the chat's media reader are the values this library cannot
+    /// build: their implementations link Sparkle, the Rive runtime, WebKit,
+    /// AVKit and Quick Look, which only the GUI executable may do (M34 §6), so
+    /// the executable hands them in.
     static func onThisMac(
         activation plan: ActivationPlan,
         updater: any UpdaterDriving,
         mascot: any MascotRendering,
-        browser: @escaping BrowserEngineMaking
+        browser: @escaping BrowserEngineMaking,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
     ) -> AppEnvironment {
         // A bundle that cannot answer these two questions is broken, not
         // degraded: there is no second place to read them from.
@@ -139,6 +158,8 @@ extension AppEnvironment {
             updater: updater,
             mascot: mascot,
             makeBrowser: browser,
+            viewers: viewers,
+            mediaReader: mediaReader,
             session: SessionAvailability.onThisMac(),
             workspace: WorkspaceLinkOpener(),
             chooser: OpenPanelDirectoryChooser(),

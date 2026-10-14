@@ -152,8 +152,9 @@ struct ReplyPathsTests {
         #expect(Self.barePaths("~/ and / and ~notes.md").isEmpty)
     }
 
-    /// The address SwiftUI already made a link keeps it, a path inside a link
-    /// is part of that link, and a bare path beside them is a link of its own.
+    /// An address written out is a link drawn as a path is (`ReplyLinks`), a
+    /// path inside a link is part of that link, and a bare path beside them
+    /// is a link of its own.
     @Test("a bare path in a reply is a link, never inside an address or another link")
     func barePathsInAReply() {
         let reply = Self.reply("Open https://example.com/a/b or [see /a/b/c here](https://example.com), then /Users/me/a.png.")
@@ -163,11 +164,11 @@ struct ReplyPathsTests {
             "see /a/b/c here": "https://example.com",
             "/Users/me/a.png": "file:///Users/me/a.png",
         ])
-        #expect(Self.colour(of: "https://example.com/a/b", in: reply) == Palette.accentText.color)
+        #expect(Self.colour(of: "https://example.com/a/b", in: reply) == Palette.ink.color)
         #expect(Self.colour(of: "see /a/b/c here", in: reply) == Palette.accentText.color)
         #expect(Self.colour(of: "/Users/me/a.png", in: reply) == Palette.ink.color)
         #expect(Self.underline(of: "/Users/me/a.png", in: reply) == Self.pathUnderline)
-        #expect(Self.underline(of: "https://example.com/a/b", in: reply) == nil)
+        #expect(Self.underline(of: "https://example.com/a/b", in: reply) == Self.pathUnderline)
         #expect(Self.underline(of: "see /a/b/c here", in: reply) == nil)
     }
 

@@ -16,7 +16,7 @@ import Testing
 @MainActor
 struct ChatCallBoxTests {
     private func state(_ harness: PetHarness) -> ChatCallBoxState? {
-        ChatCallBoxState(voice: harness.call.voice)
+        ChatCallBoxState(voice: harness.call.voice, closed: harness.call.callBoxClosed)
     }
 
     /// A call `call_start` has gone out for, on a negotiated socket.
@@ -71,9 +71,10 @@ struct ChatCallBoxTests {
 
     /// The owner's direction of 2026-10-04: after a call the pet stays in its
     /// idle pose "so that there will be a stop button which I can click to
-    /// close". The box keeps the pet and its dock, whose one control is now
-    /// Close, and says nothing: the bill a normal end settles is the Pet
-    /// page's.
+    /// close". A call that ends without a control's click (the daemon's own
+    /// last frame) keeps the box with the pet and its dock, whose one control
+    /// is now Close, and says nothing: the bill a normal end settles is the
+    /// Pet page's.
     @Test("a normal end keeps the box, with the idle pet, the dock's Close and no sentence")
     func normalEndKeepsTheBox() throws {
         let harness = try liveCall()
@@ -88,11 +89,12 @@ struct ChatCallBoxTests {
         #expect(harness.model.settledBillText != nil)
     }
 
-    /// The dock's stop ends the call through the gate, like every call
-    /// control; the box stays through the end and after it, and Close is
-    /// what puts it away.
-    @Test("the dock's stop ends the call, the box stays, and Close puts it away")
-    func stopEndsAndCloseRemoves() throws {
+    /// The owner's direction of 2026-10-08: "the stop should basically close
+    /// the mascot". One press ends the call through the gate and closes the
+    /// box at once, while the call behind it is still ending; the call's
+    /// facts stay for the Pet page, and the next call brings the box back.
+    @Test("the dock's stop ends the call and closes the box in one press")
+    func stopEndsAndCloses() throws {
         let harness = try liveCall()
         deliver(harness, .state(.listening))
         #expect(harness.model.stopAction(in: .callBox) == .end)
@@ -100,20 +102,48 @@ struct ChatCallBoxTests {
 
         harness.model.stopClicked(in: .callBox)
         #expect(harness.call.voice.phase == .stopping)
+        #expect(state(harness) == nil)
+
+        deliver(harness, .usage(RealtimeUsage(voiceCostCents: 2.05, accounting: "complete")), .state(.idle))
+        #expect(harness.call.voice.phase == .ended(.normal(settled: harness.call.voice.usage)))
+        #expect(state(harness) == nil)
+        #expect(harness.model.settledBillText != nil, "the cost stays on the Pet page")
+
+        harness.model.mascotClicked()
+        #expect(harness.call.voice.phase == .starting)
         #expect(state(harness) == .live)
-        // Dimmed while it ends: the gate's next click would begin a call.
-        #expect(harness.model.stopAction(in: .callBox) == .ending)
-        harness.model.stopClicked(in: .callBox)
+    }
+
+    /// The toolbar's call button and the menus end the call as the stop does:
+    /// only the mascot's own click leaves the pet resting in the box.
+    @Test("a call control's end closes the box too")
+    func callControlEndCloses() throws {
+        let harness = try liveCall()
+        deliver(harness, .state(.listening))
+
+        harness.gate.toggleCall()
         #expect(harness.call.voice.phase == .stopping)
+        #expect(state(harness) == nil)
+    }
+
+    /// The mascot's click ends the call and keeps the box; while that call is
+    /// still ending, the stop is already Close, never a dimmed control.
+    @Test("the stop closes the box the mascot's click left, while the call ends and after")
+    func closeAfterTheMascotsEnd() throws {
+        let harness = try liveCall()
+        deliver(harness, .state(.listening))
+
+        harness.model.mascotClicked()
+        #expect(harness.call.voice.phase == .stopping)
+        #expect(state(harness) == .live)
+        #expect(harness.model.stopAction(in: .callBox) == .close)
+
+        harness.model.stopClicked(in: .callBox)
+        #expect(harness.call.voice.phase == .stopping, "Close leaves the ending call alone")
+        #expect(state(harness) == nil)
 
         harness.call.callEnded()
-        #expect(state(harness) == .ended)
-        #expect(harness.model.expression == .idle)
-
-        harness.model.stopClicked(in: .callBox)
-        #expect(harness.call.voice.phase == .idle)
         #expect(state(harness) == nil)
-        #expect(harness.model.stopAction(in: .callBox) == nil)
     }
 
     @Test("a failure keeps the box with its one sentence, the vendor's detail after it, and Close")
@@ -155,8 +185,8 @@ struct ChatCallBoxTests {
 
         harness.call.voiceFailed(.socketPathUnavailable)
         harness.model.stopClicked(in: .callBox)
-        #expect(harness.call.voice.phase == .idle)
         #expect(state(harness) == nil)
+        #expect(harness.call.voice.status.carriesItsOwnSentence, "the failure stays the Pet page's to say")
     }
 
     // MARK: - The mascot
@@ -182,7 +212,8 @@ struct ChatCallBoxTests {
     /// idle mode". Its click is the call control's, through the gate, and its
     /// tooltip the control's: it ends the call that is up, the pet going to
     /// its idle pose in the box that stays, and a click on that idle pet
-    /// begins the next call, which plays its intro once.
+    /// begins the next call with the same pet, which does not hatch again
+    /// (owner, 2026-10-08: "if its idle theres no point in rehatching").
     @Test("a click on the box's pet ends the call, and on the idle pet begins the next")
     func mascotClickTogglesTheCall() throws {
         let harness = try liveCall()
@@ -192,23 +223,24 @@ struct ChatCallBoxTests {
         #expect(harness.model.expression == .listening)
         #expect(harness.model.callHelpText == "End voice call")
 
-        harness.model.toggleCall()
+        harness.model.mascotClicked()
         #expect(harness.call.voice.phase == .stopping)
         harness.call.callEnded()
         #expect(state(harness) == .ended)
         #expect(harness.model.expression == .idle)
         #expect(harness.model.callHelpText == "Begin voice call")
 
-        harness.model.toggleCall()
+        harness.model.mascotClicked()
         #expect(harness.call.voice.phase == .starting)
         #expect(state(harness) == .live)
         #expect(harness.call.voice.attempt == first + 1)
-        #expect(!harness.call.introPlayed, "the next call's pet swells in once")
+        #expect(harness.call.introPlayed, "the resting pet hatched again for the next call")
 
         // The click is the companion's, one view in both hosts, and the box
         // acts on the call through nothing of its own.
         let box = try Self.text(of: "Chat/ChatCallBox.swift")
         #expect(box.contains("host: .callBox"))
+        #expect(!box.contains(".id(call.voice.attempt)"), "each call builds a new mascot again")
         #expect(!box.contains("toggleCall"), "the box acts on the call itself")
         #expect(!box.contains("onTapGesture"), "the box takes the mascot's click itself")
     }
@@ -327,26 +359,13 @@ struct ChatCallBoxTests {
 
     // MARK: - The toolbar's call button
 
-    /// A phone at rest, and while a call is up the hang-up in the system's red
-    /// (owner, 2026-10-04: "turns red when the call is on to close it").
-    @Test("Chat's toolbar carries the call beside Show browser, a phone at rest and the red hang-up while a call is up")
-    func toolbarCarriesTheCall() throws {
+    @Test("Chat's toolbar carries the call beside Show browser, as a phone filled while a call is up")
+    func toolbarCarriesTheCall() {
         #expect(CommandTable.toolbar(for: .chat).secondary == [.showBrowser, .toggleVoiceCall])
         #expect(CommandTable.symbol(of: .toggleVoiceCall) == "phone")
         #expect(CommandTable.symbol(of: .toggleVoiceCall) == CommandTable.callSymbol)
-        #expect(CommandTable.hangUpSymbol == "phone.down.fill")
-        #expect(CommandTable.toolbarSymbol(of: .toggleVoiceCall, isOn: false) == ToolbarSymbol(name: "phone", tint: nil))
-        #expect(
-            CommandTable.toolbarSymbol(of: .toggleVoiceCall, isOn: true)
-                == ToolbarSymbol(name: "phone.down.fill", tint: Palette.hangUp)
-        )
-
-        // The toolbar draws the table's answer for the command's state, and
-        // fills nothing of its own.
-        let toolbar = try Self.text(of: "Design/Components/SurfaceToolbar.swift")
-        #expect(toolbar.contains("router.toolbarSymbol(of: command)"))
-        #expect(!toolbar.contains("fillsWhenOn"))
-        #expect(!toolbar.contains("symbolVariant"))
+        #expect(CommandTable.fillsWhenOn(.toggleVoiceCall))
+        #expect(!CommandTable.fillsWhenOn(.pauseLogs))
         #expect(CommandTable.toolbarTitle(of: .toggleVoiceCall, isOn: false) == "Begin voice call")
         #expect(CommandTable.toolbarTitle(of: .toggleVoiceCall, isOn: true) == "End voice call")
     }

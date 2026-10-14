@@ -13,7 +13,8 @@ public enum PetMetrics {
 
 /// Where the pet is drawn: its own floating window, or the chat's call box.
 /// The façade reads it for the one thing the two differ in, what the dock's
-/// stop offers once a call is over: only the box has something to close.
+/// stop offers once a call is ending or over: only the box has something to
+/// close.
 public enum PetHost: Sendable {
     case floatingWindow
     case callBox
@@ -23,14 +24,18 @@ public enum PetHost: Sendable {
 /// prefer it was a stop button"). It never begins a call: the mascot's click,
 /// the chat toolbar's phone and the menus do that.
 public enum PetStopAction: Equatable, Sendable {
-    /// A start or a call is up: the click ends it, through the gate.
+    /// A start or a call is up: the click ends it, through the gate, and
+    /// closes the chat's box with it, in one press (owner, 2026-10-08: "the
+    /// stop should basically close the mascot").
     case end
-    /// The call is ending: dimmed, because the gate's next click would begin
-    /// the next call, which is never the stop's to do.
+    /// The floating window's while the call is ending: dimmed, because the
+    /// gate's next click would begin the next call, which is never the stop's
+    /// to do, and that window has nothing to close.
     case ending
-    /// The chat's box once a call is over, ended or failed: the click puts the
-    /// box away (owner, 2026-10-04: the pet stays idle "so that there will be
-    /// a stop button which I can click to close").
+    /// The chat's box once the mascot's click has ended the call, while it
+    /// ends and after, or once a call failed: the click closes the box (owner,
+    /// 2026-10-04: the pet stays idle "so that there will be a stop button
+    /// which I can click to close").
     case close
 }
 
@@ -142,7 +147,7 @@ public final class PetFeatureModel: ObservableObject {
     public func stopAction(in host: PetHost) -> PetStopAction? {
         switch call.voice.phase {
         case .starting, .active: return .end
-        case .stopping: return .ending
+        case .stopping: return host == .callBox ? .close : .ending
         case .ended: return host == .callBox ? .close : nil
         case .idle: return nil
         }
@@ -276,17 +281,25 @@ public final class PetFeatureModel: ObservableObject {
         openFermix()
     }
 
-    /// The call control's click, through the gate the menus use.
+    /// The call control's click, through the gate the menus use: the Pet
+    /// page's button and the pet's context menu.
     public func toggleCall() {
         gate.toggleCall()
     }
 
+    /// The mascot's click, the one that toggles the call and keeps the pet:
+    /// a call it ends leaves the pet resting in the chat's box.
+    public func mascotClicked() {
+        gate.toggleCallKeepingBox()
+    }
+
     /// The stop's click: it ends a start or a call through the gate, as every
-    /// call control does, or puts the chat's box away once the call is over.
+    /// call control does, closing the chat's box with it, or closes the box
+    /// that a call left behind.
     public func stopClicked(in host: PetHost) {
         switch stopAction(in: host) {
         case .end: gate.toggleCall()
-        case .close: call.dismissEnded()
+        case .close: call.closeCallBox()
         case .ending, nil: return
         }
     }

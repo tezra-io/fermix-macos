@@ -36,7 +36,7 @@ public enum ProductCopyRules {
         "Setup", "Doctor", "Home", "Logs", "Pet",
         "Telegram", "Slack", "Discord",
         "ChatGPT", "Claude", "Codex", "OpenAI", "Anthropic", "OpenRouter", "Ollama", "Realtime",
-        "Google",
+        "Google", "Android",
         "Login", "Items", "System", "Settings", "Permissions",
         "Applications", "Library", "Launchpad", "Spotlight", "Messages", "Finder",
         "Homebrew", "Homebrew-managed"

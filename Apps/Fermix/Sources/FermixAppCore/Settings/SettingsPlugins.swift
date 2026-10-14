@@ -168,7 +168,6 @@ extension SettingsModel {
         do {
             let job = try await gateway.startWorkspaceDiscovery(name: name)
             runner.start(job)
-            note(job)
         } catch {
             runner.adopt(failure: ManagementMessage.sentence(for: error))
             noteReconcile(error)
@@ -199,7 +198,6 @@ extension SettingsModel {
                 label: workspace.label
             )
             runner.start(job)
-            note(job)
             await refreshPlugins()
             return nil
         } catch {

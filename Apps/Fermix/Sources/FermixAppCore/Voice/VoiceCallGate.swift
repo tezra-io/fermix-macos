@@ -76,12 +76,32 @@ public final class VoiceCallGate: ObservableObject {
         }
     }
 
-    /// The click. A call that is still ending takes `begin` like any other
-    /// moment with no call up: the controller holds that start until the last
-    /// call has ended.
+    /// The click of a call control: the menus, the status item, the chat's
+    /// toolbar, the Pet page's button and the dock's stop. A call it ends
+    /// takes the chat's call box with it (owner, 2026-10-08: "the stop should
+    /// basically close the mascot").
     public func toggleCall() {
+        toggle(closingBox: true)
+    }
+
+    /// The mascot's click, in the box and on the floating window: the call
+    /// control's, except that a call it ends leaves the pet resting in the
+    /// box, for the dock's stop to close (owner, 2026-10-08: "Only clicking
+    /// on the pet goes to idle").
+    public func toggleCallKeepingBox() {
+        toggle(closingBox: false)
+    }
+
+    /// A call that is still ending takes `begin` like any other moment with no
+    /// call up: the controller holds that start until the last call has
+    /// ended. The box closes before the call ends, so it leaves as it was
+    /// drawn rather than turning to its Close on the way out.
+    private func toggle(closingBox: Bool) {
         switch action {
-        case .begin, .end:
+        case .begin:
+            voice.toggleCall()
+        case .end:
+            if closingBox { call.closeCallBox() }
             voice.toggleCall()
         case .setUp:
             setUpVoice()

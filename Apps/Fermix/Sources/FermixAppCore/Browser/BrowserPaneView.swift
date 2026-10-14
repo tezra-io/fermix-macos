@@ -192,9 +192,11 @@ struct BrowserPaneView: View {
     }
 }
 
-/// The pane's keyboard, beyond what its visible controls carry: a private tab
-/// and the caret in the address field. Command-T is the new-tab capsule's and
-/// Command-W the close control of the tab in front.
+/// The pane's keyboard, beyond what its visible controls carry: a private
+/// tab, the caret in the address field, and the zoom of the page in front, a
+/// step either way, back to its actual size, or a picture fitted to the pane,
+/// with the keys Safari and Preview use. Command-T is the new-tab capsule's
+/// and Command-W the close control of the tab in front.
 private struct BrowserShortcuts: View {
     let browser: BrowserCoordinator
 
@@ -204,6 +206,14 @@ private struct BrowserShortcuts: View {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
             Button(ProductStrings[.browserAddress]) { browser.focusAddress() }
                 .keyboardShortcut("l", modifiers: .command)
+            Button(ProductStrings[.browserZoomIn]) { browser.zoom(.larger) }
+                .keyboardShortcut("=", modifiers: .command)
+            Button(ProductStrings[.browserZoomOut]) { browser.zoom(.smaller) }
+                .keyboardShortcut("-", modifiers: .command)
+            Button(ProductStrings[.browserActualSize]) { browser.zoom(.actualSize) }
+                .keyboardShortcut("0", modifiers: .command)
+            Button(ProductStrings[.browserZoomToFit]) { browser.zoom(.fit) }
+                .keyboardShortcut("9", modifiers: .command)
         }
         .buttonStyle(.plain)
         .frame(width: 0, height: 0)
@@ -350,7 +360,8 @@ private struct BrowserTabChip: View {
 
 /// Back, forward, reload or cancel loading, the address capsule, and the
 /// pane's own actions: the page in the person's own browser, or a file tab's
-/// file in the app that opens it and in Finder, then hiding the pane.
+/// file in the app that opens it and in Finder, after a picture's fit, then
+/// hiding the pane.
 private struct BrowserNavigationRow: View {
     let browser: BrowserCoordinator
     @ObservedObject var tab: BrowserTab
@@ -400,9 +411,21 @@ private struct BrowserNavigationRow: View {
 
     /// A file tab's way out: its file in the app the tab offers it to, where
     /// it offers one, which it never does for text, markup or a script, and
-    /// its file selected in Finder.
+    /// its file selected in Finder. A picture tab first offers the one zoom it
+    /// has a control for: its actual size while it is fitted to the pane, and
+    /// the fit again once it is magnified.
     @ViewBuilder
     private var fileActions: some View {
+        if tab.fileKind == .image {
+            let fitted = !tab.isMagnified
+            control(
+                fitted ? .browserActualSize : .browserZoomToFit,
+                symbol: fitted ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left",
+                enabled: tab.url != nil
+            ) {
+                tab.zoom(fitted ? .actualSize : .fit)
+            }
+        }
         if let fileApp = tab.fileApp {
             control(named: BrowserText.openIn(fileApp.name), symbol: "arrow.up.forward.app", enabled: true) {
                 browser.openFileInApp()

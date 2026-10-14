@@ -99,6 +99,10 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// is exactly what the side-effect line exists to surface.
     var settingsAppliedResult: ManagementSettingsApplied?
     var providerSettings: StatefulProviderSettings?
+    /// The rows `settings.get` answers for a section, where a case needs a
+    /// descriptor the golden cannot express: the vendored engine's phone
+    /// switch waits for a restart, and a newer engine's does not.
+    var sectionResults: [String: ManagementSettingsSectionRows] = [:]
 
     /// What the surfaces wrote, in order.
     var appliedSettings: [SettingsWrite] = []
@@ -129,6 +133,28 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// The job an iMessage grant or confirmation starts as, where a case needs
     /// one still running: the goldens publish both already completed.
     var imessageJobStarted: ManagementJob?
+
+    /// The section index, where a case needs one the golden does not publish.
+    var settingsSectionsResult: ManagementSettingsInventory?
+
+    /// The phone channel, where a case needs answers the goldens do not give:
+    /// another moment of the channel, of the start, or of the window.
+    var mobileStatusResult: ManagementMobileStatus?
+    var mobileDevicesResult: ManagementMobileDevices?
+    var pairingStartResult: ManagementPairingStart?
+    /// Holds `mobile.pair.start` open, so a case can close the sheet while the
+    /// window is opening.
+    var pairingStartGate: (@Sendable () async -> Void)?
+    /// The window's reads, consumed in order. Empty means the golden that
+    /// waits for a decision; an exhausted script keeps answering with the last.
+    var pairingSessionScript: [ManagementPairingSession] = []
+    var pairingSessionIndex = 0
+    var pairingDecisionResult: ManagementPairingSession?
+    /// What the surfaces asked of the phone channel, in order.
+    var pairingReads: [String] = []
+    var pairingDecisions: [PairingDecision] = []
+    var cancelledPairings: [String] = []
+    var revokedDevices: [String] = []
 
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take

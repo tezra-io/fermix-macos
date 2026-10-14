@@ -55,6 +55,10 @@ public final class CompanionModel: ObservableObject {
     @Published public private(set) var search: CompanionSearch?
     /// The latest failure, in a sentence, until the next request.
     @Published public private(set) var lastError: String?
+    /// The latest change to a held row's height: a row history brought again
+    /// with different content. The transcript keeps its reader's place
+    /// against it.
+    @Published public private(set) var reshape: CompanionReshape?
 
     init() {}
 
@@ -74,6 +78,7 @@ public final class CompanionModel: ObservableObject {
         publish(\.approvals, chat.approvals)
         publish(\.search, chat.search)
         publish(\.lastError, chat.lastError)
+        publish(\.reshape, chat.reshape)
     }
 
     private func publish<Value: Equatable>(_ field: ReferenceWritableKeyPath<CompanionModel, Value>, _ value: Value) {

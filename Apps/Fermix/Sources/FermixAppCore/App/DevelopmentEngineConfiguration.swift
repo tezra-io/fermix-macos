@@ -7,7 +7,9 @@ extension AppEnvironment {
     static func developmentEngine(
         updater: any UpdaterDriving,
         mascot: any MascotRendering,
-        browser: @escaping BrowserEngineMaking
+        browser: @escaping BrowserEngineMaking,
+        viewers: any BrowserViewerMaking,
+        mediaReader: any ChatMediaReading
     ) -> AppEnvironment {
         do {
             try DevelopmentEngineRegistration.validate(
@@ -22,7 +24,9 @@ extension AppEnvironment {
             activation: .developmentBackgroundService,
             updater: updater,
             mascot: mascot,
-            browser: browser
+            browser: browser,
+            viewers: viewers,
+            mediaReader: mediaReader
         )
     }
 }

@@ -565,7 +565,9 @@ struct ProductStringsTests {
 
         // The ban is on the verb, so the test reads the first word rather than
         // searching for a substring: "Restart daemon" contains "start daemon".
-        for key in ProductStringKey.allCases {
+        // The one string that starts with it is not about the service: the
+        // Phone sheet's Start over opens a new pairing code (M60 §6).
+        for key in ProductStringKey.allCases where key != .phoneStartOver {
             let firstWord = ProductStrings[key].split(separator: " ").first.map(String.init) ?? ""
 
             #expect(firstWord != "Start", "\(key.rawValue)")

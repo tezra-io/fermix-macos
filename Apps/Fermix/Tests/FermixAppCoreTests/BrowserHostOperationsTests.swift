@@ -464,6 +464,7 @@ private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, Browser
     func stop() {}
     func find(_ text: String) {}
     func zoom(_ zoom: BrowserZoom) {}
+    func close() {}
 
     func waitUntilReady() async throws {}
 

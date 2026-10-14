@@ -145,7 +145,6 @@ struct ProviderAuthenticationTests {
         #expect(await model.startAuthImport(source: .claudeCode, provider: "anthropic", on: runner) == nil)
         #expect(runner.isRunning)
         #expect(runner.phase == ProductStrings[.jobPhaseReadingKeychain])
-        #expect(model.jobs.contains { $0.jobId == runner.job?.jobId })
         #expect(opener.urls.isEmpty)
         await runner.drainPendingWork()
         await model.signInFinished()

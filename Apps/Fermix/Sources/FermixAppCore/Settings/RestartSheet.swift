@@ -43,7 +43,7 @@ struct RestartSheet: View {
                 .foregroundStyle(Palette.ink.color)
 
             reasons
-            inFlight
+            RestartInFlightLine(count: model.conversationsInFlight)
             progress
             refused
 
@@ -103,25 +103,6 @@ struct RestartSheet: View {
         }
     }
 
-    /// What a restart would interrupt. Zero says nothing: an empty line under
-    /// the reasons reads better than "0 conversations are in progress". An
-    /// unanswered read says nothing either, rather than claiming a free restart.
-    @ViewBuilder
-    private var inFlight: some View {
-        if let count = model.conversationsInFlight, count > 0 {
-            Text(
-                String(
-                    format: ProductStrings[
-                        count == 1 ? .settingsRestartInFlightOne : .settingsRestartInFlightMany
-                    ],
-                    count
-                )
-            )
-            .fermixType(Typography.style(.calloutSmall))
-            .foregroundStyle(Palette.warning.color)
-        }
-    }
-
     @ViewBuilder
     private var refused: some View {
         if let refusal {
@@ -161,6 +142,31 @@ struct RestartSheet: View {
         guard model.restartProgress == .idle else { return }
 
         dismiss()
+    }
+}
+
+/// What a restart would interrupt, which every place that asks for a restart
+/// says before taking it: the Restart sheet, and the Phone sheet's Turn on.
+///
+/// Zero says nothing: an empty line under the reasons reads better than "0
+/// conversations are in progress". An unanswered read says nothing either,
+/// rather than claiming a free restart.
+struct RestartInFlightLine: View {
+    let count: Int?
+
+    var body: some View {
+        if let count, count > 0 {
+            Text(
+                String(
+                    format: ProductStrings[
+                        count == 1 ? .settingsRestartInFlightOne : .settingsRestartInFlightMany
+                    ],
+                    count
+                )
+            )
+            .fermixType(Typography.style(.calloutSmall))
+            .foregroundStyle(Palette.warning.color)
+        }
     }
 }
 

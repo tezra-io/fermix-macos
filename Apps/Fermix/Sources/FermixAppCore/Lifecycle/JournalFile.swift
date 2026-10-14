@@ -14,11 +14,12 @@ enum JournalFileError: Error, Equatable, Sendable {
     case directoryCreationFailed(path: String, code: Int)
 }
 
-/// The bytes half of a recovery journal: create, fill, flush, rename, remove.
+/// The bytes half of a record kept beside the bundle: create, fill, flush,
+/// rename, remove.
 ///
-/// Two journals need exactly this and nothing more — the lifecycle record and
-/// the update record — so the mechanics live here once rather than being
-/// written twice. A reader sees the previous entry or the new one and never a
+/// The bootstrap record, the lifecycle and update journals and the website
+/// profile record all need exactly this and nothing more, so the mechanics
+/// live here once. A reader sees the previous entry or the new one and never a
 /// half-written file, and the `fsync` is what makes that true across a power
 /// loss rather than only across a crash.
 struct JournalFile {

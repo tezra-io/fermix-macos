@@ -121,12 +121,6 @@ public final class LogsModel: ObservableObject {
         entries.map(Self.line).joined(separator: "\n")
     }
 
-    /// Writes the visible entries, and only those. There is no path here that
-    /// reads or copies a log file.
-    public func exportVisible(to url: URL) throws {
-        try Data(copyVisible().utf8).write(to: url, options: .atomic)
-    }
-
     // MARK: - One query
 
     /// What a returned page does to the one on screen.

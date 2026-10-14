@@ -25,14 +25,23 @@ enum CompanionReducer {
             ? .before(seq: newestPageBound)
             : .after(seq: chat.cursor)
 
-        return pull(catchUp, into: &chat) + chat.pending.map(\.event)
+        return send(.catchUp(catchUp), into: &chat) + chat.pending.map(\.event)
     }
 
     /// The connection ended. Nothing asked on it will be answered, and a draft
     /// cannot be kept: a connection that rejoins a turn receives its text so
     /// far as the first delta.
+    ///
+    /// Rows being read again wait for the next connection, behind its
+    /// catch-up read. A page the reader scrolled to is not kept: they ask
+    /// again when they next reach the top, so a page landing late cannot move
+    /// a reader who has scrolled on.
     static func disconnected(_ chat: inout CompanionChat) {
+        if case .rows(let read) = chat.historyPull {
+            chat.rowsToRead.formUnion(read.seqs)
+        }
         chat.historyPull = nil
+        chat.olderWaiting = nil
         chat.turn = nil
         chat.search?.olderHitsAsked = nil
         if chat.search?.hits == nil {
@@ -74,11 +83,16 @@ enum CompanionReducer {
         return [.cancel(profileId: CompanionProtocol.profileId, clientMsgId: clientMsgId)]
     }
 
-    /// The page before the oldest held row, when one exists and no pull is out.
+    /// The page before the oldest held row, when one exists. It waits for a
+    /// read out, and asked again while it is waiting or out it is the same
+    /// read: the transcript asks on every scroll while the top is on screen.
     static func pullOlder(_ chat: inout CompanionChat) -> [CompanionClientEvent] {
-        guard chat.hasOlder, let oldest = chat.rows.first?.serverSeq else { return [] }
+        guard chat.hasOlder, let oldest = chat.rows.first?.serverSeq,
+              chat.historyPull != .older(beforeSeq: oldest)
+        else { return [] }
 
-        return pull(.before(seq: oldest), into: &chat)
+        chat.olderWaiting = oldest
+        return sendWaiting(&chat)
     }
 
     /// Searches the timeline. A query the daemon would refuse is not sent: the
@@ -177,8 +191,11 @@ enum CompanionReducer {
         case .turnError(let turnId, let code, let message):
             end(turnId, in: &chat)
             chat.lastError = sentence(forTurnError: code, message: message)
+        case .turnDone(let turnId):
+            // The turn wrote no reply: its draft goes with it.
+            end(turnId, in: &chat)
         case .row(let row):
-            return applyLive(CompanionRow(row), into: &chat)
+            return announce(row, into: &chat)
         case .approval(let approval):
             hold(approval, in: &chat)
         case .approvalResolved(let approvalId, _):
@@ -273,60 +290,176 @@ enum CompanionReducer {
 
     // MARK: - The cursor rule
 
+    /// A row announced live, held by the cursor rule. What an announcement
+    /// cannot carry is read from history, with no timer (M66 §3.6, stage 1):
+    /// a media row's files, once, when the announcement is what brought the
+    /// row; and a voice note's transcript, read when an assistant's row is
+    /// announced, until a page brings the note's reply. A row typed here is
+    /// text, and a reply to this Mac's own turn arrives as its `text_done`:
+    /// neither is read again.
+    private static func announce(
+        _ announced: CompanionAnnouncedRow,
+        into chat: inout CompanionChat
+    ) -> [CompanionClientEvent] {
+        let shownNow = announced.serverSeq == chat.cursor + 1
+        let replies = applyLive(CompanionRow(announced), into: &chat)
+
+        if announced.role == "assistant" {
+            readTranscripts(upTo: announced.serverSeq, in: &chat)
+        }
+        if announced.kind == "media" {
+            if shownNow {
+                chat.rowsToRead.insert(announced.serverSeq)
+            }
+            // A voice note is the person's, announced with no text, and its
+            // reply names the request it recorded; its read says whether it
+            // is one.
+            if announced.role == "user", announced.text.isEmpty, let request = announced.clientMsgId {
+                chat.awaitingTranscript[announced.serverSeq] = request
+            }
+        }
+
+        return replies + sendWaiting(&chat)
+    }
+
+    /// An assistant's row may be the reply to a voice note waiting for its
+    /// transcript: the engine writes that reply only once the transcript is
+    /// stored or has failed. The rows from the oldest note waiting up to this
+    /// one are read, and the page says which note, if any, it answers; a
+    /// delivery costs the read and the notes wait on. A note a page of rows
+    /// behind this one is waited for no more: it stays as history last had it.
+    private static func readTranscripts(upTo seq: Int, in chat: inout CompanionChat) {
+        let reach = seq - CompanionProtocol.historyPageLimit
+        chat.awaitingTranscript = chat.awaitingTranscript.filter { $0.key > reach }
+        guard let oldest = chat.awaitingTranscript.keys.min() else { return }
+
+        chat.rowsToRead.formUnion([oldest, seq])
+    }
+
     /// A live row is shown when it is the next seq, dropped at or below the
     /// cursor, and on a gap not shown but pulled from the cursor, once: live
     /// announcements can arrive out of seq order, and the pull brings every row
-    /// the gap hides.
+    /// the gap hides. With a read already out, the gap is that read's page's to
+    /// close: the row was written before the page was read, so the page's head
+    /// is past the cursor.
     private static func applyLive(_ row: CompanionRow, into chat: inout CompanionChat) -> [CompanionClientEvent] {
         guard row.serverSeq > chat.cursor else { return [] }
-        guard row.serverSeq == chat.cursor + 1 else { return pull(.after(seq: chat.cursor), into: &chat) }
+        guard row.serverSeq == chat.cursor + 1 else { return send(.catchUp(.after(seq: chat.cursor)), into: &chat) }
 
         chat.rows.append(row)
         chat.cursor = row.serverSeq
         return []
     }
 
-    /// A page answers the pull out. Its rows merge by seq, so a row already
+    /// A page answers the read out. Its rows merge by seq, so a row already
     /// held from a live event is held once, and every page is contiguous with
     /// what is held: a forward page starts at or below the cursor, a backward
     /// one ends at the oldest held row, and a cold start holds nothing a newest
     /// page lacks. The cursor moves to the page's newest row, and while it is
-    /// still below the head the read goes on from it.
+    /// still below the head the read goes on from it, ahead of any read
+    /// waiting.
+    ///
+    /// A row the page brings again replaces the held one at its seq, and a
+    /// row that now draws differently is a change of height the transcript
+    /// holds the reader against.
     private static func merge(_ page: CompanionHistoryPage, into chat: inout CompanionChat) -> [CompanionClientEvent] {
         let answered = chat.historyPull
         chat.historyPull = nil
 
-        chat.rows = merged(chat.rows, page.messages.map(CompanionRow.init))
+        let pageRows = page.messages.map(CompanionRow.init)
+        let (rows, replaced) = merged(chat.rows, pageRows)
+        chat.rows = rows
         chat.cursor = max(chat.cursor, page.messages.map(\.serverSeq).max() ?? chat.cursor)
         chat.historyHeadSeq = page.historyHeadSeq
-        if case .before = answered {
+        if case .before = answered?.cursor {
             chat.hasOlder = page.nextBeforeSeq != nil
         }
-
-        guard chat.cursor < page.historyHeadSeq else { return [] }
-
-        return pull(.after(seq: chat.cursor), into: &chat)
-    }
-
-    private static func merged(_ held: [CompanionRow], _ page: [CompanionRow]) -> [CompanionRow] {
-        var bySeq = Dictionary(held.map { ($0.serverSeq, $0) }, uniquingKeysWith: { _, latest in latest })
-        for row in page {
-            bySeq[row.serverSeq] = row
+        // A row the page brought is as history has it now: it needs no read
+        // of its own.
+        chat.rowsToRead.subtract(pageRows.map(\.serverSeq))
+        if case .rows(let read) = answered {
+            chat.rowsToRead.formUnion(read.unreached(by: page))
+        }
+        settleTranscripts(pageRows, in: &chat)
+        if !replaced.isEmpty {
+            reshape(replaced, in: &chat)
         }
 
-        return bySeq.values.sorted { $0.serverSeq < $1.serverSeq }
+        guard chat.cursor < page.historyHeadSeq else { return sendWaiting(&chat) }
+
+        return send(.catchUp(.after(seq: chat.cursor)), into: &chat)
     }
 
-    /// The only way a pull is asked: at most one is ever out.
-    private static func pull(
-        _ cursor: CompanionHistoryCursor,
-        into chat: inout CompanionChat
-    ) -> [CompanionClientEvent] {
+    /// The held rows with a page's rows put over them by seq, and the seqs
+    /// where the page's row draws differently from the one it replaced.
+    private static func merged(
+        _ held: [CompanionRow],
+        _ page: [CompanionRow]
+    ) -> (rows: [CompanionRow], replaced: Set<Int>) {
+        var bySeq = Dictionary(held.map { ($0.serverSeq, $0) }, uniquingKeysWith: { _, latest in latest })
+        var replaced: Set<Int> = []
+        for row in page {
+            if let previous = bySeq.updateValue(row, forKey: row.serverSeq), !previous.drawsAlike(row) {
+                replaced.insert(row.serverSeq)
+            }
+        }
+
+        return (bySeq.values.sorted { $0.serverSeq < $1.serverSeq }, replaced)
+    }
+
+    /// The voice notes a page settles (M66 §3.6, stage 1). A note it shows to
+    /// be no voice note, or to have its text, waits no more. Nor does a note
+    /// whose reply it brings: the reply is written only after the transcript
+    /// is stored or has failed, so the note is final as this page brought it,
+    /// or, where the page did not bring it, as one more read of it finds it.
+    private static func settleTranscripts(_ pageRows: [CompanionRow], in chat: inout CompanionChat) {
+        for row in pageRows where !row.awaitsTranscript {
+            chat.awaitingTranscript[row.serverSeq] = nil
+        }
+
+        let replied = Set(pageRows.compactMap(\.inReplyTo))
+        let brought = Set(pageRows.map(\.serverSeq))
+        let answered = chat.awaitingTranscript.filter { replied.contains($0.value) }.keys
+        for seq in answered {
+            chat.awaitingTranscript[seq] = nil
+            if !brought.contains(seq) {
+                chat.rowsToRead.insert(seq)
+            }
+        }
+    }
+
+    /// Publishes held rows whose height changed in place, as a change of its
+    /// own (M66 §3.8).
+    private static func reshape(_ seqs: Set<Int>, in chat: inout CompanionChat) {
+        chat.reshape = CompanionReshape(id: (chat.reshape?.id ?? 0) + 1, seqs: seqs)
+    }
+
+    // MARK: - The reads
+
+    /// Sends a read when none is out. Every read is asked here, so at most one
+    /// is ever out.
+    private static func send(_ pull: CompanionPull, into chat: inout CompanionChat) -> [CompanionClientEvent] {
         guard chat.historyPull == nil else { return [] }
 
-        chat.historyPull = cursor
-        return [
-            .historyPull(profileId: CompanionProtocol.profileId, cursor: cursor, limit: CompanionProtocol.historyPageLimit)
-        ]
+        chat.historyPull = pull
+        return [pull.event]
+    }
+
+    /// Sends the read waiting first when none is out: the page the reader
+    /// scrolled to, then the rows to read again. The catch-up read never
+    /// waits: a gap found while a read is out is that read's page's to close,
+    /// and a page that stops below the head asks it before anything waiting
+    /// is served.
+    private static func sendWaiting(_ chat: inout CompanionChat) -> [CompanionClientEvent] {
+        guard chat.historyPull == nil else { return [] }
+
+        if let oldest = chat.olderWaiting {
+            chat.olderWaiting = nil
+            return send(.older(beforeSeq: oldest), into: &chat)
+        }
+        guard let read = CompanionRowRead(chat.rowsToRead) else { return [] }
+
+        chat.rowsToRead = []
+        return send(.rows(read), into: &chat)
     }
 }
