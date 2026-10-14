@@ -210,9 +210,9 @@ public final class PhonePairingModel: ObservableObject {
     }
 
     /// Whether the channel's switch says on its own row that throwing it
-    /// starts the channel in place. The engine this app pins starts the
-    /// channel only at boot and marks the row as waiting for a restart; a
-    /// newer one starts it at once and does not.
+    /// starts the channel in place. The engine this app pins starts it at
+    /// once and says so on the row; an older engine starts the channel only
+    /// at boot and marks the row as waiting for a restart.
     private func switchStartsInPlace() async -> Bool {
         await settings.loadChannelSection(PhoneChannel.name)
         let row = settings.section(PhoneChannel.section).value?.rows.first { $0.key == PhoneChannel.switchKey }

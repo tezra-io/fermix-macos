@@ -4,20 +4,20 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
-- Channels: you can pair your Android phone from the Mac, with no Terminal. The Phone row's Pair a phone… turns the phone channel on and restarts Fermix where it needs to, saying so first, then shows a code to scan, with the link itself behind Can’t scan the code? for a phone or an emulator that cannot scan it, and asks you to approve only when both screens show the same six digits. Once a phone is paired the row names it, and Change… lists your phones, forgets one or pairs another. The last setup screen offers Pair your Android phone as an optional step.
+## 0.5.0 (2026-10-14)
+
+- Runs the Fermix engine 0.15.0, which turns the phone channel on and off at once with no restart and has it on for a new install, pairs only a phone that proves its secure hardware, offers Claude Haiku 5.5, hears a GPT-Live call from the moment it starts, transcribes the phone's voice notes, and gives the model every attachment you send, a GIF, a video, a PDF or a text file among them, where it used to see only pictures and voice notes.
 - Chat: during a voice call, a message you type can simply feed the call. Fermix no longer has to write a short reply to it, and the chat stops showing it as thinking when no reply comes.
 - Chat: the files a reply names show under it in a row that scrolls sideways, with a trackpad, Shift and the scroll wheel, the arrows that appear at its edges, or the Left and Right keys once it is clicked: a screenshot, a video's still frame, a PDF's first page or a document fills its own thumbnail, and a link or a file with nothing to preview is a compact card. A line that only names something already shown is left out of the text, while links inside a sentence stay. Nothing is fetched from the internet to draw a card, and a file outside your Fermix home shows only its icon until you open it.
 - Chat: a voice note you send from your phone shows in the Mac chat as a voice note, with its transcript under it once Fermix has it, and a sound file Fermix names plays right where it is. Your place in the conversation stays put as previews arrive and messages fill in.
+- Channels: you can pair your Android phone from the Mac, with no Terminal. The Phone row's Pair a phone… turns the phone channel on and restarts Fermix where it needs to, saying so first, then shows a code to scan, with the link itself behind Can’t scan the code? for a phone or an emulator that cannot scan it, and asks you to approve only when both screens show the same six digits. Once a phone is paired the row names it, and Change… lists your phones, forgets one or pairs another. The last setup screen offers Pair your Android phone as an optional step.
 - Browser pane: videos and sounds play in the pane, and documents, spreadsheets, presentations and CSV files open there as macOS previews them, with Open in their own app beside. A file outside your Fermix home is asked about before it opens. Picture tabs zoom with Command-plus, Command-minus, Command-0 and Command-9.
-
-## 0.4.1 (2026-10-08)
-
 - Voice: a call keeps hearing you when macOS reconfigures the microphone during it, which it can do on the first call after Fermix starts.
-- Pet: a call begun from the pet resting in the chat goes straight into the call without hatching again. The pet hatches only when it first appears.
 - Voice: the first call after Fermix starts no longer freezes the window for a moment while the microphone gets ready, so the pet appears in the chat as soon as you click.
-- Pet: during a call the pet takes its listening pose only once Fermix can hear you, so while the call is still connecting, or once it is ending, the pet rests instead of looking like it is listening.
+- Pet: a call begun from the pet resting in the chat goes straight into the call without hatching again. The pet hatches only when it first appears.
+- Pet: during a call the pet takes its listening pose only while Fermix can hear you, which is from the moment the call starts, and rests once the call is ending instead of looking like it is still listening.
 - Pet: the stop button on the pet's dock ends a call and closes the chat's box in one press, as the chat's call button does, and only a click on the pet leaves it resting there. Neither is red any more: the call button's phone fills while a call is up.
-- Runs the same Fermix engine as 0.4.0, and the macOS floor stays at 15.0.
+- The macOS floor stays at 15.0.
 
 ## 0.4.0 (2026-10-08)
 

@@ -110,7 +110,7 @@ struct PhonePairingTests {
             deviceName: "Sam's phone",
             model: "Google Pixel 9 Pro",
             digits: "481062",
-            hardware: "This phone sent no secure-hardware proof.",
+            hardware: "Secure hardware, locked bootloader, official Fermix build.",
             ttlMs: 83_400
         )))
         #expect(compare.abandons == nil)
@@ -691,14 +691,14 @@ enum PairingGolden {
         try decode("mobile_devices_list", change)
     }
 
-    /// The phone section as an engine that starts the channel in place
-    /// publishes it: its switch waits for no restart, and its other rows do.
-    static func inPlaceSection() throws -> ManagementSettingsSectionRows {
+    /// The phone section as an engine that starts the channel only at boot
+    /// publishes it: its switch waits for a restart, as its other rows do.
+    static func bootBoundSection() throws -> ManagementSettingsSectionRows {
         try decode("settings_get_channels_mobile") { section in
             section["rows"] = (section["rows"] as? [[String: Any]] ?? []).map { row in
                 guard row["key"] as? String == PhoneChannel.switchKey else { return row }
 
-                return row.merging(["restart": false]) { _, new in new }
+                return row.merging(["restart": true]) { _, new in new }
             }
         }
     }

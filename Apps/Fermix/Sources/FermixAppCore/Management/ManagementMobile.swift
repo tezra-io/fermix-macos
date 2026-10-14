@@ -286,7 +286,8 @@ public enum ManagementPairingFailureCode: ManagementVocabulary {
 }
 
 /// `attestation.status`: what the daemon verified about the phone's secure
-/// hardware. `unavailable` for now, until the daemon verifies it.
+/// hardware. The engine this app pins verifies it, so a pairing reads
+/// `verified` or `refused`; an older engine answers `unavailable`.
 public enum ManagementPairingAttestationStatus: ManagementVocabulary {
     case verified
     case refused

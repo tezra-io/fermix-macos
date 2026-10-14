@@ -254,7 +254,7 @@ struct PhonePairingModelTests {
         harness.model.present(.pair)
         await harness.model.settle()
 
-        #expect(harness.model.step == .turnOn(PhoneTurnOn(.switchOnAndRestart)))
+        #expect(harness.model.step == .turnOn(PhoneTurnOn(.switchOn)))
         #expect(!harness.gateway.calls.contains(.v2(.mobilePairStart)))
     }
 
@@ -263,6 +263,7 @@ struct PhonePairingModelTests {
     @Test("Turn on and restart Fermix writes the switch, restarts, and opens the window")
     func turnOnWritesRestartsAndOpens() async throws {
         let harness = try PhoneHarness(polls: 0)
+        harness.gateway.sectionResults[PhoneChannel.section] = try PairingGolden.bootBoundSection()
         harness.gateway.mobileStatusResult = try PairingGolden.status {
             $0["enabled"] = false
             $0["started"] = false
@@ -308,6 +309,7 @@ struct PhonePairingModelTests {
     @Test("a refused restart stays on Turn on in its own words, with the switch already thrown")
     func refusedRestartStays() async throws {
         let harness = try PhoneHarness(polls: 0)
+        harness.gateway.sectionResults[PhoneChannel.section] = try PairingGolden.bootBoundSection()
         harness.gateway.mobileStatusResult = try PairingGolden.status {
             $0["enabled"] = false
             $0["started"] = false
@@ -326,6 +328,7 @@ struct PhonePairingModelTests {
     @Test("a refused switch stays on Turn on with the daemon's sentence, and restarts nothing")
     func refusedSwitchStays() async throws {
         let harness = try PhoneHarness(polls: 0)
+        harness.gateway.sectionResults[PhoneChannel.section] = try PairingGolden.bootBoundSection()
         harness.gateway.mobileStatusResult = try PairingGolden.status {
             $0["enabled"] = false
             $0["started"] = false
@@ -370,7 +373,6 @@ struct PhonePairingModelTests {
     @Test("Turn on where the switch starts the channel in place writes it and opens the window, with no restart")
     func turnOnInPlace() async throws {
         let harness = try PhoneHarness(polls: 0)
-        harness.gateway.sectionResults[PhoneChannel.section] = try PairingGolden.inPlaceSection()
         harness.gateway.mobileStatusResult = try PairingGolden.status {
             $0["enabled"] = false
             $0["started"] = false
@@ -399,7 +401,6 @@ struct PhonePairingModelTests {
     @Test("a switch that could not start the channel in place ends with the daemon's sentence, and restarts nothing")
     func inPlaceStillNotStarted() async throws {
         let harness = try PhoneHarness(polls: 0)
-        harness.gateway.sectionResults[PhoneChannel.section] = try PairingGolden.inPlaceSection()
         harness.gateway.mobileStatusResult = try PairingGolden.status {
             $0["enabled"] = false
             $0["started"] = false
