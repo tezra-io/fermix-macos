@@ -163,7 +163,8 @@ public final class BrowserCoordinator {
     /// tile can say the file is gone; a file the engine could not get ready
     /// opens the pane on the sentence that says so, as a missing path does.
     /// `name` is what its tab and any question call it, its row's filename or
-    /// its kind's word, since the granted copy is named by its ref.
+    /// its kind's word, since the granted copy is named by its ref; see
+    /// `shownName`.
     public func openRef(_ ref: String, named name: String) async -> MediaGrantOutcome {
         let outcome = await grants.hold(ref)
         guard case .granted(let grant) = outcome else {
@@ -175,8 +176,22 @@ public final class BrowserCoordinator {
             return outcome
         }
 
-        open(BrowserLocalFile(grant.url), holding: HeldGrant(ref: ref, name: name))
+        open(BrowserLocalFile(grant.url), holding: HeldGrant(ref: ref, name: Self.shownName(name, of: grant.url)))
         return outcome
+    }
+
+    /// The name a phone-side file goes by: its row's name, which whoever
+    /// sent it chose, with the extension of the file it really is, and none
+    /// of the invisible characters that can reorder or hide one. Neither its
+    /// tab nor the question before an HTML one can then call it a type it is
+    /// not: an HTML file sent as `report.pdf` is asked about as
+    /// `report.html`.
+    static func shownName(_ name: String, of file: URL) -> String {
+        let stem = (name as NSString).deletingPathExtension
+        let visible = String(String.UnicodeScalarView(stem.unicodeScalars.filter { scalar in
+            ![.control, .format].contains(scalar.properties.generalCategory)
+        }))
+        return file.pathExtension.isEmpty ? visible : visible + "." + file.pathExtension
     }
 
     /// A blank tab, with the caret in the address field.

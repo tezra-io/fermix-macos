@@ -352,7 +352,7 @@ struct BrowserViewerTabTests {
         let tab = try #require(harness.model.tabs.first)
         #expect(tab.fileKind == kind)
         #expect(tab.file == file)
-        #expect(BrowserText.tabTitle(title: tab.title, url: tab.url, file: tab.file, fileName: tab.fileName) == Self.name)
+        #expect(BrowserText.tabTitle(title: tab.title, url: tab.url, file: tab.file, fileName: tab.fileName) == "garden." + ext)
         #expect(harness.model.dialog == nil)
         #expect(harness.grants.counts == [Self.ref: 1])
 
@@ -365,7 +365,7 @@ struct BrowserViewerTabTests {
     /// Fermix's: WebKit would draw it as a page, so it is asked about as a
     /// file outside the home is, and reads nothing beside itself, not the
     /// other phone-side files granted beside it.
-    @Test("a phone-side HTML file asks first, and on Open reads only itself")
+    @Test("a phone-side HTML file asks first under its true extension, and on Open reads only itself")
     func refHTMLAsksFirst() async throws {
         let place = try FilePlaceFixture()
         defer { place.remove() }
@@ -374,12 +374,29 @@ struct BrowserViewerTabTests {
         harness.grants.answers[Self.ref] = Self.grant(file)
 
         _ = await harness.coordinator.openRef(Self.ref, named: Self.name)
-        #expect(harness.model.dialog?.dialog.kind == .openFile(name: Self.name))
+        // Its row calls it garden.png; the question says what it is.
+        #expect(harness.model.dialog?.dialog.kind == .openFile(name: "garden.html"))
         #expect(harness.page(0).files.isEmpty)
 
         harness.coordinator.answer(.confirmed)
         #expect(harness.page(0).files == [FileLoad(url: file, kind: .html, readAccess: file)])
         #expect(harness.grants.counts == [Self.ref: 1])
+    }
+
+    /// Whoever sent the file chose its name: what the pane shows keeps the
+    /// name but takes the extension from the file it really is, and drops
+    /// the invisible characters that could reorder or hide one.
+    @Test("a phone-side file goes by its row's name with its own extension and nothing invisible", arguments: [
+        ("garden.png", "png", "garden.png"),
+        ("report.pdf", "html", "report.html"),
+        ("Picture", "png", "Picture.png"),
+        ("invoice\u{202E}fdp.html", "html", "invoicefdp.html"),
+        ("notes\u{200B}.txt", "md", "notes.md"),
+    ])
+    func refShownName(_ name: String, _ ext: String, _ shown: String) {
+        let file = URL(fileURLWithPath: "/fermix/companion/media/" + Self.ref + "." + ext)
+
+        #expect(BrowserCoordinator.shownName(name, of: file) == shown)
     }
 
     @Test("a phone-side film opens in a media tab, and closing it stops the player and lets the grant go")
