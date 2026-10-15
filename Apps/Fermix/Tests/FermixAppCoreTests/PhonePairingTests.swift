@@ -643,13 +643,7 @@ struct PhonePairingTests {
     func remoteLines() throws {
         let cases: [(String, [String: Any], PhoneRemoteLine?)] = [
             ("off", Self.rail("off"), nil),
-            (
-                "helper missing",
-                Self.rail("helper_missing"),
-                PhoneRemoteLine(
-                    "Not available in this build yet, so your phone connects over your home network or Tailscale."
-                )
-            ),
+            ("helper missing", Self.rail("helper_missing"), PhoneRemoteLine("Not available in this build yet.")),
             ("dormant", Self.rail("dormant"), PhoneRemoteLine("Starts when you pair your first phone.")),
             ("starting", Self.rail("starting"), PhoneRemoteLine("Starting…", .progress)),
             ("ready", [:], PhoneRemoteLine("Reachable through us1.relay.fermix.ai")),

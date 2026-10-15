@@ -760,7 +760,7 @@
 "phone.status.couldNotStart" = "Could not start";
 "phone.status.noPhone" = "No phone paired";
 "phone.status.countFormat" = "%lld phones";
-"phone.remote.helperMissing" = "Not available in this build yet, so your phone connects over your home network or Tailscale.";
+"phone.remote.helperMissing" = "Not available in this build yet.";
 "phone.remote.dormant" = "Starts when you pair your first phone.";
 "phone.remote.starting" = "Starting…";
 "phone.remote.readyFormat" = "Reachable through %@";
