@@ -619,6 +619,85 @@ struct PhonePairingTests {
         listener["status"] = value
         status["listener"] = listener
     }
+
+    // MARK: - Reach from anywhere
+
+    @Test("the golden's rail decodes as published, and an engine older than the rail has none")
+    func remoteDecodes() throws {
+        let remote = try #require(try PairingGolden.status().remote)
+
+        #expect(remote.state == .ready)
+        #expect(remote.relay == "https://us1.relay.fermix.ai/")
+        #expect(remote.connected)
+        #expect(remote.endpointId?.count == 64)
+        #expect(remote.relayError == nil)
+        #expect(remote.failure == nil)
+        #expect(remote.refused == ManagementMobileRemoteRefusals(busy: 0, alpn: 0, bridgeUnreachable: 0))
+
+        let older = try PairingGolden.status { $0["remote"] = nil }
+        #expect(older.remote == nil)
+        #expect(PhoneRemoteLine.line(older.remote) == nil)
+    }
+
+    @Test("the line says where the rail stands, and nothing beyond the switch while it is off")
+    func remoteLines() throws {
+        let cases: [(String, [String: Any], String?)] = [
+            ("off", Self.rail("off"), nil),
+            (
+                "helper missing",
+                Self.rail("helper_missing"),
+                "Not available in this build yet, so your phone connects over your home network or Tailscale."
+            ),
+            ("dormant", Self.rail("dormant"), "Starts when you pair your first phone."),
+            ("starting", Self.rail("starting"), "Starting…"),
+            ("ready", [:], "Reachable through us1.relay.fermix.ai"),
+            ("not connected", ["connected": false], "Not connected to us1.relay.fermix.ai right now"),
+            (
+                "failed",
+                Self.rail("failed", failure: "fermix-iroh refused the key: wrong length"),
+                "fermix-iroh refused the key: wrong length"
+            ),
+            ("unknown", Self.rail("paused"), nil)
+        ]
+
+        for (name, fields, expected) in cases {
+            let status = try PairingGolden.status { Self.remote(&$0, fields) }
+
+            #expect(PhoneRemoteLine.line(status.remote) == expected, "\(name)")
+        }
+    }
+
+    /// A build with no rail, whatever else the status carries, is never
+    /// drawn as reachable.
+    @Test("a build with no rail never reads as reachable")
+    func missingHelperIsNeverReachable() throws {
+        let status = try PairingGolden.status {
+            Self.remote(&$0, ["state": "helper_missing", "connected": true])
+        }
+        let line = try #require(PhoneRemoteLine.line(status.remote))
+
+        #expect(!line.contains("Reachable"))
+        #expect(!line.contains("relay"))
+    }
+
+    /// A rail in a state that is not `ready` or `failed`, with every field
+    /// the state does not carry nulled, as the contract publishes it.
+    private static func rail(_ state: String, failure: String? = nil) -> [String: Any] {
+        [
+            "state": state,
+            "endpoint_id": NSNull(),
+            "relay": NSNull(),
+            "connected": false,
+            "relay_error": NSNull(),
+            "failure": failure ?? NSNull()
+        ]
+    }
+
+    private static func remote(_ status: inout [String: Any], _ fields: [String: Any]) {
+        var remote = status["remote"] as? [String: Any] ?? [:]
+        remote.merge(fields) { _, new in new }
+        status["remote"] = remote
+    }
 }
 
 /// Reads a drawn code back with Core Image's own detector, which is what

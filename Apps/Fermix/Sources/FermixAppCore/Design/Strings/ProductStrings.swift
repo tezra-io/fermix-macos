@@ -784,6 +784,13 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case phoneStatusCouldNotStart = "phone.status.couldNotStart"
     case phoneStatusNoPhone = "phone.status.noPhone"
     case phoneStatusCountFormat = "phone.status.countFormat"
+    /// The line under Reach from anywhere (M62): where the rail stands. A rail
+    /// that failed says why in the daemon's sentence, which is not here.
+    case phoneRemoteHelperMissing = "phone.remote.helperMissing"
+    case phoneRemoteDormant = "phone.remote.dormant"
+    case phoneRemoteStarting = "phone.remote.starting"
+    case phoneRemoteReadyFormat = "phone.remote.readyFormat"
+    case phoneRemoteNotConnectedFormat = "phone.remote.notConnectedFormat"
     case phonePair = "phone.pair"
     case phoneTurnOnAndRestart = "phone.turnOn.andRestart"
     case phoneTurnOnRestart = "phone.turnOn.restart"

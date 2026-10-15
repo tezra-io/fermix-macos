@@ -13,6 +13,10 @@ public enum PhoneChannel {
     /// The section's switch, `mobile_enabled`.
     public static var switchKey: String { ChannelRowProjection.enabledKey(for: name) }
 
+    /// Reach from anywhere's switch (M62), under which the rail's line is
+    /// drawn.
+    public static let remoteKey = "mobile_iroh"
+
     /// The cadence the contract recommends for reading a pairing window, and
     /// the one this app polls at (PROTOCOL.md).
     public static let pollSeconds: TimeInterval = 1
@@ -539,6 +543,36 @@ public enum PhoneRowProjection {
         case .unread, .loading:
             return ProductStrings[.channelStatusChecking]
         }
+    }
+}
+
+// MARK: - Reach from anywhere
+
+/// The line under Reach from anywhere (M62): where the rail stands, as
+/// `mobile.status.remote` publishes it, in the app's words except a failure,
+/// which is the daemon's sentence as written. A rail that is off says nothing
+/// beyond its switch, and neither does a state this app does not know or an
+/// engine older than the rail. A build with no rail never reads as reachable.
+public enum PhoneRemoteLine {
+    public static func line(_ remote: ManagementMobileRemote?) -> String? {
+        guard let remote else { return nil }
+
+        switch remote.state {
+        case .helperMissing: return ProductStrings[.phoneRemoteHelperMissing]
+        case .dormant: return ProductStrings[.phoneRemoteDormant]
+        case .starting: return ProductStrings[.phoneRemoteStarting]
+        case .ready: return ready(remote)
+        case .failed: return remote.failure
+        case .off, .unrecognized: return nil
+        }
+    }
+
+    /// The relay's host, and whether this Mac is connected to it right now.
+    private static func ready(_ remote: ManagementMobileRemote) -> String? {
+        guard let host = remote.relay.flatMap({ URL(string: $0)?.host() }) else { return nil }
+
+        let format: ProductStringKey = remote.connected ? .phoneRemoteReadyFormat : .phoneRemoteNotConnectedFormat
+        return String(format: ProductStrings[format], host)
     }
 }
 

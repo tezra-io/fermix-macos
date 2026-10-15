@@ -68,6 +68,30 @@ public final class PhonePairingModel: ObservableObject {
         await readRow()
     }
 
+    // MARK: - Reach from anywhere
+
+    /// The line under Reach from anywhere's switch (M62).
+    public var remoteLine: String? { PhoneRemoteLine.line(status.value?.remote) }
+
+    /// Reads the rail as it stands, then again at the sheet's cadence while it
+    /// is starting, so the line under its switch moves on from Starting by
+    /// itself. The Phones step runs it as the switch appears and each time the
+    /// daemon publishes the switch moved, and cancels it when the step goes.
+    public func followRemote() async {
+        _ = try? await readStatus()
+
+        while status.value?.remote?.state == .starting {
+            do {
+                try await sleeper.sleep(seconds: PhoneChannel.pollSeconds)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+
+            _ = try? await readStatus()
+        }
+    }
+
     // MARK: - The sheet
 
     /// Puts the sheet up for what the row's button, or the last setup screen,

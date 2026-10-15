@@ -542,7 +542,50 @@ struct PhonePairingModelTests {
         #expect(model.row.status == ProductStrings[.phoneStatusNoPhone])
     }
 
+    // MARK: - Reach from anywhere
+
+    @Test("a starting rail is read once a second until it settles, and the line follows it")
+    func followsAStartingRail() async throws {
+        let (model, gateway) = try Self.model(polls: 5)
+        let starting = try PairingGolden.status { Self.rail(&$0, "starting") }
+        gateway.mobileStatusScript = [starting, starting, try PairingGolden.status()]
+
+        await model.followRemote()
+
+        #expect(gateway.calls.filter { $0 == .v2(.mobileStatus) }.count == 3)
+        #expect(model.remoteLine == "Reachable through us1.relay.fermix.ai")
+    }
+
+    @Test("a rail that is not starting is read once and not followed")
+    func readsASettledRailOnce() async throws {
+        for state in ["ready", "helper_missing", "dormant", "off"] {
+            let (model, gateway) = try Self.model(polls: 5)
+            gateway.mobileStatusResult = try PairingGolden.status { Self.rail(&$0, state) }
+
+            await model.followRemote()
+
+            #expect(gateway.calls.filter { $0 == .v2(.mobileStatus) }.count == 1, "\(state)")
+        }
+    }
+
+    @Test("a rail still starting when the step goes stops being read")
+    func stopsWithTheStep() async throws {
+        let (model, gateway) = try Self.model(polls: 2)
+        gateway.mobileStatusResult = try PairingGolden.status { Self.rail(&$0, "starting") }
+
+        await model.followRemote()
+
+        #expect(gateway.calls.filter { $0 == .v2(.mobileStatus) }.count == 3, "one read, then one per poll allowed")
+        #expect(model.remoteLine == "Starting…")
+    }
+
     // MARK: - Helpers
+
+    private static func rail(_ status: inout [String: Any], _ state: String) {
+        var remote = status["remote"] as? [String: Any] ?? [:]
+        remote["state"] = state
+        status["remote"] = remote
+    }
 
     static func model(polls: Int) throws -> (PhonePairingModel, FakeDaemonGateway) {
         let harness = try PhoneHarness(polls: polls)

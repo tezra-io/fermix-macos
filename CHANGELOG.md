@@ -4,6 +4,8 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Channels: among your phones' settings, a line under Reach from anywhere says whether a paired phone can reach Fermix from any network yet. Until a build carries it, the line says so, and your phone keeps connecting over your home network or Tailscale.
+
 ## 0.5.0 (2026-10-14)
 
 - Runs the Fermix engine 0.15.0, which turns the phone channel on and off at once with no restart and has it on for a new install, pairs only a phone that proves its secure hardware, offers Claude Haiku 5.5, hears a GPT-Live call from the moment it starts, transcribes the phone's voice notes, and gives the model every attachment you send, a GIF, a video, a PDF or a text file among them, where it used to see only pictures and voice notes.

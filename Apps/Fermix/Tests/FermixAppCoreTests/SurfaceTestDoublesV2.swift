@@ -320,8 +320,11 @@ extension FakeDaemonGateway {
 
     func mobileStatus() async throws -> ManagementMobileStatus {
         let published: ManagementMobileStatus = try answer(.mobileStatus, "mobile_status")
+        guard !mobileStatusScript.isEmpty else { return mobileStatusResult ?? published }
 
-        return mobileStatusResult ?? published
+        let scripted = mobileStatusScript[min(mobileStatusIndex, mobileStatusScript.count - 1)]
+        mobileStatusIndex += 1
+        return scripted
     }
 
     func startPairing() async throws -> ManagementPairingStart {

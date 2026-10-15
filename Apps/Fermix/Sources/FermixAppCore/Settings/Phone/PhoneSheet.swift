@@ -402,6 +402,7 @@ private struct PhonePhonesStep: View {
                     DescriptorRows(
                         model: settings,
                         section: PhoneChannel.section,
+                        specialised: remoteRow,
                         excluding: [PhoneChannel.switchKey]
                     )
                 }
@@ -445,6 +446,36 @@ private struct PhonePhonesStep: View {
     /// Another phone once one is paired, and a phone while none is.
     private var pairTitle: ProductStringKey {
         model.devices.value?.devices.isEmpty == false ? .phonePairAnother : .phonePair
+    }
+
+    /// The one row drawn with more than the renderer gives it: Reach from
+    /// anywhere, with the rail's line under it.
+    private func remoteRow(_ row: ManagementSettingRow) -> AnyView? {
+        guard row.key == PhoneChannel.remoteKey else { return nil }
+
+        return AnyView(PhoneRemoteRow(model: model, settings: settings, row: row))
+    }
+}
+
+/// Reach from anywhere (M62): the daemon's switch as the one renderer draws
+/// it, and under it one line saying where the rail stands, a paragraph apart
+/// so it does not read as the end of the switch's own footer. The rail is read
+/// again whenever the daemon publishes the switch's value, which is once a
+/// write has landed.
+private struct PhoneRemoteRow: View {
+    @ObservedObject var model: PhonePairingModel
+    @ObservedObject var settings: SettingsModel
+    let row: ManagementSettingRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            DescriptorRow(model: settings, section: PhoneChannel.section, row: row)
+
+            if let line = model.remoteLine {
+                PhoneNote(text: line)
+            }
+        }
+        .task(id: row.value) { await model.followRemote() }
     }
 }
 
