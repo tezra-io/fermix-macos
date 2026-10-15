@@ -690,6 +690,30 @@ struct PhonePairingTests {
         }
     }
 
+    /// Only the first refusal of a run and the answer that ends it are worth a
+    /// log line; the wait doubles with each refusal in a row up to its
+    /// ceiling; and the reads run out at the cap whatever they said.
+    @Test("a follow logs a run of refusals once, backs off through it, and stops at its cap")
+    func railFollow() {
+        var follow = PhoneRailFollow()
+        #expect(follow.wait == PhoneChannel.pollSeconds)
+        let quiet = follow.answered()
+        #expect(quiet == nil, "an answer that ends no run logs nothing")
+
+        let logged = [follow.refused(), follow.refused(), follow.refused()]
+        #expect(logged == [true, false, false], "only the first refusal of a run is logged")
+        #expect(follow.wait == 8)
+        let ended = follow.answered()
+        #expect(ended == 3, "the answer that ends a run says how long it was")
+        #expect(follow.wait == PhoneChannel.pollSeconds)
+
+        for _ in 0..<10 { _ = follow.refused() }
+        #expect(follow.wait == PhoneChannel.remoteBackoffSeconds)
+
+        while !follow.exhausted { _ = follow.answered() }
+        #expect(follow.reads == PhoneChannel.remotePolls)
+    }
+
     /// The engine marks the phone channel's network rows, so the Phones step
     /// folds them with no list of its own, and Reach from anywhere stays in the
     /// open with the paragraph its (i) shows.

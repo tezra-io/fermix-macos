@@ -25,6 +25,10 @@ public enum PhoneChannel {
     /// minutes at the contract's cadence, after which the line stays as last
     /// read until the switch moves or the Phones step is shown again.
     public static let remotePolls = 300
+
+    /// The longest the follow of Reach from anywhere waits between reads
+    /// while the daemon refuses them, as one that is restarting does.
+    public static let remoteBackoffSeconds: TimeInterval = 30
 }
 
 // MARK: - The link
@@ -602,6 +606,41 @@ public struct PhoneRemoteLine: Equatable, Sendable {
         case .starting, .ready, .failed, .unrecognized: return true
         case .off, .dormant, .helperMissing, nil: return false
         }
+    }
+}
+
+/// One follow of Reach from anywhere's rail (M62): the reads it has made,
+/// against `PhoneChannel.remotePolls`, and the refusals in a row since the
+/// last answer. The wait before the next read doubles with each refusal, up
+/// to `PhoneChannel.remoteBackoffSeconds`, so a daemon that is restarting is
+/// not asked once a second; and only the first refusal of a run, and the
+/// answer that ends it, are worth a log line.
+struct PhoneRailFollow: Equatable {
+    private(set) var reads = 0
+    private(set) var refusals = 0
+
+    var exhausted: Bool { reads >= PhoneChannel.remotePolls }
+
+    var wait: TimeInterval {
+        min(PhoneChannel.pollSeconds * pow(2, Double(refusals)), PhoneChannel.remoteBackoffSeconds)
+    }
+
+    /// An answer. Returns the length of the run of refusals it ends, where it
+    /// ends one.
+    mutating func answered() -> Int? {
+        reads += 1
+        let ended = refusals
+        refusals = 0
+
+        return ended > 0 ? ended : nil
+    }
+
+    /// A refusal. Returns whether it starts a run.
+    mutating func refused() -> Bool {
+        reads += 1
+        refusals += 1
+
+        return refusals == 1
     }
 }
 

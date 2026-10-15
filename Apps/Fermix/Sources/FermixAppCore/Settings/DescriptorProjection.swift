@@ -171,11 +171,6 @@ public struct DescriptorRowModel: Identifiable, Equatable, Sendable {
 
 }
 
-/// What a number counts and how it reads (M34 §5).
-///
-/// The daemon owns both; this is the one place they become a rendering, so a
-/// unit shown as a suffix, a fraction shown as a percentage and cents shown as
-/// money cannot be spelled three ways.
 /// A section's rows in the order a surface draws them (M62): the rows in the
 /// open, then the rows the engine marks advanced, folded under one disclosure
 /// that starts closed each time the section appears. A section with no
@@ -194,6 +189,11 @@ struct DescriptorRowFold: Equatable {
     }
 }
 
+/// What a number counts and how it reads (M34 §5).
+///
+/// The daemon owns both; this is the one place they become a rendering, so a
+/// unit shown as a suffix, a fraction shown as a percentage and cents shown as
+/// money cannot be spelled three ways.
 public struct NumberMeasure: Equatable, Sendable {
     public let unit: String?
     public let format: ManagementNumberFormat?

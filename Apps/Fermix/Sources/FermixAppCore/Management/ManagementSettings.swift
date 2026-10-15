@@ -144,15 +144,35 @@ public struct ManagementSettingRow: Decodable, Equatable, Sendable {
     /// the section's one disclosure that starts closed (M62). The contract
     /// publishes it on every row; an engine inside the window that predates it
     /// omits the key, as `info` once did, and its rows are drawn in the open.
-    private let advancedMark: Bool?
-
-    public var advanced: Bool { advancedMark ?? false }
+    /// Decoded as false there rather than kept absent, so a row is the same
+    /// row whichever engine left the key out.
+    public let advanced: Bool
 
     private enum CodingKeys: String, CodingKey {
         case key, kind, label, footer, info, value, present, options, min, max, step, restart
-        case suggestions, unit, format
+        case suggestions, unit, format, advanced
         case readOnly = "read_only"
-        case advancedMark = "advanced"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        key = try container.decode(String.self, forKey: .key)
+        kind = try container.decode(ManagementSettingKind.self, forKey: .kind)
+        label = try container.decode(String.self, forKey: .label)
+        footer = try container.decodeIfPresent(String.self, forKey: .footer)
+        info = try container.decodeIfPresent(String.self, forKey: .info)
+        value = try container.decode(ManagementSettingValue.self, forKey: .value)
+        present = try container.decodeIfPresent(Bool.self, forKey: .present)
+        options = try container.decode([ManagementSettingOption].self, forKey: .options)
+        min = try container.decodeIfPresent(Double.self, forKey: .min)
+        max = try container.decodeIfPresent(Double.self, forKey: .max)
+        step = try container.decodeIfPresent(Double.self, forKey: .step)
+        restart = try container.decode(Bool.self, forKey: .restart)
+        suggestions = try container.decode(Bool.self, forKey: .suggestions)
+        readOnly = try container.decode(Bool.self, forKey: .readOnly)
+        unit = try container.decodeIfPresent(String.self, forKey: .unit)
+        format = try container.decodeIfPresent(ManagementNumberFormat.self, forKey: .format)
+        advanced = try container.decodeIfPresent(Bool.self, forKey: .advanced) ?? false
     }
 }
 

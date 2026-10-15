@@ -141,7 +141,7 @@ struct PhonePairingModelTests {
         }
 
         model.present(.pair)
-        while opening.count == 0 { await Task.yield() }
+        await Self.settle { opening.count > 0 }
         model.closed()
         gate.release()
         await model.settle()
@@ -643,7 +643,9 @@ struct PhonePairingModelTests {
     }
 
     /// The row's read and the follower's go out on separate connections as
-    /// the Phones step opens, and the one asked first can answer last.
+    /// the Phones step opens, and the one asked first can answer last. It
+    /// says something else, so the channel is read once more, which agrees
+    /// with what is shown.
     @Test("an answer asked before one already shown never replaces it")
     func olderAnswerNeverWins() async throws {
         let (model, gateway) = try Self.model(polls: 0)
@@ -656,13 +658,111 @@ struct PhonePairingModelTests {
         }
 
         let row = Task { await model.readRow() }
-        while asked.count == 0 { await Task.yield() }
+        await Self.settle { asked.count > 0 }
         await model.followRemote()
         gate.release()
         await row.value
 
-        #expect(Self.statusReads(gateway) == 2)
+        #expect(Self.statusReads(gateway) == 3, "the dropped answer differed, so the channel was read once more")
         #expect(model.remoteLine == PhoneRemoteLine("Connected to Fermix’s relays."))
+    }
+
+    /// The daemon serves the read asked second first, so the answer dropped
+    /// for its older number can be the newer one: it says something else from
+    /// what is shown, and the channel is read once more.
+    @Test("an answer dropped for its age that disagrees with the one shown is read again")
+    func droppedAnswerIsReadAgain() async throws {
+        let (model, gateway) = try Self.model(polls: 0)
+        let starting = try Self.status(["state": "starting"])
+        gateway.mobileStatusScript = [.success(starting), .success(try Self.status(["state": "dormant"])), .success(starting)]
+        let gate = AsyncGate()
+        let asked = CountingBox()
+        gateway.mobileStatusGate = {
+            asked.increment()
+            if asked.count == 1 { await gate.wait() }
+        }
+
+        let first = Task { await model.readRow() }
+        await Self.settle { asked.count > 0 }
+        await model.readRow()
+        #expect(model.remoteLine == PhoneRemoteLine("Starts when you pair your first phone."))
+        gate.release()
+        await first.value
+
+        #expect(Self.statusReads(gateway) == 3)
+        #expect(model.remoteLine == PhoneRemoteLine("Starting…", .progress))
+    }
+
+    /// The mirror case: the follower's own read is the one dropped, because a
+    /// read the row asked after it landed first with a rail that will not
+    /// move. The follower's answer disagrees, so it reads once more and goes
+    /// on following what it finds.
+    @Test("the follower reads again when its own answer is dropped and disagrees")
+    func followerReadsAgainWhenDropped() async throws {
+        let (model, gateway) = try Self.model(polls: 0)
+        let starting = try Self.status(["state": "starting"])
+        gateway.mobileStatusScript = [.success(starting), .success(try Self.status(["state": "dormant"])), .success(starting)]
+        let gate = AsyncGate()
+        let asked = CountingBox()
+        gateway.mobileStatusGate = {
+            asked.increment()
+            if asked.count == 1 { await gate.wait() }
+        }
+
+        let follow = Task { await model.followRemote() }
+        await Self.settle { asked.count > 0 }
+        await model.readRow()
+        gate.release()
+        await follow.value
+
+        #expect(Self.statusReads(gateway) == 3)
+        #expect(model.remoteLine == PhoneRemoteLine("Starting\u{2026}", .progress))
+    }
+
+    /// Done on Paired asks the row's read and then the follower's; the
+    /// follower's lands first with a rail that will not move, while the row's,
+    /// still out, may carry a start. The follower reads on rather than leave
+    /// a start it would never see.
+    @Test("the follower keeps reading while a read asked before its own is still out")
+    func followerOutlastsAnOlderRead() async throws {
+        let (model, gateway) = try Self.model(polls: 2)
+        let starting = try Self.status(["state": "starting"])
+        gateway.mobileStatusScript = [
+            .success(starting), .success(try Self.status(["state": "dormant"])), .success(starting),
+            .success(try Self.status([:]))
+        ]
+        let gate = AsyncGate()
+        let asked = CountingBox()
+        gateway.mobileStatusGate = {
+            asked.increment()
+            if asked.count == 1 { await gate.wait() }
+        }
+
+        let row = Task { await model.readRow() }
+        await Self.settle { asked.count > 0 }
+        await model.followRemote()
+        gate.release()
+        await row.value
+
+        #expect(model.remoteLine == PhoneRemoteLine("Connected to Fermix’s relays."))
+    }
+
+    /// A daemon that is restarting refuses read after read: the wait doubles
+    /// with each refusal up to its ceiling, and an answer brings it back to
+    /// the contract's cadence.
+    @Test("the follower backs off while the daemon refuses, and comes back to its cadence")
+    func followBacksOff() async throws {
+        let ready = try Self.status([:])
+        let refused = ManagementRefusal.daemon(.unavailable, "The daemon is restarting.")
+        let sleeper = LimitedSleeper(allowing: 7)
+        let harness = try PhoneHarness(sleeper: sleeper)
+        harness.gateway.mobileStatusScript = [.success(ready)] + Array(repeating: .failure(refused), count: 6) + [.success(ready)]
+
+        await harness.model.followRemote()
+
+        #expect(sleeper.slept == [1, 2, 4, 8, 16, 30, 30])
+        #expect(Self.statusReads(harness.gateway) == 8)
+        #expect(harness.model.remoteLine == PhoneRemoteLine("Connected to Fermix’s relays."))
     }
 
     // MARK: - Helpers
@@ -674,6 +774,23 @@ struct PhonePairingModelTests {
 
     private static func statusReads(_ gateway: FakeDaemonGateway) -> Int {
         gateway.calls.filter { $0 == .v2(.mobileStatus) }.count
+    }
+
+    /// How long a case waits for a read it started to reach the daemon, so a
+    /// case that never gets there fails rather than hangs the run. A clock
+    /// for the reason `AsyncGate.releaseBound` is one.
+    private static let settleBound: Duration = .seconds(30)
+
+    private static func settle(
+        until condition: () -> Bool,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async {
+        let deadline = ContinuousClock.now + settleBound
+        while ContinuousClock.now < deadline {
+            if condition() { return }
+            await Task.yield()
+        }
+        #expect(condition(), "the case never got there", sourceLocation: sourceLocation)
     }
 
     static func model(polls: Int) throws -> (PhonePairingModel, FakeDaemonGateway) {
@@ -694,9 +811,13 @@ struct PhoneHarness {
     let restarter = PhoneRestarter()
 
     init(polls: Int) throws {
+        try self.init(sleeper: LimitedSleeper(allowing: polls))
+    }
+
+    init(sleeper: LimitedSleeper) throws {
         gateway = try SettingsFixture.gateway()
         settings = SettingsFixture.model(gateway: gateway)
-        model = PhonePairingModel(settings: settings, sleeper: LimitedSleeper(allowing: polls))
+        model = PhonePairingModel(settings: settings, sleeper: sleeper)
         model.restarter = restarter
         PhoneHarness.retained.append(settings)
     }
@@ -732,16 +853,21 @@ final class PhoneRestarter: DaemonRestarting {
 final class LimitedSleeper: Sleeping, @unchecked Sendable {
     private let lock = NSLock()
     private var remaining: Int
+    private var waits: [TimeInterval] = []
 
     init(allowing polls: Int) {
         remaining = polls
     }
+
+    /// How long each poll it let through was asked to wait, in order.
+    var slept: [TimeInterval] { lock.withLock { waits } }
 
     func sleep(seconds: TimeInterval) async throws {
         try lock.withLock {
             guard remaining > 0 else { throw CancellationError() }
 
             remaining -= 1
+            waits.append(seconds)
         }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 @testable import FermixAppCore
 
@@ -23,6 +24,14 @@ final class TestSignal {
 /// Used where the defect lives *inside* an await: a double parks there until the
 /// case has done whatever the real world would have done in that window.
 final class AsyncGate: @unchecked Sendable {
+    /// How long a wait gives the case to release the gate before it records
+    /// an issue and lets the double go on, so a case that never releases
+    /// fails rather than hangs the run. A clock rather than a count of
+    /// yields, and wide: the release usually waits on main-actor work that
+    /// every suite running alongside shares, and a count of yields runs out
+    /// while another suite holds the main actor.
+    static let releaseBound: Duration = .seconds(30)
+
     private let lock = NSLock()
     private var opened = false
 
@@ -31,9 +40,12 @@ final class AsyncGate: @unchecked Sendable {
     }
 
     func wait() async {
-        while !lock.withLock({ opened }) {
+        let deadline = ContinuousClock.now + Self.releaseBound
+        while ContinuousClock.now < deadline {
+            if lock.withLock({ opened }) { return }
             await Task.yield()
         }
+        Issue.record("the gate was never released")
     }
 }
 

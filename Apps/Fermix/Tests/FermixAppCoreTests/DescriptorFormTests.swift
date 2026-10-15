@@ -767,6 +767,10 @@ struct DescriptorRowFoldTests {
         #expect(try ManagementValueFixture.settingRow(advanced: true).advanced)
         #expect(try !ManagementValueFixture.settingRow(advanced: false).advanced)
         #expect(try !ManagementValueFixture.settingRow().advanced, "the pinned engine publishes no key")
+        #expect(
+            try ManagementValueFixture.settingRow() == ManagementValueFixture.settingRow(advanced: false),
+            "a row is the same row whichever engine left the key out"
+        )
     }
 
     @Test("a section's advanced rows come last, folded under one disclosure that starts closed")
@@ -782,6 +786,8 @@ struct DescriptorRowFoldTests {
 
         #expect(fold.open.map(\.key) == ["remote"])
         #expect(fold.folded.map(\.key) == ["port", "bind"], "in the order the daemon published them")
+        // The fold's @State is seeded from this constant and cannot be read
+        // from a test, so the seed is what is pinned here.
         #expect(!DescriptorRowFold.startsOpen)
     }
 

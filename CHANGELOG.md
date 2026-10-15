@@ -5,8 +5,8 @@ The release notes, kept as the work lands. One line per change a person sees or 
 ## Unreleased
 
 - Chat: a voice note from your phone now plays right in the Mac chat, with play, pause, a track to move along and its time, and its transcript still under it. Pictures and files from your phone, and the pictures Fermix sent to it, show as tiles under their message and open inside Fermix as the files a reply names do, and a link your phone shared shows its picture in its card. A voice note's transcript and a link's preview appear as soon as Fermix has them, and a voice note or file Fermix no longer keeps says Not available.
-- Channels: among your phones' settings, a line under Reach from anywhere says whether a paired phone can reach Fermix from any network yet. Until a build carries it, the line says so, and your phone keeps connecting over your home network or Tailscale.
-- Channels: your phones' settings are shorter. The port, the address Fermix listens on and the local-network announcement, which most people never change, sit under a closed Advanced at the end.
+- Channels: among your phones’ settings, a line under Reach from anywhere says whether a paired phone can reach Fermix from any network yet. Until a build carries it, the line says so, and your phone keeps connecting over your home network or Tailscale.
+- Channels: your phones’ settings are shorter. The port, the address Fermix listens on and the local-network announcement, which most people never change, sit under a closed Advanced at the end.
 
 ## 0.5.0 (2026-10-14)
 

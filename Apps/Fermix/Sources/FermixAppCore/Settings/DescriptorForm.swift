@@ -143,14 +143,19 @@ struct DescriptorRows: View {
 private struct AdvancedRowsToggle: View {
     @Binding var shown: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        Button { shown.toggle() } label: {
+        Button {
+            withAnimation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade)) { shown.toggle() }
+        } label: {
             HStack(spacing: Spacing.xs) {
                 Image(systemName: "chevron.right")
                     .imageScale(.small)
                     .fontWeight(.semibold)
                     .foregroundStyle(Palette.secondary.color)
                     .rotationEffect(.degrees(shown ? 90 : 0))
+                    .accessibilityHidden(true)
 
                 Text(ProductStrings[.settingsAdvancedTitle])
 
