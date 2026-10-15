@@ -93,8 +93,8 @@ private struct ChatRow: View {
             } else if !strip.text.isEmpty {
                 if user {
                     ChatUserRow(text: words(strip), sending: false)
-                } else {
-                    ChatReplyRow(text: words(strip), speaker: row.role)
+                } else if let reply = strip.reply {
+                    ChatReplyRow(blocks: ChatText.drawn(reply), marked: marked, speaker: row.role)
                 }
             }
 
@@ -113,11 +113,12 @@ private struct ChatRow: View {
         .frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
     }
 
-    /// The words as the strip read them: Fermix's drawn with their links, a
-    /// person's as they typed them, and either marked where a search sent
-    /// the reader.
+    /// The words as one text, as the strip read them: Fermix's drawn with
+    /// their links and code, a person's as they typed them, and either marked
+    /// where a search sent the reader.
     private func words(_ strip: ChatStrip) -> AttributedString {
-        ChatText.marking(marked, in: strip.reply.map(ChatText.drawn) ?? ChatText.plain(strip.text))
+        let text = strip.reply.map { ChatText.oneText(ChatText.drawn($0)) } ?? ChatText.plain(strip.text)
+        return ChatText.marking(marked, in: text)
     }
 }
 
@@ -154,13 +155,31 @@ private struct ChatUserRow: View {
     }
 }
 
-/// What Fermix wrote: on the leading side, straight on the ground, with no fill
-/// of its own. A delivery, a row with no turn, is drawn the same way.
+/// What Fermix wrote: on the leading side, its words straight on the ground
+/// with no fill of its own, and each code block in its own between them
+/// (`ChatCodeBlock`). A delivery, a row with no turn, and the turn still being
+/// written are drawn the same way.
 private struct ChatReplyRow: View {
-    let text: AttributedString
+    let blocks: [ReplyBlock]
+    /// Words to mark, where the reader was sent here by a search.
+    let marked: [String]
     let speaker: String?
 
     var body: some View {
+        VStack(alignment: .leading, spacing: ChatMetrics.codeBlockGap) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                switch block {
+                case .prose(let words):
+                    prose(ChatText.marking(marked, in: words))
+                case .code(let code):
+                    ChatCodeBlock(code: code, marked: marked)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func prose(_ text: AttributedString) -> some View {
         Text(text)
             .fermixType(Typography.style(.body))
             .foregroundStyle(Palette.ink.color)
@@ -182,9 +201,11 @@ private struct ChatTurnRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             if let rows, !turn.text.isEmpty {
-                Text(ChatText.reply(turn.text, home: rows.media.userHome))
-                    .fermixType(Typography.style(.body))
-                    .foregroundStyle(Palette.ink.color)
+                ChatReplyRow(
+                    blocks: ChatText.reply(turn.text, home: rows.media.userHome),
+                    marked: [],
+                    speaker: CompanionProtocol.assistantRole
+                )
             }
 
             switch ChatTurnStatus(turn) {

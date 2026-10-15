@@ -10,8 +10,9 @@ import Testing
 /// that close a sentence are not part of it.
 @Suite("Reply links")
 struct ReplyLinksTests {
+    /// A reply as drawn, its blocks as one text.
     private static func reply(_ text: String) -> AttributedString {
-        ChatText.reply(text, home: "/Users/me")
+        ChatText.oneText(ChatText.reply(text, home: "/Users/me"))
     }
 
     /// Each linked stretch of a reply, by its text, as the address it opens.

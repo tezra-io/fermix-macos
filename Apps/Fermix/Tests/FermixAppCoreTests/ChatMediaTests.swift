@@ -22,6 +22,7 @@ struct ChatMediaTests {
             userHome: "/Users/me",
             reader: FakeMediaReader(),
             facts: FakeMediaFacts(),
+            levels: FakeSoundLevels(),
             grants: FakeMediaGrants(),
             documentApplication: { apps.lookUp($0) },
             deadlines: ManualDeadlineScheduler()

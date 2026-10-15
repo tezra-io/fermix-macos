@@ -470,6 +470,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatKindPage = "chat.kind.page"
     case chatKindFile = "chat.kind.file"
     case chatKindLink = "chat.kind.link"
+    /// A reply's code block, as VoiceOver names it, its language after it.
+    case chatCode = "chat.code"
+    /// A code block's Copy, and what it says for a moment once pressed.
+    case chatCodeCopy = "chat.code.copy"
+    case chatCodeCopied = "chat.code.copied"
 
     // The browser pane. Its one sentence says why something the person asked
     // for did not happen, or what became of a file they saved.

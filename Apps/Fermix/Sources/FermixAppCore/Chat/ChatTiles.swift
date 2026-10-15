@@ -234,9 +234,10 @@ enum ChatStripNavigation {
     }
 }
 
-/// The mask a sideways row is drawn through: whole, but fading out at an end
-/// with more past it. A mask's colours are only how much shows.
-private struct ChatStripFade: View {
+/// The mask a sideways row is drawn through, a strip's or a code block's:
+/// whole, but fading out at an end with more past it. A mask's colours are
+/// only how much shows.
+struct ChatStripFade: View {
     let edges: ChatStripEdges
 
     var body: some View {
@@ -734,7 +735,7 @@ private struct ChatLinkPicture: View {
 
     var body: some View {
         Group {
-            if case .made(let preview)? = outcome {
+            if case .made(.picture(let preview))? = outcome {
                 Image(decorative: preview.image, scale: scale)
                     .resizable()
                     .frame(width: ChatMetrics.cardIconSize, height: ChatMetrics.cardIconSize)

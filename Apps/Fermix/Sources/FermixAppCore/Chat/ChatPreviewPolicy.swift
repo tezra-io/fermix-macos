@@ -213,8 +213,10 @@ enum ChatPreviewPolicy {
     static func state(of outcome: ChatPreviewOutcome?) -> ChatTileState {
         switch outcome {
         case nil: return .loading
-        case .made(let preview)?: return .ready(preview)
-        case .iconOnly?: return .ready(nil)
+        case .made(.picture(let preview))?: return .ready(preview)
+        // A sound's levels are its waveform's, never a tile's: were one to
+        // reach a tile, it would show its icon.
+        case .made(.levels)?, .iconOnly?: return .ready(nil)
         case .unplayable?: return .opensOutside
         case .failed?, .dropped?: return .previewUnavailable
         case .missing?: return .notAvailable

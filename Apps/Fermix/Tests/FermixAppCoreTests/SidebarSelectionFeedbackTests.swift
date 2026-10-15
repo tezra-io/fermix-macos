@@ -187,6 +187,7 @@ struct SidebarSelectionFeedbackTests {
                 home: { URL(fileURLWithPath: "/nonexistent/home") },
                 reader: FakeMediaReader(),
                 facts: browser.player.facts,
+                levels: FakeSoundLevels(),
                 grants: browser.grants,
                 documentApplication: { _ in nil },
                 deadlines: ManualDeadlineScheduler()

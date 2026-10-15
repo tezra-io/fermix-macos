@@ -103,8 +103,20 @@ enum ChatTurnStatus: Equatable {
 enum ChatText {
     /// Fermix's words, `~` read as `home`, parsed and drawn: for a turn still
     /// being written, which has no strip to have read them yet.
-    static func reply(_ text: String, home: String) -> AttributedString {
+    static func reply(_ text: String, home: String) -> [ReplyBlock] {
         drawn(ReplyText(markdown: text, home: home))
+    }
+
+    /// Each block of the words drawn: words in their links' colours with
+    /// their inline code on a faint fill, and code as it was written, which
+    /// its own block colours (`code`).
+    static func drawn(_ reply: ReplyText) -> [ReplyBlock] {
+        reply.blocks.map { block in
+            switch block {
+            case .prose(let words): return .prose(drawn(words))
+            case .code: return block
+            }
+        }
     }
 
     /// Words drawn in their links' colours. A markdown link's own words are
@@ -113,10 +125,17 @@ enum ChatText {
     /// does not. A path or an address written out is the text it is, so it
     /// keeps the reply's own `ink`, because blue on every path read as noise,
     /// and is underlined in `faint`, because ink alone passed for plain text
-    /// (owner, 2026-10-04; M66 §3.1).
-    static func drawn(_ reply: ReplyText) -> AttributedString {
-        var drawn = reply.attributed
-        for run in reply.attributed.runs where run.link != nil {
+    /// (owner, 2026-10-04; M66 §3.1). A code span sits on a faint fill
+    /// (`codeSpanFill`), which marks it as code without changing the line's
+    /// height.
+    private static func drawn(_ words: AttributedString) -> AttributedString {
+        var drawn = words
+        for run in words.runs {
+            if run.inlinePresentationIntent?.contains(.code) == true {
+                drawn[run.range].backgroundColor = Palette.codeSpanFill.color
+            }
+            guard run.link != nil else { continue }
+
             if run[ReplyWrittenLink.self] == true {
                 drawn[run.range].foregroundColor = Palette.ink.color
                 drawn[run.range].underlineStyle = Text.LineStyle(pattern: .solid, color: Palette.faint.color)
@@ -126,6 +145,55 @@ enum ChatText {
         }
 
         return drawn
+    }
+
+    /// A code block's text as it is drawn: the reply's ink, its comments
+    /// faint, and its keywords, strings and numbers each in its muted tone
+    /// (`CodeHighlight`), with a search's matches marked.
+    static func code(_ code: ReplyCode, marking terms: [String]) -> AttributedString {
+        var drawn = AttributedString()
+        var plain = code.text.startIndex
+        for token in CodeHighlight.tokens(in: code.text, language: code.language) {
+            drawn += AttributedString(String(code.text[plain..<token.range.lowerBound]))
+            var coloured = AttributedString(String(code.text[token.range]))
+            coloured.foregroundColor = colour(of: token.kind).color
+            drawn += coloured
+            plain = token.range.upperBound
+        }
+        drawn += AttributedString(String(code.text[plain...]))
+
+        return marking(terms, in: drawn)
+    }
+
+    private static func colour(of kind: CodeTokenKind) -> ThemedColor {
+        switch kind {
+        case .keyword: return Palette.codeKeyword
+        case .string: return Palette.codeString
+        case .number: return Palette.codeNumber
+        case .comment: return Palette.faint
+        }
+    }
+
+    /// The blocks as one text, for a place that draws a row's words as one, a
+    /// voice note's transcript: each code block's lines as code, on lines of
+    /// their own.
+    static func oneText(_ blocks: [ReplyBlock]) -> AttributedString {
+        var text = AttributedString()
+        for (index, block) in blocks.enumerated() {
+            if index > 0 { text += AttributedString("\n") }
+            switch block {
+            case .prose(let words): text += words
+            case .code(let code): text += codeLines(code)
+            }
+        }
+
+        return text
+    }
+
+    private static func codeLines(_ code: ReplyCode) -> AttributedString {
+        var lines = AttributedString(code.text)
+        lines.inlinePresentationIntent = .code
+        return lines
     }
 
     static func plain(_ text: String) -> AttributedString {

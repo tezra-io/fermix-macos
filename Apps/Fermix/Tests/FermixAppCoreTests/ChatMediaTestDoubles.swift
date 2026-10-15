@@ -110,6 +110,79 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     }
 }
 
+/// AVFoundation's reading of a sound's levels, played by hand: each read
+/// either comes at once with what the case set up, or waits until the case
+/// finishes it, and one whose task is cancelled stops. No file is read.
+final class FakeSoundLevels: SoundLevelReading, @unchecked Sendable {
+    /// How a read comes.
+    enum Reads {
+        /// At once, these levels, or none where nil.
+        case immediate(SoundLevels?)
+        /// When the case says, through `finish`.
+        case held
+    }
+
+    private let reads: Reads
+    private let lock = NSLock()
+    private var waiting: [(id: UUID, file: URL, continuation: CheckedContinuation<SoundLevels?, Never>)] = []
+    private var cancelledEarly: Set<UUID> = []
+    private var asked: [URL] = []
+    private var buckets: [Int] = []
+    private var cancelled = 0
+
+    init(_ reads: Reads = .held) {
+        self.reads = reads
+    }
+
+    /// Every file levels were asked of, in order.
+    var levelsAsked: [URL] { lock.withLock { asked } }
+    /// The stretches each read was asked for, in order.
+    var bucketsAsked: [Int] { lock.withLock { buckets } }
+    /// Reads stopped by their task's cancellation.
+    var levelsCancelled: Int { lock.withLock { cancelled } }
+
+    func levels(of file: URL, buckets count: Int) async -> SoundLevels? {
+        lock.withLock {
+            asked.append(file)
+            buckets.append(count)
+        }
+        if case .immediate(let levels) = reads { return levels }
+
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let early = lock.withLock {
+                    guard !cancelledEarly.contains(id) else { return true }
+
+                    waiting.append((id, file, continuation))
+                    return false
+                }
+                if early { continuation.resume(returning: nil) }
+            }
+        } onCancel: {
+            let found: CheckedContinuation<SoundLevels?, Never>? = lock.withLock {
+                guard let index = waiting.firstIndex(where: { $0.id == id }) else {
+                    cancelledEarly.insert(id)
+                    return nil
+                }
+                cancelled += 1
+                return waiting.remove(at: index).continuation
+            }
+            found?.resume(returning: nil)
+        }
+    }
+
+    /// The first held read of `file`, answered: these levels, or none.
+    func finish(_ file: URL, with levels: SoundLevels?) {
+        let found: CheckedContinuation<SoundLevels?, Never>? = lock.withLock {
+            guard let index = waiting.firstIndex(where: { $0.file == file }) else { return nil }
+
+            return waiting.remove(at: index).continuation
+        }
+        found?.resume(returning: levels)
+    }
+}
+
 /// A picture of a known size, made in memory: what a thumbnail or a preview
 /// holds, for a case that never reads a file.
 func fixturePicture(width: Int = 4, height: Int = 4) -> CGImage {

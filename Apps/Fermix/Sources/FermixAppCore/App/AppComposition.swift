@@ -147,6 +147,7 @@ final class AppComposition {
             home: { [store] in try store.resolvedHome() },
             reader: environment.mediaReader,
             facts: player.facts,
+            levels: AVFoundationSoundLevels(),
             grants: mediaGrants,
             documentApplication: { WorkspaceLinkOpener.documentApplication(toOpen: $0) },
             deadlines: MainQueueDeadlineScheduler()

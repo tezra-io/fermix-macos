@@ -2,6 +2,23 @@ import CoreGraphics
 import Foundation
 import UniformTypeIdentifiers
 
+/// What a preview job made of a file's content: the picture a tile draws of
+/// it, or the levels a sound's waveform is drawn from. A waveform is a preview
+/// of its sound as a thumbnail is of its file, made, kept and let go by the
+/// same previews.
+enum ChatPreviewMade: Equatable, Sendable {
+    case picture(ChatPreview)
+    case levels(SoundLevels)
+
+    /// What it holds decoded, which the cache counts.
+    var bytes: Int {
+        switch self {
+        case .picture(let preview): return preview.bytes
+        case .levels(let levels): return levels.bytes
+        }
+    }
+}
+
 /// A preview made of a file's content at its tile's pixel size, and what the
 /// tile writes over it.
 struct ChatPreview: Equatable, Sendable {
@@ -30,7 +47,7 @@ enum ChatPreviewDetail: Equatable, Sendable {
 
 /// What asking for a preview came to.
 enum ChatPreviewOutcome: Equatable, Sendable {
-    case made(ChatPreview)
+    case made(ChatPreviewMade)
     /// A picture past the ceiling, or one whose size ImageIO cannot read:
     /// the tile shows its icon.
     case iconOnly
@@ -98,8 +115,9 @@ enum ChatPreviewBudget {
     static let tries = 2
 }
 
-/// What a preview is kept by: what its content is known by, and the pixel
-/// size and scale it was made at (M66 §3.7).
+/// What a preview is kept by: what its content is known by, and what was
+/// made of it, a picture at a pixel size and scale or a sound's levels in so
+/// many stretches (M66 §3.7).
 struct ChatPreviewKey: Hashable, Sendable {
     /// A file's identity, modification date and size, so an edited or
     /// replaced file is a new key and a stale result can never be shown for
@@ -110,16 +128,30 @@ struct ChatPreviewKey: Hashable, Sendable {
         case ref(String)
     }
 
-    let content: Content
-    let pixelWidth: Int
-    let pixelHeight: Int
-    let scale: Double
+    enum Form: Hashable, Sendable {
+        case picture(pixelWidth: Int, pixelHeight: Int, scale: Double)
+        case levels(buckets: Int)
+    }
 
+    let content: Content
+    let form: Form
+
+    /// A picture of `size` points at `scale`.
     init(_ content: Content, size: CGSize, scale: Double) {
+        let pixels = Self.pixels(of: size, scale: scale)
         self.content = content
-        pixelWidth = Int((size.width * scale).rounded())
-        pixelHeight = Int((size.height * scale).rounded())
-        self.scale = scale
+        form = .picture(pixelWidth: Int(pixels.width), pixelHeight: Int(pixels.height), scale: scale)
+    }
+
+    /// A sound's levels in `buckets` stretches.
+    init(_ content: Content, buckets: Int) {
+        self.content = content
+        form = .levels(buckets: buckets)
+    }
+
+    /// A tile's own pixels: its points at the screen's scale, whole.
+    static func pixels(of size: CGSize, scale: Double) -> CGSize {
+        CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
     }
 }
 
@@ -151,7 +183,7 @@ struct ChatPreviewRequest: Sendable {
 
     /// The tile's own pixels, which the preview is cut to.
     var pixels: CGSize {
-        CGSize(width: key.pixelWidth, height: key.pixelHeight)
+        ChatPreviewKey.pixels(of: size, scale: scale)
     }
 
     /// Where the preview is held as it is cut: a page by its head, which is
@@ -191,6 +223,27 @@ struct ChatPreviewRequest: Sendable {
     }
 }
 
+/// One sound's levels to read, for its waveform (M66 §3.4): a sound file's
+/// in the Fermix home, kept as a file's preview is, or a voice note's, by its
+/// ref, whose file the engine grants only while they are read. Always in
+/// `SoundLevels.buckets` stretches, which the waveform merges to its bars.
+struct ChatLevelsRequest: Sendable {
+    let source: ChatPreviewSource
+    let key: ChatPreviewKey
+
+    /// A sound file's levels, read where it really lands.
+    init(_ facts: ChatFileFacts) {
+        source = .file(facts.file)
+        key = ChatPreviewKey(.file(facts.identity, modified: facts.modified, size: facts.size), buckets: SoundLevels.buckets)
+    }
+
+    /// A voice note's levels, by its ref.
+    init(_ note: CompanionMediaRef) {
+        source = .ref(note.ref)
+        key = ChatPreviewKey(.ref(note.ref), buckets: SoundLevels.buckets)
+    }
+}
+
 /// What the Mac's own frameworks draw of a file a tile names: its
 /// thumbnail, a picture's size and motion, and a PDF's page count, from Quick
 /// Look, ImageIO and PDF. Behind a protocol, so the budgets are provable with
@@ -208,7 +261,9 @@ public protocol ChatMediaReading: Sendable {
     func pageCount(of file: URL) async -> Int?
 }
 
-/// Makes a tile's preview within the budgets (M66 §3.7).
+/// Makes a tile's preview, and a sound's levels for its waveform, within the
+/// budgets (M66 §3.7): both are previews of their file, and share every rule
+/// below.
 ///
 /// At most two jobs run at once and at most 64 wait, the oldest let go past
 /// that; two tiles asking for one preview share one job; a tile that leaves
@@ -227,6 +282,7 @@ public protocol ChatMediaReading: Sendable {
 final class ChatPreviews {
     private let reader: any ChatMediaReading
     private let facts: any MediaFacts
+    private let levels: any SoundLevelReading
     private let grants: any MediaGranting
     private let deadlines: any DeadlineScheduling
     private var cache: ChatPreviewCache
@@ -237,26 +293,48 @@ final class ChatPreviews {
     private var failures: [ChatPreviewKey: Int] = [:]
     private var nextWaiter = 0
 
+    /// What one job makes: a tile's picture or a sound's levels.
+    private enum Ask: Sendable {
+        case picture(ChatPreviewRequest)
+        case levels(ChatLevelsRequest)
+
+        var key: ChatPreviewKey {
+            switch self {
+            case .picture(let request): return request.key
+            case .levels(let request): return request.key
+            }
+        }
+
+        var source: ChatPreviewSource {
+            switch self {
+            case .picture(let request): return request.source
+            case .levels(let request): return request.source
+            }
+        }
+    }
+
     private final class Job {
-        let request: ChatPreviewRequest
+        let ask: Ask
         var waiters: [Int: CheckedContinuation<ChatPreviewOutcome, Never>] = [:]
         var work: Task<Void, Never>?
         var deadline: DeadlineToken?
 
-        init(_ request: ChatPreviewRequest) {
-            self.request = request
+        init(_ ask: Ask) {
+            self.ask = ask
         }
     }
 
     init(
         reader: any ChatMediaReading,
         facts: any MediaFacts,
+        levels: any SoundLevelReading,
         grants: any MediaGranting,
         deadlines: any DeadlineScheduling,
         cacheBytes: Int = ChatPreviewBudget.cacheBytes
     ) {
         self.reader = reader
         self.facts = facts
+        self.levels = levels
         self.grants = grants
         self.deadlines = deadlines
         cache = ChatPreviewCache(capacity: cacheBytes)
@@ -272,30 +350,41 @@ final class ChatPreviews {
     /// failed its tries is not asked for again. Cancelling the asking task
     /// leaves the job, and it answers `.dropped`.
     func preview(_ request: ChatPreviewRequest) async -> ChatPreviewOutcome {
-        if let cached = cache.preview(for: request.key) { return .made(cached) }
-        guard failures[request.key, default: 0] < ChatPreviewBudget.tries else { return .failed }
+        await ask(.picture(request))
+    }
+
+    /// A sound's levels, which its waveform asks for while it is on screen,
+    /// as a tile asks for its preview, and under the same rules.
+    func levels(_ request: ChatLevelsRequest) async -> ChatPreviewOutcome {
+        await ask(.levels(request))
+    }
+
+    private func ask(_ ask: Ask) async -> ChatPreviewOutcome {
+        let key = ask.key
+        if let cached = cache.made(for: key) { return .made(cached) }
+        guard failures[key, default: 0] < ChatPreviewBudget.tries else { return .failed }
 
         let waiter = nextWaiter
         nextWaiter += 1
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                join(request, waiter: waiter, continuation)
+                join(ask, waiter: waiter, continuation)
             }
         } onCancel: {
-            Task { @MainActor in self.leave(request.key, waiter: waiter) }
+            Task { @MainActor in self.leave(key, waiter: waiter) }
         }
     }
 
-    private func join(_ request: ChatPreviewRequest, waiter: Int, _ continuation: CheckedContinuation<ChatPreviewOutcome, Never>) {
-        if let job = jobs[request.key] {
+    private func join(_ ask: Ask, waiter: Int, _ continuation: CheckedContinuation<ChatPreviewOutcome, Never>) {
+        if let job = jobs[ask.key] {
             job.waiters[waiter] = continuation
             return
         }
 
-        let job = Job(request)
+        let job = Job(ask)
         job.waiters[waiter] = continuation
-        jobs[request.key] = job
-        waiting.append(request.key)
+        jobs[ask.key] = job
+        waiting.append(ask.key)
         if waiting.count > ChatPreviewBudget.waiting, let oldest = waiting.first {
             drop(oldest)
         }
@@ -335,9 +424,9 @@ final class ChatPreviews {
     }
 
     private func start(_ job: Job) {
-        running.insert(job.request.key)
-        job.work = Task { [request = job.request] in
-            let outcome = await self.work(request) { self.timeOut(job) }
+        running.insert(job.ask.key)
+        job.work = Task { [ask = job.ask] in
+            let outcome = await self.work(ask) { self.timeOut(job) }
             self.finish(job, outcome)
         }
     }
@@ -347,7 +436,7 @@ final class ChatPreviews {
     /// grant that waits out a reconnect is no failure of the preview, and
     /// uses none of its tries.
     private func timeOut(_ job: Job) {
-        guard jobs[job.request.key] === job else { return }
+        guard jobs[job.ask.key] === job else { return }
 
         job.deadline = deadlines.schedule(after: ChatPreviewBudget.timeout) { [weak self] in
             self?.finish(job, .failed)
@@ -358,11 +447,11 @@ final class ChatPreviews {
     /// the engine has granted it, the grant let go as the work ends, however
     /// it ends. `inHand` starts the job's clock. A job let go while it waited
     /// for the grant is dropped.
-    private func work(_ request: ChatPreviewRequest, inHand: () -> Void) async -> ChatPreviewOutcome {
-        switch request.source {
+    private func work(_ ask: Ask, inHand: () -> Void) async -> ChatPreviewOutcome {
+        switch ask.source {
         case .file(let file):
             inHand()
-            return await Self.make(request, from: file, with: reader, facts: facts)
+            return await make(ask, from: file)
         case .ref(let ref):
             let grant = await grants.hold(ref)
             defer { grants.release(ref) }
@@ -370,17 +459,25 @@ final class ChatPreviews {
             switch grant {
             case .granted(let granted):
                 inHand()
-                return await Self.make(request, from: granted.url, with: reader, facts: facts)
+                return await make(ask, from: granted.url)
             case .missing: return .missing
             case .failed: return Task.isCancelled ? .dropped : .failed
             }
         }
     }
 
+    /// What a job makes of its file once it is in hand, off the main thread.
+    private func make(_ ask: Ask, from file: URL) async -> ChatPreviewOutcome {
+        switch ask {
+        case .picture(let request): return await Self.make(request, from: file, with: reader, facts: facts)
+        case .levels(let request): return await Self.levels(request, from: file, with: levels)
+        }
+    }
+
     /// A job ended. A result for a job already let go, or already timed out,
     /// is dropped: its tile is no longer waiting for it.
     private func finish(_ job: Job, _ outcome: ChatPreviewOutcome) {
-        let key = job.request.key
+        let key = job.ask.key
         guard jobs[key] === job else { return }
 
         jobs[key] = nil
@@ -388,7 +485,7 @@ final class ChatPreviews {
         job.deadline?.cancel()
         job.work?.cancel()
         switch outcome {
-        case .made(let preview): cache.insert(preview, for: key)
+        case .made(let made): cache.insert(made, for: key)
         case .failed: failures[key, default: 0] += 1
         case .iconOnly, .unplayable, .dropped, .missing: break
         }
@@ -429,7 +526,21 @@ final class ChatPreviews {
         }
         guard let image = ChatPreviewCover.image(thumbnail, filling: request.pixels, anchor: request.anchor) else { return .failed }
 
-        return .made(ChatPreview(image: image, detail: detail))
+        return .made(.picture(ChatPreview(image: image, detail: detail)))
+    }
+
+    /// A sound's levels, read off the main thread. One AVFoundation cannot
+    /// decode failed, and leaves its waveform's resting bars.
+    nonisolated static func levels(
+        _ request: ChatLevelsRequest,
+        from file: URL,
+        with reader: any SoundLevelReading
+    ) async -> ChatPreviewOutcome {
+        guard case .levels(let buckets) = request.key.form,
+              let levels = await reader.levels(of: file, buckets: buckets)
+        else { return Task.isCancelled ? .dropped : .failed }
+
+        return .made(.levels(levels))
     }
 }
 
@@ -478,12 +589,12 @@ enum ChatPreviewCover {
     }
 }
 
-/// The app's own cache of decoded previews, counted in bytes, the least
-/// recently used let go first.
+/// The app's own cache of decoded previews, pictures and levels alike,
+/// counted in bytes, the least recently used let go first.
 struct ChatPreviewCache {
     let capacity: Int
     private(set) var bytes = 0
-    private var entries: [ChatPreviewKey: ChatPreview] = [:]
+    private var entries: [ChatPreviewKey: ChatPreviewMade] = [:]
     /// Least recently used first.
     private var order: [ChatPreviewKey] = []
 
@@ -492,32 +603,32 @@ struct ChatPreviewCache {
     }
 
     /// The preview kept for a key, which counts as its use.
-    mutating func preview(for key: ChatPreviewKey) -> ChatPreview? {
-        guard let preview = entries[key] else { return nil }
+    mutating func made(for key: ChatPreviewKey) -> ChatPreviewMade? {
+        guard let made = entries[key] else { return nil }
 
         order.removeAll { $0 == key }
         order.append(key)
-        return preview
+        return made
     }
 
     /// Keeps a preview, letting the least recently used go until the cache
     /// fits. One larger than the whole cache is not kept.
-    mutating func insert(_ preview: ChatPreview, for key: ChatPreviewKey) {
-        guard preview.bytes <= capacity else { return }
+    mutating func insert(_ made: ChatPreviewMade, for key: ChatPreviewKey) {
+        guard made.bytes <= capacity else { return }
 
         remove(key)
-        entries[key] = preview
+        entries[key] = made
         order.append(key)
-        bytes += preview.bytes
+        bytes += made.bytes
         while bytes > capacity, let oldest = order.first {
             remove(oldest)
         }
     }
 
     private mutating func remove(_ key: ChatPreviewKey) {
-        guard let preview = entries.removeValue(forKey: key) else { return }
+        guard let made = entries.removeValue(forKey: key) else { return }
 
         order.removeAll { $0 == key }
-        bytes -= preview.bytes
+        bytes -= made.bytes
     }
 }

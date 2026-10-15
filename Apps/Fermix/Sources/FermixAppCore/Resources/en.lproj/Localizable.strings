@@ -412,6 +412,9 @@
 "chat.kind.page" = "Page";
 "chat.kind.file" = "File";
 "chat.kind.link" = "Link";
+"chat.code" = "Code";
+"chat.code.copy" = "Copy";
+"chat.code.copied" = "Copied";
 
 /* MARK: Browser */
 "browser.notice.notAnAddress" = "Enter a web address, such as fermix.ai.";

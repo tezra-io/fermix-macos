@@ -139,18 +139,15 @@ struct ChatStrip: Equatable {
     /// address, one in code, and a markdown link whose words are its own
     /// destination or that file's bare name all count; a link inside a
     /// sentence, and a markdown link with words of its own, stay. Nothing in a
-    /// fenced block is touched. Where a line goes, a blank line on either side
-    /// of it closes up, and the text loses any blank lines at its ends. A text
-    /// that loses no line is returned as it was.
+    /// code block (`ReplyFences`) is touched. Where a line goes, a blank line
+    /// on either side of it closes up, and the text loses any blank lines at
+    /// its ends. A text that loses no line is returned as it was.
     static func withoutShownLines(_ text: String, shown: Set<String>, userHome: String) -> String {
         var kept: [Substring] = []
-        var fenced = false
         var dropped = false
         var droppedSinceKept = false
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("```") {
-                fenced.toggle()
-            } else if !fenced, let named = destination(ofLine: line, userHome: userHome), shown.contains(named) {
+        for (line, code) in ReplyFences.lines(text) {
+            if !code, let named = destination(ofLine: line, userHome: userHome), shown.contains(named) {
                 dropped = true
                 droppedSinceKept = true
                 continue

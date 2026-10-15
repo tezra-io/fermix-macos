@@ -12,8 +12,9 @@ import Testing
 struct ReplyPathsTests {
     private static let home = "/Users/me"
 
+    /// A reply as drawn, its blocks as one text.
     private static func reply(_ text: String) -> AttributedString {
-        ChatText.reply(text, home: home)
+        ChatText.oneText(ChatText.reply(text, home: home))
     }
 
     /// Each linked stretch of a reply, by its text, as the address it opens.
@@ -206,18 +207,17 @@ struct ReplyPathsTests {
         #expect(Self.links(marked) == ["~/work/report.pdf": "file:///Users/me/work/report.pdf"])
     }
 
-    /// A fenced block's lines become code spans, so a line is a link only
-    /// when the whole of it is a path.
-    @Test("in a fenced block, a line is a link only when its whole text is a path")
+    /// A fenced block is code, kept as written: no path in it is a link,
+    /// even a line that is one from end to end, while the words round it
+    /// keep theirs.
+    @Test("a fenced block carries no links, and the words round it keep theirs")
     func fencedBlock() {
-        let reply = Self.reply("Here:\n```\n/Users/me/shots/a.png\ncp /Users/me/a.png /tmp/b.png\n~/notes\n```\nDone")
-        let code = reply.runs.filter { $0.inlinePresentationIntent == .code }
+        let text = "Here, ~/work/a.png:\n```\n/Users/me/shots/a.png\ncp /Users/me/a.png /tmp/b.png\n~/notes\n```\nDone"
+        let blocks = ChatText.reply(text, home: Self.home)
 
-        #expect(code.map { String(reply[$0.range].characters) } == ["/Users/me/shots/a.png", "cp /Users/me/a.png /tmp/b.png", "~/notes"])
-        #expect(Self.links(reply) == [
-            "/Users/me/shots/a.png": "file:///Users/me/shots/a.png",
-            "~/notes": "file:///Users/me/notes",
-        ])
+        #expect(blocks.compactMap(\.code) == [ReplyCode(language: nil, text: "/Users/me/shots/a.png\ncp /Users/me/a.png /tmp/b.png\n~/notes")])
+        #expect(Self.links(Self.reply(text)) == ["~/work/a.png": "file:///Users/me/work/a.png"])
+        #expect(ReplyText(markdown: text, home: Self.home).files.map(\.path) == ["/Users/me/work/a.png"])
     }
 
     @Test("a heading's path is a link, drawn in bold")

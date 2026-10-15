@@ -246,7 +246,7 @@ struct ChatPreviewPolicyTests {
         let shot = F.facts("/h/shot.png")
         let preview = ChatPreview(image: fixturePicture(), detail: nil)
 
-        #expect(ChatPreviewPolicy.state(of: .found(shot), outcome: .made(preview)) == .ready(preview))
+        #expect(ChatPreviewPolicy.state(of: .found(shot), outcome: .made(.picture(preview))) == .ready(preview))
         #expect(ChatPreviewPolicy.state(of: .found(shot), outcome: .iconOnly) == .ready(nil))
         #expect(ChatPreviewPolicy.state(of: .found(shot), outcome: .failed) == .previewUnavailable)
         #expect(ChatPreviewPolicy.state(of: .found(shot), outcome: .dropped) == .previewUnavailable)
@@ -327,7 +327,7 @@ struct ChatPreviewPolicyTests {
         let preview = ChatPreview(image: fixturePicture(), detail: nil)
 
         #expect(ChatPreviewPolicy.state(of: nil) == .loading)
-        #expect(ChatPreviewPolicy.state(of: .made(preview)) == .ready(preview))
+        #expect(ChatPreviewPolicy.state(of: .made(.picture(preview))) == .ready(preview))
         #expect(ChatPreviewPolicy.state(of: .failed) == .previewUnavailable)
         #expect(ChatPreviewPolicy.state(of: .unplayable) == .opensOutside)
         #expect(ChatPreviewPolicy.state(of: .missing) == .notAvailable)

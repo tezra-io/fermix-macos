@@ -75,10 +75,15 @@ enum ChatMetrics {
     /// A play triangle's weight sits left of its own box, so it is drawn one
     /// point right to sit in the middle of the circle to the eye.
     static let soundPlayGlyphNudge: Double = 1
-    /// The track's line, and what a click or a drag on it lands in: the line
-    /// with room round it, under the sound's name and beside the button.
-    static let soundTrackHeight: Double = 3
-    static let soundTrackHitHeight: Double = 12
+    /// The waveform beside the button, as tall as its loudest bar, which is
+    /// also what a click or a drag on it lands in: thin rounded bars two
+    /// points wide two points apart, the quietest never under a short line,
+    /// and the resting bars, before the sound's levels are read, low and even.
+    static let soundWaveHeight: Double = 22
+    static let soundBarWidth: Double = 2
+    static let soundBarGap: Double = 2
+    static let soundBarMinimum: Double = 3
+    static let soundRestingLevel: Float = 0.15
     /// As wide as a sound's player grows: a sound is a line, not a column.
     static let soundMaxWidth: Double = 320
     /// How strongly a tile is drawn while the pointer holds it down.

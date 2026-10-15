@@ -443,6 +443,34 @@ struct ChatStripTests {
         #expect(strip.text == "Run this:\n```\n/Users/me/.fermix/w/shot.png\nhttps://a.com/x\n```")
     }
 
+    /// Code is kept as written and links nothing, so a path or an address
+    /// only a code block names is no tile, and a line in any code block
+    /// stays put even when the same path, named on its own line outside it,
+    /// is a tile: a tilde fence, an indented one in a list item and one
+    /// still open among them.
+    @Test("a path or an address only a code block names is no tile, and a line in a code block always stays")
+    func pathInCodeStays() {
+        let path = "/Users/me/.fermix/w/shot.png"
+        let onlyInCode = "Saved:\n```bash\nopen \(path)\n\(path)\nhttps://a.com/x\n```"
+        #expect(Self.strip(onlyInCode).items.isEmpty)
+        #expect(Self.strip(onlyInCode).text == onlyInCode)
+
+        let blocks = [
+            "~~~\n\(path)\n~~~",
+            "1. Open it:\n   ```\n   \(path)\n   ```",
+            "````\n```\n\(path)\n````",
+            "```\r\n\(path)\r\n```",
+        ]
+        for block in blocks {
+            let strip = Self.strip(block + "\n" + path)
+            #expect(Self.described(strip) == ["file \(path)"], "\(block)")
+            #expect(strip.text == block.replacingOccurrences(of: "\r\n", with: "\n"), "\(block)")
+        }
+
+        let open = Self.strip(path + "\n```\n" + path)
+        #expect(open.text == "```\n" + path)
+    }
+
     /// The person's own message follows the same rule: the picture they
     /// named is under it, so the line that only names it goes.
     @Test("a person's own message loses the line that only names its picture")

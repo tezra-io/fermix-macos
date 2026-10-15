@@ -45,7 +45,8 @@ final class ChatMedia {
     /// `home` reads the Fermix home from the bootstrap record, as the
     /// browser's does; `reader` is what the Mac's own frameworks draw of a
     /// file, which the executable hands in, and `facts` whether a film plays
-    /// and how long it is, the player's own; `grants` are the engine's grants
+    /// and how long it is, the player's own; `levels` reads a sound's levels
+    /// for its waveform; `grants` are the engine's grants
     /// of phone-side files, the session's; `documentApplication` is the app a
     /// document of a type goes to, never a browser, asked off the main
     /// thread (`WorkspaceLinkOpener.documentApplication`); `deadlines` times
@@ -55,6 +56,7 @@ final class ChatMedia {
         userHome: String = NSHomeDirectory(),
         reader: any ChatMediaReading,
         facts: any MediaFacts,
+        levels: any SoundLevelReading,
         grants: any MediaGranting,
         documentApplication: @escaping @Sendable (UTType) -> WorkspaceApplication?,
         deadlines: any DeadlineScheduling
@@ -62,7 +64,7 @@ final class ChatMedia {
         readHome = home
         self.userHome = userHome
         self.documentApplication = documentApplication
-        previews = ChatPreviews(reader: reader, facts: facts, grants: grants, deadlines: deadlines)
+        previews = ChatPreviews(reader: reader, facts: facts, levels: levels, grants: grants, deadlines: deadlines)
     }
 
     /// The Fermix home for a visit to Chat, read from the bootstrap record
