@@ -8,9 +8,11 @@ enum ChatSoundMetrics {
     /// A play triangle's weight sits left of its own box, so it is drawn one
     /// point right to sit in the middle of the circle to the eye.
     static let playGlyphNudge: Double = 1
-    /// The track's line. The track itself is the button's height, which is
-    /// what a click or a drag lands in.
+    /// The track's line.
     static let trackHeight: Double = 3
+    /// What a click or a drag on the track lands in: the line with room
+    /// round it, under the sound's name and beside the button.
+    static let trackHitHeight: Double = 12
     /// As wide as the player grows: a sound is a line, not a column.
     static let maxWidth: Double = 320
 }
@@ -139,7 +141,9 @@ private struct ChatSoundProgress: View {
     }
 }
 
-/// The button, the track and the time, drawn from one state.
+/// The button, then the sound's name over its track and time, drawn from one
+/// state. The name is on the row because the line that named the file is not
+/// in the reply's text: the row is where it is said.
 private struct ChatSoundControls: View {
     let name: String
     let state: ChatSoundState
@@ -162,21 +166,31 @@ private struct ChatSoundControls: View {
             .buttonStyle(ChatSoundButtonStyle())
             .accessibilityLabel(ProductStrings[action])
 
-            track
-                .frame(height: ChatSoundMetrics.button)
-                .opacity(enabled ? 1 : ButtonRecipe.disabledOpacity)
-                .focusable(enabled)
-                .onKeyPress(.leftArrow) { step(forward: false) }
-                .onKeyPress(.rightArrow) { step(forward: true) }
-                .onKeyPress(.space) {
-                    toggle()
-                    return .handled
-                }
+            VStack(alignment: .leading, spacing: 0) {
+                Text(name)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.ink.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
 
-            Text(state.shownTime.map(ChatSoundState.written) ?? "")
-                .fermixType(Typography.style(.caption))
-                .monospacedDigit()
-                .foregroundStyle(Palette.secondary.color)
+                HStack(spacing: Spacing.s) {
+                    track
+                        .frame(height: ChatSoundMetrics.trackHitHeight)
+                        .opacity(enabled ? 1 : ButtonRecipe.disabledOpacity)
+                        .focusable(enabled)
+                        .onKeyPress(.leftArrow) { step(forward: false) }
+                        .onKeyPress(.rightArrow) { step(forward: true) }
+                        .onKeyPress(.space) {
+                            toggle()
+                            return .handled
+                        }
+
+                    Text(state.shownTime.map(ChatSoundState.written) ?? "")
+                        .fermixType(Typography.style(.caption))
+                        .monospacedDigit()
+                        .foregroundStyle(Palette.secondary.color)
+                }
+            }
         }
         .frame(maxWidth: ChatSoundMetrics.maxWidth, alignment: .leading)
         .disabled(!enabled)
