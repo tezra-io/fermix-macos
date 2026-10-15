@@ -124,7 +124,7 @@ struct SignInStaysExternalTests {
         let grant = MediaGrantOutcome.granted(MediaGrant(ref: ref, url: file))
         harness.grants.answers[ref] = grant
 
-        #expect(await opener.open(ref: ref) == grant)
+        #expect(await opener.open(ref: ref, named: "report.pdf") == grant)
         #expect(harness.model.tabs.first?.file == file)
         #expect(harness.workspace.opened.isEmpty)
     }

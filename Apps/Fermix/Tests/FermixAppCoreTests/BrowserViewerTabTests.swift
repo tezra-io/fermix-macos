@@ -324,6 +324,9 @@ struct BrowserViewerTabTests {
     // MARK: - Phone-side files (M66 §3.5, decision 1)
 
     private static let ref = FakeMediaGrants.ref("a")
+    /// What its row calls the file, which its granted copy, named by the
+    /// ref, cannot say.
+    private static let name = "garden.png"
 
     /// The engine's grant of `file` for the ref, as a harness's grants
     /// answer it.
@@ -344,11 +347,12 @@ struct BrowserViewerTabTests {
         let harness = place.harness()
         harness.grants.answers[Self.ref] = Self.grant(file)
 
-        #expect(await harness.coordinator.openRef(Self.ref) == Self.grant(file))
+        #expect(await harness.coordinator.openRef(Self.ref, named: Self.name) == Self.grant(file))
 
         let tab = try #require(harness.model.tabs.first)
         #expect(tab.fileKind == kind)
         #expect(tab.file == file)
+        #expect(BrowserText.tabTitle(title: tab.title, url: tab.url, file: tab.file, fileName: tab.fileName) == Self.name)
         #expect(harness.model.dialog == nil)
         #expect(harness.grants.counts == [Self.ref: 1])
 
@@ -369,8 +373,8 @@ struct BrowserViewerTabTests {
         let harness = place.harness()
         harness.grants.answers[Self.ref] = Self.grant(file)
 
-        _ = await harness.coordinator.openRef(Self.ref)
-        #expect(harness.model.dialog?.dialog.kind == .openFile(name: Self.ref + ".html"))
+        _ = await harness.coordinator.openRef(Self.ref, named: Self.name)
+        #expect(harness.model.dialog?.dialog.kind == .openFile(name: Self.name))
         #expect(harness.page(0).files.isEmpty)
 
         harness.coordinator.answer(.confirmed)
@@ -387,7 +391,7 @@ struct BrowserViewerTabTests {
         harness.grants.answers[Self.ref] = Self.grant(file)
         harness.facts.playable = [file]
 
-        _ = await harness.coordinator.openRef(Self.ref)
+        _ = await harness.coordinator.openRef(Self.ref, named: Self.name)
         await harness.settle()
 
         let tab = try #require(harness.model.tabs.first)
@@ -408,7 +412,7 @@ struct BrowserViewerTabTests {
         let harness = place.harness()
         harness.grants.answers[Self.ref] = Self.grant(file)
 
-        _ = await harness.coordinator.openRef(Self.ref)
+        _ = await harness.coordinator.openRef(Self.ref, named: Self.name)
         await harness.settle()
 
         #expect(harness.model.tabs.isEmpty)
@@ -422,7 +426,7 @@ struct BrowserViewerTabTests {
         let harness = BrowserHarness()
         harness.grants.answers[Self.ref] = .missing
 
-        #expect(await harness.coordinator.openRef(Self.ref) == .missing)
+        #expect(await harness.coordinator.openRef(Self.ref, named: Self.name) == .missing)
         #expect(harness.model.tabs.isEmpty)
         #expect(!harness.model.isOpen)
         #expect(harness.grants.held == 0)
@@ -433,7 +437,7 @@ struct BrowserViewerTabTests {
         let harness = BrowserHarness()
         harness.grants.answers[Self.ref] = .failed
 
-        #expect(await harness.coordinator.openRef(Self.ref) == .failed)
+        #expect(await harness.coordinator.openRef(Self.ref, named: Self.name) == .failed)
         #expect(harness.model.notice == ProductStrings[.browserNoticeFileNotReady])
         #expect(harness.model.isOpen)
         #expect(harness.model.tabs.isEmpty)
@@ -447,7 +451,7 @@ struct BrowserViewerTabTests {
         let harness = place.harness()
         harness.grants.answers[Self.ref] = Self.grant(place.home.appendingPathComponent(Self.ref + ".png"))
 
-        _ = await harness.coordinator.openRef(Self.ref)
+        _ = await harness.coordinator.openRef(Self.ref, named: Self.name)
 
         #expect(harness.model.notice == ProductStrings[.browserNoticeFileMissing])
         #expect(harness.model.tabs.isEmpty)
@@ -466,13 +470,13 @@ struct BrowserViewerTabTests {
         harness.grants.answers[Self.ref] = Self.grant(file)
         harness.coordinator.openFile(try place.write("first.md", in: place.outside))
 
-        _ = await harness.coordinator.openRef(Self.ref)
+        _ = await harness.coordinator.openRef(Self.ref, named: Self.name)
         #expect(harness.grants.counts == [Self.ref: 1])
 
         harness.coordinator.openFile(try place.write("third.md", in: place.outside))
         #expect(harness.grants.held == 0, "a replaced click kept its grant")
 
-        _ = await harness.coordinator.openRef(Self.ref)
+        _ = await harness.coordinator.openRef(Self.ref, named: Self.name)
         harness.coordinator.closePane()
         #expect(harness.grants.held == 0, "hiding the pane kept the grant")
         #expect(harness.grants.holds == 2)
@@ -486,8 +490,8 @@ struct BrowserViewerTabTests {
         let harness = place.harness()
         harness.grants.answers[Self.ref] = Self.grant(file)
 
-        _ = await harness.coordinator.openRef(Self.ref)
-        _ = await harness.coordinator.openRef(Self.ref)
+        _ = await harness.coordinator.openRef(Self.ref, named: Self.name)
+        _ = await harness.coordinator.openRef(Self.ref, named: Self.name)
         #expect(harness.model.tabs.count == 2)
         #expect(harness.grants.counts == [Self.ref: 2])
 

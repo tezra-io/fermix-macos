@@ -60,7 +60,7 @@ public final class ContentLinkOpener {
     /// engine grants for it would (M66 §3.5): the pane's own rule for files.
     /// What the engine answered comes back, so the tile that asked can say
     /// the file is gone.
-    public func open(ref: String) async -> MediaGrantOutcome {
-        await browser.openRef(ref)
+    public func open(ref: String, named name: String) async -> MediaGrantOutcome {
+        await browser.openRef(ref, named: name)
     }
 }

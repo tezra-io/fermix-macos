@@ -22,8 +22,8 @@ enum BrowserText {
     /// A file tab is named by its file, whatever its page calls itself. Any
     /// other tab is named by its page's title, then by the page's host while
     /// the title has not arrived, then as a new tab.
-    static func tabTitle(title: String, url: URL?, file: URL? = nil) -> String {
-        if let file { return file.lastPathComponent }
+    static func tabTitle(title: String, url: URL?, file: URL? = nil, fileName: String? = nil) -> String {
+        if let file { return fileName ?? file.lastPathComponent }
         guard title.isEmpty else { return title }
         guard let host = url?.host, !host.isEmpty else { return ProductStrings[.browserUntitledTab] }
 
@@ -171,7 +171,7 @@ struct BrowserPaneView: View {
     private var page: some View {
         if let tab = model.selectedTab {
             BrowserPageHost(browser: browser)
-                .accessibilityLabel(BrowserText.tabTitle(title: tab.title, url: tab.url, file: tab.file))
+                .accessibilityLabel(BrowserText.tabTitle(title: tab.title, url: tab.url, file: tab.file, fileName: tab.fileName))
         } else {
             EmptyState(model: EmptyStateModel(message: ProductStrings[.browserEmpty]))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -329,7 +329,7 @@ private struct BrowserTabChip: View {
     }
 
     private var title: String {
-        BrowserText.tabTitle(title: tab.title, url: tab.url, file: tab.file)
+        BrowserText.tabTitle(title: tab.title, url: tab.url, file: tab.file, fileName: tab.fileName)
     }
 
     /// Shown on the tab in front and on the one under the pointer, and always

@@ -450,7 +450,7 @@ private struct ChatRefPreviewTile: View {
         guard let rows else { return }
 
         Task {
-            guard await rows.links.open(ref: named.ref.ref) == .missing else { return }
+            guard await rows.links.open(ref: named.ref.ref, named: named.name) == .missing else { return }
 
             outcome = .missing
         }
@@ -618,7 +618,7 @@ private struct ChatRefCard: View {
     private func open() {
         guard let rows else { return }
 
-        Task { gone = await rows.links.open(ref: named.ref.ref) == .missing }
+        Task { gone = await rows.links.open(ref: named.ref.ref, named: named.name) == .missing }
     }
 }
 
