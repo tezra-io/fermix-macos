@@ -417,6 +417,9 @@ public final class PhonePairingModel: ObservableObject {
     }
 
     /// One `mobile.status` read, asked once the read before it has answered.
+    /// A read already queued still runs after its reader is cancelled, which
+    /// costs at most one more local round trip, and what it publishes is the
+    /// newest answer anyway.
     private func askStatus() async throws -> ManagementMobileStatus {
         let previous = statusRead
         let gateway = self.gateway

@@ -661,6 +661,7 @@ struct PhonePairingModelTests {
         await Self.settle { asked.count > 0 }
         let follow = Task { await model.followRemote() }
         for _ in 0..<Self.askingYields { await Task.yield() }
+        #expect(asked.count == 1, "the follower's read waits behind the row's rather than reaching the daemon")
         gate.release()
         await row.value
         await follow.value
