@@ -357,6 +357,27 @@ struct BrowserViewerTabTests {
         #expect(harness.grants.log == ["hold " + Self.ref, "release " + Self.ref])
     }
 
+    /// The engine copied it into the home, but the phone's HTML is not
+    /// Fermix's: WebKit would draw it as a page, so it is asked about as a
+    /// file outside the home is, and reads nothing beside itself, not the
+    /// other phone-side files granted beside it.
+    @Test("a phone-side HTML file asks first, and on Open reads only itself")
+    func refHTMLAsksFirst() async throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let file = FilePlaceFixture.real(try place.write(Self.ref + ".html", in: place.home))
+        let harness = place.harness()
+        harness.grants.answers[Self.ref] = Self.grant(file)
+
+        _ = await harness.coordinator.openRef(Self.ref)
+        #expect(harness.model.dialog?.dialog.kind == .openFile(name: Self.ref + ".html"))
+        #expect(harness.page(0).files.isEmpty)
+
+        harness.coordinator.answer(.confirmed)
+        #expect(harness.page(0).files == [FileLoad(url: file, kind: .html, readAccess: file)])
+        #expect(harness.grants.counts == [Self.ref: 1])
+    }
+
     @Test("a phone-side film opens in a media tab, and closing it stops the player and lets the grant go")
     func refFilmOpensInAMediaTab() async throws {
         let place = try FilePlaceFixture()

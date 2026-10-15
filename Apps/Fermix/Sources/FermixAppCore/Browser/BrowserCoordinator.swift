@@ -613,8 +613,14 @@ public final class BrowserCoordinator {
     /// answer. No tab is made while something else is asking, since the
     /// question could not be put: the file is kept and asked about next. The
     /// tab holds `ref`'s grant, where it shows a phone-side file.
+    ///
+    /// A phone-side file lies inside the home only because the engine copied
+    /// it there: it is the phone's, not Fermix's. A picture, a PDF, text, a
+    /// film or a document of it loads at once, as nothing in a file tab runs;
+    /// an HTML one, which WebKit draws as a page, is asked about first and
+    /// reads nothing beside itself, as a file outside the home does.
     private func openFileTab(_ file: BrowserLocalFile, as kind: BrowserFileKind, holding ref: String?) {
-        let inside = isInsideHome(file.url)
+        let inside = isInsideHome(file.url) && !(ref != nil && kind == .html)
         guard inside || nothingIsAsking else {
             keep(KeptFile(file: file, kind: kind, ref: ref))
             return
