@@ -642,12 +642,12 @@ struct PhonePairingModelTests {
         #expect(row.remoteLine == nil)
     }
 
-    /// The row's read and the follower's go out on separate connections as
-    /// the Phones step opens, and the one asked first can answer last. It
-    /// says something else, so the channel is read once more, which agrees
-    /// with what is shown.
-    @Test("an answer asked before one already shown never replaces it")
-    func olderAnswerNeverWins() async throws {
+    /// Done on Paired asks the row's read and then the follower's, each on a
+    /// connection of its own, so the daemon could answer the second first.
+    /// Reads go one at a time instead: the follower's is asked only once the
+    /// row's has answered, and the newer answer is the one that stays.
+    @Test("status reads go one at a time, so the answer asked last is the one shown")
+    func readsGoOneAtATime() async throws {
         let (model, gateway) = try Self.model(polls: 0)
         gateway.mobileStatusScript = [.success(try Self.status(["state": "starting"])), .success(try Self.status([:]))]
         let gate = AsyncGate()
@@ -659,92 +659,14 @@ struct PhonePairingModelTests {
 
         let row = Task { await model.readRow() }
         await Self.settle { asked.count > 0 }
-        await model.followRemote()
+        let follow = Task { await model.followRemote() }
+        for _ in 0..<Self.askingYields { await Task.yield() }
         gate.release()
         await row.value
-
-        #expect(Self.statusReads(gateway) == 3, "the dropped answer differed, so the channel was read once more")
-        #expect(model.remoteLine == PhoneRemoteLine("Connected to Fermix’s relays."))
-    }
-
-    /// The daemon serves the read asked second first, so the answer dropped
-    /// for its older number can be the newer one: it says something else from
-    /// what is shown, and the channel is read once more.
-    @Test("an answer dropped for its age that disagrees with the one shown is read again")
-    func droppedAnswerIsReadAgain() async throws {
-        let (model, gateway) = try Self.model(polls: 0)
-        let starting = try Self.status(["state": "starting"])
-        gateway.mobileStatusScript = [.success(starting), .success(try Self.status(["state": "dormant"])), .success(starting)]
-        let gate = AsyncGate()
-        let asked = CountingBox()
-        gateway.mobileStatusGate = {
-            asked.increment()
-            if asked.count == 1 { await gate.wait() }
-        }
-
-        let first = Task { await model.readRow() }
-        await Self.settle { asked.count > 0 }
-        await model.readRow()
-        #expect(model.remoteLine == PhoneRemoteLine("Starts when you pair your first phone."))
-        gate.release()
-        await first.value
-
-        #expect(Self.statusReads(gateway) == 3)
-        #expect(model.remoteLine == PhoneRemoteLine("Starting…", .progress))
-    }
-
-    /// The mirror case: the follower's own read is the one dropped, because a
-    /// read the row asked after it landed first with a rail that will not
-    /// move. The follower's answer disagrees, so it reads once more and goes
-    /// on following what it finds.
-    @Test("the follower reads again when its own answer is dropped and disagrees")
-    func followerReadsAgainWhenDropped() async throws {
-        let (model, gateway) = try Self.model(polls: 0)
-        let starting = try Self.status(["state": "starting"])
-        gateway.mobileStatusScript = [.success(starting), .success(try Self.status(["state": "dormant"])), .success(starting)]
-        let gate = AsyncGate()
-        let asked = CountingBox()
-        gateway.mobileStatusGate = {
-            asked.increment()
-            if asked.count == 1 { await gate.wait() }
-        }
-
-        let follow = Task { await model.followRemote() }
-        await Self.settle { asked.count > 0 }
-        await model.readRow()
-        gate.release()
         await follow.value
 
-        #expect(Self.statusReads(gateway) == 3)
-        #expect(model.remoteLine == PhoneRemoteLine("Starting\u{2026}", .progress))
-    }
-
-    /// Done on Paired asks the row's read and then the follower's; the
-    /// follower's lands first with a rail that will not move, while the row's,
-    /// still out, may carry a start. The follower reads on rather than leave
-    /// a start it would never see.
-    @Test("the follower keeps reading while a read asked before its own is still out")
-    func followerOutlastsAnOlderRead() async throws {
-        let (model, gateway) = try Self.model(polls: 2)
-        let starting = try Self.status(["state": "starting"])
-        gateway.mobileStatusScript = [
-            .success(starting), .success(try Self.status(["state": "dormant"])), .success(starting),
-            .success(try Self.status([:]))
-        ]
-        let gate = AsyncGate()
-        let asked = CountingBox()
-        gateway.mobileStatusGate = {
-            asked.increment()
-            if asked.count == 1 { await gate.wait() }
-        }
-
-        let row = Task { await model.readRow() }
-        await Self.settle { asked.count > 0 }
-        await model.followRemote()
-        gate.release()
-        await row.value
-
-        #expect(model.remoteLine == PhoneRemoteLine("Connected to Fermix’s relays."))
+        #expect(Self.statusReads(gateway) == 2)
+        #expect(model.remoteLine == PhoneRemoteLine("Connected to Fermix\u{2019}s relays."))
     }
 
     /// A daemon that is restarting refuses read after read: the wait doubles
@@ -776,21 +698,18 @@ struct PhonePairingModelTests {
         gateway.calls.filter { $0 == .v2(.mobileStatus) }.count
     }
 
-    /// How long a case waits for a read it started to reach the daemon, so a
-    /// case that never gets there fails rather than hangs the run. A clock
-    /// for the reason `AsyncGate.releaseBound` is one.
-    private static let settleBound: Duration = .seconds(30)
+    /// The turns a case gives a task it has just started to ask its read, so
+    /// the read is waiting behind the one in flight before that one answers.
+    /// A task the main actor has queued runs ahead of the case's next turn,
+    /// so a few are plenty.
+    private static let askingYields = 10
 
     private static func settle(
         until condition: () -> Bool,
         sourceLocation: SourceLocation = #_sourceLocation
     ) async {
-        let deadline = ContinuousClock.now + settleBound
-        while ContinuousClock.now < deadline {
-            if condition() { return }
-            await Task.yield()
-        }
-        #expect(condition(), "the case never got there", sourceLocation: sourceLocation)
+        let reached = await yieldUntil(condition)
+        #expect(reached, "the case never got there", sourceLocation: sourceLocation)
     }
 
     static func model(polls: Int) throws -> (PhonePairingModel, FakeDaemonGateway) {

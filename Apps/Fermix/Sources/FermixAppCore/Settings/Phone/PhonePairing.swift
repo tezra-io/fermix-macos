@@ -21,9 +21,12 @@ public enum PhoneChannel {
     /// the one this app polls at (PROTOCOL.md).
     public static let pollSeconds: TimeInterval = 1
 
-    /// The most times one follow of Reach from anywhere reads the rail: five
-    /// minutes at the contract's cadence, after which the line stays as last
-    /// read until the switch moves or the Phones step is shown again.
+    /// The most reads one follow of Reach from anywhere makes. While the
+    /// daemon answers, that is five minutes at the contract's cadence; while
+    /// it refuses, the waits back off to `remoteBackoffSeconds`, so a run of
+    /// refusals can stretch it to about two and a half hours. After the last
+    /// read the line stays as it was last read until the switch moves or the
+    /// Phones step is shown again.
     public static let remotePolls = 300
 
     /// The longest the follow of Reach from anywhere waits between reads
