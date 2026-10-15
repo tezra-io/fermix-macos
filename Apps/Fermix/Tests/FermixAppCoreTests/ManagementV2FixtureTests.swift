@@ -99,6 +99,7 @@ struct ManagementV2FixtureTests {
             ("pairing attestation status", Array(ManagementPairingAttestationStatus.publishedValues.keys)),
             ("mobile listener status", Array(ManagementMobileListenerStatus.publishedValues.keys)),
             ("mobile announcement", Array(ManagementMobileAnnouncement.publishedValues.keys)),
+            ("mobile remote state", Array(ManagementMobileRemoteState.publishedValues.keys)),
             ("mobile credentials", Array(ManagementMobileCredentials.publishedValues.keys)),
             ("mobile signer role", Array(ManagementMobileSignerRole.publishedValues.keys)),
             ("imessage grant service", Array(ManagementIMessageGrantService.publishedValues.keys)),
@@ -108,7 +109,7 @@ struct ManagementV2FixtureTests {
             ("imessage policy", Array(ManagementIMessagePolicy.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 29)
+        #expect(modelled.count == 30)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),

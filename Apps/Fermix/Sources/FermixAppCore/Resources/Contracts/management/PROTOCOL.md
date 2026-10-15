@@ -207,7 +207,7 @@ daemon onto anything else.
 | `job.get` | `job_id` | One job's uniform view. Minimum version `2`. |
 | `job.cancel` | `job_id` | Stops a running job and answers its terminal view. Cancelling a finished job is a no-op, not an error. Minimum version `2`. |
 | `job.list` | none | Every job this daemon retains, oldest first. What lets a reopened surface find a run it started rather than starting a second one. Minimum version `2`. |
-| `auth.start` | `provider` | Starts a browser sign-in and answers with the job plus the authorize url and its lifetime, returned once. `openai_codex` signs in with ChatGPT: a sign-in that leaves ChatGPT plan usage off fails the job with its sentence, and a completed one first makes sure the default model is one the account lists. Minimum version `2`. |
+| `auth.start` | `provider` | Starts a browser sign-in and answers with the job plus the authorize url and its lifetime, returned once. `openai_codex` signs in with ChatGPT: a sign-in that leaves ChatGPT plan usage off fails the job with its sentence, and a completed one first makes sure the default model is one the account lists. When that check cannot be made (the account's model list could not be read, or the model could not be saved), the sign-in still completes and its result carries `model_warning`, the daemon's sentence saying the default model was not checked and why, beside `account_label`. The field is optional: absent means the check was made, and a client that does not know it shows the sign-in as completed. Minimum version `2`. |
 | `auth.import.start` | `source` | Adopts a sign-in this Mac already has, from Claude Code. A job, because reading the keychain can prompt. `codex_cli` is still accepted as a source and refused with `invalid_params` and a sentence: a Codex CLI sign-in is no longer adopted, and `openai_codex` signs in with ChatGPT through `auth.start`. Minimum version `2`. |
 | `auth.logout` | `provider` | Forgets one provider's local session and reverts the route it fed. Nothing is revoked upstream, except for `openai_codex`: its sign-out revokes the ChatGPT session and keeps the registration, so the next sign-in reuses it. Minimum version `2`. |
 | `plugins.list` | none | Every integration this daemon can show, installed or not, in one row shape, plus one entry per sign-in client a published plugin needs, each carrying the account region it is bound to and the regions this daemon offers for it. Every word on a row is the daemon's. Minimum version `2`. |
@@ -224,7 +224,7 @@ daemon onto anything else.
 | `meetings.signin.start` | none | Starts the notetaker's one-time interactive sign-in. A job, because it waits for a person. Minimum version `2`. |
 | `computer_use.grant.start` | none | Raises the OS permission prompts and answers with what was granted. A job, and only ever on an explicit ask. Minimum version `2`. |
 | `computer_use.permissions.get` | none | The current, non-prompting permission state: whether the helper is installed, which grants it holds, and when they were read. Minimum version `2`. |
-| `mobile.status` | none | The phone channel as it stands: whether it is enabled, whether it started, whether it was refused this boot and the class of that refusal, the listener (`status`, `reason`, `port`, `bind`, `candidates`), the local-network announcement, detected tailnet addresses, the gateway identity's presence and fingerprint, push credentials and delivery, the paired-phone count, the mobile protocol version this daemon serves, and the pairing session open or newest retained. Answers with the channel off. Minimum version `2`. |
+| `mobile.status` | none | The phone channel as it stands: whether it is enabled, whether it started, whether it was refused this boot and the class of that refusal, the listener (`status`, `reason`, `port`, `bind`, `candidates`), the local-network announcement, detected tailnet addresses, the gateway identity's presence and fingerprint, remote reach, push credentials and delivery, the paired-phone count, the mobile protocol version this daemon serves, and the pairing session open or newest retained. Answers with the channel off. Minimum version `2`. |
 | `mobile.pair.start` | none | Opens the pairing window and answers with the pairing session view plus, once, the pairing link as `uri`. `busy` while a window is open. Minimum version `2`. |
 | `mobile.pair.get` | `session_id` | The pairing session as it stands. The pane polls it until the session is terminal. Minimum version `2`. |
 | `mobile.pair.decide` | `session_id`, `approved` (boolean) | Approves or denies the phone waiting in the session and answers the terminal view. Minimum version `2`. |
@@ -354,6 +354,23 @@ Notes that the shapes alone do not carry:
   dispatcher runs: the channel is not running, push is off, or its
   credentials did not resolve. A connect is given up after ten seconds, and
   the status answers while one runs.
+- **Remote reach lets a paired phone reach this daemon from any network**,
+  through Fermix's relays (M62). `remote.state` is `off` (its switch is off,
+  or the channel is not running), `dormant` (no phone has been paired yet;
+  relay contact starts with the first pairing window), `helper_missing` (this
+  build carries no `fermix-iroh`; the daemon log names the path),
+  `starting`, `ready` or `failed`. While `ready`, `endpoint_id` is the
+  daemon's iroh endpoint id, `relay` the URL of the relay it is reached
+  through, `connected` whether it is connected to that relay right now, and
+  `relay_error` the relay connection's last error; while `failed`, `failure`
+  is the helper's own words with control characters removed. Each is null,
+  and `connected` false, in every other state. `refused` counts the remote
+  connections the helper turned away by reason: `busy` (64 already
+  connected), `alpn` (not a Fermix phone) and `bridge_unreachable` (the
+  daemon was not taking them). A rail that fails is retried on its own, from
+  one second doubling to a minute, and given up after a day until the next
+  restart; a helper that disagrees with this daemon's protocol, iroh version
+  or key is not retried.
 - **Pairing and forgetting a phone are the owner's decisions.**
   `mobile.pair.start`, `mobile.pair.decide`, `mobile.pair.cancel` and
   `mobile.devices.revoke` answer `unavailable` {`capability`: `mobile`,
@@ -364,9 +381,13 @@ Notes that the shapes alone do not carry:
   sentence is what tells this refusal from a channel that is not running.
   Reading a session and the status stay open to every caller.
 - **`channels.mobile` is the phone channel's settings section**: the enable
-  switch, applied the moment it is written (its row's `restart` is false), and
-  the port, the address it listens on and the local-network announcement,
-  which are read when the channel starts and are boot-bound. It is a section of its own rather than a
+  switch and the remote-reach switch `mobile_iroh` (on by default), each
+  applied the moment it is written (their rows' `restart` is false), and the
+  port, the address it listens on and the local-network announcement, which
+  are read when the channel starts and are boot-bound. Remote reach is
+  switched within a running channel: with the channel off it is read when the
+  channel starts, and a write says in `side_effects` when the rail did not
+  follow it. It is a section of its own rather than a
   channels-inventory entry, because the phone channel has no credential.
   `setup.state.get` carries a `mobile` channel row after the inventory
   channels, always `configured`, with mode `listener` while it is enabled.

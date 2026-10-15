@@ -20,6 +20,9 @@ public struct ManagementMobileStatus: Decodable, Equatable, Sendable {
     public let mdns: ManagementMobileAnnouncement
     public let tailnet: ManagementMobileTailnet
     public let identity: ManagementMobileIdentity
+    /// Reach from anywhere (M62). Nil from an engine older than the rail,
+    /// which publishes neither the state nor the switch.
+    public let remote: ManagementMobileRemote?
     public let apns: ManagementMobilePush
     public let pairedDevices: Int
     public let protocolVersion: Int
@@ -27,7 +30,7 @@ public struct ManagementMobileStatus: Decodable, Equatable, Sendable {
     public let pairing: ManagementPairingSummary?
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, started, refused, listener, mdns, tailnet, identity, apns, pairing
+        case enabled, started, refused, listener, mdns, tailnet, identity, remote, apns, pairing
         case pairedDevices = "paired_devices"
         case protocolVersion = "protocol_version"
     }
@@ -38,6 +41,41 @@ public struct ManagementMobileListener: Decodable, Equatable, Sendable {
     public let port: Int
     public let bind: String
     public let candidates: [String]
+}
+
+/// The rail that lets a paired phone reach this daemon from any network
+/// through Fermix's relays (M62). `endpointId`, `relay` and `relayError` are
+/// set only while `ready`, as `connected` is true only then, and `failure` only
+/// while `failed`: the helper's or the daemon's words, control characters
+/// removed. `refused` counts the remote connections the helper turned away
+/// since it started.
+public struct ManagementMobileRemote: Decodable, Equatable, Sendable {
+    public let state: ManagementMobileRemoteState
+    public let endpointId: String?
+    public let relay: String?
+    public let connected: Bool
+    public let relayError: String?
+    public let failure: String?
+    public let refused: ManagementMobileRemoteRefusals
+
+    private enum CodingKeys: String, CodingKey {
+        case state, relay, connected, failure, refused
+        case endpointId = "endpoint_id"
+        case relayError = "relay_error"
+    }
+}
+
+/// The remote connections the helper refused, by reason: 64 already connected,
+/// not a Fermix phone, or the daemon not taking them.
+public struct ManagementMobileRemoteRefusals: Decodable, Equatable, Sendable {
+    public let busy: Int
+    public let alpn: Int
+    public let bridgeUnreachable: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case busy, alpn
+        case bridgeUnreachable = "bridge_unreachable"
+    }
 }
 
 public struct ManagementMobileTailnet: Decodable, Equatable, Sendable {
@@ -316,6 +354,35 @@ public enum ManagementMobileListenerStatus: ManagementVocabulary {
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = ["ready": .ready, "down": .down, "unavailable": .unavailable]
+
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+}
+
+/// `remote.state`: where the rail stands. `off` is its switch off or the
+/// channel not running, `dormant` no phone paired yet, and `helper_missing`
+/// a build that carries no rail to start.
+public enum ManagementMobileRemoteState: ManagementVocabulary {
+    case off
+    case dormant
+    case helperMissing
+    case starting
+    case ready
+    case failed
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = [
+        "off": .off,
+        "dormant": .dormant,
+        "helper_missing": .helperMissing,
+        "starting": .starting,
+        "ready": .ready,
+        "failed": .failed
+    ]
 
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
 
