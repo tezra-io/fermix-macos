@@ -5,9 +5,10 @@ import UniformTypeIdentifiers
 @testable import FermixAppCore
 
 /// The Mac's frameworks as a tile's previews meet them, played by hand: what
-/// ImageIO, PDF and AVFoundation say of each file is set up front, and each
-/// thumbnail either comes at once or waits until the case finishes or fails
-/// it. No file is read and Quick Look is never asked.
+/// ImageIO and PDF say of each file is set up front, and each thumbnail
+/// either comes at once or waits until the case finishes or fails it. No file
+/// is read and Quick Look is never asked. What AVFoundation says is
+/// `FakeMediaFacts`'s.
 final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     /// How a thumbnail comes.
     enum Thumbnails {
@@ -20,9 +21,6 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     private let thumbnails: Thumbnails
     private let pictures: [URL: ChatPictureFacts]
     private let pages: [URL: Int]
-    private let lengths: [URL: Double]
-    private let unplayable: Set<URL>
-    private let apps: [String: String]
     /// Whether a cancelled thumbnail stops; false plays a renderer that
     /// finishes its work whatever it is told.
     private let stopsWhenCancelled: Bool
@@ -32,23 +30,16 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     private var cancelledEarly: Set<UUID> = []
     private var asked: [URL] = []
     private var cancelled = 0
-    private var lookups: [UTType] = []
 
     init(
         thumbnails: Thumbnails = .held,
         pictures: [URL: ChatPictureFacts] = [:],
         pages: [URL: Int] = [:],
-        lengths: [URL: Double] = [:],
-        unplayable: Set<URL> = [],
-        apps: [String: String] = [:],
         stopsWhenCancelled: Bool = true
     ) {
         self.thumbnails = thumbnails
         self.pictures = pictures
         self.pages = pages
-        self.lengths = lengths
-        self.unplayable = unplayable
-        self.apps = apps
         self.stopsWhenCancelled = stopsWhenCancelled
     }
 
@@ -56,8 +47,6 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     var thumbnailsAsked: [URL] { lock.withLock { asked } }
     /// Thumbnails stopped by their task's cancellation.
     var thumbnailsCancelled: Int { lock.withLock { cancelled } }
-    /// Every type an app was looked up for.
-    var appLookups: [UTType] { lock.withLock { lookups } }
 
     func picture(at file: URL) -> ChatPictureFacts? {
         pictures[file]
@@ -99,19 +88,6 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
         pages[file]
     }
 
-    func length(of file: URL) async -> Double? {
-        lengths[file]
-    }
-
-    func isPlayable(_ file: URL) async -> Bool {
-        !unplayable.contains(file)
-    }
-
-    func application(toOpen type: UTType) -> String? {
-        lock.withLock { lookups.append(type) }
-        return apps[type.identifier]
-    }
-
     private func resume(_ id: UUID, with answer: (CheckedContinuation<CGImage, Error>) -> Void) {
         let found: CheckedContinuation<CGImage, Error>? = lock.withLock {
             guard let index = waiting.firstIndex(where: { $0.id == id }) else {
@@ -151,6 +127,28 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     }
 }
 
+/// Launch Services' answer to which app opens a document of a type, set up
+/// front, with every type it was asked recorded.
+final class FakeDocumentApplications: @unchecked Sendable {
+    private let apps: [String: String]
+    private let lock = NSLock()
+    private var asked: [UTType] = []
+
+    /// `apps` names the app for a type, by the type's identifier.
+    init(_ apps: [String: String] = [:]) {
+        self.apps = apps
+    }
+
+    /// Every type an app was looked up for.
+    var lookups: [UTType] { lock.withLock { asked } }
+
+    func lookUp(_ type: UTType) -> WorkspaceApplication? {
+        lock.withLock { asked.append(type) }
+
+        return apps[type.identifier].map { WorkspaceApplication(url: URL(fileURLWithPath: "/Applications/\($0).app", isDirectory: true), name: $0) }
+    }
+}
+
 /// The facts a tile would read of a file, made up rather than read.
 enum ChatFactsFixture {
     static func facts(
@@ -164,12 +162,12 @@ enum ChatFactsFixture {
     ) -> ChatFileFacts {
         ChatFileFacts(
             file: URL(fileURLWithPath: path),
-            type: type ?? ChatPreviewPolicy.type(ofPath: path) ?? .data,
-            isDirectory: isDirectory,
-            isExecutable: isExecutable,
+            disk: FileFacts(
+                type: type ?? ChatPreviewPolicy.type(ofPath: path) ?? .data,
+                entry: isDirectory ? .folder : .file(size: size, isExecutable: isExecutable)
+            ),
             identity: ChatFileIdentity(volume: 1, number: number),
             modified: Date(timeIntervalSince1970: 1_000),
-            size: size,
             insideHome: insideHome
         )
     }

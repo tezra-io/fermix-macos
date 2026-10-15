@@ -29,31 +29,26 @@ enum ChatFileFamily: Equatable, Sendable {
 }
 
 /// The facts a tile reads of the file a path names, off the main thread
-/// (`ChatFileFacts.read`): enough to choose its look and to key its preview.
+/// (`ChatFileFacts.read`): what the pane's own rule reads of it, and what a
+/// tile adds to choose its look and to key its preview.
 struct ChatFileFacts: Equatable, Sendable {
     /// Where the path really lands, every symbolic link resolved.
     let file: URL
-    let type: UTType
-    /// A folder or a package.
-    let isDirectory: Bool
-    /// A regular file with its executable bit set, which Launch Services
-    /// would run rather than open.
-    let isExecutable: Bool
+    /// Its type and what it is on the disk, read as the pane reads them.
+    let disk: FileFacts
     /// What the preview cache keys on: the file's volume and number, which a
     /// rename keeps and a new file under the old name does not, and its
     /// modification date and size, which an edit changes.
     let identity: ChatFileIdentity
     let modified: Date
-    /// Its size in bytes. A folder, a package among them, has none of its
-    /// own and counts zero.
-    let size: Int
     /// Whether it lies inside the Fermix home, decided where both really are.
     let insideHome: Bool
 
-    /// What it is on the disk, as the pane's own rule reads it.
-    var entry: BrowserLocalFile.Entry {
-        isDirectory ? .folder : .file(size: size, isExecutable: isExecutable)
-    }
+    var type: UTType { disk.type }
+
+    /// Its size in bytes, for the preview's key. A folder, a package among
+    /// them, has none of its own and counts zero.
+    var size: Int { disk.size ?? 0 }
 }
 
 /// A file's identity on this Mac: its volume and its number there.
@@ -138,9 +133,9 @@ enum ChatPreviewPolicy {
     /// tile reads no bytes, so a type the Mac knows only as data is taken for
     /// the text the pane may find it is, and claims nothing more.
     static func family(of facts: ChatFileFacts) -> ChatFileFamily {
-        guard BrowserLocalFile.kind(of: facts.type, as: facts.entry, readsAsText: { true }) != nil else { return .other }
+        guard BrowserLocalFile.kind(of: facts.disk, readsAsText: { true }) != nil else { return .other }
 
-        return facts.isDirectory ? .document : family(of: facts.type)
+        return facts.disk.entry == .folder ? .document : family(of: facts.type)
     }
 
     /// A document tab's family in a tile's words: a picture WebKit does not
@@ -230,7 +225,7 @@ enum ChatPreviewPolicy {
     /// pane's own rule decides (`BrowserLocalFile.mayGoToAnApp`), so its hint
     /// names that app; anything else is only ever shown in Finder.
     static func handsToApp(_ facts: ChatFileFacts) -> Bool {
-        BrowserLocalFile.mayGoToAnApp(facts.type, as: facts.entry)
+        BrowserLocalFile.mayGoToAnApp(facts.disk)
     }
 
     /// The word VoiceOver reads after a tile's name.

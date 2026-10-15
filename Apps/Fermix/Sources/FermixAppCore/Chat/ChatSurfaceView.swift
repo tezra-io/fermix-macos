@@ -68,6 +68,19 @@ enum ChatMetrics {
     /// as tall as a sidebar row with room for both lines.
     static let cardHeight: Double = 52
     static let cardIconSize: Double = 28
+    /// A sound's player (M66 §3.4): its round play button, large, the
+    /// system's own 28-point control, and the glyph in it.
+    static let soundButton: Double = 28
+    static let soundGlyph: Double = 11
+    /// A play triangle's weight sits left of its own box, so it is drawn one
+    /// point right to sit in the middle of the circle to the eye.
+    static let soundPlayGlyphNudge: Double = 1
+    /// The track's line, and what a click or a drag on it lands in: the line
+    /// with room round it, under the sound's name and beside the button.
+    static let soundTrackHeight: Double = 3
+    static let soundTrackHitHeight: Double = 12
+    /// As wide as a sound's player grows: a sound is a line, not a column.
+    static let soundMaxWidth: Double = 320
     /// How strongly a tile is drawn while the pointer holds it down.
     static let tilePressedStrength: Double = 0.7
     /// How long a tile waits on its preview before it shows the quiet

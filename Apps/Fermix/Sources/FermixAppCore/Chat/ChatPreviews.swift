@@ -142,11 +142,13 @@ struct ChatPreviewRequest: Sendable {
     }
 }
 
-/// What the Mac's own frameworks say of a file a tile names: ImageIO, Quick
-/// Look, PDF, AVFoundation and Launch Services. Behind a protocol, so the
-/// budgets are provable with a fake and no test opens a file, and because
-/// Quick Look's thumbnails are GUI-only: the reader is `FermixViewers`'s
-/// `SystemMediaReader`, which `main.swift` hands in.
+/// What the Mac's own frameworks draw of a file a tile names: its
+/// thumbnail, a picture's size and motion, and a PDF's page count, from Quick
+/// Look, ImageIO and PDF. Behind a protocol, so the budgets are provable with
+/// a fake and no test opens a file, and because Quick Look's thumbnails are
+/// GUI-only: the reader is `FermixViewers`'s `SystemMediaReader`, which
+/// `main.swift` hands in. Whether a film plays and how long it is are
+/// AVFoundation's, asked of the one owner of both (`MediaFacts`).
 public protocol ChatMediaReading: Sendable {
     /// A picture's pixel count and whether it moves, from its properties
     /// alone, or nil where ImageIO cannot read them.
@@ -155,13 +157,6 @@ public protocol ChatMediaReading: Sendable {
     /// stops when the task asking for it is cancelled.
     func thumbnail(of file: URL, size: CGSize, scale: Double) async throws -> CGImage
     func pageCount(of file: URL) async -> Int?
-    /// A video's length, in seconds.
-    func length(of file: URL) async -> Double?
-    func isPlayable(_ file: URL) async -> Bool
-    /// The app a document of `type` opens in, by the name Finder shows, or
-    /// nil where none does or the one that would opens web pages, to which
-    /// the pane hands no file.
-    func application(toOpen type: UTType) -> String?
 }
 
 /// Makes a tile's preview within the budgets (M66 §3.7).
@@ -175,6 +170,7 @@ public protocol ChatMediaReading: Sendable {
 @MainActor
 final class ChatPreviews {
     private let reader: any ChatMediaReading
+    private let facts: any MediaFacts
     private let deadlines: any DeadlineScheduling
     private var cache: ChatPreviewCache
     private var jobs: [ChatPreviewKey: Job] = [:]
@@ -195,8 +191,14 @@ final class ChatPreviews {
         }
     }
 
-    init(reader: any ChatMediaReading, deadlines: any DeadlineScheduling, cacheBytes: Int = ChatPreviewBudget.cacheBytes) {
+    init(
+        reader: any ChatMediaReading,
+        facts: any MediaFacts,
+        deadlines: any DeadlineScheduling,
+        cacheBytes: Int = ChatPreviewBudget.cacheBytes
+    ) {
         self.reader = reader
+        self.facts = facts
         self.deadlines = deadlines
         cache = ChatPreviewCache(capacity: cacheBytes)
     }
@@ -279,8 +281,8 @@ final class ChatPreviews {
         job.deadline = deadlines.schedule(after: ChatPreviewBudget.timeout) { [weak self] in
             self?.finish(job, .failed)
         }
-        job.work = Task { [reader, request = job.request] in
-            let outcome = await Self.make(request, with: reader)
+        job.work = Task { [reader, facts, request = job.request] in
+            let outcome = await Self.make(request, with: reader, facts: facts)
             self.finish(job, outcome)
         }
     }
@@ -309,15 +311,19 @@ final class ChatPreviews {
     /// One job's work, off the main thread. A picture's size is read before
     /// anything decodes it; a video is asked whether it plays and how long it
     /// is, and a PDF how many pages it has, beside its thumbnail.
-    nonisolated static func make(_ request: ChatPreviewRequest, with reader: any ChatMediaReading) async -> ChatPreviewOutcome {
+    nonisolated static func make(
+        _ request: ChatPreviewRequest,
+        with reader: any ChatMediaReading,
+        facts: any MediaFacts
+    ) async -> ChatPreviewOutcome {
         var detail: ChatPreviewDetail?
         switch request.family {
         case .picture:
             guard let picture = reader.picture(at: request.file), picture.pixels <= ChatPreviewBudget.pixels else { return .iconOnly }
             detail = picture.animated ? .animated : nil
         case .video:
-            guard await reader.isPlayable(request.file) else { return .unplayable }
-            detail = await reader.length(of: request.file).map(ChatPreviewDetail.length)
+            guard await facts.isPlayable(request.file) else { return .unplayable }
+            detail = await facts.length(of: request.file).map(ChatPreviewDetail.length)
         case .pdf:
             detail = await reader.pageCount(of: request.file).map(ChatPreviewDetail.pages)
         case .document, .sound, .page, .text, .data, .other:
@@ -433,24 +439,18 @@ extension ChatFileFacts {
         guard let real = FilePlace.resolved(link.path) else { return nil }
 
         let file = URL(fileURLWithPath: real)
-        let keys: Set<URLResourceKey> = [
-            .contentTypeKey, .isDirectoryKey, .isRegularFileKey, .isExecutableKey, .fileSizeKey, .contentModificationDateKey
-        ]
         var status = stat()
-        guard let values = try? file.resourceValues(forKeys: keys),
-              let type = values.contentType,
+        guard let values = try? file.resourceValues(forKeys: FileFacts.keys.union([.contentModificationDateKey])),
+              let disk = FileFacts(values),
               let modified = values.contentModificationDate,
               stat(real, &status) == 0
         else { return nil }
 
         return ChatFileFacts(
             file: file,
-            type: type,
-            isDirectory: values.isDirectory == true,
-            isExecutable: values.isRegularFile == true && values.isExecutable == true,
+            disk: disk,
             identity: ChatFileIdentity(volume: UInt64(UInt32(bitPattern: status.st_dev)), number: status.st_ino),
             modified: modified,
-            size: values.fileSize ?? 0,
             insideHome: home.map { FilePlace.path(real, liesUnder: $0) } ?? false
         )
     }
@@ -470,7 +470,7 @@ final class ChatMedia {
     /// The app's one player, which a sound in the chat plays through (M66 §3.4).
     let player: AppPlayer
     private let readHome: () throws -> URL
-    private let reader: any ChatMediaReading
+    private let documentApplication: @Sendable (UTType) -> WorkspaceApplication?
     private var visit: Visit?
     private var strips: [Int: (source: StripSource, strip: ChatStrip)] = [:]
     private var hints: [String: ChatTileHint] = [:]
@@ -491,19 +491,23 @@ final class ChatMedia {
     }
 
     /// `home` reads the Fermix home from the bootstrap record, as the
-    /// browser's does; `reader` is what the Mac's own frameworks say of a
-    /// file, which the executable hands in; `deadlines` times the previews
-    /// out.
+    /// browser's does; `reader` is what the Mac's own frameworks draw of a
+    /// file, which the executable hands in; `documentApplication` is the app
+    /// a document of a type goes to, never a browser, asked off the main
+    /// thread (`WorkspaceLinkOpener.documentApplication`); `deadlines` times
+    /// the previews out. Whether a film plays, and its length, are the
+    /// player's facts.
     init(
         home: @escaping () throws -> URL,
         player: AppPlayer,
         reader: any ChatMediaReading,
+        documentApplication: @escaping @Sendable (UTType) -> WorkspaceApplication?,
         deadlines: any DeadlineScheduling
     ) {
         readHome = home
         self.player = player
-        self.reader = reader
-        previews = ChatPreviews(reader: reader, deadlines: deadlines)
+        self.documentApplication = documentApplication
+        previews = ChatPreviews(reader: reader, facts: player.facts, deadlines: deadlines)
     }
 
     /// The row's strip, worked out once for its content.
@@ -536,9 +540,9 @@ final class ChatMedia {
         guard ChatPreviewPolicy.handsToApp(facts) else { return .showInFinder }
         if let known = hints[facts.type.identifier] { return known }
 
-        let reader = reader
+        let lookUp = documentApplication
         let type = facts.type
-        let hint = await Task.detached(priority: .utility) { reader.application(toOpen: type).map(ChatTileHint.openIn) ?? .showInFinder }.value
+        let hint = await Task.detached(priority: .utility) { lookUp(type).map { ChatTileHint.openIn($0.name) } ?? .showInFinder }.value
         hints[type.identifier] = hint
         return hint
     }

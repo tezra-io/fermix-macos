@@ -69,7 +69,7 @@ struct ChatPreviewsTests {
     @Test("at most two jobs run at once, and the next starts as one ends")
     func jobLimit() async throws {
         let reader = FakeMediaReader(pictures: Self.pictures(1...3))
-        let previews = ChatPreviews(reader: reader, deadlines: ManualDeadlineScheduler())
+        let previews = ChatPreviews(reader: reader, facts: FakeMediaFacts(), deadlines: ManualDeadlineScheduler())
 
         let first = Task { await previews.preview(Self.request(1)) }
         let second = Task { await previews.preview(Self.request(2)) }
@@ -93,7 +93,7 @@ struct ChatPreviewsTests {
     @Test("two tiles asking for one preview share one job, and a kept preview needs none")
     func sharedJobs() async throws {
         let reader = FakeMediaReader(pictures: Self.pictures(1...1))
-        let previews = ChatPreviews(reader: reader, deadlines: ManualDeadlineScheduler())
+        let previews = ChatPreviews(reader: reader, facts: FakeMediaFacts(), deadlines: ManualDeadlineScheduler())
 
         let first = Task { await previews.preview(Self.request(1)) }
         let second = Task { await previews.preview(Self.request(1)) }
@@ -115,7 +115,7 @@ struct ChatPreviewsTests {
     @Test("a tile leaving the screen cancels its ask, and a job nobody waits on stops")
     func cancelledOffScreen() async throws {
         let reader = FakeMediaReader(pictures: Self.pictures(1...1))
-        let previews = ChatPreviews(reader: reader, deadlines: ManualDeadlineScheduler())
+        let previews = ChatPreviews(reader: reader, facts: FakeMediaFacts(), deadlines: ManualDeadlineScheduler())
 
         let leaving = Task { await previews.preview(Self.request(1)) }
         let staying = Task { await previews.preview(Self.request(1)) }
@@ -135,7 +135,7 @@ struct ChatPreviewsTests {
     @Test("past 64 waiting, the oldest waiting is let go")
     func waitingCap() async throws {
         let reader = FakeMediaReader(pictures: Self.pictures(1...67))
-        let previews = ChatPreviews(reader: reader, deadlines: ManualDeadlineScheduler())
+        let previews = ChatPreviews(reader: reader, facts: FakeMediaFacts(), deadlines: ManualDeadlineScheduler())
 
         var asks: [Task<ChatPreviewOutcome, Never>] = []
         for number in UInt64(1)...66 {
@@ -159,7 +159,7 @@ struct ChatPreviewsTests {
     @Test("a result for a job let go is dropped, never kept")
     func staleResults() async throws {
         let reader = FakeMediaReader(pictures: Self.pictures(1...1), stopsWhenCancelled: false)
-        let previews = ChatPreviews(reader: reader, deadlines: ManualDeadlineScheduler())
+        let previews = ChatPreviews(reader: reader, facts: FakeMediaFacts(), deadlines: ManualDeadlineScheduler())
 
         let ask = Task { await previews.preview(Self.request(1)) }
         try await Self.waitUntil { reader.thumbnailsAsked.count == 1 }
@@ -179,7 +179,7 @@ struct ChatPreviewsTests {
     func timeoutAndRetry() async throws {
         let reader = FakeMediaReader(pictures: Self.pictures(1...1))
         let deadlines = ManualDeadlineScheduler()
-        let previews = ChatPreviews(reader: reader, deadlines: deadlines)
+        let previews = ChatPreviews(reader: reader, facts: FakeMediaFacts(), deadlines: deadlines)
 
         let first = Task { await previews.preview(Self.request(1)) }
         try await Self.waitUntil { reader.thumbnailsAsked.count == 1 }
@@ -208,8 +208,8 @@ struct ChatPreviewsTests {
             pictures: [large: ChatPictureFacts(pixels: 100_000_001, animated: false)]
         )
 
-        #expect(await ChatPreviews.make(Self.request(1, path: "/h/large.png"), with: reader) == .iconOnly)
-        #expect(await ChatPreviews.make(Self.request(2, path: "/h/unreadable.png"), with: reader) == .iconOnly)
+        #expect(await ChatPreviews.make(Self.request(1, path: "/h/large.png"), with: reader, facts: FakeMediaFacts()) == .iconOnly)
+        #expect(await ChatPreviews.make(Self.request(2, path: "/h/unreadable.png"), with: reader, facts: FakeMediaFacts()) == .iconOnly)
         #expect(reader.thumbnailsAsked.isEmpty)
     }
 
@@ -219,14 +219,15 @@ struct ChatPreviewsTests {
         let reader = FakeMediaReader(
             thumbnails: .immediate(image),
             pictures: [URL(fileURLWithPath: "/h/wave.gif"): ChatPictureFacts(pixels: 100, animated: true)],
-            pages: [URL(fileURLWithPath: "/h/report.pdf"): 12],
-            lengths: [URL(fileURLWithPath: "/h/clip.mp4"): 42]
+            pages: [URL(fileURLWithPath: "/h/report.pdf"): 12]
         )
+        let clip = URL(fileURLWithPath: "/h/clip.mp4")
+        let facts = FakeMediaFacts(playable: [clip], lengths: [clip: 42])
 
-        #expect(Self.made(await ChatPreviews.make(Self.request(1, path: "/h/wave.gif"), with: reader)) == Made(width: 400, height: 266, detail: .animated))
-        #expect(Self.made(await ChatPreviews.make(Self.request(2, path: "/h/report.pdf"), with: reader)) == Made(width: 400, height: 266, detail: .pages(12)))
-        #expect(Self.made(await ChatPreviews.make(Self.request(3, path: "/h/clip.mp4"), with: reader)) == Made(width: 400, height: 266, detail: .length(42)))
-        #expect(Self.made(await ChatPreviews.make(Self.request(4, path: "/h/q3.docx"), with: reader)) == Made(width: 400, height: 266, detail: nil))
+        #expect(Self.made(await ChatPreviews.make(Self.request(1, path: "/h/wave.gif"), with: reader, facts: facts)) == Made(width: 400, height: 266, detail: .animated))
+        #expect(Self.made(await ChatPreviews.make(Self.request(2, path: "/h/report.pdf"), with: reader, facts: facts)) == Made(width: 400, height: 266, detail: .pages(12)))
+        #expect(Self.made(await ChatPreviews.make(Self.request(3, path: clip.path), with: reader, facts: facts)) == Made(width: 400, height: 266, detail: .length(42)))
+        #expect(Self.made(await ChatPreviews.make(Self.request(4, path: "/h/q3.docx"), with: reader, facts: facts)) == Made(width: 400, height: 266, detail: nil))
     }
 
     // MARK: - Filling the tile
@@ -271,9 +272,9 @@ struct ChatPreviewsTests {
     @Test("a video AVFoundation cannot play opens outside, and no frame is made of it")
     func unplayableVideo() async {
         let clip = URL(fileURLWithPath: "/h/clip.mp4")
-        let reader = FakeMediaReader(thumbnails: .immediate(FakeMediaReader.image()), unplayable: [clip])
+        let reader = FakeMediaReader(thumbnails: .immediate(FakeMediaReader.image()))
 
-        #expect(await ChatPreviews.make(Self.request(1, path: clip.path), with: reader) == .unplayable)
+        #expect(await ChatPreviews.make(Self.request(1, path: clip.path), with: reader, facts: FakeMediaFacts()) == .unplayable)
         #expect(reader.thumbnailsAsked.isEmpty)
     }
 
@@ -320,14 +321,20 @@ struct ChatPreviewsTests {
 
     @Test("an Opens outside tile's app is looked up once per type, and Finder needs no lookup")
     func hints() async {
-        let reader = FakeMediaReader(apps: [UTType.mpeg4Movie.identifier: "Infuse"])
-        let media = ChatMedia(home: { URL(fileURLWithPath: "/h") }, player: AppPlayer(engine: FakePlaybackEngine()), reader: reader, deadlines: ManualDeadlineScheduler())
+        let apps = FakeDocumentApplications([UTType.mpeg4Movie.identifier: "Infuse"])
+        let media = ChatMedia(
+            home: { URL(fileURLWithPath: "/h") },
+            player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()),
+            reader: FakeMediaReader(),
+            documentApplication: { apps.lookUp($0) },
+            deadlines: ManualDeadlineScheduler()
+        )
 
         #expect(await media.hint(for: F.facts("/h/clip.mp4")) == .openIn("Infuse"))
         #expect(await media.hint(for: F.facts("/h/other.mp4", number: 2)) == .openIn("Infuse"))
         #expect(await media.hint(for: F.facts("/h/clip.mov", number: 3)) == .showInFinder)
         #expect(await media.hint(for: F.facts("/h/book.epub", number: 4)) == .showInFinder)
-        #expect(reader.appLookups == [.mpeg4Movie, .quickTimeMovie])
+        #expect(apps.lookups == [.mpeg4Movie, .quickTimeMovie])
     }
 }
 

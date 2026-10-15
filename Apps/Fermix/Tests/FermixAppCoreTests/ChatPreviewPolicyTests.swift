@@ -16,7 +16,7 @@ struct ChatPreviewPolicyTests {
     /// What the pane's own rule shows a file as, read as a tile reads it:
     /// with no bytes, so a type known only as data is taken for text.
     private static func paneKind(_ facts: ChatFileFacts) -> BrowserFileKind? {
-        BrowserLocalFile.kind(of: facts.type, as: facts.entry, readsAsText: { true })
+        BrowserLocalFile.kind(of: facts.disk, readsAsText: { true })
     }
 
     // MARK: - Content or icon
@@ -218,7 +218,7 @@ struct ChatPreviewPolicyTests {
             F.facts("/h/out", type: .folder, isDirectory: true), F.facts("/h/Report.pages", isDirectory: true),
         ]
         for facts in files {
-            #expect(ChatPreviewPolicy.handsToApp(facts) == BrowserLocalFile.mayGoToAnApp(facts.type, as: facts.entry), "\(facts.file.path)")
+            #expect(ChatPreviewPolicy.handsToApp(facts) == BrowserLocalFile.mayGoToAnApp(facts.disk), "\(facts.file.path)")
         }
 
         #expect(ChatPreviewPolicy.handsToApp(F.facts("/h/clip.mov")))

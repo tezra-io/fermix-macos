@@ -412,7 +412,7 @@ struct ChatStripTests {
     @MainActor
     @Test("a row's strip is worked out once for its content, and again when the content changes")
     func keptPerContent() {
-        let media = ChatMedia(home: { URL(fileURLWithPath: "/Users/me/.fermix") }, player: AppPlayer(engine: FakePlaybackEngine()), reader: FakeMediaReader(), deadlines: ManualDeadlineScheduler())
+        let media = ChatMedia(home: { URL(fileURLWithPath: "/Users/me/.fermix") }, player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()), reader: FakeMediaReader(), documentApplication: { _ in nil }, deadlines: ManualDeadlineScheduler())
         let row = CompanionRow(serverSeq: 7, text: "See https://a.com/x", role: "assistant", timestamp: nil, clientMsgId: nil, inReplyTo: nil, turnId: nil)
         let enriched = CompanionRow(
             serverSeq: 7, text: "See https://a.com/x", role: "assistant", timestamp: nil, clientMsgId: nil, inReplyTo: nil, turnId: nil,
@@ -439,8 +439,9 @@ struct ChatStripTests {
                 reads.increment()
                 return URL(fileURLWithPath: "/Users/me/.fermix")
             },
-            player: AppPlayer(engine: FakePlaybackEngine()),
+            player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()),
             reader: FakeMediaReader(),
+            documentApplication: { _ in nil },
             deadlines: ManualDeadlineScheduler()
         )
         let row = { (seq: Int) in
@@ -455,7 +456,7 @@ struct ChatStripTests {
         _ = media.strip(for: row(3))
         #expect(reads.count == 2)
 
-        let unreadable = ChatMedia(home: { throw CocoaError(.fileReadCorruptFile) }, player: AppPlayer(engine: FakePlaybackEngine()), reader: FakeMediaReader(), deadlines: ManualDeadlineScheduler())
+        let unreadable = ChatMedia(home: { throw CocoaError(.fileReadCorruptFile) }, player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()), reader: FakeMediaReader(), documentApplication: { _ in nil }, deadlines: ManualDeadlineScheduler())
         #expect(unreadable.strip(for: row(4)).items.isEmpty)
     }
 
@@ -465,8 +466,8 @@ struct ChatStripTests {
     @MainActor
     @Test("two strip contexts are the same when their media and column width are")
     func contextEquality() {
-        let media = ChatMedia(home: { URL(fileURLWithPath: "/h") }, player: AppPlayer(engine: FakePlaybackEngine()), reader: FakeMediaReader(), deadlines: ManualDeadlineScheduler())
-        let other = ChatMedia(home: { URL(fileURLWithPath: "/h") }, player: AppPlayer(engine: FakePlaybackEngine()), reader: FakeMediaReader(), deadlines: ManualDeadlineScheduler())
+        let media = ChatMedia(home: { URL(fileURLWithPath: "/h") }, player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()), reader: FakeMediaReader(), documentApplication: { _ in nil }, deadlines: ManualDeadlineScheduler())
+        let other = ChatMedia(home: { URL(fileURLWithPath: "/h") }, player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()), reader: FakeMediaReader(), documentApplication: { _ in nil }, deadlines: ManualDeadlineScheduler())
         let context = ChatStripContext(media: media, columnWidth: 720)
 
         #expect(context == ChatStripContext(media: media, columnWidth: 720))

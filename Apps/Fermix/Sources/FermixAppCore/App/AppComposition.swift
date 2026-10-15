@@ -116,7 +116,7 @@ final class AppComposition {
         model = AppModel()
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
-        player = AppPlayer(engine: AVFoundationPlayback())
+        player = AppPlayer(engine: AVFoundationPlayback(), facts: AVFoundationMediaFacts())
         browser = Self.buildBrowser(environment: environment, store: store, location: location, windows: windows, player: player)
         browserHost = Self.buildBrowserHost(
             environment: environment,
@@ -134,6 +134,7 @@ final class AppComposition {
             home: { [store] in try store.resolvedHome() },
             player: player,
             reader: environment.mediaReader,
+            documentApplication: { WorkspaceLinkOpener.documentApplication(toOpen: $0) },
             deadlines: MainQueueDeadlineScheduler()
         )
         voiceCall = VoiceCallModel()

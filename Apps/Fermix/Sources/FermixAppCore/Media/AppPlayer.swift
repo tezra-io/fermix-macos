@@ -48,12 +48,6 @@ public protocol AppPlaybackEngine: AnyObject {
     func play()
     func pause()
     func seek(to seconds: Double)
-    /// Whether AVFoundation can play the file, asked of the file itself and
-    /// loaded asynchronously, never read from its name.
-    func isPlayable(_ url: URL) async -> Bool
-    /// The file's length in seconds, loaded asynchronously; nil where it has
-    /// none to read.
-    func length(of url: URL) async -> Double?
 }
 
 /// What the player tells its one owner.
@@ -99,13 +93,17 @@ public final class AppPlayer: ObservableObject {
     /// offered.
     @Published public private(set) var callIsUp = false
     public let progress = AppPlayerProgress()
+    /// What AVFoundation says of a file before it is held: whether it can
+    /// play at all, and how long it is. Nonisolated, as the answers are.
+    public nonisolated let facts: any MediaFacts
 
     private let engine: any AppPlaybackEngine
     /// The two facts outside the player that stop it, followed for its life.
     private var followed: Set<AnyCancellable> = []
 
-    public init(engine: any AppPlaybackEngine) {
+    public init(engine: any AppPlaybackEngine, facts: any MediaFacts) {
         self.engine = engine
+        self.facts = facts
         engine.events = self
     }
 
@@ -182,17 +180,6 @@ public final class AppPlayer: ObservableObject {
 
     public func holds(_ url: URL, _ place: AppPlayerPlace) -> Bool {
         item == AppPlayerItem(url: url, place: place)
-    }
-
-    /// Whether the player can play the file at all. What it cannot is opened
-    /// outside the app (M66 §3.3).
-    public func isPlayable(_ url: URL) async -> Bool {
-        await engine.isPlayable(url)
-    }
-
-    /// A file's length before it is played, for the time a still sound shows.
-    public func length(of url: URL) async -> Double? {
-        await engine.length(of: url)
     }
 
     // MARK: - Mechanics

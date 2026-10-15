@@ -96,7 +96,7 @@ struct ChatSoundRowTests {
     @Test("a row is made from the file, its name and the one player, and reads nothing until it is drawn")
     func rowIsMadeOverThePlayer() {
         let engine = FakePlaybackEngine()
-        let player = AppPlayer(engine: engine)
+        let player = AppPlayer(engine: engine, facts: FakeMediaFacts())
 
         _ = ChatSoundRow(url: URL(fileURLWithPath: "/Users/Shared/Fermix/voice.m4a"), name: "voice.m4a", player: player)
 

@@ -45,14 +45,6 @@ final class AVFoundationPlayback: AppPlaybackEngine {
         player?.seek(to: Self.time(seconds), toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
-    func isPlayable(_ url: URL) async -> Bool {
-        (try? await AVURLAsset(url: url).load(.isPlayable)) == true
-    }
-
-    func length(of url: URL) async -> Double? {
-        Self.seconds(try? await AVURLAsset(url: url).load(.duration))
-    }
-
     // MARK: - Mechanics
 
     private func made() -> AVPlayer {
@@ -102,7 +94,7 @@ final class AVFoundationPlayback: AppPlaybackEngine {
     /// item still held by then.
     private func readLength(of item: AVPlayerItem) {
         Task { [weak self] in
-            guard let seconds = Self.seconds(try? await item.asset.load(.duration)) else { return }
+            guard let seconds = AVFoundationMediaFacts.seconds(try? await item.asset.load(.duration)) else { return }
             guard let self, player?.currentItem === item else { return }
 
             events?.playbackLengthRead(seconds)
@@ -111,12 +103,5 @@ final class AVFoundationPlayback: AppPlaybackEngine {
 
     private static func time(_ seconds: Double) -> CMTime {
         CMTime(seconds: seconds, preferredTimescale: 600)
-    }
-
-    /// A length as seconds, where it is a real, positive one.
-    private static func seconds(_ time: CMTime?) -> Double? {
-        guard let time, time.isNumeric, time.seconds > 0 else { return nil }
-
-        return time.seconds
     }
 }

@@ -15,7 +15,7 @@ struct BrowserViewerTabTests {
         defer { place.remove() }
         let file = FilePlaceFixture.real(try place.write("clip.mp4", in: place.home))
         let harness = place.harness()
-        harness.playback.playable = [file]
+        harness.facts.playable = [file]
 
         harness.coordinator.openFile(file)
         await harness.settle()
@@ -78,7 +78,7 @@ struct BrowserViewerTabTests {
         defer { place.remove() }
         let file = FilePlaceFixture.real(try place.write("talk.mov", in: place.outside))
         let harness = place.harness()
-        harness.playback.playable = [file]
+        harness.facts.playable = [file]
 
         harness.coordinator.openFile(file)
         await harness.settle()
@@ -150,7 +150,7 @@ struct BrowserViewerTabTests {
         defer { place.remove() }
         let file = FilePlaceFixture.real(try place.write("clip.mp4", in: place.home))
         let harness = place.harness()
-        harness.playback.playable = [file]
+        harness.facts.playable = [file]
         harness.coordinator.openFile(file)
         await harness.settle()
         try #require(harness.viewers.surfaces.first).pressPlay()
@@ -171,7 +171,7 @@ struct BrowserViewerTabTests {
         let sound = FilePlaceFixture.real(try place.write("voice.m4a", in: place.home))
         let film = FilePlaceFixture.real(try place.write("clip.mp4", in: place.home))
         let harness = place.harness()
-        harness.playback.playable = [film]
+        harness.facts.playable = [film]
         harness.player.play(sound, from: .chat)
         harness.playback.events?.playbackPlayingChanged(true)
 
@@ -200,7 +200,7 @@ struct BrowserViewerTabTests {
         let sound = FilePlaceFixture.real(try place.write("voice.m4a", in: place.home))
         let film = FilePlaceFixture.real(try place.write("clip.mp4", in: place.home))
         let harness = place.harness()
-        harness.playback.playable = [film]
+        harness.facts.playable = [film]
         harness.coordinator.openFile(film)
         await harness.settle()
         harness.player.play(sound, from: .chat)
@@ -219,7 +219,7 @@ struct BrowserViewerTabTests {
         let harness = place.harness()
         let calls = AppPlayerSignals()
         harness.player.follow(calls: calls.calls, chatShown: calls.chat)
-        harness.playback.playable = [film]
+        harness.facts.playable = [film]
         calls.callUp(true)
 
         harness.coordinator.openFile(film)

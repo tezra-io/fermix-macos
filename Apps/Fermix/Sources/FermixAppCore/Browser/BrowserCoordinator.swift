@@ -518,11 +518,12 @@ public final class BrowserCoordinator {
     }
 
     /// A sound or a film, in a media tab where AVFoundation says it can play
-    /// it, which it reads from the file itself and never from its name;
-    /// what it cannot play goes to its app, as a tile's Opens outside does.
+    /// it (`MediaFacts`), which it reads from the file itself and never from
+    /// its name; what it cannot play goes to its app, as a tile's Opens
+    /// outside does.
     private func openMedia(_ file: BrowserLocalFile) {
-        Task { [weak self, player] in
-            let playable = await player.isPlayable(file.url)
+        Task { [weak self, facts = player.facts] in
+            let playable = await facts.isPlayable(file.url)
             guard let self else { return }
 
             if playable {

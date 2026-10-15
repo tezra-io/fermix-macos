@@ -1,5 +1,4 @@
 import AVFoundation
-import AppKit
 import Combine
 import Foundation
 
@@ -15,66 +14,41 @@ final class FakePlaybackEngine: AppPlaybackEngine {
     /// Every request, in order: "hold <name>", "hold nothing", "play",
     /// "pause", "seek <seconds>".
     private(set) var requests: [String] = []
-    /// The files AVFoundation would say it can play.
-    var playable: Set<URL> = []
-    /// The lengths AVFoundation would read.
-    var lengths: [URL: Double] = [:]
 
     func hold(_ url: URL?) { requests.append("hold " + (url?.lastPathComponent ?? "nothing")) }
     func play() { requests.append("play") }
     func pause() { requests.append("pause") }
     func seek(to seconds: Double) { requests.append("seek \(seconds)") }
-    func isPlayable(_ url: URL) async -> Bool { playable.contains(url) }
-    func length(of url: URL) async -> Double? { lengths[url] }
 }
 
-/// A media tab's view with no AVKit behind it: what it was last asked to
-/// show, and its Play pressed by the test.
-@MainActor
-final class FakeMediaSurface: BrowserMediaSurface {
-    lazy var view = NSView()
-    var onPlay: (@MainActor () -> Void)?
-    private(set) var holding = false
-    private(set) var playable = false
+/// What AVFoundation would say of each file, set by the test, so no test
+/// opens a file: the one fake of the one owner (`MediaFacts`), for the pane,
+/// the chat's sounds and a video tile alike. Nothing plays unless the test
+/// says it does.
+final class FakeMediaFacts: MediaFacts, @unchecked Sendable {
+    private let lock = NSLock()
+    private var playableFiles: Set<URL>
+    private var fileLengths: [URL: Double]
 
-    func show(holding: Bool, playable: Bool) {
-        self.holding = holding
-        self.playable = playable
+    init(playable: Set<URL> = [], lengths: [URL: Double] = [:]) {
+        playableFiles = playable
+        fileLengths = lengths
     }
 
-    func pressPlay() {
-        onPlay?()
-    }
-}
-
-/// A document tab's view with no Quick Look behind it.
-@MainActor
-final class FakeDocumentPreview: BrowserDocumentPreview {
-    lazy var view = NSView()
-    private(set) var shown: [URL] = []
-    private(set) var closes = 0
-
-    func show(_ file: URL) { shown.append(file) }
-    func close() { closes += 1 }
-}
-
-/// The pane's own viewers over fake views, keeping every one it made.
-@MainActor
-final class FakeBrowserViewers: BrowserViewerMaking {
-    private(set) var surfaces: [FakeMediaSurface] = []
-    private(set) var previews: [FakeDocumentPreview] = []
-
-    func mediaSurface(_ player: AppPlayer) -> any BrowserMediaSurface {
-        let surface = FakeMediaSurface()
-        surfaces.append(surface)
-        return surface
+    /// The files AVFoundation would say it can play.
+    var playable: Set<URL> {
+        get { lock.withLock { playableFiles } }
+        set { lock.withLock { playableFiles = newValue } }
     }
 
-    func documentPreview() -> any BrowserDocumentPreview {
-        let preview = FakeDocumentPreview()
-        previews.append(preview)
-        return preview
+    /// The lengths AVFoundation would read.
+    var lengths: [URL: Double] {
+        get { lock.withLock { fileLengths } }
+        set { lock.withLock { fileLengths = newValue } }
     }
+
+    func isPlayable(_ file: URL) async -> Bool { playable.contains(file) }
+    func length(of file: URL) async -> Double? { lengths[file] }
 }
 
 /// The two facts the player follows, said by the test: whether a call is

@@ -1,22 +1,5 @@
 import SwiftUI
 
-/// The chat's player measures (M66 §3.4).
-enum ChatSoundMetrics {
-    /// The round play button: large, the system's own 28-point control.
-    static let button: Double = 28
-    static let glyph: Double = 11
-    /// A play triangle's weight sits left of its own box, so it is drawn one
-    /// point right to sit in the middle of the circle to the eye.
-    static let playGlyphNudge: Double = 1
-    /// The track's line.
-    static let trackHeight: Double = 3
-    /// What a click or a drag on the track lands in: the line with room
-    /// round it, under the sound's name and beside the button.
-    static let trackHitHeight: Double = 12
-    /// As wide as the player grows: a sound is a line, not a column.
-    static let maxWidth: Double = 320
-}
-
 /// What a sound's player shows, from the one player and the file's own
 /// length: pure, so its rules are provable without a view.
 struct ChatSoundState: Equatable {
@@ -91,12 +74,6 @@ struct ChatSoundRow: View {
     /// The file's own length, read once the row is on screen.
     @State private var fileLength: Double?
 
-    init(url: URL, name: String, player: AppPlayer) {
-        self.url = url
-        self.name = name
-        self.player = player
-    }
-
     var body: some View {
         Group {
             if player.holds(url, .chat) {
@@ -107,7 +84,7 @@ struct ChatSoundRow: View {
                 controls(ChatSoundState(held: false, playing: false, position: 0, length: fileLength))
             }
         }
-        .task(id: url) { fileLength = await player.length(of: url) }
+        .task(id: url) { fileLength = await player.facts.length(of: url) }
     }
 
     private func controls(_ state: ChatSoundState) -> ChatSoundControls {
@@ -159,9 +136,9 @@ private struct ChatSoundControls: View {
         HStack(spacing: Spacing.s) {
             Button(action: toggle) {
                 Image(systemName: state.playing ? "pause.fill" : "play.fill")
-                    .font(.system(size: ChatSoundMetrics.glyph, weight: .semibold))
-                    .offset(x: state.playing ? 0 : ChatSoundMetrics.playGlyphNudge)
-                    .frame(width: ChatSoundMetrics.button, height: ChatSoundMetrics.button)
+                    .font(.system(size: ChatMetrics.soundGlyph, weight: .semibold))
+                    .offset(x: state.playing ? 0 : ChatMetrics.soundPlayGlyphNudge)
+                    .frame(width: ChatMetrics.soundButton, height: ChatMetrics.soundButton)
             }
             .buttonStyle(ChatSoundButtonStyle())
             .accessibilityLabel(ProductStrings[action])
@@ -175,7 +152,7 @@ private struct ChatSoundControls: View {
 
                 HStack(spacing: Spacing.s) {
                     track
-                        .frame(height: ChatSoundMetrics.trackHitHeight)
+                        .frame(height: ChatMetrics.soundTrackHitHeight)
                         .opacity(enabled ? 1 : ButtonRecipe.disabledOpacity)
                         .focusable(enabled)
                         .onKeyPress(.leftArrow) { step(forward: false) }
@@ -192,7 +169,7 @@ private struct ChatSoundControls: View {
                 }
             }
         }
-        .frame(maxWidth: ChatSoundMetrics.maxWidth, alignment: .leading)
+        .frame(maxWidth: ChatMetrics.soundMaxWidth, alignment: .leading)
         .disabled(!enabled)
         .help(name)
         .accessibilityElement(children: .ignore)
@@ -216,7 +193,7 @@ private struct ChatSoundControls: View {
                 Capsule().fill(Palette.ink.color)
                     .frame(width: proxy.size.width * state.filled)
             }
-            .frame(height: ChatSoundMetrics.trackHeight)
+            .frame(height: ChatMetrics.soundTrackHeight)
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(

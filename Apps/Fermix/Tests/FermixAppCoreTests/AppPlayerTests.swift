@@ -1,3 +1,4 @@
+import CoreMedia
 import Foundation
 import Testing
 
@@ -18,11 +19,12 @@ struct AppPlayerTests {
     @MainActor
     struct Rig {
         let engine = FakePlaybackEngine()
+        let facts = FakeMediaFacts()
         let signals = AppPlayerSignals()
         let player: AppPlayer
 
         init() {
-            player = AppPlayer(engine: engine)
+            player = AppPlayer(engine: engine, facts: facts)
             player.follow(calls: signals.calls, chatShown: signals.chat)
         }
 
@@ -241,25 +243,47 @@ struct AppPlayerTests {
         #expect(rig.player.progress.position == 0)
     }
 
-    /// What cannot play is opened outside, whatever its name says.
-    @Test("whether a file can play is AVFoundation's word about the file, never its name")
-    func playabilityIsTheFilesOwn() async {
+    /// The pane's media tabs and the chat's sounds ask the facts the player
+    /// was given, the one owner of what AVFoundation says of a file.
+    @Test("the player carries the one owner of what AVFoundation says of a file")
+    func playerCarriesTheFacts() {
         let rig = Rig()
-        let broken = URL(fileURLWithPath: "/Users/Shared/Fermix/broken.mp4", isDirectory: false)
-        let oddlyNamed = URL(fileURLWithPath: "/Users/Shared/Fermix/recording.data", isDirectory: false)
-        rig.engine.playable = [Self.film, oddlyNamed]
-        rig.engine.lengths = [Self.voice: 61]
 
-        #expect(await rig.player.isPlayable(Self.film))
-        #expect(await rig.player.isPlayable(oddlyNamed))
-        #expect(await !rig.player.isPlayable(broken))
-        #expect(await rig.player.length(of: Self.voice) == 61)
-        #expect(await rig.player.length(of: Self.song) == nil)
+        #expect((rig.player.facts as? FakeMediaFacts) === rig.facts)
     }
 
     @Test("a step is five seconds, and a tick a quarter of one")
     func stepAndTick() {
         #expect(AppPlayer.step == 5)
         #expect(AppPlayer.tick == 0.25)
+    }
+}
+
+/// What AVFoundation says of a sound or a film before anything plays it
+/// (M66 §3.4): asked of the file itself, never of its name, and a length only
+/// where it is a real one.
+@Suite("Media facts")
+struct MediaFactsTests {
+    @Test("a length is a real, positive time, and nothing else")
+    func lengthIsRealAndPositive() {
+        #expect(AVFoundationMediaFacts.seconds(CMTime(seconds: 61.5, preferredTimescale: 600)) == 61.5)
+        #expect(AVFoundationMediaFacts.seconds(nil) == nil)
+        #expect(AVFoundationMediaFacts.seconds(.zero) == nil)
+        #expect(AVFoundationMediaFacts.seconds(CMTime(seconds: -2, preferredTimescale: 600)) == nil)
+        #expect(AVFoundationMediaFacts.seconds(.invalid) == nil)
+        #expect(AVFoundationMediaFacts.seconds(.indefinite) == nil)
+        #expect(AVFoundationMediaFacts.seconds(.positiveInfinity) == nil)
+    }
+
+    /// What cannot play is opened outside, whatever its name says.
+    @Test("a file named like a film that is not one cannot play, and has no length")
+    func nameIsNotPlayability() async throws {
+        let folder = try TemporaryDirectory()
+        defer { folder.remove() }
+        let broken = folder.url.appendingPathComponent("broken.mp4", isDirectory: false)
+        try Data("hello".utf8).write(to: broken)
+
+        #expect(await !AVFoundationMediaFacts().isPlayable(broken))
+        #expect(await AVFoundationMediaFacts().length(of: broken) == nil)
     }
 }
