@@ -646,8 +646,9 @@ struct PhonePairingTests {
             ("helper missing", Self.rail("helper_missing"), PhoneRemoteLine("Not available in this build yet.")),
             ("dormant", Self.rail("dormant"), PhoneRemoteLine("Starts when you pair your first phone.")),
             ("starting", Self.rail("starting"), PhoneRemoteLine("Starting…", .progress)),
-            ("ready", [:], PhoneRemoteLine("Reachable through us1.relay.fermix.ai")),
-            ("not connected", ["connected": false], PhoneRemoteLine("Not connected to us1.relay.fermix.ai right now")),
+            ("ready", [:], PhoneRemoteLine("Connected to Fermix’s relays.")),
+            ("ready with no relay named", ["relay": NSNull()], PhoneRemoteLine("Connected to Fermix’s relays.")),
+            ("not connected", ["connected": false], PhoneRemoteLine("Not connected to Fermix’s relays right now.")),
             (
                 "failed",
                 Self.rail("failed", failure: "fermix-iroh refused the key: wrong length"),

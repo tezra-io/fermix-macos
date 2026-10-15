@@ -767,8 +767,8 @@
 "phone.remote.helperMissing" = "Not available in this build yet.";
 "phone.remote.dormant" = "Starts when you pair your first phone.";
 "phone.remote.starting" = "Starting…";
-"phone.remote.readyFormat" = "Reachable through %@";
-"phone.remote.notConnectedFormat" = "Not connected to %@ right now";
+"phone.remote.ready" = "Connected to Fermix’s relays.";
+"phone.remote.notConnected" = "Not connected to Fermix’s relays right now.";
 "phone.pair" = "Pair a phone…";
 "phone.turnOn.andRestart" = "Turn on and restart Fermix";
 "phone.turnOn.restart" = "Restart Fermix";

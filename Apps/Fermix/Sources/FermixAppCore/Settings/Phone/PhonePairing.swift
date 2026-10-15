@@ -556,9 +556,11 @@ public enum PhoneRowProjection {
 /// The line under Reach from anywhere (M62): where the rail stands, as
 /// `mobile.status.remote` publishes it, in the app's words except a failure,
 /// which is the daemon's sentence as written and is drawn the way the pane
-/// draws every other failure. A rail that is off says nothing beyond its
-/// switch, and neither does a state this app does not know or an engine older
-/// than the rail. A build with no rail never reads as reachable.
+/// draws every other failure. A ready rail says whether this Mac is connected
+/// to Fermix's relays right now, naming none of them. A rail that is off says
+/// nothing beyond its switch, and neither does a state this app does not know
+/// or an engine older than the rail. A build with no rail never reads as
+/// reachable.
 public struct PhoneRemoteLine: Equatable, Sendable {
     /// How the line is drawn: a plain note, a start that moves on by itself,
     /// or a failure.
@@ -578,7 +580,8 @@ public struct PhoneRemoteLine: Equatable, Sendable {
         case .helperMissing: return PhoneRemoteLine(ProductStrings[.phoneRemoteHelperMissing])
         case .dormant: return PhoneRemoteLine(ProductStrings[.phoneRemoteDormant])
         case .starting: return PhoneRemoteLine(ProductStrings[.phoneRemoteStarting], .progress)
-        case .ready: return ready(remote)
+        case .ready:
+            return PhoneRemoteLine(ProductStrings[remote.connected ? .phoneRemoteReady : .phoneRemoteNotConnected])
         case .failed: return remote.failure.map { PhoneRemoteLine($0, .failure) }
         case .off, .unrecognized: return nil
         }
@@ -599,14 +602,6 @@ public struct PhoneRemoteLine: Equatable, Sendable {
         case .starting, .ready, .failed, .unrecognized: return true
         case .off, .dormant, .helperMissing, nil: return false
         }
-    }
-
-    /// The relay's host, and whether this Mac is connected to it right now.
-    private static func ready(_ remote: ManagementMobileRemote) -> PhoneRemoteLine? {
-        guard let host = remote.relay.flatMap({ URL(string: $0)?.host() }) else { return nil }
-
-        let format: ProductStringKey = remote.connected ? .phoneRemoteReadyFormat : .phoneRemoteNotConnectedFormat
-        return PhoneRemoteLine(String(format: ProductStrings[format], host))
     }
 }
 

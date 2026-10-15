@@ -553,7 +553,7 @@ struct PhonePairingModelTests {
         await model.followRemote()
 
         #expect(Self.statusReads(gateway) == 3)
-        #expect(model.remoteLine == PhoneRemoteLine("Reachable through us1.relay.fermix.ai"))
+        #expect(model.remoteLine == PhoneRemoteLine("Connected to Fermix’s relays."))
     }
 
     @Test("a rail that moves only with its switch or a pairing is read once and not followed")
@@ -594,12 +594,12 @@ struct PhonePairingModelTests {
         let failed = try Self.status(PhonePairingTests.rail("failed", failure: "The relay refused this Mac."))
         recoveringGateway.mobileStatusScript = [.success(failed), .success(failed), .success(try Self.status([:]))]
         await recovering.followRemote()
-        #expect(recovering.remoteLine == PhoneRemoteLine("Reachable through us1.relay.fermix.ai"))
+        #expect(recovering.remoteLine == PhoneRemoteLine("Connected to Fermix’s relays."))
 
         let (dropping, droppingGateway) = try Self.model(polls: 1)
         droppingGateway.mobileStatusScript = [.success(try Self.status([:])), .success(try Self.status(["connected": false]))]
         await dropping.followRemote()
-        #expect(dropping.remoteLine == PhoneRemoteLine("Not connected to us1.relay.fermix.ai right now"))
+        #expect(dropping.remoteLine == PhoneRemoteLine("Not connected to Fermix’s relays right now."))
     }
 
     @Test("a rail is followed for a bounded number of reads, and the line stays as last read")
@@ -610,7 +610,7 @@ struct PhonePairingModelTests {
         await model.followRemote()
 
         #expect(Self.statusReads(gateway) == PhoneChannel.remotePolls)
-        #expect(model.remoteLine == PhoneRemoteLine("Reachable through us1.relay.fermix.ai"))
+        #expect(model.remoteLine == PhoneRemoteLine("Connected to Fermix’s relays."))
     }
 
     /// A read the follower loses keeps what the last one said, and the next
@@ -625,14 +625,14 @@ struct PhonePairingModelTests {
         await kept.followRemote()
         #expect(Self.statusReads(keptGateway) == 2)
         #expect(kept.status == .loaded(ready))
-        #expect(kept.remoteLine == PhoneRemoteLine("Reachable through us1.relay.fermix.ai"))
+        #expect(kept.remoteLine == PhoneRemoteLine("Connected to Fermix’s relays."))
 
         let (retried, retriedGateway) = try Self.model(polls: 2)
         retriedGateway.mobileStatusScript = [
             .success(ready), .failure(refused), .success(try Self.status(["connected": false]))
         ]
         await retried.followRemote()
-        #expect(retried.remoteLine == PhoneRemoteLine("Not connected to us1.relay.fermix.ai right now"))
+        #expect(retried.remoteLine == PhoneRemoteLine("Not connected to Fermix’s relays right now."))
 
         let (row, rowGateway) = try Self.model(polls: 0)
         rowGateway.mobileStatusScript = [.success(ready), .failure(refused)]
@@ -662,7 +662,7 @@ struct PhonePairingModelTests {
         await row.value
 
         #expect(Self.statusReads(gateway) == 2)
-        #expect(model.remoteLine == PhoneRemoteLine("Reachable through us1.relay.fermix.ai"))
+        #expect(model.remoteLine == PhoneRemoteLine("Connected to Fermix’s relays."))
     }
 
     // MARK: - Helpers
