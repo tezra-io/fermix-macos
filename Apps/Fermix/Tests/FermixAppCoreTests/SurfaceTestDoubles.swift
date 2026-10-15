@@ -140,10 +140,14 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// The phone channel, where a case needs answers the goldens do not give:
     /// another moment of the channel, of the start, or of the window.
     var mobileStatusResult: ManagementMobileStatus?
-    /// The channel's reads, consumed in order ahead of `mobileStatusResult`;
-    /// an exhausted script keeps answering with the last.
-    var mobileStatusScript: [ManagementMobileStatus] = []
+    /// The channel's reads, each an answer or a refusal, consumed in order
+    /// ahead of `mobileStatusResult`; an exhausted script keeps answering with
+    /// the last.
+    var mobileStatusScript: [Result<ManagementMobileStatus, any Error>] = []
     var mobileStatusIndex = 0
+    /// Holds a channel read open once its answer is chosen, so a case can
+    /// land two reads in the other order from the one they were asked in.
+    var mobileStatusGate: (@Sendable () async -> Void)?
     var mobileDevicesResult: ManagementMobileDevices?
     var pairingStartResult: ManagementPairingStart?
     /// Holds `mobile.pair.start` open, so a case can close the sheet while the

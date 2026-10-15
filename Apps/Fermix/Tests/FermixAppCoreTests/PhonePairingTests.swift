@@ -639,7 +639,7 @@ struct PhonePairingTests {
         #expect(PhoneRemoteLine.line(older.remote) == nil)
     }
 
-    @Test("the line says where the rail stands, a failure as one, and nothing beyond the switch while it is off")
+    @Test("the line says where the rail stands, a start as progress, a failure as one, and nothing while it is off")
     func remoteLines() throws {
         let cases: [(String, [String: Any], PhoneRemoteLine?)] = [
             ("off", Self.rail("off"), nil),
@@ -651,13 +651,13 @@ struct PhonePairingTests {
                 )
             ),
             ("dormant", Self.rail("dormant"), PhoneRemoteLine("Starts when you pair your first phone.")),
-            ("starting", Self.rail("starting"), PhoneRemoteLine("Starting…")),
+            ("starting", Self.rail("starting"), PhoneRemoteLine("Starting…", .progress)),
             ("ready", [:], PhoneRemoteLine("Reachable through us1.relay.fermix.ai")),
             ("not connected", ["connected": false], PhoneRemoteLine("Not connected to us1.relay.fermix.ai right now")),
             (
                 "failed",
                 Self.rail("failed", failure: "fermix-iroh refused the key: wrong length"),
-                PhoneRemoteLine("fermix-iroh refused the key: wrong length", failed: true)
+                PhoneRemoteLine("fermix-iroh refused the key: wrong length", .failure)
             ),
             ("unknown", Self.rail("paused"), nil)
         ]
@@ -697,7 +697,7 @@ struct PhonePairingTests {
 
     /// A rail in a state that is not `ready` or `failed`, with every field
     /// the state does not carry nulled, as the contract publishes it.
-    private static func rail(_ state: String, failure: String? = nil) -> [String: Any] {
+    static func rail(_ state: String, failure: String? = nil) -> [String: Any] {
         [
             "state": state,
             "endpoint_id": NSNull(),
@@ -708,7 +708,7 @@ struct PhonePairingTests {
         ]
     }
 
-    private static func remote(_ status: inout [String: Any], _ fields: [String: Any]) {
+    static func remote(_ status: inout [String: Any], _ fields: [String: Any]) {
         var remote = status["remote"] as? [String: Any] ?? [:]
         remote.merge(fields) { _, new in new }
         status["remote"] = remote

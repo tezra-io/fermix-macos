@@ -20,6 +20,11 @@ public enum PhoneChannel {
     /// The cadence the contract recommends for reading a pairing window, and
     /// the one this app polls at (PROTOCOL.md).
     public static let pollSeconds: TimeInterval = 1
+
+    /// The most times one follow of Reach from anywhere reads the rail: five
+    /// minutes at the contract's cadence, after which the line stays as last
+    /// read until the switch moves or the Phones step is shown again.
+    public static let remotePolls = 300
 }
 
 // MARK: - The link
@@ -555,8 +560,16 @@ public enum PhoneRowProjection {
 /// switch, and neither does a state this app does not know or an engine older
 /// than the rail. A build with no rail never reads as reachable.
 public struct PhoneRemoteLine: Equatable, Sendable {
+    /// How the line is drawn: a plain note, a start that moves on by itself,
+    /// or a failure.
+    public enum Kind: Equatable, Sendable {
+        case note
+        case progress
+        case failure
+    }
+
     public let text: String
-    public let failed: Bool
+    public let kind: Kind
 
     public static func line(_ remote: ManagementMobileRemote?) -> PhoneRemoteLine? {
         guard let remote else { return nil }
@@ -564,16 +577,28 @@ public struct PhoneRemoteLine: Equatable, Sendable {
         switch remote.state {
         case .helperMissing: return PhoneRemoteLine(ProductStrings[.phoneRemoteHelperMissing])
         case .dormant: return PhoneRemoteLine(ProductStrings[.phoneRemoteDormant])
-        case .starting: return PhoneRemoteLine(ProductStrings[.phoneRemoteStarting])
+        case .starting: return PhoneRemoteLine(ProductStrings[.phoneRemoteStarting], .progress)
         case .ready: return ready(remote)
-        case .failed: return remote.failure.map { PhoneRemoteLine($0, failed: true) }
+        case .failed: return remote.failure.map { PhoneRemoteLine($0, .failure) }
         case .off, .unrecognized: return nil
         }
     }
 
-    init(_ text: String, failed: Bool = false) {
+    init(_ text: String, _ kind: Kind = .note) {
         self.text = text
-        self.failed = failed
+        self.kind = kind
+    }
+
+    /// Whether the rail can move while nobody touches its switch, so the line
+    /// is followed: a rail starting, one that is up and can lose its relay,
+    /// one the engine retries after a failure, and a state this app does not
+    /// know. Off, dormant and a build with no rail move only with the switch
+    /// or a pairing, and either puts the Phones step up again.
+    public static func moves(_ remote: ManagementMobileRemote?) -> Bool {
+        switch remote?.state {
+        case .starting, .ready, .failed, .unrecognized: return true
+        case .off, .dormant, .helperMissing, nil: return false
+        }
     }
 
     /// The relay's host, and whether this Mac is connected to it right now.

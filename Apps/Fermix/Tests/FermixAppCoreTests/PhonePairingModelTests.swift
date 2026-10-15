@@ -544,47 +544,136 @@ struct PhonePairingModelTests {
 
     // MARK: - Reach from anywhere
 
-    @Test("a starting rail is read once a second until it settles, and the line follows it")
+    @Test("a starting rail is read once a second, and the line follows it up")
     func followsAStartingRail() async throws {
-        let (model, gateway) = try Self.model(polls: 5)
-        let starting = try PairingGolden.status { Self.rail(&$0, "starting") }
-        gateway.mobileStatusScript = [starting, starting, try PairingGolden.status()]
+        let (model, gateway) = try Self.model(polls: 2)
+        let starting = try Self.status(["state": "starting"])
+        gateway.mobileStatusScript = [.success(starting), .success(starting), .success(try Self.status([:]))]
 
         await model.followRemote()
 
-        #expect(gateway.calls.filter { $0 == .v2(.mobileStatus) }.count == 3)
-        #expect(model.remoteLine?.text == "Reachable through us1.relay.fermix.ai")
+        #expect(Self.statusReads(gateway) == 3)
+        #expect(model.remoteLine == PhoneRemoteLine("Reachable through us1.relay.fermix.ai"))
     }
 
-    @Test("a rail that is not starting is read once and not followed")
+    @Test("a rail that moves only with its switch or a pairing is read once and not followed")
     func readsASettledRailOnce() async throws {
-        for state in ["ready", "helper_missing", "dormant", "off"] {
+        for state in ["helper_missing", "dormant", "off"] {
             let (model, gateway) = try Self.model(polls: 5)
-            gateway.mobileStatusResult = try PairingGolden.status { Self.rail(&$0, state) }
+            gateway.mobileStatusResult = try Self.status(["state": state])
 
             await model.followRemote()
 
-            #expect(gateway.calls.filter { $0 == .v2(.mobileStatus) }.count == 1, "\(state)")
+            #expect(Self.statusReads(gateway) == 1, "\(state)")
+        }
+
+        let (older, olderGateway) = try Self.model(polls: 5)
+        olderGateway.mobileStatusResult = try PairingGolden.status { $0["remote"] = nil }
+        await older.followRemote()
+        #expect(Self.statusReads(olderGateway) == 1, "an engine older than the rail")
+    }
+
+    /// The engine retries a failed rail by itself, and `connected` is the
+    /// relay right now, so every state but the three above can change while
+    /// the step is up. The sleeper ending is the step going.
+    @Test("a rail that can move by itself is followed until the step goes")
+    func followsAMovingRail() async throws {
+        for state in ["starting", "ready", "failed", "paused"] {
+            let (model, gateway) = try Self.model(polls: 2)
+            gateway.mobileStatusResult = try Self.status(["state": state])
+
+            await model.followRemote()
+
+            #expect(Self.statusReads(gateway) == 3, "\(state): one read, then one per poll allowed")
         }
     }
 
-    @Test("a rail still starting when the step goes stops being read")
-    func stopsWithTheStep() async throws {
-        let (model, gateway) = try Self.model(polls: 2)
-        gateway.mobileStatusResult = try PairingGolden.status { Self.rail(&$0, "starting") }
+    @Test("the line follows a failure the engine recovers from, and a relay that drops")
+    func followsTheRailBothWays() async throws {
+        let (recovering, recoveringGateway) = try Self.model(polls: 2)
+        let failed = try Self.status(PhonePairingTests.rail("failed", failure: "The relay refused this Mac."))
+        recoveringGateway.mobileStatusScript = [.success(failed), .success(failed), .success(try Self.status([:]))]
+        await recovering.followRemote()
+        #expect(recovering.remoteLine == PhoneRemoteLine("Reachable through us1.relay.fermix.ai"))
+
+        let (dropping, droppingGateway) = try Self.model(polls: 1)
+        droppingGateway.mobileStatusScript = [.success(try Self.status([:])), .success(try Self.status(["connected": false]))]
+        await dropping.followRemote()
+        #expect(dropping.remoteLine == PhoneRemoteLine("Not connected to us1.relay.fermix.ai right now"))
+    }
+
+    @Test("a rail is followed for a bounded number of reads, and the line stays as last read")
+    func followIsBounded() async throws {
+        let (model, gateway) = try Self.model(polls: PhoneChannel.remotePolls * 2)
+        gateway.mobileStatusResult = try Self.status([:])
 
         await model.followRemote()
 
-        #expect(gateway.calls.filter { $0 == .v2(.mobileStatus) }.count == 3, "one read, then one per poll allowed")
-        #expect(model.remoteLine?.text == "Starting…")
+        #expect(Self.statusReads(gateway) == PhoneChannel.remotePolls)
+        #expect(model.remoteLine == PhoneRemoteLine("Reachable through us1.relay.fermix.ai"))
+    }
+
+    /// A read the follower loses keeps what the last one said, and the next
+    /// poll reads again; the row's own read still publishes a refusal.
+    @Test("a read that fails while the rail is followed keeps the line and is tried again")
+    func followOutlastsAFailedRead() async throws {
+        let ready = try Self.status([:])
+        let refused = ManagementRefusal.daemon(.unavailable, "The daemon is restarting.")
+
+        let (kept, keptGateway) = try Self.model(polls: 1)
+        keptGateway.mobileStatusScript = [.success(ready), .failure(refused)]
+        await kept.followRemote()
+        #expect(Self.statusReads(keptGateway) == 2)
+        #expect(kept.status == .loaded(ready))
+        #expect(kept.remoteLine == PhoneRemoteLine("Reachable through us1.relay.fermix.ai"))
+
+        let (retried, retriedGateway) = try Self.model(polls: 2)
+        retriedGateway.mobileStatusScript = [
+            .success(ready), .failure(refused), .success(try Self.status(["connected": false]))
+        ]
+        await retried.followRemote()
+        #expect(retried.remoteLine == PhoneRemoteLine("Not connected to us1.relay.fermix.ai right now"))
+
+        let (row, rowGateway) = try Self.model(polls: 0)
+        rowGateway.mobileStatusScript = [.success(ready), .failure(refused)]
+        await row.readRow()
+        await row.readRow()
+        #expect(row.status == .failure(refused))
+        #expect(row.remoteLine == nil)
+    }
+
+    /// The row's read and the follower's go out on separate connections as
+    /// the Phones step opens, and the one asked first can answer last.
+    @Test("an answer asked before one already shown never replaces it")
+    func olderAnswerNeverWins() async throws {
+        let (model, gateway) = try Self.model(polls: 0)
+        gateway.mobileStatusScript = [.success(try Self.status(["state": "starting"])), .success(try Self.status([:]))]
+        let gate = AsyncGate()
+        let asked = CountingBox()
+        gateway.mobileStatusGate = {
+            asked.increment()
+            if asked.count == 1 { await gate.wait() }
+        }
+
+        let row = Task { await model.readRow() }
+        while asked.count == 0 { await Task.yield() }
+        await model.followRemote()
+        gate.release()
+        await row.value
+
+        #expect(Self.statusReads(gateway) == 2)
+        #expect(model.remoteLine == PhoneRemoteLine("Reachable through us1.relay.fermix.ai"))
     }
 
     // MARK: - Helpers
 
-    private static func rail(_ status: inout [String: Any], _ state: String) {
-        var remote = status["remote"] as? [String: Any] ?? [:]
-        remote["state"] = state
-        status["remote"] = remote
+    /// The golden status with its rail changed as `fields` say.
+    private static func status(_ fields: [String: Any]) throws -> ManagementMobileStatus {
+        try PairingGolden.status { PhonePairingTests.remote(&$0, fields) }
+    }
+
+    private static func statusReads(_ gateway: FakeDaemonGateway) -> Int {
+        gateway.calls.filter { $0 == .v2(.mobileStatus) }.count
     }
 
     static func model(polls: Int) throws -> (PhonePairingModel, FakeDaemonGateway) {

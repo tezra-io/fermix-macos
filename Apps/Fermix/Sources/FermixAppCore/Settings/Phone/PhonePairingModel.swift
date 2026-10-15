@@ -40,6 +40,11 @@ public final class PhonePairingModel: ObservableObject {
     private var work: Task<Void, Never>?
     /// The cancel a closing sheet sends, which outlives the sheet.
     private var closing: Task<Void, Never>?
+    /// Status reads, numbered as they are asked, and the latest whose answer
+    /// is shown. The row and the rail's follower read on separate
+    /// connections, so the read asked first can answer last.
+    private var statusReadsAsked = 0
+    private var statusReadShown = 0
 
     public init(settings: SettingsModel, sleeper: any Sleeping) {
         self.settings = settings
@@ -73,14 +78,15 @@ public final class PhonePairingModel: ObservableObject {
     /// The line under Reach from anywhere's switch (M62).
     public var remoteLine: PhoneRemoteLine? { PhoneRemoteLine.line(status.value?.remote) }
 
-    /// Reads the rail as it stands, then again at the sheet's cadence while it
-    /// is starting, so the line under its switch moves on from Starting by
-    /// itself. The Phones step runs it as the switch appears and each time the
-    /// daemon publishes the switch moved, and cancels it when the step goes.
+    /// Reads the rail as it stands, then again at the sheet's cadence for as
+    /// long as it can move by itself, so the line under its switch is never
+    /// more than one read behind the daemon, up to `remotePolls` reads. The
+    /// Phones step runs it as the switch appears and each time the daemon
+    /// publishes the switch moved, and cancels it when the step goes.
     public func followRemote() async {
-        _ = try? await readStatus()
+        var polls = 1
 
-        while status.value?.remote?.state == .starting {
+        while await railMoves(), polls < PhoneChannel.remotePolls {
             do {
                 try await sleeper.sleep(seconds: PhoneChannel.pollSeconds)
             } catch {
@@ -88,8 +94,24 @@ public final class PhonePairingModel: ObservableObject {
             }
             guard !Task.isCancelled else { return }
 
-            _ = try? await readStatus()
+            polls += 1
         }
+    }
+
+    /// One read of the rail, and whether it is read again: while it can move
+    /// by itself, and after a read that failed, which is logged and leaves
+    /// the line as the last answer said rather than blanking it.
+    private func railMoves() async -> Bool {
+        let read = askStatus()
+
+        do {
+            publishStatus(.loaded(try await gateway.mobileStatus()), asked: read)
+        } catch {
+            _ = refusal(error, "mobile.status")
+            return true
+        }
+
+        return PhoneRemoteLine.moves(status.value?.remote)
     }
 
     // MARK: - The sheet
@@ -380,16 +402,31 @@ public final class PhonePairingModel: ObservableObject {
 
     private func readStatus() async throws -> ManagementMobileStatus {
         if status.value == nil { publish(.loading, to: \.status) }
+        let read = askStatus()
 
         do {
             let answer = try await gateway.mobileStatus()
-            publish(.loaded(answer), to: \.status)
+            publishStatus(.loaded(answer), asked: read)
             return answer
         } catch {
-            publish(.failure(error), to: \.status)
+            publishStatus(.failure(error), asked: read)
             _ = refusal(error, "mobile.status")
             throw error
         }
+    }
+
+    private func askStatus() -> Int {
+        statusReadsAsked += 1
+
+        return statusReadsAsked
+    }
+
+    /// One read's answer, shown unless a read asked after it is shown already.
+    private func publishStatus(_ value: SettingsReadState<ManagementMobileStatus>, asked read: Int) {
+        guard read > statusReadShown else { return }
+
+        statusReadShown = read
+        publish(value, to: \.status)
     }
 
     private func readDevices() async {
