@@ -553,7 +553,7 @@ struct PhonePairingModelTests {
         await model.followRemote()
 
         #expect(gateway.calls.filter { $0 == .v2(.mobileStatus) }.count == 3)
-        #expect(model.remoteLine == "Reachable through us1.relay.fermix.ai")
+        #expect(model.remoteLine?.text == "Reachable through us1.relay.fermix.ai")
     }
 
     @Test("a rail that is not starting is read once and not followed")
@@ -576,7 +576,7 @@ struct PhonePairingModelTests {
         await model.followRemote()
 
         #expect(gateway.calls.filter { $0 == .v2(.mobileStatus) }.count == 3, "one read, then one per poll allowed")
-        #expect(model.remoteLine == "Starting…")
+        #expect(model.remoteLine?.text == "Starting…")
     }
 
     // MARK: - Helpers

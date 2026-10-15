@@ -459,9 +459,10 @@ private struct PhonePhonesStep: View {
 
 /// Reach from anywhere (M62): the daemon's switch as the one renderer draws
 /// it, and under it one line saying where the rail stands, a paragraph apart
-/// so it does not read as the end of the switch's own footer. The rail is read
-/// again whenever the daemon publishes the switch's value, which is once a
-/// write has landed.
+/// so it does not read as the end of the switch's own footer, and in the
+/// warning colour where the rail failed. The rail is read again whenever the
+/// daemon publishes the switch's value, which is once a write has landed, and
+/// the line moves on by itself while the rail starts.
 private struct PhoneRemoteRow: View {
     @ObservedObject var model: PhonePairingModel
     @ObservedObject var settings: SettingsModel
@@ -472,7 +473,11 @@ private struct PhoneRemoteRow: View {
             DescriptorRow(model: settings, section: PhoneChannel.section, row: row)
 
             if let line = model.remoteLine {
-                PhoneNote(text: line)
+                Text(line.text)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle((line.failed ? Palette.warning : Palette.secondary).color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.updatesFrequently)
             }
         }
         .task(id: row.value) { await model.followRemote() }

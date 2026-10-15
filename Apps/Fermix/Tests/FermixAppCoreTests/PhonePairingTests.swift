@@ -639,23 +639,25 @@ struct PhonePairingTests {
         #expect(PhoneRemoteLine.line(older.remote) == nil)
     }
 
-    @Test("the line says where the rail stands, and nothing beyond the switch while it is off")
+    @Test("the line says where the rail stands, a failure as one, and nothing beyond the switch while it is off")
     func remoteLines() throws {
-        let cases: [(String, [String: Any], String?)] = [
+        let cases: [(String, [String: Any], PhoneRemoteLine?)] = [
             ("off", Self.rail("off"), nil),
             (
                 "helper missing",
                 Self.rail("helper_missing"),
-                "Not available in this build yet, so your phone connects over your home network or Tailscale."
+                PhoneRemoteLine(
+                    "Not available in this build yet, so your phone connects over your home network or Tailscale."
+                )
             ),
-            ("dormant", Self.rail("dormant"), "Starts when you pair your first phone."),
-            ("starting", Self.rail("starting"), "Starting…"),
-            ("ready", [:], "Reachable through us1.relay.fermix.ai"),
-            ("not connected", ["connected": false], "Not connected to us1.relay.fermix.ai right now"),
+            ("dormant", Self.rail("dormant"), PhoneRemoteLine("Starts when you pair your first phone.")),
+            ("starting", Self.rail("starting"), PhoneRemoteLine("Starting…")),
+            ("ready", [:], PhoneRemoteLine("Reachable through us1.relay.fermix.ai")),
+            ("not connected", ["connected": false], PhoneRemoteLine("Not connected to us1.relay.fermix.ai right now")),
             (
                 "failed",
                 Self.rail("failed", failure: "fermix-iroh refused the key: wrong length"),
-                "fermix-iroh refused the key: wrong length"
+                PhoneRemoteLine("fermix-iroh refused the key: wrong length", failed: true)
             ),
             ("unknown", Self.rail("paused"), nil)
         ]
@@ -667,17 +669,30 @@ struct PhonePairingTests {
         }
     }
 
-    /// A build with no rail, whatever else the status carries, is never
-    /// drawn as reachable.
-    @Test("a build with no rail never reads as reachable")
-    func missingHelperIsNeverReachable() throws {
-        let status = try PairingGolden.status {
-            Self.remote(&$0, ["state": "helper_missing", "connected": true])
-        }
-        let line = try #require(PhoneRemoteLine.line(status.remote))
+    /// The state alone decides the line: a build with no rail says so even
+    /// beside the relay, connection and endpoint a ready rail would carry, so
+    /// nothing a ready rail says reaches it.
+    @Test("a build with no rail says so, whatever else the status carries")
+    func missingHelperIsTheStateAlone() throws {
+        let missing = try #require(PhoneRemoteLine.line(try PairingGolden.status {
+            Self.remote(&$0, ["state": "helper_missing"])
+        }.remote))
 
-        #expect(!line.contains("Reachable"))
-        #expect(!line.contains("relay"))
+        #expect(missing == PhoneRemoteLine(ProductStrings[.phoneRemoteHelperMissing]))
+    }
+
+    /// The two switches the sheet names by key are the ones the golden phone
+    /// section publishes, so a row renamed in the engine fails here rather
+    /// than leaving the sheet a bare toggle with no line under it.
+    @Test("the phone section publishes both switches the sheet names")
+    func phoneSectionNamesBothSwitches() throws {
+        let section: ManagementSettingsSectionRows = try PairingGolden.decode("settings_get_channels_mobile") { _ in }
+
+        for key in [PhoneChannel.switchKey, PhoneChannel.remoteKey] {
+            let row = section.rows.first { $0.key == key }
+
+            #expect(row?.kind == .toggle, "\(key)")
+        }
     }
 
     /// A rail in a state that is not `ready` or `failed`, with every field

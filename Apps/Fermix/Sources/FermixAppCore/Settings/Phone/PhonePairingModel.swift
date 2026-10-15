@@ -71,7 +71,7 @@ public final class PhonePairingModel: ObservableObject {
     // MARK: - Reach from anywhere
 
     /// The line under Reach from anywhere's switch (M62).
-    public var remoteLine: String? { PhoneRemoteLine.line(status.value?.remote) }
+    public var remoteLine: PhoneRemoteLine? { PhoneRemoteLine.line(status.value?.remote) }
 
     /// Reads the rail as it stands, then again at the sheet's cadence while it
     /// is starting, so the line under its switch moves on from Starting by
