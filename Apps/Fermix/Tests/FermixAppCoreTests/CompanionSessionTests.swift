@@ -443,12 +443,11 @@ struct CompanionSessionTests {
         harness.connected()
         harness.socket.deliver(E.backward([10, 11, 12], head: 12))
 
-        harness.socket.deliver(M.voiceNote(13))
-        harness.socket.deliver(M.page([M.note(13)], head: 13))
+        harness.socket.deliver(M.announced(13, request: M.request(13)))
+        harness.socket.deliver(M.page([M.exported(13, refs: [M.voice], request: M.request(13))], head: 13))
         harness.socket.deliver(E.row(14, role: "assistant"))
-        harness.socket.deliver(
-            M.page([M.note(13, text: "Pick up milk"), M.reply(14, to: 13, text: "row 14")], head: 14)
-        )
+        let transcribed = M.exported(13, text: "Pick up milk", refs: [M.voice], request: M.request(13))
+        harness.socket.deliver(M.page([transcribed, M.reply(14, to: 13, text: "row 14")], head: 14))
 
         #expect(try harness.sent() == wire(hello, newestPagePull, M.read(after: 12, limit: 1), M.read(after: 12, limit: 2)))
         #expect(harness.model.rows.first { $0.serverSeq == 13 }?.text == "Pick up milk")

@@ -25,7 +25,7 @@ import Foundation
 /// file turns out to be.
 struct ChatStrip: Equatable {
     /// The `kind` the engine gives a phone's recorded voice.
-    static let voiceKind = "audio"
+    static let voiceKind = CompanionProtocol.audioKind
 
     /// The row's voice note, its first `audio` ref, drawn as its chip with
     /// the row's text as its transcript.

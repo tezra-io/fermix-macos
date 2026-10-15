@@ -45,12 +45,12 @@ enum ChatGreeting {
 /// of a conversation. A role this build has no word for is shown as the
 /// daemon wrote it.
 enum ChatSpeaker {
-    static let user = "user"
+    static let user = CompanionProtocol.userRole
 
     static func name(role: String?) -> String {
         switch role {
         case user?: return ProductStrings[.voiceCaptionSpeakerUser]
-        case "assistant"?, nil: return ProductStrings[.voiceCaptionSpeakerAssistant]
+        case CompanionProtocol.assistantRole?, nil: return ProductStrings[.voiceCaptionSpeakerAssistant]
         case let other?: return other
         }
     }

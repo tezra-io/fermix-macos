@@ -28,8 +28,8 @@ struct ChatPlaceTests {
         var chat = CompanionChat()
         _ = CompanionReducer.negotiated(&chat)
         _ = CompanionReducer.receive(E.backward(Array(1...10), head: 10), into: &chat)
-        _ = CompanionReducer.receive(M.voiceNote(11), into: &chat)
-        _ = CompanionReducer.receive(M.page([M.note(11)], head: 11), into: &chat)
+        _ = CompanionReducer.receive(M.announced(11, request: M.request(11)), into: &chat)
+        _ = CompanionReducer.receive(M.page([M.exported(11, refs: [M.voice], request: M.request(11))], head: 11), into: &chat)
         for seq in 12...20 {
             _ = CompanionReducer.receive(E.row(seq), into: &chat)
         }
@@ -38,7 +38,7 @@ struct ChatPlaceTests {
 
     /// The read the reply at 21 asks for: the note, now with its transcript,
     /// up to the reply, which says what its announcement said.
-    private static let transcribed = [M.note(11, text: "Pick up milk")]
+    private static let transcribed = [M.exported(11, text: "Pick up milk", refs: [M.voice], request: M.request(11))]
         + (12...20).map(E.exported)
         + [M.reply(21, to: 11, text: "row 21")]
 

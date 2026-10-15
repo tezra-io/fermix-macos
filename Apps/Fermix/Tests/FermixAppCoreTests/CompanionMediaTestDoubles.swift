@@ -25,9 +25,21 @@ enum CompanionMediaRows {
         caption: nil
     )
 
-    /// A media row announced live: a voice note from the phone is the user's
-    /// with no text, a picture Fermix sent the phone is the assistant's.
-    static func announced(_ seq: Int, role: String = "user", text: String = "") -> CompanionServerEvent {
+    /// The request a voice note from the phone recorded, which its reply
+    /// names in `in_reply_to`.
+    static func request(_ seq: Int) -> String {
+        "phone-\(seq)"
+    }
+
+    /// A media row announced live: a voice note from the phone is the user's,
+    /// with no text and the request it recorded; a picture Fermix sent the
+    /// phone is the assistant's.
+    static func announced(
+        _ seq: Int,
+        role: String = "user",
+        text: String = "",
+        request: String? = nil
+    ) -> CompanionServerEvent {
         .row(
             CompanionAnnouncedRow(
                 profileId: CompanionEvents.profile,
@@ -35,18 +47,21 @@ enum CompanionMediaRows {
                 role: role,
                 text: text,
                 timestamp: "2026-10-11T09:00:00Z",
-                clientMsgId: nil,
+                clientMsgId: request,
                 kind: "media",
                 metadata: nil
             )
         )
     }
 
+    /// A media row as history has it, with its files. A voice note's
+    /// transcript, once stored, is its text.
     static func exported(
         _ seq: Int,
         role: String = "user",
         text: String = "",
-        refs: [CompanionMediaRef]
+        refs: [CompanionMediaRef],
+        request: String? = nil
     ) -> CompanionTimelineRow {
         CompanionTimelineRow(
             serverSeq: seq,
@@ -55,47 +70,7 @@ enum CompanionMediaRows {
             kind: "media",
             timestamp: "2026-10-11T09:00:00Z",
             mediaRefs: refs,
-            clientMsgId: nil,
-            inReplyTo: nil,
-            metadata: nil,
-            linkPreviews: nil
-        )
-    }
-
-    /// The request a voice note from the phone recorded, which its reply
-    /// names in `in_reply_to`.
-    static func request(_ seq: Int) -> String {
-        "phone-\(seq)"
-    }
-
-    /// A voice note announced live: the person's, with no text, recording its
-    /// request.
-    static func voiceNote(_ seq: Int) -> CompanionServerEvent {
-        .row(
-            CompanionAnnouncedRow(
-                profileId: CompanionEvents.profile,
-                serverSeq: seq,
-                role: "user",
-                text: "",
-                timestamp: "2026-10-11T09:00:00Z",
-                clientMsgId: request(seq),
-                kind: "media",
-                metadata: nil
-            )
-        )
-    }
-
-    /// A voice note as history has it: its transcript, once stored, is its
-    /// text.
-    static func note(_ seq: Int, text: String = "") -> CompanionTimelineRow {
-        CompanionTimelineRow(
-            serverSeq: seq,
-            role: "user",
-            content: text,
-            kind: "media",
-            timestamp: "2026-10-11T09:00:00Z",
-            mediaRefs: [voice],
-            clientMsgId: request(seq),
+            clientMsgId: request,
             inReplyTo: nil,
             metadata: nil,
             linkPreviews: nil

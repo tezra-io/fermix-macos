@@ -552,8 +552,8 @@ struct CompanionReducerTests {
     @Test("reads are served catch-up first, then paging, then rows read again")
     func readsAreServedInOrder() {
         var chat = CompanionChat.holding(1...10, older: true)
-        #expect(chat.receive(M.voiceNote(11)) == [M.read(after: 10, limit: 1)])
-        chat.receive(M.page([M.note(11)], head: 11))
+        #expect(chat.receive(M.announced(11, request: M.request(11))) == [M.read(after: 10, limit: 1)])
+        chat.receive(M.page([M.exported(11, refs: [M.voice], request: M.request(11))], head: 11))
 
         // While the catch-up read is out, the voice note is due a read and the
         // reader reaches the top: both wait.
@@ -566,7 +566,8 @@ struct CompanionReducerTests {
         // The catch-up page brings 12, so the row read is left with the note.
         #expect(chat.receive(E.forward([12, 13], head: 13, next: 13)) == [historyPull(.before(seq: 1))])
         #expect(chat.receive(E.backward([], head: 13)) == [M.read(after: 10, limit: 1)])
-        #expect(chat.receive(M.page([M.note(11, text: "Pick up milk")], head: 13)).isEmpty)
+        let transcribed = M.exported(11, text: "Pick up milk", refs: [M.voice], request: M.request(11))
+        #expect(chat.receive(M.page([transcribed], head: 13)).isEmpty)
         #expect(chat.historyPull == nil)
     }
 
@@ -669,8 +670,8 @@ struct CompanionReducerTests {
     @Test("an assistant row reads a waiting voice note up to itself; a user row and this Mac's own reply do not")
     func voiceNoteIsReadUpToItsReply() {
         var chat = CompanionChat.holding(1...10)
-        chat.receive(M.voiceNote(11))
-        chat.receive(M.page([M.note(11)], head: 11))
+        chat.receive(M.announced(11, request: M.request(11)))
+        chat.receive(M.page([M.exported(11, refs: [M.voice], request: M.request(11))], head: 11))
         #expect(chat.awaitingTranscript == [11: M.request(11)])
 
         #expect(chat.receive(E.row(12)).isEmpty)
@@ -678,7 +679,12 @@ struct CompanionReducerTests {
         #expect(chat.awaitingTranscript == [11: M.request(11)])
 
         #expect(chat.receive(E.row(14, role: "assistant")) == [M.read(after: 10, limit: 4)])
-        let page = [M.note(11, text: "Pick up milk"), E.exported(12), E.exported(13), M.reply(14, to: 11, text: "Added to your list.")]
+        let page = [
+            M.exported(11, text: "Pick up milk", refs: [M.voice], request: M.request(11)),
+            E.exported(12),
+            E.exported(13),
+            M.reply(14, to: 11, text: "Added to your list.")
+        ]
         #expect(chat.receive(M.page(page, head: 14)).isEmpty)
         #expect(chat.row(11)?.text == "Pick up milk")
         #expect(chat.awaitingTranscript.isEmpty)
@@ -688,15 +694,19 @@ struct CompanionReducerTests {
     @Test("a delivery between a voice note and its reply costs one read, and the note waits on until its reply settles it")
     func deliveryLeavesTheNoteWaiting() {
         var chat = CompanionChat.holding(1...10)
-        chat.receive(M.voiceNote(11))
-        chat.receive(M.page([M.note(11)], head: 11))
+        chat.receive(M.announced(11, request: M.request(11)))
+        chat.receive(M.page([M.exported(11, refs: [M.voice], request: M.request(11))], head: 11))
 
         #expect(chat.receive(E.row(12, role: "assistant")) == [M.read(after: 10, limit: 2)])
-        #expect(chat.receive(M.page([M.note(11), E.exported(12)], head: 12)).isEmpty)
+        #expect(chat.receive(M.page([M.exported(11, refs: [M.voice], request: M.request(11)), E.exported(12)], head: 12)).isEmpty)
         #expect(chat.awaitingTranscript == [11: M.request(11)])
 
         #expect(chat.receive(E.row(13, role: "assistant")) == [M.read(after: 10, limit: 3)])
-        let page = [M.note(11, text: "Pick up milk"), E.exported(12), M.reply(13, to: 11, text: "Added to your list.")]
+        let page = [
+            M.exported(11, text: "Pick up milk", refs: [M.voice], request: M.request(11)),
+            E.exported(12),
+            M.reply(13, to: 11, text: "Added to your list.")
+        ]
         #expect(chat.receive(M.page(page, head: 13)).isEmpty)
         #expect(chat.row(11)?.text == "Pick up milk")
         #expect(chat.awaitingTranscript.isEmpty)
@@ -706,11 +716,14 @@ struct CompanionReducerTests {
     @Test("a reply saying a voice note could not be transcribed settles it with no text")
     func failedTranscriptIsSettledByItsReply() {
         var chat = CompanionChat.holding(1...10)
-        chat.receive(M.voiceNote(11))
-        chat.receive(M.page([M.note(11)], head: 11))
+        chat.receive(M.announced(11, request: M.request(11)))
+        chat.receive(M.page([M.exported(11, refs: [M.voice], request: M.request(11))], head: 11))
 
         #expect(chat.receive(E.row(12, role: "assistant")) == [M.read(after: 10, limit: 2)])
-        let page = [M.note(11), M.reply(12, to: 11, text: "I couldn't transcribe that voice note.")]
+        let page = [
+            M.exported(11, refs: [M.voice], request: M.request(11)),
+            M.reply(12, to: 11, text: "I couldn't transcribe that voice note.")
+        ]
         #expect(chat.receive(M.page(page, head: 12)).isEmpty)
         #expect(chat.row(11)?.text == "")
         #expect(chat.awaitingTranscript.isEmpty)
@@ -722,14 +735,15 @@ struct CompanionReducerTests {
     @Test("a page bringing a voice note's reply without the note reads the note once more, and that read is final")
     func replyWithoutItsNoteReadsTheNote() {
         var chat = CompanionChat.holding(1...10)
-        chat.receive(M.voiceNote(11))
-        chat.receive(M.page([M.note(11)], head: 11))
+        chat.receive(M.announced(11, request: M.request(11)))
+        chat.receive(M.page([M.exported(11, refs: [M.voice], request: M.request(11))], head: 11))
 
         #expect(chat.receive(E.row(13)) == [historyPull(.after(seq: 11))])
         let page = [M.reply(12, to: 11, text: "Added to your list."), E.exported(13)]
         #expect(chat.receive(M.page(page, head: 13)) == [M.read(after: 10, limit: 1)])
         #expect(chat.awaitingTranscript.isEmpty)
-        #expect(chat.receive(M.page([M.note(11, text: "Pick up milk")], head: 13)).isEmpty)
+        let transcribed = M.exported(11, text: "Pick up milk", refs: [M.voice], request: M.request(11))
+        #expect(chat.receive(M.page([transcribed], head: 13)).isEmpty)
         #expect(chat.row(11)?.text == "Pick up milk")
     }
 
@@ -738,8 +752,8 @@ struct CompanionReducerTests {
     @Test("a voice note is waited for no more once an assistant row is announced a page of rows past it")
     func waitEndsAPageOfRowsOn() {
         var chat = CompanionChat.holding(1...10)
-        chat.receive(M.voiceNote(11))
-        chat.receive(M.page([M.note(11)], head: 11))
+        chat.receive(M.announced(11, request: M.request(11)))
+        chat.receive(M.page([M.exported(11, refs: [M.voice], request: M.request(11))], head: 11))
 
         #expect(chat.receive(E.row(210, role: "assistant")) == [historyPull(.after(seq: 11))])
         #expect(chat.rowsToRead == [11, 210])

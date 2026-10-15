@@ -304,17 +304,17 @@ enum CompanionReducer {
         let shownNow = announced.serverSeq == chat.cursor + 1
         let replies = applyLive(CompanionRow(announced), into: &chat)
 
-        if announced.role == "assistant" {
+        if announced.role == CompanionProtocol.assistantRole {
             readTranscripts(upTo: announced.serverSeq, in: &chat)
         }
-        if announced.kind == "media" {
+        if announced.kind == CompanionProtocol.mediaKind {
             if shownNow {
                 chat.rowsToRead.insert(announced.serverSeq)
             }
             // A voice note is the person's, announced with no text, and its
             // reply names the request it recorded; its read says whether it
             // is one.
-            if announced.role == "user", announced.text.isEmpty, let request = announced.clientMsgId {
+            if announced.role == CompanionProtocol.userRole, announced.text.isEmpty, let request = announced.clientMsgId {
                 chat.awaitingTranscript[announced.serverSeq] = request
             }
         }

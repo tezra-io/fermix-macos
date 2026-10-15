@@ -22,6 +22,16 @@ public enum CompanionProtocol {
     /// The one profile the daemon serves; any other is `unsupported_profile`.
     public static let profileId = "main"
 
+    /// The daemon's words this client reads a row by, kept here once. A row's
+    /// `role` is who wrote it: the person, from this Mac or a phone, or Fermix.
+    public static let userRole = "user"
+    public static let assistantRole = "assistant"
+    /// A history message's `kind` for a row that carries files.
+    public static let mediaKind = "media"
+    /// A file's `kind` for a sound: on the person's row, a voice note the
+    /// phone recorded.
+    public static let audioKind = "audio"
+
     /// How long the daemon has to answer `client_hello` with `server_hello`.
     /// The contract sets no deadline; this is the client's, the realtime
     /// wire's three seconds.

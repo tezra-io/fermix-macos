@@ -107,7 +107,7 @@ extension CompanionRow {
     /// A voice note whose transcript is not stored yet: a row with an `audio`
     /// ref (M66 §3.4) and no text, as history last had it.
     var awaitsTranscript: Bool {
-        text.isEmpty && mediaRefs.contains { $0.kind == "audio" }
+        text.isEmpty && mediaRefs.contains { $0.kind == CompanionProtocol.audioKind }
     }
 }
 
