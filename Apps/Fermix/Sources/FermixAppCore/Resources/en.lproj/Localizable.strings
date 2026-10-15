@@ -658,6 +658,9 @@
 "settings.list.add" = "Add";
 "settings.list.addPrompt" = "New entry";
 "settings.text.emptyPrompt" = "Not set";
+"settings.advanced.title" = "Advanced";
+"settings.advanced.expanded" = "Expanded";
+"settings.advanced.collapsed" = "Collapsed";
 "settings.choice.notSet" = "Not set";
 "settings.choice.suggestions" = "Suggestions";
 "settings.row.info" = "About this setting";

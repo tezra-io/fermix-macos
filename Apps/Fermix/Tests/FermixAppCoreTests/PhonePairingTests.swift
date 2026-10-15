@@ -689,6 +689,19 @@ struct PhonePairingTests {
         }
     }
 
+    /// The engine marks the phone channel's network rows, so the Phones step
+    /// folds them with no list of its own, and Reach from anywhere stays in the
+    /// open with the paragraph its (i) shows.
+    @Test("the phone section folds its port, address and announcement, and explains its reach switch")
+    func phoneSectionFoldsItsNetworkRows() throws {
+        let section: ManagementSettingsSectionRows = try PairingGolden.decode("settings_get_channels_mobile") { _ in }
+        let fold = DescriptorRowFold(section.rows, excluding: [PhoneChannel.switchKey])
+
+        #expect(fold.open.map(\.key) == [PhoneChannel.remoteKey])
+        #expect(fold.folded.map(\.key) == ["mobile_port", "mobile_bind", "mobile_advertise_mdns"])
+        #expect(fold.open.first?.explanation != nil)
+    }
+
     /// A rail in a state that is not `ready` or `failed`, with every field
     /// the state does not carry nulled, as the contract publishes it.
     static func rail(_ state: String, failure: String? = nil) -> [String: Any] {

@@ -140,11 +140,19 @@ public struct ManagementSettingRow: Decodable, Equatable, Sendable {
     /// How a number reads (M34 §5): a plain count, a 0-1 fraction as a
     /// percentage, whole cents as money, or a duration. Nil on every other kind.
     public let format: ManagementNumberFormat?
+    /// Whether a surface draws this row after its section's other rows, under
+    /// the section's one disclosure that starts closed (M62). The contract
+    /// publishes it on every row; an engine inside the window that predates it
+    /// omits the key, as `info` once did, and its rows are drawn in the open.
+    private let advancedMark: Bool?
+
+    public var advanced: Bool { advancedMark ?? false }
 
     private enum CodingKeys: String, CodingKey {
         case key, kind, label, footer, info, value, present, options, min, max, step, restart
         case suggestions, unit, format
         case readOnly = "read_only"
+        case advancedMark = "advanced"
     }
 }
 

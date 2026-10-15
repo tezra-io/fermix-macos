@@ -201,7 +201,10 @@ extension ManagementValueFixture {
         readOnly: Bool = false,
         suggestions: Bool = false,
         unit: String? = nil,
-        format: String? = nil
+        format: String? = nil,
+        /// Whether the row folds under its section's Advanced. Nil leaves the
+        /// key out, which is the shape the pinned engine publishes.
+        advanced: Bool? = nil
     ) throws -> ManagementSettingRow {
         let optionList: String = options
             .map { option in
@@ -218,6 +221,7 @@ extension ManagementValueFixture {
         let stepField: String = number(step)
         let unitField: String = unit.map { "\"\($0)\"" } ?? "null"
         let formatField: String = format.map { "\"\($0)\"" } ?? "null"
+        let advancedField: String = advanced.map { ",\n  \"advanced\": \($0)" } ?? ""
 
         return try decode(
             """
@@ -236,7 +240,7 @@ extension ManagementValueFixture {
               "format": \(formatField),
               "restart": \(restart),
               "read_only": \(readOnly),
-              "suggestions": \(suggestions)
+              "suggestions": \(suggestions)\(advancedField)
             }
             """,
             as: ManagementSettingRow.self

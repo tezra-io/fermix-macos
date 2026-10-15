@@ -671,6 +671,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsListAdd = "settings.list.add"
     case settingsListAddPrompt = "settings.list.addPrompt"
     case settingsTextEmptyPrompt = "settings.text.emptyPrompt"
+    /// The one disclosure a section folds its advanced rows under (M62).
+    case settingsAdvancedTitle = "settings.advanced.title"
+    /// What VoiceOver says the Advanced row is: open or closed.
+    case settingsAdvancedExpanded = "settings.advanced.expanded"
+    case settingsAdvancedCollapsed = "settings.advanced.collapsed"
     case settingsChoiceNotSet = "settings.choice.notSet"
     case settingsChoiceSuggestions = "settings.choice.suggestions"
     /// What VoiceOver calls the info control beside a row's label. The row's own
