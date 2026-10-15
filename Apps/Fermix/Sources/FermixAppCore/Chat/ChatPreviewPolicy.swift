@@ -28,44 +28,6 @@ enum ChatFileFamily: Equatable, Sendable {
     case other
 }
 
-/// The facts a tile reads of the file a path names, off the main thread
-/// (`ChatFileFacts.read`): what the pane's own rule reads of it, and what a
-/// tile adds to choose its look and to key its preview.
-struct ChatFileFacts: Equatable, Sendable {
-    /// Where the path really lands, every symbolic link resolved.
-    let file: URL
-    /// Its type and what it is on the disk, read as the pane reads them.
-    let disk: FileFacts
-    /// What the preview cache keys on: the file's volume and number, which a
-    /// rename keeps and a new file under the old name does not, and its
-    /// modification date and size, which an edit changes.
-    let identity: ChatFileIdentity
-    let modified: Date
-    /// Whether it lies inside the Fermix home, decided where both really are.
-    let insideHome: Bool
-
-    var type: UTType { disk.type }
-
-    /// Its size in bytes, for the preview's key. A folder, a package among
-    /// them, has none of its own and counts zero.
-    var size: Int { disk.size ?? 0 }
-}
-
-/// A file's identity on this Mac: its volume and its number there.
-struct ChatFileIdentity: Hashable, Sendable {
-    let volume: UInt64
-    let number: UInt64
-}
-
-/// What a tile has learnt of its file so far.
-enum ChatFileLookup: Equatable, Sendable {
-    /// Its facts are being read.
-    case reading
-    /// Nothing is there now.
-    case missing
-    case found(ChatFileFacts)
-}
-
 /// The one state a tile is in, each with its own look (M66 §3.3). Every one
 /// but Loading is where a tile ends, and Loading ends in one of the others,
 /// since a preview that takes too long counts as failed.

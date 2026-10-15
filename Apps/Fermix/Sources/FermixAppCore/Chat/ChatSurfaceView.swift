@@ -140,10 +140,12 @@ struct ChatSurfaceView: View {
     let settings: SettingsModel
     /// Where a link in a reply opens.
     let links: ContentLinkOpener
-    /// The chat's media: the Fermix home, each row's strip and the previews
-    /// made for its tiles. Built once by the composition, so a preview made
-    /// is still there when the person comes back to Chat (M66).
+    /// The chat's media: each row's strip and the previews made for its
+    /// tiles. Built once by the composition, so a preview made is still there
+    /// when the person comes back to Chat (M66).
     let media: ChatMedia
+    /// The app's one player, which a sound in a row plays on.
+    let player: AppPlayer
     /// The toolbar's commands: "Show browser" (plan §4.10) and the call.
     let router: any CommandPerforming
 
@@ -157,6 +159,9 @@ struct ChatSurfaceView: View {
     /// fitted to. It starts at the width a full column takes, the usual
     /// window's, so the first frame is fitted already.
     @State private var bodyWidth = ChatMetrics.columnWidth + 2 * ChatMetrics.columnGutter
+    /// The Fermix home as this visit read it, as the surface appeared, and
+    /// forgotten with the surface, so the next visit reads it again.
+    @State private var visit: ChatVisit?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -167,6 +172,7 @@ struct ChatSurfaceView: View {
         settings: SettingsModel,
         links: ContentLinkOpener,
         media: ChatMedia,
+        player: AppPlayer,
         router: any CommandPerforming
     ) {
         self.session = session
@@ -177,6 +183,7 @@ struct ChatSurfaceView: View {
         self.settings = settings
         self.links = links
         self.media = media
+        self.player = player
         self.router = router
         _draft = State(initialValue: session.draft)
     }
@@ -185,10 +192,15 @@ struct ChatSurfaceView: View {
         let items = ChatTimeline.items(of: model)
 
         column(items)
-            // Every row reads its media and its strip's width from here: the
-            // transcript builds its rows with nothing of their own to pass
-            // them (M66 §3.2).
-            .environment(\.chatStrips, ChatStripContext(media: media, columnWidth: ChatMetrics.column(inBody: bodyWidth)))
+            // Every row reads its media, the player, the home and its strip's
+            // width from here: the transcript builds its rows with nothing of
+            // their own to pass them (M66 §3.2).
+            .environment(\.chatRows, ChatRowContext(
+                media: media,
+                player: player,
+                visit: visit,
+                columnWidth: ChatMetrics.column(inBody: bodyWidth)
+            ))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onGeometryChange(for: Double.self) { proxy in
                 proxy.size.width
@@ -222,9 +234,11 @@ struct ChatSurfaceView: View {
             // The session connects the first time a surface asks and then stays
             // connected, so coming back to Chat asks nothing new.
             .task { session.connect() }
-            // The next visit reads the Fermix home again, as the browser
-            // reads it at each open.
-            .onDisappear { media.surfaceLeft() }
+            // The Fermix home is read as the surface appears, as the browser
+            // reads it at each open: on appearing rather than in a task,
+            // which starts a turn later and would draw the rows once without
+            // it.
+            .onAppear { visit = media.surfaceEntered() }
             // A link in a reply opens where the person's preference says,
             // through the one content link opener, never through SwiftUI's own
             // hop to the default browser.

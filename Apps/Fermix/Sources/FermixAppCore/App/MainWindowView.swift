@@ -57,6 +57,8 @@ struct MainWindowView: View {
     let links: ContentLinkOpener
     /// What the chat's rows draw under their words (M66).
     let chatMedia: ChatMedia
+    /// The app's one player, which the chat's sounds play on.
+    let player: AppPlayer
 
     var body: some View {
         presented
@@ -379,6 +381,7 @@ struct MainWindowView: View {
                 settings: settings,
                 links: links,
                 media: chatMedia,
+                player: player,
                 router: router
             )
         case .home:

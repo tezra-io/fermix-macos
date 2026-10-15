@@ -1,4 +1,4 @@
-import SwiftUI
+import Foundation
 
 /// The local paths in a reply, made links to the files they name. The agent
 /// says where it put what it made (a screenshot, a report, a download), and a
@@ -10,50 +10,28 @@ import SwiftUI
 /// here looks at the disk: a reply is drawn again as each piece of a turn
 /// arrives, and whether the file is there is for the click to find out.
 enum ReplyPaths {
-    /// How a path that becomes a link is drawn: in `ink`, the reply's own, so
-    /// it reads as the text it is rather than as a blue link, and underlined
-    /// in the fainter `underline`, so it does not pass for plain text either
-    /// (owner, 2026-10-04). Both are set rather than left alone, because
-    /// SwiftUI draws a link with no colour of its own in the window's tint.
-    struct Look {
-        let ink: Color
-        let underline: Color
-    }
-
     /// Every path in a parsed reply, as a `file://` link. A bare path is read
     /// in plain text only: inside a link it is part of that link, and inside
-    /// code it counts only as the whole span. A markdown link keeps the look
-    /// it was given; a path that becomes a link here takes `look`.
-    static func linked(_ reply: AttributedString, home: String, look: Look) -> AttributedString {
+    /// code it counts only as the whole span. A markdown link to a path keeps
+    /// its own words; a path written out is marked as written
+    /// (`ReplyWrittenLink`).
+    static func linked(_ reply: AttributedString, home: String) -> AttributedString {
         var linked = reply
         for run in reply.runs {
             if let link = run.link {
                 guard let file = fileLink(link, home: home) else { continue }
                 linked[run.range].link = file
             } else if let file = codePath(run, in: reply, home: home) {
-                link(run.range, to: file, in: &linked, look: look)
+                linked.linkWritten(run.range, to: file)
             }
         }
         let text = String(reply.characters)
         for path in barePaths(in: text) {
             guard let range = Range(path, in: reply), reply[range].runs.allSatisfy(isPlain) else { continue }
-            link(range, to: fileURL(String(withoutLineReference(text[path])), home: home), in: &linked, look: look)
+            linked.linkWritten(range, to: fileURL(String(withoutLineReference(text[path])), home: home))
         }
 
         return linked
-    }
-
-    /// The files a drawn reply links to, in reading order: the paths made
-    /// links here and the markdown links to a path. The strip under the row
-    /// reads this list, so its tiles and the text's links are the same files.
-    static func files(in reply: AttributedString) -> [URL] {
-        ChatText.links(in: reply).filter(\.isFileURL)
-    }
-
-    private static func link(_ range: Range<AttributedString.Index>, to file: URL, in reply: inout AttributedString, look: Look) {
-        reply[range].link = file
-        reply[range].foregroundColor = look.ink
-        reply[range].underlineStyle = Text.LineStyle(pattern: .solid, color: look.underline)
     }
 
     /// The file a code span names when it is a path from end to end, a line
@@ -84,25 +62,16 @@ enum ReplyPaths {
         return fileURL(path, home: home)
     }
 
-    /// The marks a bare path may stand inside and that are not part of it: an
-    /// opening bracket, angle bracket or quote, straight or curly, before it,
-    /// and closing punctuation, a bracket, an angle bracket, a quote or a
-    /// stray backtick after it.
-    private static let opening: Set<Character> = ["(", "<", "\"", "'", "\u{201C}", "\u{2018}"]
-    private static let closing: Set<Character> = [
-        ".", ",", ";", ":", "!", "?", ")", "]", "}", ">", "'", "\"", "\u{201D}", "\u{2019}", "`"
-    ]
-
     /// The bare paths in plain text, as ranges of it, a line reference after
     /// one included. A path starts a word, after any opening marks, and runs
-    /// to the word's end, less its closing marks, so the path inside an
-    /// address (`https://example.com/a/b`) or a fraction (`1/2`) never starts
-    /// one. A path with a space in it, unquoted, links only up to the space:
-    /// an agent writes such a path in code.
+    /// to the word's end, less its closing marks (`ReplyMarks`), so the path
+    /// inside an address (`https://example.com/a/b`) or a fraction (`1/2`)
+    /// never starts one. A path with a space in it, unquoted, links only up
+    /// to the space: an agent writes such a path in code.
     static func barePaths(in text: String) -> [Range<String.Index>] {
         text.split(whereSeparator: \.isWhitespace).compactMap { word in
-            var path = word.drop(while: opening.contains)
-            while let last = path.last, closing.contains(last) {
+            var path = word.drop(while: ReplyMarks.opening.contains)
+            while let last = path.last, ReplyMarks.closing.contains(last) {
                 path = path.dropLast()
             }
             return isPath(withoutLineReference(path)) ? path.startIndex..<path.endIndex : nil

@@ -13,11 +13,12 @@ struct ChatStripTests {
 
     private static func strip(
         _ text: String,
+        plain: Bool = false,
         refs: [CompanionMediaRef] = [],
         previews: [CompanionLinkPreview] = [],
         home: ChatHome? = home
     ) -> ChatStrip {
-        ChatStrip(text: text, mediaRefs: refs, linkPreviews: previews, userHome: "/Users/me", home: home)
+        ChatStrip(text: text, plain: plain, mediaRefs: refs, linkPreviews: previews, userHome: "/Users/me", home: home)
     }
 
     private static func ref(_ name: String, kind: String = "image", mime: String = "image/png") -> CompanionMediaRef {
@@ -30,16 +31,11 @@ struct ChatStripTests {
 
     /// Each item as one short line, so a whole strip reads as a list.
     private static func described(_ strip: ChatStrip) -> [String] {
-        described(Strip(cards: strip.items))
+        described(strip.items)
     }
 
-    /// Any run of items, as `described` lists a strip's.
-    private struct Strip {
-        let cards: [ChatStripItem]
-    }
-
-    private static func described(_ strip: Strip) -> [String] {
-        strip.cards.map { item in
+    private static func described(_ items: [ChatStripItem]) -> [String] {
+        items.map { item in
             switch item {
             case .media(let ref): return "ref \(ref.filename ?? "")"
             case .file(let file): return "file \(file.path)"
@@ -83,7 +79,7 @@ struct ChatStripTests {
         )
 
         #expect(strip.previews.map(\.lastPathComponent) == ["shot.png", "clip.mov", "q3.docx", "Notes.pages"])
-        #expect(Self.described(Strip(cards: strip.cards)) == [
+        #expect(Self.described(strip.cards) == [
             "ref phone.png",
             "file /Users/me/.fermix/w/logo.svg",
             "file /Users/me/.fermix/w/page.html",
@@ -198,7 +194,27 @@ struct ChatStripTests {
         let item = try #require(strip.items.first)
 
         #expect(strip.items.count == 1)
-        #expect(item == .link(ChatStripLink(address: URL(string: "https://example.com/news")!, preview: Self.preview("https://www.example.com/news"))))
+        guard case .link(let link) = item else {
+            Issue.record("the address is not a link")
+            return
+        }
+        #expect(link.address.absoluteString == "https://example.com/news")
+        #expect(link.preview == Self.preview("https://www.example.com/news"))
+    }
+
+    /// The strip's own rule, each destination once (M66 §3.1), is an item's
+    /// identity: one is equal to another, and hashes with it, when the two
+    /// name one destination, whatever preview either carries.
+    @Test("two items naming one destination are one item")
+    func itemsByDestination() {
+        let address = URL(string: "https://a.com/x")!
+        let bare = ChatStripItem.link(ChatStripLink(address: address, preview: nil))
+        let previewed = ChatStripItem.link(ChatStripLink(address: URL(string: "HTTPS://A.com/x")!, preview: Self.preview("https://a.com/x")))
+
+        #expect(bare == previewed)
+        #expect(Set([bare, previewed]).count == 1)
+        #expect(bare != .link(ChatStripLink(address: URL(string: "https://a.com/x/")!, preview: nil)))
+        #expect(ChatStripItem.file(URL(fileURLWithPath: "/a/../a/b.png")) == .file(URL(fileURLWithPath: "/a/b.png")))
     }
 
     /// One page failed, so the counts differ: a preview belongs to an
@@ -236,6 +252,15 @@ struct ChatStripTests {
         #expect(ChatStrip.engineAddresses(in: "Run `https://a.com/x`.") == ["https://a.com/x`"])
         #expect(ChatStrip.engineAddresses(in: "https://w.org/Foo_(bar)!?") == ["https://w.org/Foo_(bar"])
         #expect(ChatStrip.engineAddresses(in: "no address here").isEmpty)
+    }
+
+    /// Every reader of a reply's words composes its marks from one set; the
+    /// engine's own is its `@trailing_punctuation`, character for character.
+    @Test("the marks compose the engine's rule and every closing mark from one set")
+    func marks() {
+        #expect(ReplyMarks.engineClosing == Set("),.;!?]}"))
+        #expect(ReplyMarks.closing == ReplyMarks.punctuation.union(ReplyMarks.closingQuotes).union([")", "]", "}"]))
+        #expect(ReplyMarks.closing.isSuperset(of: ReplyMarks.engineClosing))
     }
 
     // MARK: - The fit
@@ -391,8 +416,34 @@ struct ChatStripTests {
     func ownMessage() {
         let text = "Can you look at this?\n~/Desktop/shot.png"
 
-        #expect(Self.strip(text).text == "Can you look at this?")
-        #expect(Self.strip("What is in ~/Desktop/shot.png?").text == "What is in ~/Desktop/shot.png?")
+        #expect(Self.strip(text, plain: true).text == "Can you look at this?")
+        #expect(Self.strip("What is in ~/Desktop/shot.png?", plain: true).text == "What is in ~/Desktop/shot.png?")
+    }
+
+    /// A person's words are drawn as they typed them, so they are read so:
+    /// no markdown, so a path in backticks or behind a link's words is the
+    /// text it is, and only what is written out is a path or an address.
+    @Test("a person's words are read as plain text, as they are drawn")
+    func plainScan() {
+        let text = "See [the shot](~/Desktop/a.png), `~/Desktop/b.png`, ~/Desktop/c.png and [x](https://a.com/y)"
+
+        #expect(Self.described(Self.strip(text, plain: true)) == ["file /Users/me/Desktop/c.png", "link https://a.com/y"])
+        #expect(Self.described(Self.strip(text)) == [
+            "file /Users/me/Desktop/a.png", "file /Users/me/Desktop/b.png", "file /Users/me/Desktop/c.png", "link https://a.com/y",
+        ])
+        #expect(Self.strip(text, plain: true).reply == nil)
+    }
+
+    /// Fermix's words are read once: the row draws the same reading the
+    /// strip took its links from, less the lines it dropped.
+    @Test("Fermix's row draws the strip's own reading of its words")
+    func oneReading() {
+        let whole = Self.strip("Saved ~/Desktop/a.png for you.")
+        #expect(whole.reply == ReplyText(markdown: "Saved ~/Desktop/a.png for you.", home: "/Users/me"))
+
+        let listed = Self.strip("Done:\n- ~/Desktop/a.png")
+        #expect(listed.text == "Done:")
+        #expect(listed.reply == ReplyText(markdown: "Done:", home: "/Users/me"))
     }
 
     @Test("a text that loses no line is kept exactly, and a sound Fermix made counts as shown")
@@ -403,75 +454,5 @@ struct ChatStripTests {
         let sound = Self.strip("Recorded it:\n\n/Users/me/.fermix/w/take.m4a")
         #expect(sound.text == "Recorded it:")
         #expect(sound.sounds.count == 1)
-    }
-
-    // MARK: - Kept per content
-
-    /// History can bring a held row again with more in it: its strip is
-    /// worked out again then, and only then.
-    @MainActor
-    @Test("a row's strip is worked out once for its content, and again when the content changes")
-    func keptPerContent() {
-        let media = ChatMedia(home: { URL(fileURLWithPath: "/Users/me/.fermix") }, player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()), reader: FakeMediaReader(), documentApplication: { _ in nil }, deadlines: ManualDeadlineScheduler())
-        let row = CompanionRow(serverSeq: 7, text: "See https://a.com/x", role: "assistant", timestamp: nil, clientMsgId: nil, inReplyTo: nil, turnId: nil)
-        let enriched = CompanionRow(
-            serverSeq: 7, text: "See https://a.com/x", role: "assistant", timestamp: nil, clientMsgId: nil, inReplyTo: nil, turnId: nil,
-            linkPreviews: [Self.preview("https://a.com/x", title: "A page")]
-        )
-
-        let first = media.strip(for: row)
-        #expect(media.strip(for: row) == first)
-        #expect(first.items == [.link(ChatStripLink(address: URL(string: "https://a.com/x")!, preview: nil))])
-
-        let second = media.strip(for: enriched)
-        #expect(second.items == [.link(ChatStripLink(address: URL(string: "https://a.com/x")!, preview: Self.preview("https://a.com/x", title: "A page")))])
-    }
-
-    /// The home is read from the bootstrap record once a visit, as the
-    /// browser reads it once an open, and a home that cannot be read has
-    /// nothing inside it.
-    @MainActor
-    @Test("the Fermix home is read once a visit to Chat, and again on the next")
-    func homeReadOnceAVisit() {
-        let reads = CountingBox()
-        let media = ChatMedia(
-            home: {
-                reads.increment()
-                return URL(fileURLWithPath: "/Users/me/.fermix")
-            },
-            player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()),
-            reader: FakeMediaReader(),
-            documentApplication: { _ in nil },
-            deadlines: ManualDeadlineScheduler()
-        )
-        let row = { (seq: Int) in
-            CompanionRow(serverSeq: seq, text: "Wrote /Users/me/.fermix/out/notes.txt", role: "assistant", timestamp: nil, clientMsgId: nil, inReplyTo: nil, turnId: nil)
-        }
-
-        #expect(media.strip(for: row(1)).items == [.file(URL(fileURLWithPath: "/Users/me/.fermix/out/notes.txt", isDirectory: false))])
-        _ = media.strip(for: row(2))
-        #expect(reads.count == 1)
-
-        media.surfaceLeft()
-        _ = media.strip(for: row(3))
-        #expect(reads.count == 2)
-
-        let unreadable = ChatMedia(home: { throw CocoaError(.fileReadCorruptFile) }, player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()), reader: FakeMediaReader(), documentApplication: { _ in nil }, deadlines: ManualDeadlineScheduler())
-        #expect(unreadable.strip(for: row(4)).items.isEmpty)
-    }
-
-    /// The media is one object for the app's life, so two contexts are the
-    /// same when it and the column are: a keystroke that redraws the surface
-    /// must not redraw every row.
-    @MainActor
-    @Test("two strip contexts are the same when their media and column width are")
-    func contextEquality() {
-        let media = ChatMedia(home: { URL(fileURLWithPath: "/h") }, player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()), reader: FakeMediaReader(), documentApplication: { _ in nil }, deadlines: ManualDeadlineScheduler())
-        let other = ChatMedia(home: { URL(fileURLWithPath: "/h") }, player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()), reader: FakeMediaReader(), documentApplication: { _ in nil }, deadlines: ManualDeadlineScheduler())
-        let context = ChatStripContext(media: media, columnWidth: 720)
-
-        #expect(context == ChatStripContext(media: media, columnWidth: 720))
-        #expect(context != ChatStripContext(media: media, columnWidth: 430))
-        #expect(context != ChatStripContext(media: other, columnWidth: 720))
     }
 }

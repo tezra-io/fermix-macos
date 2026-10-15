@@ -456,6 +456,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatTilePagesMany = "chat.tile.pages.many"
     /// A voice note's chip, and its name where VoiceOver reads it.
     case chatVoiceNote = "chat.voiceNote"
+    /// The one player's two actions: a sound's button and VoiceOver actions
+    /// in the chat, and a media tab's Play while another holds the player.
+    case mediaPlay = "media.play"
+    case mediaPause = "media.pause"
     /// The word for what a tile is, after its name: one per kind, the app's
     /// own rather than the system's type description.
     case chatKindPicture = "chat.kind.picture"
@@ -505,6 +509,14 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case browserSecure = "browser.secure"
     case browserOpenInBrowser = "browser.openInBrowser"
     case browserHide = "browser.hide"
+    /// The pane's zoom of the page in front, by key: a step either way, a
+    /// page at its own size or a picture at its actual size, and a picture
+    /// fitted to the pane. A picture tab also draws the last two as its one
+    /// zoom control.
+    case browserZoomIn = "browser.zoomIn"
+    case browserZoomOut = "browser.zoomOut"
+    case browserActualSize = "browser.actualSize"
+    case browserZoomToFit = "browser.zoomToFit"
     /// A file tab: the mark that says so, its file in the app on the Mac that
     /// opens it, named, and its file selected in Finder.
     case browserFileTab = "browser.fileTab"
@@ -1037,21 +1049,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case timeHours = "time.hours"
     case timeMinute = "time.minute"
     case timeMinutes = "time.minutes"
-
-    // MARK: - Browser media (M66)
-
-    /// The pane's zoom of the page in front, by key: a step either way, a
-    /// page at its own size or a picture at its actual size, and a picture
-    /// fitted to the pane. A picture tab also draws the last two as its one
-    /// zoom control.
-    case browserZoomIn = "browser.zoomIn"
-    case browserZoomOut = "browser.zoomOut"
-    case browserActualSize = "browser.actualSize"
-    case browserZoomToFit = "browser.zoomToFit"
-    /// The one player's two actions: a media tab's Play while another holds
-    /// the player, and a sound's button and VoiceOver actions in the chat.
-    case mediaPlay = "media.play"
-    case mediaPause = "media.pause"
 
     /// The one recorded exception to the sentence-case rule (M34 §14 decision
     /// 4): macOS menu titles.

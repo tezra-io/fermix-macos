@@ -19,10 +19,13 @@ import Foundation
 ///    it has one.
 ///
 /// They are drawn in two kinds, each keeping that order: first the previews,
-/// the paths inside the Fermix home to a picture, a video or a page, which
-/// draw what the file holds; then every other item as a compact card. An
-/// item's kind is read from its path, so a tile keeps its shape whatever its
-/// file turns out to be.
+/// the paths inside the Fermix home to a picture, a video, a PDF or a
+/// document, which draw what the file holds; then every other item as a
+/// compact card. An item's kind is read from its path, so a tile keeps its
+/// shape whatever its file turns out to be.
+///
+/// Its words are read once, as the row draws them (`ReplyText`): Fermix's as
+/// markdown, a person's as the plain text they typed.
 struct ChatStrip: Equatable {
     /// The `kind` the engine gives a phone's recorded voice.
     static let voiceKind = CompanionProtocol.audioKind
@@ -42,19 +45,29 @@ struct ChatStrip: Equatable {
     /// (`withoutShownLines`). Empty where nothing else was written, and the
     /// row then draws its strip alone.
     let text: String
+    /// That text as Fermix's row draws it, read once with its links; nil for
+    /// a person's row, whose words are drawn as typed.
+    let reply: ReplyText?
 
     /// Every item, previews first: the order they are drawn and counted in.
     var items: [ChatStripItem] {
         previews.map(ChatStripItem.file) + cards
     }
 
-    /// The strip of a row's content. `userHome` is what `~` reads as, and
-    /// `home` the Fermix home, nil where it could not be read, which leaves
-    /// nothing inside it.
-    init(text: String, mediaRefs: [CompanionMediaRef], linkPreviews: [CompanionLinkPreview], userHome: String, home: ChatHome?) {
-        let reply = ChatText.reply(text, home: userHome)
-        let paths = ReplyPaths.files(in: reply)
-        let addresses = ReplyLinks.addresses(in: reply)
+    /// The strip of a row's content. `plain` reads the words as a person's,
+    /// `userHome` is what `~` reads as, and `home` the Fermix home, nil where
+    /// it could not be read, which leaves nothing inside it.
+    init(
+        text: String,
+        plain: Bool,
+        mediaRefs: [CompanionMediaRef],
+        linkPreviews: [CompanionLinkPreview],
+        userHome: String,
+        home: ChatHome?
+    ) {
+        let read = Self.read(text, plain: plain, userHome: userHome)
+        let paths = read.files
+        let addresses = read.addresses
         let previews = Self.paired(linkPreviews, in: text, with: addresses)
 
         voiceNote = mediaRefs.first { $0.kind == Self.voiceKind }
@@ -71,7 +84,13 @@ struct ChatStrip: Equatable {
         cards = items.filter { Self.preview($0, home: home) == nil }
 
         let shown = Set(items.map(\.id) + sounds.map { ChatStripItem.file($0).id })
-        self.text = Self.withoutShownLines(text, shown: shown, userHome: userHome)
+        let kept = Self.withoutShownLines(text, shown: shown, userHome: userHome)
+        self.text = kept
+        reply = plain ? nil : (kept == text ? read : Self.read(kept, plain: false, userHome: userHome))
+    }
+
+    private static func read(_ text: String, plain: Bool, userHome: String) -> ReplyText {
+        plain ? ReplyText(plain: text, home: userHome) : ReplyText(markdown: text, home: userHome)
     }
 
     /// The file an item draws a preview of: a path inside the Fermix home
@@ -103,11 +122,6 @@ struct ChatStrip: Equatable {
     private static func unique<Item: Hashable>(_ items: [Item]) -> [Item] {
         var seen: Set<Item> = []
         return items.filter { seen.insert($0).inserted }
-    }
-
-    private static func unique(_ items: [ChatStripItem]) -> [ChatStripItem] {
-        var seen: Set<String> = []
-        return items.filter { seen.insert($0.id).inserted }
     }
 
     // MARK: - The text
@@ -152,7 +166,7 @@ struct ChatStrip: Equatable {
     private static func destination(ofLine line: Substring, userHome: String) -> String? {
         let body = withoutListMarker(Substring(line.trimmingCharacters(in: .whitespaces)))
         var closed = body
-        while let last = closed.last, sentenceMarks.contains(last) {
+        while let last = closed.last, ReplyMarks.punctuation.contains(last) {
             closed = closed.dropLast()
         }
         if closed.count > 2, closed.first == "`", closed.last == "`" {
@@ -208,9 +222,6 @@ struct ChatStrip: Equatable {
 
         return line[marker.range.upperBound...]
     }
-
-    /// The marks that end a sentence after a code span or a link.
-    private static let sentenceMarks: Set<Character> = [".", ",", ";", ":", "!", "?"]
 
     private static func isBlank(_ line: Substring) -> Bool {
         line.allSatisfy(\.isWhitespace)
@@ -269,7 +280,7 @@ struct ChatStrip: Equatable {
     /// at its end set aside.
     private static func bare(_ address: String) -> ChatDestination? {
         var trimmed = Substring(address)
-        while let last = trimmed.last, readingMarks.contains(last) {
+        while let last = trimmed.last, ReplyMarks.closing.contains(last) {
             trimmed = trimmed.dropLast()
         }
 
@@ -281,9 +292,6 @@ struct ChatStrip: Equatable {
         URL(string: String(ReplyLinks.trimmed(Substring(read))))
     }
 
-    /// Every mark either rule may leave at an address's end.
-    private static let readingMarks: Set<Character> = engineClosing.union([":", "'", "\"", "\u{201D}", "\u{2019}", "`", ">"])
-
     /// The addresses the engine reads a preview from (`unfurl.ex`): the first
     /// two different `http` or `https` addresses in the raw text, code and
     /// markdown included, each less a run of `),.;!?]}` at its end.
@@ -291,7 +299,7 @@ struct ChatStrip: Equatable {
         var seen: Set<String> = []
         let addresses = text.matches(of: #/https?://[^\s<>"']+/#.ignoresCase()).map { match in
             var address = Substring(match.output)
-            while let last = address.last, engineClosing.contains(last) {
+            while let last = address.last, ReplyMarks.engineClosing.contains(last) {
                 address = address.dropLast()
             }
             return String(address)
@@ -300,13 +308,13 @@ struct ChatStrip: Equatable {
         return Array(addresses.filter { seen.insert($0).inserted }.prefix(engineLinkLimit))
     }
 
-    /// The engine's `@max_links` and `@trailing_punctuation`.
+    /// The engine's `@max_links`.
     private static let engineLinkLimit = 2
-    private static let engineClosing: Set<Character> = [")", ",", ".", ";", "!", "?", "]", "}"]
 }
 
-/// One tile of a strip.
-enum ChatStripItem: Equatable, Identifiable {
+/// One tile of a strip. Two items are one when they name one destination
+/// (M66 §3.1), so an item is equal to, and hashes as, its id.
+enum ChatStripItem: Hashable, Identifiable {
     /// A file the row refers to by ref. Its bytes are in the engine's media
     /// store, which no request returns yet, so its tile is Not available.
     case media(CompanionMediaRef)
@@ -321,6 +329,14 @@ enum ChatStripItem: Equatable, Identifiable {
         case .file(let file): return file.standardizedFileURL.absoluteString
         case .link(let link): return ChatDestination(link.address).key
         }
+    }
+
+    static func == (lhs: ChatStripItem, rhs: ChatStripItem) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 
@@ -349,9 +365,9 @@ struct ChatDestination: Hashable {
     }
 }
 
-/// The Fermix home as the strip reads it, from text alone: where the
-/// bootstrap record says it is and where that really lands, so a path written
-/// either way is inside it.
+/// The Fermix home as the strip reads it, by its spellings
+/// (`FilePlace.spellings(of:)`): where the bootstrap record says it is and
+/// where that really lands, so a path written either way is inside it.
 struct ChatHome: Equatable, Sendable {
     let roots: [String]
 
@@ -359,14 +375,15 @@ struct ChatHome: Equatable, Sendable {
         self.roots = roots
     }
 
-    /// The home's two spellings, read once when the chat first needs it.
     init(_ home: URL) {
-        let written = home.standardizedFileURL.path
-        let real = FilePlace.resolved(home.path) ?? written
-        roots = written == real ? [written] : [written, real]
+        roots = FilePlace.spellings(of: home)
     }
 
-    /// Whether a path lies under the home, by its text.
+    /// Whether a path lies under the home by its text: the check made before
+    /// the disk is asked, which chooses a tile's kind. Whether the file is
+    /// really inside, a link in the home pointing out of it among what this
+    /// cannot see, is the disk's word (`ChatFileFacts.insideHome`), and only
+    /// that word lets a tile draw what the file holds.
     func contains(_ file: URL) -> Bool {
         let path = file.standardizedFileURL.path
         return roots.contains { path.hasPrefix($0 + "/") }

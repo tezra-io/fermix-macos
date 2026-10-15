@@ -2,32 +2,6 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// What a row's media reads from the chat surface. The transcript builds each
-/// row with nothing of its own to hand it, so the surface sets this in the
-/// environment once for every row.
-struct ChatStripContext: Equatable, Sendable {
-    let media: ChatMedia
-    /// The reading column's width, which a strip fits its tiles to.
-    let columnWidth: Double
-
-    static func == (lhs: ChatStripContext, rhs: ChatStripContext) -> Bool {
-        lhs.media === rhs.media && lhs.columnWidth == rhs.columnWidth
-    }
-}
-
-extension EnvironmentValues {
-    /// The chat surface's media for its rows. Absent where no chat surface
-    /// hosts a row, which is to say in tests.
-    var chatStrips: ChatStripContext? {
-        get { self[ChatStripContextKey.self] }
-        set { self[ChatStripContextKey.self] = newValue }
-    }
-}
-
-private struct ChatStripContextKey: EnvironmentKey {
-    static let defaultValue: ChatStripContext? = nil
-}
-
 /// A row's strip (M66 §3.2): its previews in one sideways row, then its cards
 /// in another, each on the row's side. A row with more than fits scrolls
 /// sideways, by trackpad or a shifted wheel, by the arrows at its ends, or by
@@ -39,7 +13,6 @@ struct ChatStripView: View {
     let trailing: Bool
     /// The width the strip may take.
     let width: Double
-    let media: ChatMedia
 
     var body: some View {
         let previews = strip.previews.map(ChatStripItem.file)
@@ -49,7 +22,7 @@ struct ChatStripView: View {
                 let tile = ChatStripFit.tileSize(width: ChatStripFit.itemWidth(count: previews.count, width: width))
                 ChatStripLane(items: previews, itemWidth: tile.width, width: width, trailing: trailing) { item in
                     if case .file(let file) = item {
-                        ChatPreviewTile(named: ChatNamedFile(file: file), size: tile, media: media)
+                        ChatPreviewTile(named: ChatNamedFile(file: file), size: tile)
                     }
                 }
             }
@@ -57,7 +30,7 @@ struct ChatStripView: View {
             if !strip.cards.isEmpty {
                 let card = ChatStripFit.itemWidth(count: strip.cards.count, width: width)
                 ChatStripLane(items: strip.cards, itemWidth: card, width: width, trailing: trailing) { item in
-                    ChatCard(item: item, width: card, media: media)
+                    ChatCard(item: item, width: card)
                 }
             }
         }
@@ -366,12 +339,12 @@ private struct ChatNamedFile {
 private struct ChatPreviewTile: View {
     let named: ChatNamedFile
     let size: CGSize
-    let media: ChatMedia
 
     @State private var reading = ChatFileReading()
     @State private var outcome: ChatPreviewOutcome?
     @State private var onScreen = false
     @State private var slow = false
+    @Environment(\.chatRows) private var rows
     @Environment(\.displayScale) private var scale
     @Environment(\.openURL) private var openURL
 
@@ -400,9 +373,9 @@ private struct ChatPreviewTile: View {
         .accessibilityHint(state == .opensOutside ? reading.hint.map(ChatFileReading.spoken) ?? "" : "")
         .onScrollVisibilityChange(threshold: 0.01) { onScreen = $0 }
         .task(id: onScreen) {
-            guard onScreen else { return }
+            guard onScreen, let rows else { return }
 
-            await load(named.file)
+            await load(named.file, in: rows)
         }
         .task(id: onScreen) {
             guard onScreen else { return }
@@ -412,34 +385,27 @@ private struct ChatPreviewTile: View {
         }
     }
 
-    /// What the file is, then where it goes outside Fermix or its preview.
-    /// A preview that came to an end is not asked for again; one that failed
-    /// or was let go is, and the previews decide whether it has a try left.
-    private func load(_ file: URL) async {
+    /// What the file is, then where it goes outside Fermix or its preview,
+    /// asked again only where its last answer was not final
+    /// (`ChatPreviewOutcome.isFinal`).
+    private func load(_ file: URL, in rows: ChatRowContext) async {
         if reading.lookup == .reading {
-            reading.lookup = await media.lookUp(file)
+            reading.lookup = await rows.media.lookUp(file, in: rows.visit)
         }
         guard case .found(let facts) = reading.lookup else { return }
 
         if ChatPreviewPolicy.family(of: facts) == .other {
-            reading.hint = await media.hint(for: facts)
+            reading.hint = await rows.media.hint(for: facts)
             return
         }
-        guard ChatPreviewPolicy.drawsContent(facts), !Self.ended(outcome) else { return }
+        guard ChatPreviewPolicy.drawsContent(facts), outcome?.isFinal != true else { return }
 
-        let made = await media.previews.preview(ChatPreviewRequest(facts, size: size, scale: scale))
+        let made = await rows.media.previews.preview(ChatPreviewRequest(facts, size: size, scale: scale))
         guard !Task.isCancelled else { return }
 
         outcome = made
         if made == .unplayable {
-            reading.hint = await media.hint(for: facts)
-        }
-    }
-
-    private static func ended(_ outcome: ChatPreviewOutcome?) -> Bool {
-        switch outcome {
-        case .made?, .iconOnly?, .unplayable?: return true
-        case .failed?, .dropped?, nil: return false
+            reading.hint = await rows.media.hint(for: facts)
         }
     }
 }
@@ -450,12 +416,11 @@ private struct ChatPreviewTile: View {
 private struct ChatCard: View {
     let item: ChatStripItem
     let width: Double
-    let media: ChatMedia
 
     var body: some View {
         switch item {
         case .media(let ref): ChatRefCard(ref: ref, width: width)
-        case .file(let file): ChatFileCard(named: ChatNamedFile(file: file), width: width, media: media)
+        case .file(let file): ChatFileCard(named: ChatNamedFile(file: file), width: width)
         case .link(let link): ChatLinkCard(link: link, width: width)
         }
     }
@@ -467,10 +432,10 @@ private struct ChatCard: View {
 private struct ChatFileCard: View {
     let named: ChatNamedFile
     let width: Double
-    let media: ChatMedia
 
     @State private var reading = ChatFileReading()
     @State private var onScreen = false
+    @Environment(\.chatRows) private var rows
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -500,19 +465,22 @@ private struct ChatFileCard: View {
         .accessibilityHint(state == .opensOutside ? reading.hint.map(ChatFileReading.spoken) ?? "" : "")
         .onScrollVisibilityChange(threshold: 0.01) { onScreen = $0 }
         .task(id: onScreen) {
-            guard onScreen, reading.lookup == .reading else { return }
+            guard onScreen, let rows, reading.lookup == .reading else { return }
 
-            reading.lookup = await media.lookUp(named.file)
+            reading.lookup = await rows.media.lookUp(named.file, in: rows.visit)
             guard case .found(let facts) = reading.lookup, ChatPreviewPolicy.family(of: facts) == .other else { return }
 
-            reading.hint = await media.hint(for: facts)
+            reading.hint = await rows.media.hint(for: facts)
         }
     }
 }
 
 /// A file the row refers to by ref. Its bytes are in the engine's media
 /// store, which no request on either socket returns yet, so it is Not
-/// available: its icon by its type, its name, and no click.
+/// available: its icon by its type, its name, and no click. It is still a
+/// button, disabled with an action that does nothing on purpose: every tile
+/// is one button to VoiceOver, which reads this one as dimmed, with Not
+/// available as its value.
 private struct ChatRefCard: View {
     let ref: CompanionMediaRef
     let width: Double

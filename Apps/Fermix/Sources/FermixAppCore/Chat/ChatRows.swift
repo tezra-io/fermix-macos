@@ -1,5 +1,41 @@
 import SwiftUI
 
+/// What every row of the transcript reads from the chat surface, which sets
+/// it once in the environment: the transcript builds each row with nothing
+/// of its own to hand it (M66).
+struct ChatRowContext: Equatable, Sendable {
+    /// What a row's media needs that outlives the surface.
+    let media: ChatMedia
+    /// The app's one player, which a sound in a row plays on (M66 §3.4).
+    let player: AppPlayer
+    /// The Fermix home as this visit to Chat read it, nil until the surface
+    /// has read it.
+    let visit: ChatVisit?
+    /// The reading column's width, which a strip fits its tiles to.
+    let columnWidth: Double
+
+    /// The media and the player are each one object for the app's life, so
+    /// two contexts are the same when they, the visit and the column are: a
+    /// keystroke that redraws the surface must not redraw every row.
+    static func == (lhs: ChatRowContext, rhs: ChatRowContext) -> Bool {
+        lhs.media === rhs.media && lhs.player === rhs.player && lhs.visit == rhs.visit && lhs.columnWidth == rhs.columnWidth
+    }
+}
+
+extension EnvironmentValues {
+    /// What the chat surface hands its rows. Absent where no chat surface
+    /// hosts a row, which is to say in tests, and a finished row or a turn
+    /// then draws nothing.
+    var chatRows: ChatRowContext? {
+        get { self[ChatRowContextKey.self] }
+        set { self[ChatRowContextKey.self] = newValue }
+    }
+}
+
+private struct ChatRowContextKey: EnvironmentKey {
+    static let defaultValue: ChatRowContext? = nil
+}
+
 /// One transcript item, drawn by what it is.
 struct ChatItemView: View {
     let item: ChatItem
@@ -35,47 +71,48 @@ private struct ChatRow: View {
     let row: CompanionRow
     let marked: [String]
 
-    @Environment(\.chatStrips) private var context
+    @Environment(\.chatRows) private var rows
 
     var body: some View {
+        if let rows {
+            drawn(rows.media.strip(for: row, in: rows.visit), in: rows)
+        }
+    }
+
+    private func drawn(_ strip: ChatStrip, in rows: ChatRowContext) -> some View {
         let user = ChatSpeaker.isUser(row.role)
-        let strip = context?.media.strip(for: row)
-        let words = strip?.text ?? row.text
 
-        VStack(alignment: user ? .trailing : .leading, spacing: ChatMetrics.stripTopGap) {
-            if strip?.voiceNote != nil {
-                ChatVoiceNote(transcript: text(words, user: user), speaker: row.role)
-            } else if !words.isEmpty {
+        return VStack(alignment: user ? .trailing : .leading, spacing: ChatMetrics.stripTopGap) {
+            if strip.voiceNote != nil {
+                ChatVoiceNote(transcript: words(strip), speaker: row.role)
+            } else if !strip.text.isEmpty {
                 if user {
-                    ChatUserRow(text: text(words, user: user), sending: false)
+                    ChatUserRow(text: words(strip), sending: false)
                 } else {
-                    ChatReplyRow(text: text(words, user: user), speaker: row.role)
+                    ChatReplyRow(text: words(strip), speaker: row.role)
                 }
             }
 
-            if let context, let strip {
-                ForEach(strip.sounds, id: \.self) { sound in
-                    ChatSoundRow(url: sound, name: sound.lastPathComponent, player: context.media.player)
-                }
+            ForEach(strip.sounds, id: \.self) { sound in
+                ChatSoundRow(url: sound, name: sound.lastPathComponent, player: rows.player)
             }
 
-            if let context, let strip, !strip.items.isEmpty {
+            if !strip.items.isEmpty {
                 ChatStripView(
                     strip: strip,
                     trailing: user,
-                    width: context.columnWidth - (user ? ChatMetrics.userRowLeadingRoom : 0),
-                    media: context.media
+                    width: rows.columnWidth - (user ? ChatMetrics.userRowLeadingRoom : 0)
                 )
             }
         }
         .frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
     }
 
-    /// The person's own words as they typed them; Fermix's as a reply, its
-    /// paths and addresses links.
-    private func text(_ words: String, user: Bool) -> AttributedString {
-        let drawn = user ? ChatText.plain(words) : ChatText.reply(words, home: NSHomeDirectory())
-        return ChatText.marking(marked, in: drawn)
+    /// The words as the strip read them: Fermix's drawn with their links, a
+    /// person's as they typed them, and either marked where a search sent
+    /// the reader.
+    private func words(_ strip: ChatStrip) -> AttributedString {
+        ChatText.marking(marked, in: strip.reply.map(ChatText.drawn) ?? ChatText.plain(strip.text))
     }
 }
 
@@ -135,10 +172,12 @@ private struct ChatReplyRow: View {
 private struct ChatTurnRow: View {
     let turn: CompanionTurn
 
+    @Environment(\.chatRows) private var rows
+
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            if !turn.text.isEmpty {
-                Text(ChatText.reply(turn.text, home: NSHomeDirectory()))
+            if let rows, !turn.text.isEmpty {
+                Text(ChatText.reply(turn.text, home: rows.media.userHome))
                     .fermixType(Typography.style(.body))
                     .foregroundStyle(Palette.ink.color)
             }

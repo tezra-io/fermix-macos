@@ -1,7 +1,6 @@
 import CoreGraphics
 import Foundation
 import Testing
-import UniformTypeIdentifiers
 
 @testable import FermixAppCore
 
@@ -64,6 +63,17 @@ struct ChatPreviewsTests {
         #expect(ChatPreviewBudget.tries == 2)
     }
 
+    /// A tile asks again, on its next appearance, only where its last answer
+    /// was not final: a failure or a job let go.
+    @Test("a made preview, an icon and an unplayable film are final; a failure and a drop are not")
+    func finalAnswers() {
+        #expect(ChatPreviewOutcome.made(ChatPreview(image: fixturePicture(), detail: nil)).isFinal)
+        #expect(ChatPreviewOutcome.iconOnly.isFinal)
+        #expect(ChatPreviewOutcome.unplayable.isFinal)
+        #expect(!ChatPreviewOutcome.failed.isFinal)
+        #expect(!ChatPreviewOutcome.dropped.isFinal)
+    }
+
     // MARK: - Jobs
 
     @Test("at most two jobs run at once, and the next starts as one ends")
@@ -78,7 +88,7 @@ struct ChatPreviewsTests {
         #expect(previews.runningCount == 2)
         #expect(reader.thumbnailsAsked == [Self.file(1), Self.file(2)])
 
-        let image = FakeMediaReader.image()
+        let image = fixturePicture()
         reader.finish(Self.file(1), with: image)
         #expect(Self.made(await first.value) == Made(width: 400, height: 266, detail: nil))
         try await Self.waitUntil { reader.thumbnailsAsked.count == 3 }
@@ -101,7 +111,7 @@ struct ChatPreviewsTests {
         for _ in 0..<100 { await Task.yield() }
         #expect(reader.thumbnailsAsked.count == 1)
 
-        reader.finish(Self.file(1), with: FakeMediaReader.image())
+        reader.finish(Self.file(1), with: fixturePicture())
         let made = await first.value
         #expect(Self.made(made) == Made(width: 400, height: 266, detail: nil))
         #expect(await second.value == made)
@@ -166,7 +176,7 @@ struct ChatPreviewsTests {
         ask.cancel()
         #expect(await ask.value == .dropped)
 
-        reader.finish(Self.file(1), with: FakeMediaReader.image())
+        reader.finish(Self.file(1), with: fixturePicture())
         for _ in 0..<100 { await Task.yield() }
         #expect(previews.cachedBytes == 0)
         #expect(previews.runningCount == 0)
@@ -204,7 +214,7 @@ struct ChatPreviewsTests {
     func pixelCeiling() async {
         let large = URL(fileURLWithPath: "/h/large.png")
         let reader = FakeMediaReader(
-            thumbnails: .immediate(FakeMediaReader.image()),
+            thumbnails: .immediate(fixturePicture()),
             pictures: [large: ChatPictureFacts(pixels: 100_000_001, animated: false)]
         )
 
@@ -215,7 +225,7 @@ struct ChatPreviewsTests {
 
     @Test("a moving picture is drawn still with its mark, a PDF with its pages, a video with its length")
     func details() async {
-        let image = FakeMediaReader.image()
+        let image = fixturePicture()
         let reader = FakeMediaReader(
             thumbnails: .immediate(image),
             pictures: [URL(fileURLWithPath: "/h/wave.gif"): ChatPictureFacts(pixels: 100, animated: true)],
@@ -264,7 +274,7 @@ struct ChatPreviewsTests {
         #expect(wide.height == 267)
         #expect(abs(wide.midX - 200) < 0.001)
 
-        let cut = ChatPreviewCover.image(FakeMediaReader.image(width: 3, height: 9), filling: tile, anchor: .top)
+        let cut = ChatPreviewCover.image(fixturePicture(width: 3, height: 9), filling: tile, anchor: .top)
         #expect(cut?.width == 400)
         #expect(cut?.height == 267)
     }
@@ -272,7 +282,7 @@ struct ChatPreviewsTests {
     @Test("a video AVFoundation cannot play opens outside, and no frame is made of it")
     func unplayableVideo() async {
         let clip = URL(fileURLWithPath: "/h/clip.mp4")
-        let reader = FakeMediaReader(thumbnails: .immediate(FakeMediaReader.image()))
+        let reader = FakeMediaReader(thumbnails: .immediate(fixturePicture()))
 
         #expect(await ChatPreviews.make(Self.request(1, path: clip.path), with: reader, facts: FakeMediaFacts()) == .unplayable)
         #expect(reader.thumbnailsAsked.isEmpty)
@@ -296,7 +306,7 @@ struct ChatPreviewsTests {
 
     @Test("the cache keeps decoded bytes under its cap, letting the least recently used go first")
     func cacheCap() throws {
-        let preview = ChatPreview(image: FakeMediaReader.image(width: 8, height: 8), detail: nil)
+        let preview = ChatPreview(image: fixturePicture(width: 8, height: 8), detail: nil)
         var cache = ChatPreviewCache(capacity: preview.bytes * 3)
         let keys = (UInt64(1)...4).map { Self.request($0).key }
 
@@ -315,26 +325,6 @@ struct ChatPreviewsTests {
         small.insert(preview, for: keys[0])
         #expect(small.bytes == 0)
         #expect(small.preview(for: keys[0]) == nil)
-    }
-
-    // MARK: - Where a tile opens outside
-
-    @Test("an Opens outside tile's app is looked up once per type, and Finder needs no lookup")
-    func hints() async {
-        let apps = FakeDocumentApplications([UTType.mpeg4Movie.identifier: "Infuse"])
-        let media = ChatMedia(
-            home: { URL(fileURLWithPath: "/h") },
-            player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()),
-            reader: FakeMediaReader(),
-            documentApplication: { apps.lookUp($0) },
-            deadlines: ManualDeadlineScheduler()
-        )
-
-        #expect(await media.hint(for: F.facts("/h/clip.mp4")) == .openIn("Infuse"))
-        #expect(await media.hint(for: F.facts("/h/other.mp4", number: 2)) == .openIn("Infuse"))
-        #expect(await media.hint(for: F.facts("/h/clip.mov", number: 3)) == .showInFinder)
-        #expect(await media.hint(for: F.facts("/h/book.epub", number: 4)) == .showInFinder)
-        #expect(apps.lookups == [.mpeg4Movie, .quickTimeMovie])
     }
 }
 

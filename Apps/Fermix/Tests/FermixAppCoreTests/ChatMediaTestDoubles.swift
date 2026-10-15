@@ -108,23 +108,24 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
         }
         found.map(answer)
     }
+}
 
-    /// A picture of a known size, made in memory.
-    static func image(width: Int = 4, height: Int = 4) -> CGImage {
-        guard let context = CGContext(
-            data: nil,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: width * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ), let image = context.makeImage() else {
-            preconditionFailure("a bitmap context makes a picture")
-        }
-
-        return image
+/// A picture of a known size, made in memory: what a thumbnail or a preview
+/// holds, for a case that never reads a file.
+func fixturePicture(width: Int = 4, height: Int = 4) -> CGImage {
+    guard let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ), let image = context.makeImage() else {
+        preconditionFailure("a bitmap context makes a picture")
     }
+
+    return image
 }
 
 /// Launch Services' answer to which app opens a document of a type, set up

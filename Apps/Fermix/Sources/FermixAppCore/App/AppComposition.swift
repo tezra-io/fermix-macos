@@ -80,8 +80,8 @@ final class AppComposition {
     /// The app's one player (M66 §3.4), for the chat's sounds and the pane's
     /// media tabs. Built before the pane, which plays on it.
     let player: AppPlayer
-    /// What the chat's rows draw under their words: the strips, their
-    /// previews and the sounds (M66).
+    /// What the chat's rows draw under their words: the strips and their
+    /// previews (M66).
     let chatMedia: ChatMedia
 
     /// The shipped configuration: this Mac, this account, this bundle, and the
@@ -132,8 +132,8 @@ final class AppComposition {
         )
         chatMedia = ChatMedia(
             home: { [store] in try store.resolvedHome() },
-            player: player,
             reader: environment.mediaReader,
+            facts: player.facts,
             documentApplication: { WorkspaceLinkOpener.documentApplication(toOpen: $0) },
             deadlines: MainQueueDeadlineScheduler()
         )
@@ -256,7 +256,8 @@ final class AppComposition {
             mascot: mascot,
             browser: browser,
             links: links,
-            chatMedia: chatMedia
+            chatMedia: chatMedia,
+            player: player
         )
         // Every report goes through the coordinator, which owns whether a window
         // is on screen; the pet, the browser and the chat's call box read

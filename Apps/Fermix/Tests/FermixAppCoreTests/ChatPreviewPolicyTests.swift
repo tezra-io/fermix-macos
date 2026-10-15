@@ -244,7 +244,7 @@ struct ChatPreviewPolicyTests {
     @Test("each preview outcome ends in its own state, and a failed one leaves the file clickable")
     func outcomes() {
         let shot = F.facts("/h/shot.png")
-        let preview = ChatPreview(image: FakeMediaReader.image(), detail: nil)
+        let preview = ChatPreview(image: fixturePicture(), detail: nil)
 
         #expect(ChatPreviewPolicy.state(of: .found(shot), outcome: .made(preview)) == .ready(preview))
         #expect(ChatPreviewPolicy.state(of: .found(shot), outcome: .iconOnly) == .ready(nil))

@@ -185,11 +185,12 @@ struct SidebarSelectionFeedbackTests {
             ),
             chatMedia: ChatMedia(
                 home: { URL(fileURLWithPath: "/nonexistent/home") },
-                player: browser.player,
                 reader: FakeMediaReader(),
+                facts: browser.player.facts,
                 documentApplication: { _ in nil },
                 deadlines: ManualDeadlineScheduler()
-            )
+            ),
+            player: browser.player
         )
     }
 }

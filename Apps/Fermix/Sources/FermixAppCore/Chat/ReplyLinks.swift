@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 
 /// The web addresses in a reply: links where the text writes them, and a list
 /// in reading order for the strip under the row (M66 §3.1).
@@ -20,26 +19,19 @@ enum ReplyLinks {
     /// The schemes an address is written with.
     static let schemes: Set<String> = ["http", "https"]
 
-    /// Every address in a parsed reply, as a link drawn in `look`, the look of
-    /// a path: an address is the text it is, as a path is.
-    static func linked(_ reply: AttributedString, look: ReplyPaths.Look) -> AttributedString {
+    /// Every address written out in a parsed reply, as a link marked as
+    /// written (`ReplyWrittenLink`): an address is the text it is, as a path
+    /// is.
+    static func linked(_ reply: AttributedString) -> AttributedString {
         var linked = withoutAddressLinks(reply)
         let text = String(linked.characters)
         for address in addresses(inText: text) {
             guard let range = Range(address.range, in: linked), linked[range].runs.allSatisfy(isPlain) else { continue }
 
-            linked[range].link = address.url
-            linked[range].foregroundColor = look.ink
-            linked[range].underlineStyle = Text.LineStyle(pattern: .solid, color: look.underline)
+            linked.linkWritten(range, to: address.url)
         }
 
         return linked
-    }
-
-    /// The web addresses a drawn reply links to, in reading order: the ones
-    /// written out and the destinations of its markdown links.
-    static func addresses(in reply: AttributedString) -> [URL] {
-        ChatText.links(in: reply).filter(isAddress)
     }
 
     /// The address text is when it is one from end to end, written with its
@@ -76,32 +68,26 @@ enum ReplyLinks {
         return trimmed
     }
 
-    private static let sentenceMarks: Set<Character> = [
-        ".", ",", ";", ":", "!", "?", "'", "\"", "\u{201D}", "\u{2019}", "`", ">"
-    ]
-    private static let brackets: [Character: Character] = [")": "(", "]": "[", "}": "{"]
-
     private static func closesSentence(_ mark: Character) -> Bool {
-        sentenceMarks.contains(mark)
+        ReplyMarks.punctuation.contains(mark) || ReplyMarks.closingQuotes.contains(mark)
     }
 
     private static func closesUnopened(_ mark: Character, in address: Substring) -> Bool {
-        guard let opening = brackets[mark] else { return false }
+        guard let opening = ReplyMarks.brackets[mark] else { return false }
 
         return address.count(where: { $0 == mark }) > address.count(where: { $0 == opening })
     }
 
     /// The reply with every link the parser made of an address it read in the
-    /// text undone, its colour with it: a link whose words are its own
-    /// address, or that address less its scheme (`www.example.com`), which
-    /// is a word here. A markdown link with words of its own keeps its link.
+    /// text undone: a link whose words are its own address, or that address
+    /// less its scheme (`www.example.com`), which is a word here. A markdown
+    /// link with words of its own keeps its link.
     private static func withoutAddressLinks(_ reply: AttributedString) -> AttributedString {
         var plain = reply
         for (link, range) in reply.runs[\.link] {
             guard let link, isAddress(link), readsAsItself(link, String(reply[range].characters)) else { continue }
 
             plain[range].link = nil
-            plain[range].foregroundColor = nil
         }
 
         return plain

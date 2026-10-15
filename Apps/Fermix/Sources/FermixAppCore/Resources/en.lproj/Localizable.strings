@@ -402,6 +402,8 @@
 "chat.tile.pages.one" = "1 page";
 "chat.tile.pages.many" = "%lld pages";
 "chat.voiceNote" = "Voice note";
+"media.play" = "Play";
+"media.pause" = "Pause";
 "chat.kind.picture" = "Picture";
 "chat.kind.video" = "Video";
 "chat.kind.sound" = "Sound";
@@ -436,6 +438,10 @@
 "browser.secure" = "Secure connection";
 "browser.openInBrowser" = "Open in your browser";
 "browser.hide" = "Hide browser";
+"browser.zoomIn" = "Zoom in";
+"browser.zoomOut" = "Zoom out";
+"browser.actualSize" = "Actual size";
+"browser.zoomToFit" = "Zoom to fit";
 "browser.fileTab" = "File";
 "browser.openInAppFormat" = "Open in %@";
 "browser.showInFinder" = "Show in Finder";
@@ -898,11 +904,3 @@
 "provider.details" = "Details…";
 "provider.signOut" = "Sign out";
 "settings.voice.microphoneSection" = "Microphone";
-
-/* MARK: - Browser media (M66) */
-"browser.zoomIn" = "Zoom in";
-"browser.zoomOut" = "Zoom out";
-"browser.actualSize" = "Actual size";
-"browser.zoomToFit" = "Zoom to fit";
-"media.play" = "Play";
-"media.pause" = "Pause";

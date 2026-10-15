@@ -96,84 +96,40 @@ enum ChatTurnStatus: Equatable {
     }
 }
 
-/// Reply text as it is drawn: SwiftUI's inline markdown, with its links
-/// live, and a search's matches marked where the reader was sent to them. A
-/// link opens through the surface's content link opener, in the pane or the
+/// Reply text as it is drawn: a row's words as they read (`ReplyText`),
+/// coloured, and a search's matches marked where the reader was sent to them.
+/// A link opens through the surface's content link opener, in the pane or the
 /// person's own browser, or, for a local path, as the file it names.
 enum ChatText {
-    /// Inline markdown only; blocks and tables are drawn as the text they
-    /// are, except a heading line, drawn as its text in bold, and a fenced
-    /// code block, drawn as code without its fence: a reply is a
-    /// conversation, and those two marks read as noise on the ground rather
-    /// than as structure (owner, 2026-09-28).
-    ///
-    /// A link is drawn in the text blue, `accentText`, which holds §9's floor
-    /// on the dark ground: left to the window's tint it would be the accent,
-    /// which does not.
-    ///
-    /// A local path the reply names is a link to its file too (`ReplyPaths`),
-    /// `~` read as `home`, which the caller passes so the text alone decides
-    /// what is drawn. A path keeps the reply's own `ink`, because blue on
-    /// every path read as noise, and is underlined in `faint`, because ink
-    /// alone passed for plain text (owner, 2026-10-04). A web address written
-    /// out (`ReplyLinks`) is drawn the same way, being the text it is too
-    /// (M66 §3.1); a markdown link's own words stay blue.
+    /// Fermix's words, `~` read as `home`, parsed and drawn: for a turn still
+    /// being written, which has no strip to have read them yet.
     static func reply(_ text: String, home: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        let text = blocksInlined(text)
-        var attributed = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
-        for run in attributed.runs where run.link != nil {
-            attributed[run.range].foregroundColor = Palette.accentText.color
-        }
-
-        return ReplyPaths.linked(ReplyLinks.linked(attributed, look: pathLook), home: home, look: pathLook)
+        drawn(ReplyText(markdown: text, home: home))
     }
 
-    static let pathLook = ReplyPaths.Look(ink: Palette.ink.color, underline: Palette.faint.color)
+    /// Words drawn in their links' colours. A markdown link's own words are
+    /// the text blue, `accentText`, which holds §9's floor on the dark
+    /// ground: left to the window's tint they would be the accent, which
+    /// does not. A path or an address written out is the text it is, so it
+    /// keeps the reply's own `ink`, because blue on every path read as noise,
+    /// and is underlined in `faint`, because ink alone passed for plain text
+    /// (owner, 2026-10-04; M66 §3.1).
+    static func drawn(_ reply: ReplyText) -> AttributedString {
+        var drawn = reply.attributed
+        for run in reply.attributed.runs where run.link != nil {
+            if run[ReplyWrittenLink.self] == true {
+                drawn[run.range].foregroundColor = Palette.ink.color
+                drawn[run.range].underlineStyle = Text.LineStyle(pattern: .solid, color: Palette.faint.color)
+            } else {
+                drawn[run.range].foregroundColor = Palette.accentText.color
+            }
+        }
 
-    /// Every link a drawn reply carries, in reading order, a link drawn over
-    /// several runs (a bold word inside it) counted once.
-    static func links(in reply: AttributedString) -> [URL] {
-        reply.runs[\.link].compactMap { link, _ in link }
+        return drawn
     }
 
     static func plain(_ text: String) -> AttributedString {
         AttributedString(text)
-    }
-
-    /// The two block marks drawn inline: a heading line, one to six `#` then
-    /// a space then its text, becomes that text strongly emphasised, and a
-    /// fenced code block loses its fence lines while each line inside becomes
-    /// a code span. Every other line is left as it is.
-    static func blocksInlined(_ text: String) -> String {
-        var fenced = false
-        return text.split(separator: "\n", omittingEmptySubsequences: false)
-            .compactMap { line -> String? in
-                if line.hasPrefix("```") {
-                    fenced.toggle()
-                    return nil
-                }
-                if fenced { return codeSpan(line) }
-                return heading(line).map { "**\($0)**" } ?? String(line)
-            }
-            .joined(separator: "\n")
-    }
-
-    /// The text of a heading line, or nil for any other line.
-    private static func heading(_ line: Substring) -> String? {
-        let marks = line.prefix { $0 == "#" }
-        guard (1...6).contains(marks.count), line.dropFirst(marks.count).first == " " else { return nil }
-        let title = line.dropFirst(marks.count + 1).trimmingCharacters(in: .whitespaces)
-        return title.isEmpty ? nil : title
-    }
-
-    /// One line of a fenced block as a code span; a line with its own
-    /// backtick takes the two-backtick fence, and an empty line stays empty.
-    private static func codeSpan(_ line: Substring) -> String {
-        if line.isEmpty { return "" }
-        return line.contains("`") ? "`` \(line) ``" : "`\(line)`"
     }
 
     /// Every occurrence of each term, marked. Case is ignored, as the search

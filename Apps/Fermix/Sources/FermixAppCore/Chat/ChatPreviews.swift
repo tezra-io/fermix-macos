@@ -42,6 +42,16 @@ enum ChatPreviewOutcome: Equatable, Sendable {
     /// was full and it was the oldest waiting. The next appearance asks
     /// again, and it does not count as a try.
     case dropped
+
+    /// Whether this is the tile's last answer. One that failed or was let go
+    /// is asked for again the next time its tile appears, and the previews
+    /// decide whether it has a try left (`ChatPreviewBudget.tries`).
+    var isFinal: Bool {
+        switch self {
+        case .made, .iconOnly, .unplayable: return true
+        case .failed, .dropped: return false
+        }
+    }
 }
 
 /// A picture's size and motion, read from its properties without decoding it.
@@ -428,137 +438,5 @@ struct ChatPreviewCache {
 
         order.removeAll { $0 == key }
         bytes -= preview.bytes
-    }
-}
-
-extension ChatFileFacts {
-    /// The facts of the file a link names, read where it really lands, or nil
-    /// where nothing is there now. It reads the disk, so it is called off the
-    /// main thread.
-    static func read(_ link: URL, home: URL?) -> ChatFileFacts? {
-        guard let real = FilePlace.resolved(link.path) else { return nil }
-
-        let file = URL(fileURLWithPath: real)
-        var status = stat()
-        guard let values = try? file.resourceValues(forKeys: FileFacts.keys.union([.contentModificationDateKey])),
-              let disk = FileFacts(values),
-              let modified = values.contentModificationDate,
-              stat(real, &status) == 0
-        else { return nil }
-
-        return ChatFileFacts(
-            file: file,
-            disk: disk,
-            identity: ChatFileIdentity(volume: UInt64(UInt32(bitPattern: status.st_dev)), number: status.st_ino),
-            modified: modified,
-            insideHome: home.map { FilePlace.path(real, liesUnder: $0) } ?? false
-        )
-    }
-}
-
-/// Everything a row's media needs that outlives the chat surface, built once
-/// by the composition: the Fermix home, each row's strip, the previews and
-/// the apps that open a type.
-///
-/// The home is read from the bootstrap record the first time a row asks for
-/// it in a visit to Chat, and read again on the next visit, as the browser
-/// reads it at each open: a row drawn before it was read would have to be
-/// drawn again once it was. A home that cannot be read has nothing inside it.
-@MainActor
-final class ChatMedia {
-    let previews: ChatPreviews
-    /// The app's one player, which a sound in the chat plays through (M66 §3.4).
-    let player: AppPlayer
-    private let readHome: () throws -> URL
-    private let documentApplication: @Sendable (UTType) -> WorkspaceApplication?
-    private var visit: Visit?
-    private var strips: [Int: (source: StripSource, strip: ChatStrip)] = [:]
-    private var hints: [String: ChatTileHint] = [:]
-
-    /// The home as one visit read it.
-    private struct Visit {
-        let home: URL?
-        let paths: ChatHome?
-    }
-
-    /// What a row's strip is worked out from, so it is worked out again only
-    /// when that changes: history may bring the same row with more in it.
-    private struct StripSource: Equatable {
-        let text: String
-        let mediaRefs: [CompanionMediaRef]
-        let linkPreviews: [CompanionLinkPreview]
-        let home: ChatHome?
-    }
-
-    /// `home` reads the Fermix home from the bootstrap record, as the
-    /// browser's does; `reader` is what the Mac's own frameworks draw of a
-    /// file, which the executable hands in; `documentApplication` is the app
-    /// a document of a type goes to, never a browser, asked off the main
-    /// thread (`WorkspaceLinkOpener.documentApplication`); `deadlines` times
-    /// the previews out. Whether a film plays, and its length, are the
-    /// player's facts.
-    init(
-        home: @escaping () throws -> URL,
-        player: AppPlayer,
-        reader: any ChatMediaReading,
-        documentApplication: @escaping @Sendable (UTType) -> WorkspaceApplication?,
-        deadlines: any DeadlineScheduling
-    ) {
-        readHome = home
-        self.player = player
-        self.documentApplication = documentApplication
-        previews = ChatPreviews(reader: reader, facts: player.facts, deadlines: deadlines)
-    }
-
-    /// The row's strip, worked out once for its content.
-    func strip(for row: CompanionRow) -> ChatStrip {
-        let source = StripSource(text: row.text, mediaRefs: row.mediaRefs, linkPreviews: row.linkPreviews, home: currentVisit().paths)
-        if let kept = strips[row.serverSeq], kept.source == source { return kept.strip }
-
-        let strip = ChatStrip(
-            text: row.text,
-            mediaRefs: row.mediaRefs,
-            linkPreviews: row.linkPreviews,
-            userHome: NSHomeDirectory(),
-            home: source.home
-        )
-        strips[row.serverSeq] = (source, strip)
-        return strip
-    }
-
-    /// What a tile's file is, read off the main thread.
-    func lookUp(_ file: URL) async -> ChatFileLookup {
-        let home = currentVisit().home
-        let facts = await Task.detached(priority: .utility) { ChatFileFacts.read(file, home: home) }.value
-
-        return facts.map(ChatFileLookup.found) ?? .missing
-    }
-
-    /// Where an Opens outside tile goes, its app found off the main thread
-    /// the first time a tile of its type asks, and kept by type.
-    func hint(for facts: ChatFileFacts) async -> ChatTileHint {
-        guard ChatPreviewPolicy.handsToApp(facts) else { return .showInFinder }
-        if let known = hints[facts.type.identifier] { return known }
-
-        let lookUp = documentApplication
-        let type = facts.type
-        let hint = await Task.detached(priority: .utility) { lookUp(type).map { ChatTileHint.openIn($0.name) } ?? .showInFinder }.value
-        hints[type.identifier] = hint
-        return hint
-    }
-
-    /// The chat surface went: the next visit reads the home again.
-    func surfaceLeft() {
-        visit = nil
-    }
-
-    /// The home as this visit read it, reading it the first time.
-    private func currentVisit() -> Visit {
-        if let visit { return visit }
-
-        let home = try? readHome()
-        let read = Visit(home: home, paths: home.map(ChatHome.init))
-        visit = read
-        return read
     }
 }

@@ -33,6 +33,8 @@ struct AppSurfaces {
     let links: ContentLinkOpener
     /// What the chat's rows draw under their words (M66).
     let chatMedia: ChatMedia
+    /// The app's one player, which the chat's sounds play on.
+    let player: AppPlayer
 
     func view(for kind: WindowKind) -> NSView {
         switch kind {
@@ -50,7 +52,8 @@ struct AppSurfaces {
                     restart: restart,
                     browser: browser,
                     links: links,
-                    chatMedia: chatMedia
+                    chatMedia: chatMedia,
+                    player: player
                 )
             )
             // The primary window's toolbar and title are SwiftUI's, hosted in
