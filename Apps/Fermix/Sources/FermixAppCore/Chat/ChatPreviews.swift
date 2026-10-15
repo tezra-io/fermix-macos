@@ -36,19 +36,22 @@ enum ChatPreviewOutcome: Equatable, Sendable {
     case iconOnly
     /// A video AVFoundation cannot play, which opens outside Fermix.
     case unplayable
-    /// It failed or took too long.
+    /// It failed or took too long, or the engine could not grant a
+    /// phone-side file's bytes for a reason of its own.
     case failed
     /// It was let go before it ended: its tile left the screen, or the queue
     /// was full and it was the oldest waiting. The next appearance asks
     /// again, and it does not count as a try.
     case dropped
+    /// The engine no longer has a phone-side file's bytes: Not available.
+    case missing
 
     /// Whether this is the tile's last answer. One that failed or was let go
     /// is asked for again the next time its tile appears, and the previews
     /// decide whether it has a try left (`ChatPreviewBudget.tries`).
     var isFinal: Bool {
         switch self {
-        case .made, .iconOnly, .unplayable: return true
+        case .made, .iconOnly, .unplayable, .missing: return true
         case .failed, .dropped: return false
         }
     }
@@ -95,21 +98,42 @@ enum ChatPreviewBudget {
     static let tries = 2
 }
 
-/// What a preview is kept by: the file's identity, modification date and
-/// size, so an edited or replaced file is a new key and a stale result can
-/// never be shown for it, and the pixel size and scale it was made at.
+/// What a preview is kept by: what its content is known by, and the pixel
+/// size and scale it was made at (M66 §3.7).
 struct ChatPreviewKey: Hashable, Sendable {
-    let identity: ChatFileIdentity
-    let modified: Date
-    let size: Int
+    /// A file's identity, modification date and size, so an edited or
+    /// replaced file is a new key and a stale result can never be shown for
+    /// it; or a phone-side file's ref, which names its content and never
+    /// changes, so a fresh copy of the same file is no new work.
+    enum Content: Hashable, Sendable {
+        case file(ChatFileIdentity, modified: Date, size: Int)
+        case ref(String)
+    }
+
+    let content: Content
     let pixelWidth: Int
     let pixelHeight: Int
     let scale: Double
+
+    init(_ content: Content, size: CGSize, scale: Double) {
+        self.content = content
+        pixelWidth = Int((size.width * scale).rounded())
+        pixelHeight = Int((size.height * scale).rounded())
+        self.scale = scale
+    }
+}
+
+/// What a preview is made from: a file a path names, where it really lands,
+/// or a phone-side file, by its ref, whose file the engine grants only while
+/// the preview is made (M66 decision 1).
+enum ChatPreviewSource: Sendable {
+    case file(URL)
+    case ref(String)
 }
 
 /// One preview to make: a tile's file, at its size.
 struct ChatPreviewRequest: Sendable {
-    let file: URL
+    let source: ChatPreviewSource
     let family: ChatFileFamily
     /// The tile, in points, and the screen's scale.
     let size: CGSize
@@ -136,19 +160,34 @@ struct ChatPreviewRequest: Sendable {
         family == .pdf || family == .document ? .top : .center
     }
 
+    /// A file's preview, read where it really lands.
     init(_ facts: ChatFileFacts, size: CGSize, scale: Double) {
-        file = facts.file
-        family = ChatPreviewPolicy.family(of: facts)
+        self.init(
+            source: .file(facts.file),
+            family: ChatPreviewPolicy.family(of: facts),
+            size: size,
+            scale: scale,
+            content: .file(facts.identity, modified: facts.modified, size: facts.size)
+        )
+    }
+
+    /// A phone-side file's preview, of the type its row names.
+    init(_ ref: CompanionMediaRef, size: CGSize, scale: Double) {
+        self.init(ref: ref.ref, family: ChatPreviewPolicy.family(of: ChatPreviewPolicy.type(of: ref)), size: size, scale: scale)
+    }
+
+    /// The preview of a phone-side file of `family`, by its ref alone: a
+    /// stored link preview's picture has no row of its own to say more.
+    init(ref: String, family: ChatFileFamily, size: CGSize, scale: Double) {
+        self.init(source: .ref(ref), family: family, size: size, scale: scale, content: .ref(ref))
+    }
+
+    private init(source: ChatPreviewSource, family: ChatFileFamily, size: CGSize, scale: Double, content: ChatPreviewKey.Content) {
+        self.source = source
+        self.family = family
         self.size = size
         self.scale = scale
-        key = ChatPreviewKey(
-            identity: facts.identity,
-            modified: facts.modified,
-            size: facts.size,
-            pixelWidth: Int((size.width * scale).rounded()),
-            pixelHeight: Int((size.height * scale).rounded()),
-            scale: scale
-        )
+        key = ChatPreviewKey(content, size: size, scale: scale)
     }
 }
 
@@ -177,10 +216,18 @@ public protocol ChatMediaReading: Sendable {
 /// cancelled; a job that takes longer than ten seconds counts as failed; and
 /// what is made is kept in a cache of decoded bytes. A job's work runs off the
 /// main thread; its bookkeeping is on it.
+///
+/// A phone-side file's job holds the file the engine grants for its ref from
+/// the moment it starts until it ends, whatever it comes to, and at no other
+/// time (M66 decision 1): never while it waits, never for a preview already
+/// kept, and never for a tile that left the screen, whose job is let go. Its
+/// preview then lives in the cache, so a history scrolled through holds
+/// nothing once its previews are made.
 @MainActor
 final class ChatPreviews {
     private let reader: any ChatMediaReading
     private let facts: any MediaFacts
+    private let grants: any MediaGranting
     private let deadlines: any DeadlineScheduling
     private var cache: ChatPreviewCache
     private var jobs: [ChatPreviewKey: Job] = [:]
@@ -204,11 +251,13 @@ final class ChatPreviews {
     init(
         reader: any ChatMediaReading,
         facts: any MediaFacts,
+        grants: any MediaGranting,
         deadlines: any DeadlineScheduling,
         cacheBytes: Int = ChatPreviewBudget.cacheBytes
     ) {
         self.reader = reader
         self.facts = facts
+        self.grants = grants
         self.deadlines = deadlines
         cache = ChatPreviewCache(capacity: cacheBytes)
     }
@@ -286,14 +335,45 @@ final class ChatPreviews {
     }
 
     private func start(_ job: Job) {
-        let key = job.request.key
-        running.insert(key)
+        running.insert(job.request.key)
+        job.work = Task { [request = job.request] in
+            let outcome = await self.work(request) { self.timeOut(job) }
+            self.finish(job, outcome)
+        }
+    }
+
+    /// The time a preview has (§3.3) runs from when its bytes are in hand: a
+    /// file's at once, a phone-side file's once the engine has granted it. A
+    /// grant that waits out a reconnect is no failure of the preview, and
+    /// uses none of its tries.
+    private func timeOut(_ job: Job) {
+        guard jobs[job.request.key] === job else { return }
+
         job.deadline = deadlines.schedule(after: ChatPreviewBudget.timeout) { [weak self] in
             self?.finish(job, .failed)
         }
-        job.work = Task { [reader, facts, request = job.request] in
-            let outcome = await Self.make(request, with: reader, facts: facts)
-            self.finish(job, outcome)
+    }
+
+    /// One job's work: on a file at once, and on a phone-side file's once
+    /// the engine has granted it, the grant let go as the work ends, however
+    /// it ends. `inHand` starts the job's clock. A job let go while it waited
+    /// for the grant is dropped.
+    private func work(_ request: ChatPreviewRequest, inHand: () -> Void) async -> ChatPreviewOutcome {
+        switch request.source {
+        case .file(let file):
+            inHand()
+            return await Self.make(request, from: file, with: reader, facts: facts)
+        case .ref(let ref):
+            let grant = await grants.hold(ref)
+            defer { grants.release(ref) }
+
+            switch grant {
+            case .granted(let granted):
+                inHand()
+                return await Self.make(request, from: granted.url, with: reader, facts: facts)
+            case .missing: return .missing
+            case .failed: return Task.isCancelled ? .dropped : .failed
+            }
         }
     }
 
@@ -310,7 +390,7 @@ final class ChatPreviews {
         switch outcome {
         case .made(let preview): cache.insert(preview, for: key)
         case .failed: failures[key, default: 0] += 1
-        case .iconOnly, .unplayable, .dropped: break
+        case .iconOnly, .unplayable, .dropped, .missing: break
         }
         for continuation in job.waiters.values {
             continuation.resume(returning: outcome)
@@ -318,31 +398,32 @@ final class ChatPreviews {
         startWaiting()
     }
 
-    /// One job's work, off the main thread. A picture's size is read before
-    /// anything decodes it; a video is asked whether it plays and how long it
-    /// is, and a PDF how many pages it has, beside its thumbnail.
+    /// A preview of `file`, off the main thread. A picture's size is read
+    /// before anything decodes it; a video is asked whether it plays and how
+    /// long it is, and a PDF how many pages it has, beside its thumbnail.
     nonisolated static func make(
         _ request: ChatPreviewRequest,
+        from file: URL,
         with reader: any ChatMediaReading,
         facts: any MediaFacts
     ) async -> ChatPreviewOutcome {
         var detail: ChatPreviewDetail?
         switch request.family {
         case .picture:
-            guard let picture = reader.picture(at: request.file), picture.pixels <= ChatPreviewBudget.pixels else { return .iconOnly }
+            guard let picture = reader.picture(at: file), picture.pixels <= ChatPreviewBudget.pixels else { return .iconOnly }
             detail = picture.animated ? .animated : nil
         case .video:
-            guard await facts.isPlayable(request.file) else { return .unplayable }
-            detail = await facts.length(of: request.file).map(ChatPreviewDetail.length)
+            guard await facts.isPlayable(file) else { return .unplayable }
+            detail = await facts.length(of: file).map(ChatPreviewDetail.length)
         case .pdf:
-            detail = await reader.pageCount(of: request.file).map(ChatPreviewDetail.pages)
+            detail = await reader.pageCount(of: file).map(ChatPreviewDetail.pages)
         case .document, .sound, .page, .text, .data, .other:
             break
         }
 
         let thumbnail: CGImage
         do {
-            thumbnail = try await reader.thumbnail(of: request.file, size: request.box, scale: request.scale)
+            thumbnail = try await reader.thumbnail(of: file, size: request.box, scale: request.scale)
         } catch {
             return Task.isCancelled ? .dropped : .failed
         }

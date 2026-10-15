@@ -6,7 +6,7 @@ import Foundation
 /// It is made the first time something is held, so a person who never plays
 /// anything never has one, and it plays to the Mac's current output. What it
 /// reports it reads from the player itself: `timeControlStatus` for whether
-/// it plays, a periodic observer for where, and the item's end.
+/// it plays, a periodic observer for where, and the item's end and failure.
 @MainActor
 final class AVFoundationPlayback: AppPlaybackEngine {
     weak var events: (any AppPlaybackEvents)?
@@ -14,13 +14,15 @@ final class AVFoundationPlayback: AppPlaybackEngine {
     private var playingObservation: NSKeyValueObservation?
     /// The periodic observer's token, held for the player's life.
     private var ticks: Any?
-    /// The held item's end, observed for that item alone.
+    /// The held item's end and its status, observed for that item alone.
     private var ending: (any NSObjectProtocol)?
+    private var failing: NSKeyValueObservation?
 
     func hold(_ url: URL?) {
         player?.pause()
         if let ending { NotificationCenter.default.removeObserver(ending) }
         ending = nil
+        failing = nil
         guard let url else {
             player?.replaceCurrentItem(with: nil)
             return
@@ -29,6 +31,7 @@ final class AVFoundationPlayback: AppPlaybackEngine {
         let item = AVPlayerItem(url: url)
         made().replaceCurrentItem(with: item)
         observeEnd(of: item)
+        observeFailure(of: item)
         readLength(of: item)
     }
 
@@ -88,6 +91,22 @@ final class AVFoundationPlayback: AppPlaybackEngine {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.events?.playbackEnded() }
         }
+    }
+
+    /// An item whose status turns failed no longer plays: its file could not
+    /// be read. (A file removed while it plays is not that: the player keeps
+    /// the one it opened and plays on.) The status can be reported on any
+    /// queue, so it is read again on the main actor, of the item held by then.
+    private func observeFailure(of item: AVPlayerItem) {
+        failing = item.observe(\.status) { [weak self] _, _ in
+            Task { @MainActor in self?.statusChanged() }
+        }
+    }
+
+    private func statusChanged() {
+        guard player?.currentItem?.status == .failed else { return }
+
+        events?.playbackFailed()
     }
 
     /// The length arrives once AVFoundation has read it, and only for the

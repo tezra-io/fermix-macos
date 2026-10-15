@@ -2,9 +2,9 @@ import Foundation
 
 @testable import FermixAppCore
 
-/// Rows with files, as they reach this client: announced live with none of
-/// them, since protocol 2's `row` carries no media list, and read from history
-/// with them (M66 §3.6).
+/// Rows with files as they reach this client on version 3: announced live
+/// with their files, read from history with them, changed later as a
+/// `row_updated` says (M66 §3.6), and their files granted by ref (decision 1).
 enum CompanionMediaRows {
     static let voice = CompanionMediaRef(
         ref: String(repeating: "a", count: 64),
@@ -25,20 +25,15 @@ enum CompanionMediaRows {
         caption: nil
     )
 
-    /// The request a voice note from the phone recorded, which its reply
-    /// names in `in_reply_to`.
-    static func request(_ seq: Int) -> String {
-        "phone-\(seq)"
-    }
-
-    /// A media row announced live: a voice note from the phone is the user's,
-    /// with no text and the request it recorded; a picture Fermix sent the
-    /// phone is the assistant's.
+    /// A media row announced live with its files: a voice note from the phone
+    /// is the user's, with no text until its transcript is stored; a picture
+    /// Fermix sent the phone is the assistant's.
     static func announced(
         _ seq: Int,
         role: String = "user",
         text: String = "",
-        request: String? = nil
+        refs: [CompanionMediaRef],
+        previews: [CompanionLinkPreview]? = nil
     ) -> CompanionServerEvent {
         .row(
             CompanionAnnouncedRow(
@@ -47,9 +42,11 @@ enum CompanionMediaRows {
                 role: role,
                 text: text,
                 timestamp: "2026-10-11T09:00:00Z",
-                clientMsgId: request,
+                clientMsgId: nil,
                 kind: "media",
-                metadata: nil
+                metadata: nil,
+                mediaRefs: refs,
+                linkPreviews: previews
             )
         )
     }
@@ -61,7 +58,7 @@ enum CompanionMediaRows {
         role: String = "user",
         text: String = "",
         refs: [CompanionMediaRef],
-        request: String? = nil
+        previews: [CompanionLinkPreview]? = nil
     ) -> CompanionTimelineRow {
         CompanionTimelineRow(
             serverSeq: seq,
@@ -70,30 +67,29 @@ enum CompanionMediaRows {
             kind: "media",
             timestamp: "2026-10-11T09:00:00Z",
             mediaRefs: refs,
-            clientMsgId: request,
+            clientMsgId: nil,
             inReplyTo: nil,
             metadata: nil,
-            linkPreviews: nil
+            linkPreviews: previews
         )
     }
 
-    /// Fermix's reply to a voice note, as history has it.
-    static func reply(_ seq: Int, to note: Int, text: String) -> CompanionTimelineRow {
-        CompanionTimelineRow(
-            serverSeq: seq,
-            role: "assistant",
-            content: text,
-            kind: "text",
-            timestamp: "2026-10-11T09:00:05Z",
-            mediaRefs: [],
-            clientMsgId: nil,
-            inReplyTo: request(note),
-            metadata: nil,
-            linkPreviews: nil
-        )
+    /// A link preview the engine stored for an address in a row.
+    static let preview = CompanionLinkPreview(
+        url: "https://x.test/a",
+        site: "X",
+        title: "A page",
+        description: nil,
+        imageRef: String(repeating: "c", count: 64)
+    )
+
+    /// The engine's notice that a written row changed.
+    static func updated(_ seq: Int) -> CompanionServerEvent {
+        .rowUpdated(profileId: CompanionEvents.profile, serverSeq: seq)
     }
 
-    /// The page answering a forward read: these rows, oldest first.
+    /// The page answering a forward read: these rows, oldest first, and the
+    /// last of them as where the read stopped.
     static func page(_ rows: [CompanionTimelineRow], head: Int) -> CompanionServerEvent {
         .historyPage(
             CompanionHistoryPage(
@@ -110,5 +106,37 @@ enum CompanionMediaRows {
     /// many rows as it spans.
     static func read(after seq: Int, limit: Int) -> CompanionClientEvent {
         .historyPull(profileId: CompanionProtocol.profileId, cursor: .after(seq: seq), limit: limit)
+    }
+
+    /// The managed file the engine makes for a ref.
+    static func path(_ media: CompanionMediaRef) -> String {
+        "/Users/me/.fermix/companion/media/\(media.ref).bin"
+    }
+
+    /// The engine's grant of a ref's file.
+    static func granted(_ media: CompanionMediaRef, at path: String? = nil) -> CompanionServerEvent {
+        .mediaPath(
+            CompanionMediaPath(
+                ref: media.ref,
+                path: path ?? Self.path(media),
+                kind: media.kind,
+                mime: media.mime,
+                sizeBytes: media.sizeBytes,
+                sha256: media.ref
+            )
+        )
+    }
+
+    /// The grant the app hands a use, for that file.
+    static func grant(_ media: CompanionMediaRef, at path: String? = nil) -> MediaGrant {
+        MediaGrant(ref: media.ref, url: URL(fileURLWithPath: path ?? Self.path(media)))
+    }
+
+    static func fetch(_ media: CompanionMediaRef) -> CompanionClientEvent {
+        .mediaFetch(profileId: CompanionProtocol.profileId, ref: media.ref)
+    }
+
+    static func release(_ media: CompanionMediaRef) -> CompanionClientEvent {
+        .mediaRelease(profileId: CompanionProtocol.profileId, ref: media.ref)
     }
 }

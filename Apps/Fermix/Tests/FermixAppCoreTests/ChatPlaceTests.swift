@@ -23,24 +23,24 @@ struct ChatPlaceTests {
     }
 
     /// A chat that holds rows 1 to 10, then took a voice note from the phone at
-    /// 11, read it for its file, and took rows 12 to 20 after it.
+    /// 11 with its file, and took rows 12 to 20 after it.
     private static func chatWithAVoiceNoteAbove() -> CompanionChat {
         var chat = CompanionChat()
-        _ = CompanionReducer.negotiated(&chat)
+        _ = CompanionReducer.negotiated(&chat, onScreen: [])
         _ = CompanionReducer.receive(E.backward(Array(1...10), head: 10), into: &chat)
-        _ = CompanionReducer.receive(M.announced(11, request: M.request(11)), into: &chat)
-        _ = CompanionReducer.receive(M.page([M.exported(11, refs: [M.voice], request: M.request(11))], head: 11), into: &chat)
+        _ = CompanionReducer.receive(M.announced(11, refs: [M.voice]), into: &chat)
         for seq in 12...20 {
             _ = CompanionReducer.receive(E.row(seq), into: &chat)
         }
         return chat
     }
 
-    /// The read the reply at 21 asks for: the note, now with its transcript,
-    /// up to the reply, which says what its announcement said.
-    private static let transcribed = [M.exported(11, text: "Pick up milk", refs: [M.voice], request: M.request(11))]
-        + (12...20).map(E.exported)
-        + [M.reply(21, to: 11, text: "row 21")]
+    /// The engine stored the note's transcript, said so, and the read it asked
+    /// for brought the note with its text.
+    private static func transcribe(_ chat: inout CompanionChat) {
+        _ = CompanionReducer.receive(M.updated(11), into: &chat)
+        _ = CompanionReducer.receive(M.page([M.exported(11, text: "Pick up milk", refs: [M.voice])], head: 20), into: &chat)
+    }
 
     @Test("a reader on the bottom edge is held there with the newest item, whatever it is")
     func bottomEdgeHoldsTheNewest() {
@@ -72,8 +72,7 @@ struct ChatPlaceTests {
         let before = ChatPlace(atBottom: false, visible: reading, items: Self.items(of: chat))
         let published = chat.reshape
 
-        _ = CompanionReducer.receive(E.row(21, role: "assistant"), into: &chat)
-        _ = CompanionReducer.receive(M.page(Self.transcribed, head: 21), into: &chat)
+        Self.transcribe(&chat)
 
         #expect(chat.reshape != published)
         #expect(chat.reshape?.seqs == [11])
@@ -85,10 +84,23 @@ struct ChatPlaceTests {
     func bottomEdgeFollowsThroughAChange() {
         var chat = Self.chatWithAVoiceNoteAbove()
 
-        _ = CompanionReducer.receive(E.row(21, role: "assistant"), into: &chat)
-        _ = CompanionReducer.receive(M.page(Self.transcribed, head: 21), into: &chat)
+        Self.transcribe(&chat)
 
         #expect(chat.reshape?.seqs == [11])
-        #expect(ChatPlace(atBottom: true, visible: [.row(20), .row(21)], items: Self.items(of: chat)) == .newest(.row(21)))
+        #expect(ChatPlace(atBottom: true, visible: [.row(19), .row(20)], items: Self.items(of: chat)) == .newest(.row(20)))
+    }
+
+    /// The transcript tells the session which held rows are on screen, so a
+    /// row read before a disconnect is read again as it comes into view
+    /// (M66 §3.6). Scrolling changes the visible items far more often.
+    @Test("the rows on screen are reported when they change, and only then")
+    func rowsOnScreenAreReportedOnChange() {
+        var shown = ChatRowsOnScreen()
+
+        #expect(shown.update([.row(4), .row(5)]) == [4, 5])
+        #expect(shown.update([.row(5), .row(4), .turn("turn-1")]) == nil)
+        #expect(shown.update([.older, .row(1), .row(2)]) == [1, 2])
+        #expect(shown.update([.pending("mac-1"), .error]) == [])
+        #expect(shown.update([]) == nil)
     }
 }

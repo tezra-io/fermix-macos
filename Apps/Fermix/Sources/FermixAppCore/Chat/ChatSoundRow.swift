@@ -109,7 +109,7 @@ struct ChatSoundRow: View {
 
 /// The held sound's place, observed by the one row that holds it alone, so a
 /// tick redraws that row and no other.
-private struct ChatSoundProgress: View {
+struct ChatSoundProgress: View {
     @ObservedObject var progress: AppPlayerProgress
     let content: (Double, Double?) -> ChatSoundControls
 
@@ -119,9 +119,10 @@ private struct ChatSoundProgress: View {
 }
 
 /// The button, then the sound's name over its track and time, drawn from one
-/// state. The name is on the row because the line that named the file is not
-/// in the reply's text: the row is where it is said.
-private struct ChatSoundControls: View {
+/// state: a sound file's and a voice note's alike. The name is on the row
+/// because the line that named the file is not in the reply's text: the row
+/// is where it is said.
+struct ChatSoundControls: View {
     let name: String
     let state: ChatSoundState
     /// False while a call is up, when nothing is offered.

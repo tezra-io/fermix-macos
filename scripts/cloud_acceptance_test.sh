@@ -75,7 +75,10 @@ python3() {
         return 1
       fi
       ;;
-    companion) cat "$CONTROL/companion-events" ;;
+    companion)
+      printf '%s\n' "$6" >"$CONTROL/companion-version"
+      cat "$CONTROL/companion-events"
+      ;;
     *) command python3 "$@" ;;
   esac
 }
@@ -235,6 +238,12 @@ write_mac_fixtures() {
   printf '#!/bin/bash\n' >"$app/Contents/MacOS/FermixAgent"
   chmod +x "$app/Contents/MacOS/Fermix" "$app/Contents/MacOS/FermixAgent"
   printf '{"identity": {"source_commit": "%s", "architecture": "arm64"}}\n' "$ENGINE_COMMIT" >"$app/Contents/Resources/Engine/arm64/engine-manifest.json"
+  # The app's own vendored companion contract, and the engine's, which declares
+  # a newer version: the hello must read the app's.
+  mkdir -p "$app/Contents/Resources/Fermix_FermixAppCore.bundle/Contents/Resources/Contracts/companion" \
+    "$app/Contents/Resources/Engine/arm64/lib/fermix_core-0.0.0/priv/companion"
+  printf '{"x-protocol-version": 2}\n' >"$app/Contents/Resources/Fermix_FermixAppCore.bundle/Contents/Resources/Contracts/companion/protocol.schema.json"
+  printf '{"x-protocol-version": 9}\n' >"$app/Contents/Resources/Engine/arm64/lib/fermix_core-0.0.0/priv/companion/protocol.schema.json"
   printf 'designated => identifier "io.tezra.FermixPet.agent" and anchor apple generic and certificate leaf[subject.OU] = TEAM123456\n' >"$CONTROL/requirement"
   printf '%s: accepted\nsource=Notarized Developer ID\norigin=Developer ID Application: Fermix (TEAM123456)\n' "artifact" >"$CONTROL/spctl-verdict"
   printf '%s\n' "$REAL_USER" >"$CONTROL/console"
@@ -612,6 +621,7 @@ chat_ready() {
 }
 
 mac_case
+install_fake_app
 chat_ready
 printf 'event|server_hello|versions 1 to 1\nevent|accepted|duplicate=False\nevent|text_done|Hello there.\n' >"$CONTROL/companion-events"
 verb chat "hello" || fail "chat refused: $(cat "$ERR")"
@@ -621,6 +631,7 @@ grep -q "^check|chat_reply|PASS|Hello there." "$OUT" || fail "the reply text was
 pass "chat: handshake and a reply"
 
 mac_case
+install_fake_app
 chat_ready
 printf 'event|server_hello|versions 1 to 1\nevent|accepted|duplicate=False\nevent|turn_error|request_failed: no model answered\n' >"$CONTROL/companion-events"
 verb chat "hello" || fail "chat refused: $(cat "$ERR")"
@@ -629,12 +640,35 @@ grep -q "^check|chat_reply|FAIL|turn_error request_failed: no model answered" "$
 pass "chat: a turn_error is a FAIL in the daemon's words"
 
 mac_case
+install_fake_app
 chat_ready
 printf 'event|closed|no server_hello: null\n' >"$CONTROL/companion-events"
 verb chat "hello" || fail "chat refused: $(cat "$ERR")"
 has_check chat_handshake FAIL "no server_hello"
 no_check chat_reply "no server_hello"
 pass "chat: no handshake fails without sending"
+
+# The daemon refuses a hello outside its version window, so the one companion
+# message the acceptance sends declares the version the installed app's own
+# contract does, never the engine's, whichever release is under test.
+mac_case
+install_fake_app
+chat_ready
+printf 'event|server_hello|versions 2 to 3\nevent|accepted|duplicate=False\nevent|text_done|Hi.\n' >"$CONTROL/companion-events"
+verb chat "hello" || fail "chat refused: $(cat "$ERR")"
+[ "$(cat "$CONTROL/companion-version")" = 2 ] ||
+  fail "the hello declared companion version '$(cat "$CONTROL/companion-version")', not the installed app's 2"
+pass "chat: the hello declares the companion version the installed app speaks"
+
+mac_case
+install_fake_app
+chat_ready
+find "$APP" -path '*/Contracts/companion/protocol.schema.json' -delete
+printf 'event|server_hello|versions 2 to 3\n' >"$CONTROL/companion-events"
+verb chat "hello" || fail "chat refused: $(cat "$ERR")"
+has_check chat_handshake FAIL "no companion contract"
+[ ! -f "$CONTROL/companion-version" ] || fail "a hello went out with no version to declare"
+pass "chat: an app with no companion contract fails without sending"
 
 mac_case
 install_fake_app

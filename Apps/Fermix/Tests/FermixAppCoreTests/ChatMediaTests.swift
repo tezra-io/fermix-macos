@@ -22,6 +22,7 @@ struct ChatMediaTests {
             userHome: "/Users/me",
             reader: FakeMediaReader(),
             facts: FakeMediaFacts(),
+            grants: FakeMediaGrants(),
             documentApplication: { apps.lookUp($0) },
             deadlines: ManualDeadlineScheduler()
         )
@@ -131,30 +132,53 @@ struct ChatMediaTests {
         let apps = FakeDocumentApplications([UTType.mpeg4Movie.identifier: "Infuse"])
         let media = Self.media(apps: apps)
 
-        #expect(await media.hint(for: F.facts("/h/clip.mp4")) == .openIn("Infuse"))
-        #expect(await media.hint(for: F.facts("/h/other.mp4", number: 2)) == .openIn("Infuse"))
-        #expect(await media.hint(for: F.facts("/h/clip.mov", number: 3)) == .showInFinder)
-        #expect(await media.hint(for: F.facts("/h/book.epub", number: 4)) == .showInFinder)
+        #expect(await media.hint(for: F.facts("/h/clip.mp4").disk) == .openIn("Infuse"))
+        #expect(await media.hint(for: F.facts("/h/other.mp4", number: 2).disk) == .openIn("Infuse"))
+        #expect(await media.hint(for: F.facts("/h/clip.mov", number: 3).disk) == .showInFinder)
+        #expect(await media.hint(for: F.facts("/h/book.epub", number: 4).disk) == .showInFinder)
         #expect(apps.lookups == [.mpeg4Movie, .quickTimeMovie])
+    }
+
+    /// A phone-side file is judged by the type its row names, as the engine
+    /// makes its file: a film hands to its app, and data only shows in
+    /// Finder, which needs no lookup.
+    @Test("a phone-side file's Opens outside hint is read from the type its row names")
+    func refHints() async {
+        let apps = FakeDocumentApplications([UTType.mpeg4Movie.identifier: "Infuse"])
+        let media = Self.media(apps: apps)
+        let film = CompanionMediaRef(ref: FakeMediaGrants.ref("f"), kind: "video", mime: "video/mp4", sizeBytes: 10, sha256: nil, filename: nil, caption: nil)
+        let archive = CompanionMediaRef(ref: FakeMediaGrants.ref("e"), kind: "document", mime: "application/zip", sizeBytes: 10, sha256: nil, filename: "logs.zip", caption: nil)
+
+        #expect(await media.hint(for: ChatPreviewPolicy.facts(of: film)) == .openIn("Infuse"))
+        #expect(await media.hint(for: ChatPreviewPolicy.facts(of: archive)) == .showInFinder)
+        #expect(apps.lookups == [.mpeg4Movie])
     }
 
     // MARK: - What the rows read
 
-    /// The media and the player are each one object for the app's life, so
-    /// two contexts are the same when they, the visit and the column are: a
-    /// keystroke that redraws the surface must not redraw every row.
-    @Test("two row contexts are the same when their media, player, visit and column are")
+    /// The media, the player and the opener are each one object for the
+    /// app's life, so two contexts are the same when they, the visit and the
+    /// column are: a keystroke that redraws the surface must not redraw every
+    /// row.
+    @Test("two row contexts are the same when their media, player, opener, visit and column are")
     func contextEquality() {
         let media = Self.media()
-        let player = AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts())
+        let browser = BrowserHarness()
+        let player = browser.player
+        let links = Self.links(browser)
         let visit = media.surfaceEntered()
-        let context = ChatRowContext(media: media, player: player, visit: visit, columnWidth: 720)
+        let context = ChatRowContext(media: media, player: player, links: links, visit: visit, columnWidth: 720)
 
-        #expect(context == ChatRowContext(media: media, player: player, visit: visit, columnWidth: 720))
-        #expect(context != ChatRowContext(media: media, player: player, visit: visit, columnWidth: 430))
-        #expect(context != ChatRowContext(media: media, player: player, visit: nil, columnWidth: 720))
-        #expect(context != ChatRowContext(media: Self.media(), player: player, visit: visit, columnWidth: 720))
-        #expect(context != ChatRowContext(media: media, player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts()), visit: visit, columnWidth: 720))
+        #expect(context == ChatRowContext(media: media, player: player, links: links, visit: visit, columnWidth: 720))
+        #expect(context != ChatRowContext(media: media, player: player, links: links, visit: visit, columnWidth: 430))
+        #expect(context != ChatRowContext(media: media, player: player, links: links, visit: nil, columnWidth: 720))
+        #expect(context != ChatRowContext(media: Self.media(), player: player, links: links, visit: visit, columnWidth: 720))
+        #expect(context != ChatRowContext(media: media, player: BrowserHarness().player, links: links, visit: visit, columnWidth: 720))
+        #expect(context != ChatRowContext(media: media, player: player, links: Self.links(browser), visit: visit, columnWidth: 720))
+    }
+
+    private static func links(_ browser: BrowserHarness) -> ContentLinkOpener {
+        ContentLinkOpener(preference: InMemoryLinkPreferenceStore(), browser: browser.coordinator, workspace: browser.workspace)
     }
 }
 

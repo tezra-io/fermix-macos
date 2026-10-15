@@ -503,6 +503,8 @@ struct BrowserHarness {
     let workspace = RecordingWorkspaceOpener()
     let playback = FakePlaybackEngine()
     let facts = FakeMediaFacts()
+    /// The engine's grants of phone-side files, which a file tab holds.
+    let grants = FakeMediaGrants()
     let player: AppPlayer
     let viewers = FakeBrowserViewers()
     let record = BrowserRecord()
@@ -519,7 +521,7 @@ struct BrowserHarness {
     init(availability: BrowserAvailability = .available, home: URL? = nil) {
         location = BrowserProfileLocation().location
         session = FakeSessionAvailability(availability)
-        player = AppPlayer(engine: playback, facts: facts)
+        player = AppPlayer(engine: playback, facts: facts, grants: grants)
         coordinator = BrowserCoordinator(
             makeEngine: { [engine, record] profile in
                 record.enginesBuilt.append(profile)
@@ -529,6 +531,7 @@ struct BrowserHarness {
             workspace: workspace,
             player: player,
             viewers: viewers,
+            grants: grants,
             home: {
                 guard let home else { throw CocoaError(.fileNoSuchFile) }
                 return home

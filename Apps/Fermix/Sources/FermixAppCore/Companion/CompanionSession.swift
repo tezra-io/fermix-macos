@@ -12,7 +12,8 @@ import Foundation
 ///
 /// What the chat holds is decided by `CompanionReducer`; this owns the socket
 /// and the clock, sends what the reducer answers, and publishes the result to
-/// `model`, which nothing else writes.
+/// `model`, which nothing else writes. The files the engine grants are counted
+/// by `grants`, which sends through this, only on a negotiated connection.
 @MainActor
 public final class CompanionSession {
     private enum Phase: Equatable {
@@ -33,6 +34,12 @@ public final class CompanionSession {
 
     public let model = CompanionModel()
 
+    /// The engine's grants of phone-side files (M66 decision 1), for the
+    /// chat's tiles, the player and the pane to hold a ref's file by.
+    public private(set) lazy var grants = MediaGrants { [weak self] event in
+        self?.sendForGrants(event) ?? false
+    }
+
     /// What the owner is writing and has not sent. The chat view is rebuilt on
     /// every rail change and when Settings opens, so the text lives here, beside
     /// the outbox it is on its way to. Not the model's, which holds the daemon's
@@ -48,6 +55,9 @@ public final class CompanionSession {
 
     private var phase: Phase = .idle
     private var chat = CompanionChat()
+    /// The held rows the transcript shows, as it last reported them: the rows
+    /// a handshake reads again once its catch-up has drained (M66 §3.6).
+    private var onScreen: Set<Int> = []
     /// The handshake deadline or the reconnect timer; never both.
     private var deadline: DeadlineToken?
     private var consecutiveFailures = 0
@@ -139,6 +149,16 @@ public final class CompanionSession {
         reduce { CompanionReducer.newestRowSeen(&$0) }
     }
 
+    /// The held rows the transcript shows now, reported as the set changes.
+    /// A row read before a disconnect is read again as it comes on screen;
+    /// while there is no connection the set is kept for the next handshake.
+    public func rowsOnScreen(_ seqs: Set<Int>) {
+        onScreen = seqs
+        guard phase == .connected else { return }
+
+        reduce { CompanionReducer.rowsOnScreen(seqs, into: &$0) }
+    }
+
     // MARK: - The connection
 
     private func attempt() {
@@ -217,7 +237,8 @@ public final class CompanionSession {
         phase = .connected
         consecutiveFailures = 0
         model.show(.connected)
-        reduce { CompanionReducer.negotiated(&$0) }
+        reduce { [onScreen] in CompanionReducer.negotiated(&$0, onScreen: onScreen) }
+        grants.negotiated()
     }
 
     /// A refusal that names a direction is the version window's, which no retry
@@ -240,9 +261,27 @@ public final class CompanionSession {
             log.debug("ignoring a second server_hello")
         case .unrecognized(let type):
             log.info("no handling for companion event \(type, privacy: .public)")
+        case .mediaPath(let path):
+            grants.answered(path.ref, .granted(MediaGrant(path)))
+        case .mediaMissing(let ref):
+            grants.answered(ref, .missing)
+        case .error(let refusal):
+            routeRefusal(refusal)
         default:
             reduce { CompanionReducer.receive(event, into: &$0) }
         }
+    }
+
+    /// A refusal naming a media ref answers that ref's fetch; any other is the
+    /// chat's.
+    private func routeRefusal(_ refusal: CompanionServerError) {
+        guard let ref = refusal.ref else {
+            reduce { CompanionReducer.receive(.error(refusal), into: &$0) }
+            return
+        }
+
+        log.error("the daemon could not grant a media file: \(refusal.reason, privacy: .public)")
+        grants.answered(ref, .failed)
     }
 
     // MARK: - Ending a connection
@@ -253,6 +292,7 @@ public final class CompanionSession {
         transport.close()
         phase = .refused
         update { CompanionReducer.disconnected(&$0) }
+        grants.disconnected()
         model.show(.refused(Self.sentence(for: direction)))
     }
 
@@ -268,6 +308,7 @@ public final class CompanionSession {
         cancelDeadline()
         transport.close()
         update { CompanionReducer.disconnected(&$0) }
+        grants.disconnected()
         retry(showing: connection)
     }
 
@@ -313,6 +354,15 @@ public final class CompanionSession {
         guard phase == .connected else { return }
 
         replies.forEach(transport.send)
+    }
+
+    /// Sends one of the grants' events on a negotiated connection, and says
+    /// whether there was one.
+    private func sendForGrants(_ event: CompanionClientEvent) -> Bool {
+        guard phase == .connected else { return false }
+
+        transport.send(event)
+        return true
     }
 
     /// A reducer step that answers nothing.

@@ -69,6 +69,12 @@ public struct CompanionAnnouncedRow: Equatable, Sendable, Decodable {
     /// call's row carries `metadata.call`.
     public let kind: String?
     public let metadata: [String: CompanionJSONValue]?
+    /// The history message's files and stored link previews, in its shapes
+    /// (version 3), so a new row needs no read for them. `media_refs` is
+    /// always present, possibly empty; `link_previews` only when the row has
+    /// one. A preview stored later arrives as `row_updated`.
+    public let mediaRefs: [CompanionMediaRef]
+    public let linkPreviews: [CompanionLinkPreview]?
 
     private enum CodingKeys: String, CodingKey {
         case role, text, kind, metadata
@@ -76,6 +82,8 @@ public struct CompanionAnnouncedRow: Equatable, Sendable, Decodable {
         case serverSeq = "server_seq"
         case timestamp = "ts"
         case clientMsgId = "client_msg_id"
+        case mediaRefs = "media_refs"
+        case linkPreviews = "link_previews"
     }
 }
 

@@ -47,19 +47,21 @@ struct ChatStripTests {
     // MARK: - Order and membership
 
     /// A preview that is no address's stands on its own before the paths,
-    /// and an address's own preview is drawn at the address's place. A page
-    /// Fermix made draws its content, so it leads, ahead of every card.
+    /// and an address's own preview is drawn at the address's place. A
+    /// phone-side picture and a page Fermix made draw their content, so they
+    /// lead, refs first, ahead of every card.
     @Test("previews lead; then refs, loose previews, paths worth seeing and addresses, each once")
     func order() {
         let strip = Self.strip(
             "See https://b.com/x and /Users/me/.fermix/workspace/report.pdf, then https://b.com/x and ~/notes.pdf again.",
-            refs: [Self.ref("photo.png")],
+            refs: [Self.ref("photo.png"), Self.ref("log.txt", kind: "document", mime: "text/plain")],
             previews: [Self.preview("https://b.com/x"), Self.preview("https://c.com/z")]
         )
 
         #expect(Self.described(strip) == [
-            "file /Users/me/.fermix/workspace/report.pdf",
             "ref photo.png",
+            "file /Users/me/.fermix/workspace/report.pdf",
+            "ref log.txt",
             "link https://c.com/z = https://c.com/z",
             "file /Users/me/notes.pdf",
             "link https://b.com/x = https://b.com/x",
@@ -78,9 +80,14 @@ struct ChatStripTests {
             refs: [Self.ref("phone.png")]
         )
 
-        #expect(strip.previews.map(\.lastPathComponent) == ["shot.png", "clip.mov", "q3.docx", "Notes.pages"])
-        #expect(Self.described(strip.cards) == [
+        #expect(Self.described(strip.previews) == [
             "ref phone.png",
+            "file /Users/me/.fermix/w/shot.png",
+            "file /Users/me/.fermix/w/clip.mov",
+            "file /Users/me/.fermix/w/q3.docx",
+            "file /Users/me/.fermix/w/Notes.pages",
+        ])
+        #expect(Self.described(strip.cards) == [
             "file /Users/me/.fermix/w/logo.svg",
             "file /Users/me/.fermix/w/page.html",
             "file /Users/me/.fermix/w/table.csv",
@@ -97,6 +104,32 @@ struct ChatStripTests {
         let strip = Self.strip("Fetched `https://c.com/y` for you", previews: [Self.preview("https://www.c.com/y")])
 
         #expect(Self.described(strip) == ["link https://c.com/y = https://www.c.com/y"])
+    }
+
+    /// A phone-side file is drawn by the type its row names, through the same
+    /// rule as a path: what draws its content is a preview tile, anywhere,
+    /// since the engine grants its file inside the home, and the rest are
+    /// cards. A picture Fermix sent the phone, a row with no words, is a tile
+    /// like any other.
+    @Test("a phone-side file is a preview or a card by the type its row names")
+    func refsByType() {
+        let strip = Self.strip(
+            "",
+            refs: [
+                Self.ref("sent.png"),
+                Self.ref("clip.mp4", kind: "video", mime: "video/mp4"),
+                Self.ref("report.pdf", kind: "document", mime: "application/pdf"),
+                Self.ref("q3.docx", kind: "document", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                Self.ref("logo.svg", kind: "image", mime: "image/svg+xml"),
+                Self.ref("notes.txt", kind: "document", mime: "text/plain"),
+                Self.ref("archive.zip", kind: "document", mime: "application/zip"),
+            ],
+            home: nil
+        )
+
+        #expect(Self.described(strip.previews) == ["ref sent.png", "ref clip.mp4", "ref report.pdf", "ref q3.docx"])
+        #expect(Self.described(strip.cards) == ["ref logo.svg", "ref notes.txt", "ref archive.zip"])
+        #expect(strip.text.isEmpty)
     }
 
     @Test("the voice note and a sound Fermix made are not tiles, and a sound elsewhere is")

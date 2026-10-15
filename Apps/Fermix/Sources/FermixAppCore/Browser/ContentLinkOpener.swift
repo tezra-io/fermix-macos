@@ -55,4 +55,12 @@ public final class ContentLinkOpener {
         case .system: _ = workspace.open(url)
         }
     }
+
+    /// A phone-side file, by its ref, goes where a file at the path the
+    /// engine grants for it would (M66 §3.5): the pane's own rule for files.
+    /// What the engine answered comes back, so the tile that asked can say
+    /// the file is gone.
+    public func open(ref: String) async -> MediaGrantOutcome {
+        await browser.openRef(ref)
+    }
 }

@@ -187,12 +187,24 @@ print(", ".join(p.get("id", "?") for p in state.get("providers", []) if p.get("c
 PY
 }
 
+# The companion protocol version the installed app speaks: the one its own
+# vendored contract declares (`Contracts/companion`, which the engine's
+# `priv/companion` copy never matches). The daemon refuses a hello outside its
+# window, so the acceptance says what the app under test would say, whichever
+# release it is.
+companion_version() {
+  local schema
+  schema="$(find "$APP/Contents/Resources" -path '*/Contracts/companion/protocol.schema.json' -print -quit)"
+  [ -n "$schema" ] || return 1
+  json_path "$schema" x-protocol-version
+}
+
 # One turn over the companion wire (companion/PROTOCOL.md, Chat sequence):
 # newline-delimited JSON, client_hello then msg, read until the turn ends.
 companion_turn() {
-  python3 - companion "$1" "$2" "$3" <<'PY'
+  python3 - companion "$1" "$2" "$3" "$4" <<'PY'
 import json, socket, sys
-path, text, timeout = sys.argv[2], sys.argv[3], float(sys.argv[4])
+path, text, timeout, version = sys.argv[2], sys.argv[3], float(sys.argv[4]), int(sys.argv[5])
 try:
     connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     connection.settimeout(timeout)
@@ -209,7 +221,7 @@ def receive():
     line = stream.readline()
     return json.loads(line) if line else None
 
-send({"type": "client_hello", "protocol_version": 1})
+send({"type": "client_hello", "protocol_version": version})
 hello = receive()
 if hello is None or hello.get("type") != "server_hello":
     print("event|closed|no server_hello: %s" % json.dumps(hello))
@@ -574,7 +586,7 @@ relaunch() {
 }
 
 chat() {
-  local text="$1" sock="$FERMIX_HOME/companion.sock" configured events
+  local text="$1" sock="$FERMIX_HOME/companion.sock" configured version events
   if [ ! -S "$sock" ]; then
     check chat SKIP "this engine serves no companion socket, so Chat shows its no-chat sentence"
     return 0
@@ -588,7 +600,11 @@ chat() {
     check chat SKIP "no provider is configured; sign in or store a key over VNC, then rerun with --chat"
     return 0
   fi
-  events="$(companion_turn "$sock" "$text" 120)"
+  if ! version="$(companion_version)"; then
+    check chat_handshake FAIL "the installed app carries no companion contract to read its version from"
+    return 0
+  fi
+  events="$(companion_turn "$sock" "$text" 120 "$version")"
   printf '%s\n' "$events" >"$RUN/chat-events.txt"
   if grep -q '^event|server_hello|' <<<"$events"; then
     check chat_handshake PASS "$(grep -m1 '^event|server_hello|' <<<"$events" | cut -d'|' -f3-)"

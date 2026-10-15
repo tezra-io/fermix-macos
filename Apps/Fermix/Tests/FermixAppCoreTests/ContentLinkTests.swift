@@ -108,6 +108,27 @@ struct ContentLinkTests {
 @Suite("Sign-in never enters the pane")
 @MainActor
 struct SignInStaysExternalTests {
+    /// A phone-side file goes where a file at its granted path goes, the
+    /// pane's own rule, whatever the preference, which is about web pages
+    /// (M66 §3.5).
+    @Test("a phone-side file takes the pane's rule for files, whatever the preference", arguments: LinkDestination.allCases)
+    func refTakesTheFileRule(_ destination: LinkDestination) async throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let harness = place.harness()
+        let preference = InMemoryLinkPreferenceStore()
+        preference.linkDestination = destination
+        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: harness.workspace)
+        let ref = FakeMediaGrants.ref("a")
+        let file = FilePlaceFixture.real(try place.write(ref + ".pdf", in: place.home))
+        let grant = MediaGrantOutcome.granted(MediaGrant(ref: ref, url: file))
+        harness.grants.answers[ref] = grant
+
+        #expect(await opener.open(ref: ref) == grant)
+        #expect(harness.model.tabs.first?.file == file)
+        #expect(harness.workspace.opened.isEmpty)
+    }
+
     @Test("a started sign-in goes to the external opener and never to the content link opener")
     func signInGoesExternal() async throws {
         let gateway = try SettingsFixture.gateway()
@@ -144,7 +165,8 @@ struct SignInStaysExternalTests {
             "App/AppComposition.swift",
             "App/AppKitWindowHost.swift",
             "App/MainWindowView.swift",
-            "Chat/ChatSurfaceView.swift"
+            "Chat/ChatSurfaceView.swift",
+            "Chat/ChatRows.swift"
         ])
 
         // Every surface that starts a sign-in or opens the installer, which the

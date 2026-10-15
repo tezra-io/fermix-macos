@@ -19,7 +19,8 @@ struct ChatVisit: Equatable, Sendable {
 /// surface appears (`surfaceEntered`), as the browser reads it at each open,
 /// and the surface keeps what it read for the visit: every row and tile
 /// reads it from there, so the next visit reads the home again. A file is
-/// read off the main thread, when its tile is on screen.
+/// read off the main thread, when its tile is on screen, and a phone-side
+/// file's is granted only while its preview is made (`ChatPreviews`).
 @MainActor
 final class ChatMedia {
     let previews: ChatPreviews
@@ -44,8 +45,9 @@ final class ChatMedia {
     /// `home` reads the Fermix home from the bootstrap record, as the
     /// browser's does; `reader` is what the Mac's own frameworks draw of a
     /// file, which the executable hands in, and `facts` whether a film plays
-    /// and how long it is, the player's own; `documentApplication` is the app
-    /// a document of a type goes to, never a browser, asked off the main
+    /// and how long it is, the player's own; `grants` are the engine's grants
+    /// of phone-side files, the session's; `documentApplication` is the app a
+    /// document of a type goes to, never a browser, asked off the main
     /// thread (`WorkspaceLinkOpener.documentApplication`); `deadlines` times
     /// the previews out.
     init(
@@ -53,13 +55,14 @@ final class ChatMedia {
         userHome: String = NSHomeDirectory(),
         reader: any ChatMediaReading,
         facts: any MediaFacts,
+        grants: any MediaGranting,
         documentApplication: @escaping @Sendable (UTType) -> WorkspaceApplication?,
         deadlines: any DeadlineScheduling
     ) {
         readHome = home
         self.userHome = userHome
         self.documentApplication = documentApplication
-        previews = ChatPreviews(reader: reader, facts: facts, deadlines: deadlines)
+        previews = ChatPreviews(reader: reader, facts: facts, grants: grants, deadlines: deadlines)
     }
 
     /// The Fermix home for a visit to Chat, read from the bootstrap record
@@ -104,14 +107,16 @@ final class ChatMedia {
         return facts.map(ChatFileLookup.found) ?? .missing
     }
 
-    /// Where an Opens outside tile goes, its app found off the main thread
-    /// the first time a tile of its type asks, and kept by type.
-    func hint(for facts: ChatFileFacts) async -> ChatTileHint {
-        guard ChatPreviewPolicy.handsToApp(facts) else { return .showInFinder }
-        if let known = hints[facts.type.identifier] { return known }
+    /// Where an Opens outside tile goes, by what its file is on the disk
+    /// (`ChatFileFacts.disk`, or `ChatPreviewPolicy.facts(of:)` for a
+    /// phone-side file): its app found off the main thread the first time a
+    /// tile of its type asks, and kept by type.
+    func hint(for disk: FileFacts) async -> ChatTileHint {
+        guard ChatPreviewPolicy.handsToApp(disk) else { return .showInFinder }
+        if let known = hints[disk.type.identifier] { return known }
 
         let lookUp = documentApplication
-        let type = facts.type
+        let type = disk.type
         let hint = await Task.detached(priority: .utility) { lookUp(type).map { ChatTileHint.openIn($0.name) } ?? .showInFinder }.value
         hints[type.identifier] = hint
         return hint

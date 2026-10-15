@@ -83,6 +83,10 @@ final class AppComposition {
     /// What the chat's rows draw under their words: the strips and their
     /// previews (M66).
     let chatMedia: ChatMedia
+    /// The engine's grants of phone-side files, counted per ref by what uses
+    /// them (M66 decision 1): the chat's session's, for the tiles, the player
+    /// and the pane to hold a ref's file by.
+    let mediaGrants: MediaGrants
 
     /// The shipped configuration: this Mac, this account, this bundle, and the
     /// updater, mascot renderer, browser engine, pane viewers and media reader
@@ -116,8 +120,17 @@ final class AppComposition {
         model = AppModel()
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
-        player = AppPlayer(engine: AVFoundationPlayback(), facts: AVFoundationMediaFacts())
-        browser = Self.buildBrowser(environment: environment, store: store, location: location, windows: windows, player: player)
+        let companion = Self.buildCompanion(bootstrap: store, lines: environment.companionLines)
+        mediaGrants = companion.grants
+        player = AppPlayer(engine: AVFoundationPlayback(), facts: AVFoundationMediaFacts(), grants: mediaGrants)
+        browser = Self.buildBrowser(
+            environment: environment,
+            store: store,
+            location: location,
+            windows: windows,
+            player: player,
+            grants: mediaGrants
+        )
         browserHost = Self.buildBrowserHost(
             environment: environment,
             store: store,
@@ -134,6 +147,7 @@ final class AppComposition {
             home: { [store] in try store.resolvedHome() },
             reader: environment.mediaReader,
             facts: player.facts,
+            grants: mediaGrants,
             documentApplication: { WorkspaceLinkOpener.documentApplication(toOpen: $0) },
             deadlines: MainQueueDeadlineScheduler()
         )
@@ -144,7 +158,6 @@ final class AppComposition {
             lines: environment.realtimeLines,
             audio: environment.voiceAudio
         )
-        let companion = Self.buildCompanion(bootstrap: store, lines: environment.companionLines)
         services = ServiceController(loginItems: environment.loginItems, plists: environment.plists)
         engineReconciler = environment.reconciler
         menuBar = MenuBarController(model: model)
@@ -342,15 +355,17 @@ final class AppComposition {
     /// The browser pane: the engine the executable handed in, the website
     /// profile's record in this account's support folder, the app's one
     /// player and the system's own viewers for what WebKit does not draw,
-    /// this account's Fermix home, the session's availability, and the
-    /// window's room for the pane. The quit's bound is a run-loop timer,
-    /// which fires while AppKit holds the termination.
+    /// the grants a phone-side file's tab holds, this account's Fermix home,
+    /// the session's availability, and the window's room for the pane. The
+    /// quit's bound is a run-loop timer, which fires while AppKit holds the
+    /// termination.
     private static func buildBrowser(
         environment: AppEnvironment,
         store: BootstrapStore,
         location: BootstrapLocation,
         windows: WindowCoordinator,
-        player: AppPlayer
+        player: AppPlayer,
+        grants: MediaGrants
     ) -> BrowserCoordinator {
         BrowserCoordinator(
             makeEngine: environment.makeBrowser,
@@ -358,6 +373,7 @@ final class AppComposition {
             workspace: environment.workspace,
             player: player,
             viewers: environment.viewers,
+            grants: grants,
             // Resolved per open from the bootstrap record, as the host's
             // workspace and browser roots are, so a file opens silently only
             // under the home the record names now.
@@ -396,8 +412,9 @@ final class AppComposition {
         )
     }
 
-    /// The chat session, built once beside voice over its own socket. Nothing
-    /// connects it until a surface first asks.
+    /// The chat session, built once over its own socket, before the player,
+    /// the pane and the chat's media, which hold phone-side files by its
+    /// grants. Nothing connects it until a surface first asks.
     private static func buildCompanion(
         bootstrap: BootstrapStore,
         lines: CompanionSocketClient.LineSocket

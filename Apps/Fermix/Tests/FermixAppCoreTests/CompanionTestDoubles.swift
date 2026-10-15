@@ -28,7 +28,12 @@ let newestPagePull = historyPull(.before(seq: CompanionReducer.newestPageBound))
 enum CompanionEvents {
     static let profile = CompanionProtocol.profileId
 
-    static func hello(_ minimum: Int = 1, _ maximum: Int = 2) -> CompanionServerEvent {
+    /// The daemon's hello, with the window this build speaks unless a case
+    /// names another.
+    static func hello(
+        _ minimum: Int = CompanionProtocol.supportedWindow.minimum,
+        _ maximum: Int = CompanionProtocol.supportedWindow.maximum
+    ) -> CompanionServerEvent {
         .serverHello(minVersion: minimum, maxVersion: maximum)
     }
 
@@ -43,7 +48,9 @@ enum CompanionEvents {
                 timestamp: "2026-09-25T09:00:00Z",
                 clientMsgId: clientMsgId,
                 kind: "text",
-                metadata: nil
+                metadata: nil,
+                mediaRefs: [],
+                linkPreviews: nil
             )
         )
     }
@@ -134,7 +141,8 @@ enum CompanionEvents {
         _ reason: String,
         clientMsgId: String? = nil,
         direction: CompanionVersionDirection? = nil,
-        window: CompanionVersionWindow? = nil
+        window: CompanionVersionWindow? = nil,
+        ref: String? = nil
     ) -> CompanionServerEvent {
         .error(
             CompanionServerError(
@@ -146,7 +154,8 @@ enum CompanionEvents {
                 direction: direction,
                 clientVersion: direction.map { _ in CompanionProtocol.version },
                 minVersion: window?.minimum,
-                maxVersion: window?.maximum
+                maxVersion: window?.maximum,
+                ref: ref
             )
         )
     }

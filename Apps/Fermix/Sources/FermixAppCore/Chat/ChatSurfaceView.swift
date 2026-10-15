@@ -192,12 +192,13 @@ struct ChatSurfaceView: View {
         let items = ChatTimeline.items(of: model)
 
         column(items)
-            // Every row reads its media, the player, the home and its strip's
-            // width from here: the transcript builds its rows with nothing of
-            // their own to pass them (M66 §3.2).
+            // Every row reads its media, the player, the opener, the home and
+            // its strip's width from here: the transcript builds its rows
+            // with nothing of their own to pass them (M66 §3.2).
             .environment(\.chatRows, ChatRowContext(
                 media: media,
                 player: player,
+                links: links,
                 visit: visit,
                 columnWidth: ChatMetrics.column(inBody: bodyWidth)
             ))

@@ -321,6 +321,159 @@ struct BrowserViewerTabTests {
         #expect(harness.model.tabs.isEmpty, "the kept click came back after the pane was hidden")
     }
 
+    // MARK: - Phone-side files (M66 §3.5, decision 1)
+
+    private static let ref = FakeMediaGrants.ref("a")
+
+    /// The engine's grant of `file` for the ref, as a harness's grants
+    /// answer it.
+    private static func grant(_ file: URL) -> MediaGrantOutcome {
+        .granted(MediaGrant(ref: ref, url: file))
+    }
+
+    /// The engine grants a phone-side file inside the Fermix home, named
+    /// with its type's extension, so it opens as a file at that path does,
+    /// with no question, and its tab holds the grant until it closes.
+    @Test("a phone-side file opens in the tab its granted file's kind takes, holding the grant until it closes", arguments: [
+        ("png", BrowserFileKind.image), ("pdf", .pdf), ("docx", .document), ("csv", .document),
+    ])
+    func refOpensAsItsFile(_ ext: String, _ kind: BrowserFileKind) async throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let file = FilePlaceFixture.real(try place.write(Self.ref + "." + ext, in: place.home))
+        let harness = place.harness()
+        harness.grants.answers[Self.ref] = Self.grant(file)
+
+        #expect(await harness.coordinator.openRef(Self.ref) == Self.grant(file))
+
+        let tab = try #require(harness.model.tabs.first)
+        #expect(tab.fileKind == kind)
+        #expect(tab.file == file)
+        #expect(harness.model.dialog == nil)
+        #expect(harness.grants.counts == [Self.ref: 1])
+
+        harness.coordinator.close(tab)
+        #expect(harness.grants.held == 0)
+        #expect(harness.grants.log == ["hold " + Self.ref, "release " + Self.ref])
+    }
+
+    @Test("a phone-side film opens in a media tab, and closing it stops the player and lets the grant go")
+    func refFilmOpensInAMediaTab() async throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let file = FilePlaceFixture.real(try place.write(Self.ref + ".mp4", in: place.home))
+        let harness = place.harness()
+        harness.grants.answers[Self.ref] = Self.grant(file)
+        harness.facts.playable = [file]
+
+        _ = await harness.coordinator.openRef(Self.ref)
+        await harness.settle()
+
+        let tab = try #require(harness.model.tabs.first)
+        #expect(tab.fileKind == .media)
+        #expect(harness.player.item?.url == file)
+        #expect(harness.grants.counts == [Self.ref: 1])
+
+        harness.coordinator.close(tab)
+        #expect(harness.player.item == nil)
+        #expect(harness.grants.held == 0)
+    }
+
+    @Test("a phone-side file that does not open inside Fermix goes out and holds nothing", arguments: ["mp4", "epub"])
+    func refOutsideHoldsNothing(_ ext: String) async throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let file = FilePlaceFixture.real(try place.write(Self.ref + "." + ext, in: place.home))
+        let harness = place.harness()
+        harness.grants.answers[Self.ref] = Self.grant(file)
+
+        _ = await harness.coordinator.openRef(Self.ref)
+        await harness.settle()
+
+        #expect(harness.model.tabs.isEmpty)
+        #expect(harness.workspace.openedWith.map(\.file) + harness.workspace.revealed == [file], "\(ext)")
+        #expect(harness.grants.log == ["hold " + Self.ref, "release " + Self.ref])
+    }
+
+    /// The tile says Not available; the pane says nothing and opens nothing.
+    @Test("a phone-side file whose bytes are gone opens nothing and says so to its tile")
+    func refMissing() async {
+        let harness = BrowserHarness()
+        harness.grants.answers[Self.ref] = .missing
+
+        #expect(await harness.coordinator.openRef(Self.ref) == .missing)
+        #expect(harness.model.tabs.isEmpty)
+        #expect(!harness.model.isOpen)
+        #expect(harness.grants.held == 0)
+    }
+
+    @Test("a phone-side file the engine could not get ready opens the pane on the sentence that says so, and holds nothing")
+    func refFailed() async {
+        let harness = BrowserHarness()
+        harness.grants.answers[Self.ref] = .failed
+
+        #expect(await harness.coordinator.openRef(Self.ref) == .failed)
+        #expect(harness.model.notice == ProductStrings[.browserNoticeFileNotReady])
+        #expect(harness.model.isOpen)
+        #expect(harness.model.tabs.isEmpty)
+        #expect(harness.grants.held == 0)
+    }
+
+    @Test("a granted file that is not there opens the pane on the sentence that says so, and holds nothing")
+    func refGrantedButGone() async throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let harness = place.harness()
+        harness.grants.answers[Self.ref] = Self.grant(place.home.appendingPathComponent(Self.ref + ".png"))
+
+        _ = await harness.coordinator.openRef(Self.ref)
+
+        #expect(harness.model.notice == ProductStrings[.browserNoticeFileMissing])
+        #expect(harness.model.tabs.isEmpty)
+        #expect(harness.grants.held == 0)
+    }
+
+    /// A granted file the pane reads as outside the home waits behind the
+    /// question up, as any file does, and keeps its grant only while it
+    /// waits.
+    @Test("a phone-side file kept behind a question keeps its grant until a later click or hiding the pane lets it go")
+    func refKeptBehindAQuestion() async throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let file = FilePlaceFixture.real(try place.write(Self.ref + ".md", in: place.outside))
+        let harness = place.harness()
+        harness.grants.answers[Self.ref] = Self.grant(file)
+        harness.coordinator.openFile(try place.write("first.md", in: place.outside))
+
+        _ = await harness.coordinator.openRef(Self.ref)
+        #expect(harness.grants.counts == [Self.ref: 1])
+
+        harness.coordinator.openFile(try place.write("third.md", in: place.outside))
+        #expect(harness.grants.held == 0, "a replaced click kept its grant")
+
+        _ = await harness.coordinator.openRef(Self.ref)
+        harness.coordinator.closePane()
+        #expect(harness.grants.held == 0, "hiding the pane kept the grant")
+        #expect(harness.grants.holds == 2)
+    }
+
+    @Test("a phone-side file opened twice is two tabs, each holding its own use of the grant")
+    func refInTwoTabs() async throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let file = FilePlaceFixture.real(try place.write(Self.ref + ".pdf", in: place.home))
+        let harness = place.harness()
+        harness.grants.answers[Self.ref] = Self.grant(file)
+
+        _ = await harness.coordinator.openRef(Self.ref)
+        _ = await harness.coordinator.openRef(Self.ref)
+        #expect(harness.model.tabs.count == 2)
+        #expect(harness.grants.counts == [Self.ref: 2])
+
+        harness.coordinator.close(try #require(harness.model.tabs.first))
+        #expect(harness.grants.counts == [Self.ref: 1])
+    }
+
     // MARK: - Picture zoom
 
     @Test("a picture tab knows it is one, and the pane's zoom reaches the page in front")

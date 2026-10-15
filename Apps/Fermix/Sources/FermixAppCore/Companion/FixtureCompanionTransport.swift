@@ -18,7 +18,8 @@ enum FixtureCompanionTimeline: Equatable {
 /// in by hand. What the daemon would decide is scripted, and no more: it
 /// answers the handshake with this build's window, pages and searches its own
 /// rows, takes a message into a row and a short reply, resolves an approval's
-/// answer, and stops a turn that is cancelled.
+/// answer, stops a turn that is cancelled, and grants no file: its rows carry
+/// no bytes, so every `media_fetch` is answered `media_missing`.
 ///
 /// Callbacks go out on whatever thread asked, which is the main one; the
 /// composition wraps this in the same main-actor delivery the real socket
@@ -96,6 +97,10 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             stop(event)
         case "read_state":
             emit(.readState(profileId: CompanionProtocol.profileId, readUpToSeq: event["read_up_to_seq"] as? Int ?? 0))
+        case "media_fetch":
+            emit(.mediaMissing(ref: event["ref"] as? String ?? ""))
+        case "media_release":
+            break
         default:
             preconditionFailure("the fixture daemon has no answer for \(type)")
         }
@@ -186,7 +191,9 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             timestamp: row.timestamp,
             clientMsgId: clientMsgId,
             kind: "text",
-            metadata: nil
+            metadata: nil,
+            mediaRefs: [],
+            linkPreviews: nil
         )))
 
         repliesWritten += 1

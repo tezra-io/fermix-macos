@@ -15,15 +15,11 @@ struct ChatStripView: View {
     let width: Double
 
     var body: some View {
-        let previews = strip.previews.map(ChatStripItem.file)
-
         VStack(alignment: trailing ? .trailing : .leading, spacing: ChatMetrics.stripTopGap) {
-            if !previews.isEmpty {
-                let tile = ChatStripFit.tileSize(width: ChatStripFit.itemWidth(count: previews.count, width: width))
-                ChatStripLane(items: previews, itemWidth: tile.width, width: width, trailing: trailing) { item in
-                    if case .file(let file) = item {
-                        ChatPreviewTile(named: ChatNamedFile(file: file), size: tile)
-                    }
+            if !strip.previews.isEmpty {
+                let tile = ChatStripFit.tileSize(width: ChatStripFit.itemWidth(count: strip.previews.count, width: width))
+                ChatStripLane(items: strip.previews, itemWidth: tile.width, width: width, trailing: trailing) { item in
+                    ChatPreviewTile(item: item, size: tile)
                 }
             }
 
@@ -327,75 +323,84 @@ private struct ChatNamedFile {
     }
 }
 
-/// A picture, a video's frame or a page Fermix made, filling its tile edge to
-/// edge (M66 §3.3). A page keeps its head in view and its name along its foot;
-/// a picture or a video carries no words, its name being in its tooltip and
-/// what VoiceOver reads. Until the preview comes, and where it cannot, the
-/// tile shows its icon with its name, at the same size: a preview tile stays
-/// one, so nothing moves. It reads what the file is once it is on screen and
-/// asks for its preview while it stays there: leaving the screen cancels the
-/// ask, and coming back asks again, which is the one retry a failed preview
-/// has.
+/// A phone-side file as its tile names it, from its row alone: the type the
+/// policy reads there, and its name and label (`ChatPreviewPolicy`).
+private struct ChatNamedRef {
+    let ref: CompanionMediaRef
+
+    var type: UTType {
+        ChatPreviewPolicy.type(of: ref)
+    }
+
+    var family: ChatFileFamily {
+        ChatPreviewPolicy.family(of: type)
+    }
+
+    var name: String {
+        ChatPreviewPolicy.name(of: ref)
+    }
+
+    var label: String {
+        ChatPreviewPolicy.label(of: ref)
+    }
+}
+
+/// An item drawn by its content, by what it is: a file a path names, or a
+/// phone-side file. A link is drawn from its address, as a card, and is never
+/// among them.
 private struct ChatPreviewTile: View {
+    let item: ChatStripItem
+    let size: CGSize
+
+    var body: some View {
+        switch item {
+        case .file(let file): ChatFilePreviewTile(named: ChatNamedFile(file: file), size: size)
+        case .media(let ref): ChatRefPreviewTile(named: ChatNamedRef(ref: ref), size: size)
+        case .link: EmptyView()
+        }
+    }
+}
+
+/// A picture, a video's frame or a page Fermix made, filling its tile. It
+/// reads what the file is once it is on screen, then where it goes outside
+/// Fermix or its preview, asked again only where its last answer was not
+/// final (`ChatPreviewOutcome.isFinal`).
+private struct ChatFilePreviewTile: View {
     let named: ChatNamedFile
     let size: CGSize
 
     @State private var reading = ChatFileReading()
     @State private var outcome: ChatPreviewOutcome?
-    @State private var onScreen = false
-    @State private var slow = false
     @Environment(\.chatRows) private var rows
     @Environment(\.displayScale) private var scale
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        let state = ChatPreviewPolicy.state(of: reading.lookup, outcome: outcome)
         let family = named.family(reading)
 
-        Button { openURL(named.file) } label: {
-            ChatTileFrame(size: size) {
-                if case .ready(let preview?) = state {
-                    ChatTilePicture(preview: preview, family: family, name: named.name)
-                } else {
-                    ChatTileIcon(type: named.type(reading), state: state, slow: slow, name: named.name)
-                }
-            }
-        }
-        .buttonStyle(ChatTileButtonStyle())
-        .onKeyPress(.return) {
-            openURL(named.file)
-            return .handled
-        }
-        .disabled(state == .notAvailable)
-        .help(named.name)
-        .accessibilityLabel(ProductStrings.commaPair(named.name, ChatPreviewPolicy.kindWord(family)))
-        .accessibilityValue(state == .notAvailable ? ProductStrings[.chatTileNotAvailable] : "")
-        .accessibilityHint(state == .opensOutside ? reading.hint.map(ChatFileReading.spoken) ?? "" : "")
-        .onScrollVisibilityChange(threshold: 0.01) { onScreen = $0 }
-        .task(id: onScreen) {
-            guard onScreen, let rows else { return }
-
-            await load(named.file, in: rows)
-        }
-        .task(id: onScreen) {
-            guard onScreen else { return }
-
-            try? await Task.sleep(for: ChatMetrics.tileProgressDelay)
-            slow = !Task.isCancelled
-        }
+        ChatPreviewFace(
+            size: size,
+            state: ChatPreviewPolicy.state(of: reading.lookup, outcome: outcome),
+            family: family,
+            type: named.type(reading),
+            name: named.name,
+            label: ProductStrings.commaPair(named.name, ChatPreviewPolicy.kindWord(family)),
+            hint: reading.hint,
+            open: { openURL(named.file) },
+            load: load
+        )
     }
 
-    /// What the file is, then where it goes outside Fermix or its preview,
-    /// asked again only where its last answer was not final
-    /// (`ChatPreviewOutcome.isFinal`).
-    private func load(_ file: URL, in rows: ChatRowContext) async {
+    private func load() async {
+        guard let rows else { return }
+
         if reading.lookup == .reading {
-            reading.lookup = await rows.media.lookUp(file, in: rows.visit)
+            reading.lookup = await rows.media.lookUp(named.file, in: rows.visit)
         }
         guard case .found(let facts) = reading.lookup else { return }
 
         if ChatPreviewPolicy.family(of: facts) == .other {
-            reading.hint = await rows.media.hint(for: facts)
+            reading.hint = await rows.media.hint(for: facts.disk)
             return
         }
         guard ChatPreviewPolicy.drawsContent(facts), outcome?.isFinal != true else { return }
@@ -405,30 +410,142 @@ private struct ChatPreviewTile: View {
 
         outcome = made
         if made == .unplayable {
-            reading.hint = await rows.media.hint(for: facts)
+            reading.hint = await rows.media.hint(for: facts.disk)
+        }
+    }
+}
+
+/// A phone-side picture, video, PDF or document filling its tile (M66 §3.3,
+/// decision 1). Its preview is made while it is on screen from the file the
+/// engine grants for its ref, held only while the preview is made, and kept
+/// by the ref, so a tile that comes back costs nothing. A ref whose bytes the
+/// engine no longer has is Not available. A click opens the granted file in
+/// the pane, as a file at that path would open.
+private struct ChatRefPreviewTile: View {
+    let named: ChatNamedRef
+    let size: CGSize
+
+    @State private var outcome: ChatPreviewOutcome?
+    @State private var hint: ChatTileHint?
+    @Environment(\.chatRows) private var rows
+    @Environment(\.displayScale) private var scale
+
+    var body: some View {
+        ChatPreviewFace(
+            size: size,
+            state: ChatPreviewPolicy.state(of: outcome),
+            family: named.family,
+            type: named.type,
+            name: named.name,
+            label: named.label,
+            hint: hint,
+            open: open,
+            load: load
+        )
+    }
+
+    /// Through the one content link opener, which says whether the engine
+    /// no longer has the file's bytes.
+    private func open() {
+        guard let rows else { return }
+
+        Task {
+            guard await rows.links.open(ref: named.ref.ref) == .missing else { return }
+
+            outcome = .missing
+        }
+    }
+
+    private func load() async {
+        guard let rows, outcome?.isFinal != true else { return }
+
+        let made = await rows.media.previews.preview(ChatPreviewRequest(named.ref, size: size, scale: scale))
+        guard !Task.isCancelled else { return }
+
+        outcome = made
+        if made == .unplayable {
+            hint = await rows.media.hint(for: ChatPreviewPolicy.facts(of: named.ref))
+        }
+    }
+}
+
+/// A preview tile's face and button, whatever its file (M66 §3.3): the
+/// preview filling the tile edge to edge once it is made, a page keeping its
+/// head in view and its name along its foot, a picture or a video carrying
+/// no words, its name being in its tooltip and what VoiceOver reads. Until
+/// the preview comes, and where it cannot, the tile shows its icon with its
+/// name, at the same size: a preview tile stays one, so nothing moves.
+///
+/// It loads what it shows while it is on screen: leaving the screen cancels
+/// that, and coming back asks again, which is the one retry a failed
+/// preview has. It is one button with its label, Not available as its value,
+/// and an Opens outside tile's hint.
+private struct ChatPreviewFace: View {
+    let size: CGSize
+    let state: ChatTileState
+    let family: ChatFileFamily
+    let type: UTType
+    let name: String
+    let label: String
+    let hint: ChatTileHint?
+    let open: () -> Void
+    let load: () async -> Void
+
+    @State private var onScreen = false
+    @State private var slow = false
+
+    var body: some View {
+        Button(action: open) {
+            ChatTileFrame(size: size) {
+                if case .ready(let preview?) = state {
+                    ChatTilePicture(preview: preview, family: family, name: name)
+                } else {
+                    ChatTileIcon(type: type, state: state, slow: slow, name: name)
+                }
+            }
+        }
+        .buttonStyle(ChatTileButtonStyle())
+        .onKeyPress(.return) {
+            open()
+            return .handled
+        }
+        .disabled(state == .notAvailable)
+        .help(name)
+        .accessibilityLabel(label)
+        .accessibilityValue(state == .notAvailable ? ProductStrings[.chatTileNotAvailable] : "")
+        .accessibilityHint(state == .opensOutside ? hint.map(ChatFileReading.spoken) ?? "" : "")
+        .onScrollVisibilityChange(threshold: 0.01) { onScreen = $0 }
+        .task(id: onScreen) {
+            guard onScreen else { return }
+
+            await load()
+        }
+        .task(id: onScreen) {
+            guard onScreen else { return }
+
+            try? await Task.sleep(for: ChatMetrics.tileProgressDelay)
+            slow = !Task.isCancelled
         }
     }
 }
 
 /// Everything that draws no preview, as a compact card: a link, a file whose
 /// content a tile does not draw (text, code, HTML, SVG, anything outside the
-/// Fermix home), and a phone's file whose bytes are not in the app's hands.
+/// Fermix home), and a phone-side file of the same kinds.
 private struct ChatCard: View {
     let item: ChatStripItem
     let width: Double
 
     var body: some View {
         switch item {
-        case .media(let ref): ChatRefCard(ref: ref, width: width)
+        case .media(let ref): ChatRefCard(named: ChatNamedRef(ref: ref), width: width)
         case .file(let file): ChatFileCard(named: ChatNamedFile(file: file), width: width)
         case .link(let link): ChatLinkCard(link: link, width: width)
         }
     }
 }
 
-/// A file as a card: its icon, its name, and its kind, or "Not available"
-/// where it is gone. One the pane does not show carries the pane's
-/// open-in-app glyph. It reads what the file is once it is on screen.
+/// A file as a card. It reads what the file is once it is on screen.
 private struct ChatFileCard: View {
     let named: ChatNamedFile
     let width: Double
@@ -439,30 +556,18 @@ private struct ChatFileCard: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        let state = ChatPreviewPolicy.cardState(of: reading.lookup)
         let kind = ChatPreviewPolicy.kindWord(named.family(reading))
-        let missing = state == .notAvailable
 
-        Button { openURL(named.file) } label: {
-            ChatCardFace(
-                width: width,
-                title: named.name,
-                detail: missing ? ProductStrings[.chatTileNotAvailable] : kind,
-                opensOutside: state == .opensOutside,
-                titleTruncation: .middle
-            ) {
-                ChatCardIcon(type: named.type(reading), dimmed: missing)
-            }
-        }
-        .buttonStyle(ChatTileButtonStyle())
-        .onKeyPress(.return) {
-            openURL(named.file)
-            return .handled
-        }
-        .disabled(missing)
-        .accessibilityLabel(ProductStrings.commaPair(named.name, kind))
-        .accessibilityValue(missing ? ProductStrings[.chatTileNotAvailable] : "")
-        .accessibilityHint(state == .opensOutside ? reading.hint.map(ChatFileReading.spoken) ?? "" : "")
+        ChatFileCardButton(
+            width: width,
+            state: ChatPreviewPolicy.cardState(of: reading.lookup),
+            type: named.type(reading),
+            name: named.name,
+            kind: kind,
+            label: ProductStrings.commaPair(named.name, kind),
+            hint: reading.hint,
+            open: { openURL(named.file) }
+        )
         .onScrollVisibilityChange(threshold: 0.01) { onScreen = $0 }
         .task(id: onScreen) {
             guard onScreen, let rows, reading.lookup == .reading else { return }
@@ -470,42 +575,97 @@ private struct ChatFileCard: View {
             reading.lookup = await rows.media.lookUp(named.file, in: rows.visit)
             guard case .found(let facts) = reading.lookup, ChatPreviewPolicy.family(of: facts) == .other else { return }
 
-            reading.hint = await rows.media.hint(for: facts)
+            reading.hint = await rows.media.hint(for: facts.disk)
         }
     }
 }
 
-/// A file the row refers to by ref. Its bytes are in the engine's media
-/// store, which no request on either socket returns yet, so it is Not
-/// available: its icon by its type, its name, and no click. It is still a
-/// button, disabled with an action that does nothing on purpose: every tile
-/// is one button to VoiceOver, which reads this one as dimmed, with Not
-/// available as its value.
+/// A phone-side file whose content a tile does not draw, as a card. Nothing
+/// is asked of the engine for it until it is clicked: a click opens the file
+/// the engine grants in the pane, as a file at that path would open, and
+/// where the engine no longer has its bytes the card says Not available.
 private struct ChatRefCard: View {
-    let ref: CompanionMediaRef
+    let named: ChatNamedRef
     let width: Double
 
-    var body: some View {
-        let type = UTType(mimeType: ref.mime) ?? .data
-        let kind = ChatPreviewPolicy.kindWord(ChatPreviewPolicy.family(of: type))
-        let name = ref.filename ?? kind
+    /// Whether a click found the file's bytes gone.
+    @State private var gone = false
+    @State private var hint: ChatTileHint?
+    @Environment(\.chatRows) private var rows
 
-        Button {} label: {
-            ChatCardFace(width: width, title: name, detail: ProductStrings[.chatTileNotAvailable], opensOutside: false, titleTruncation: .middle) {
-                ChatCardIcon(type: type, dimmed: true)
+    var body: some View {
+        let state = ChatPreviewPolicy.cardState(of: named.ref, gone: gone)
+
+        ChatFileCardButton(
+            width: width,
+            state: state,
+            type: named.type,
+            name: named.name,
+            kind: ChatPreviewPolicy.kindWord(named.family),
+            label: named.label,
+            hint: hint,
+            open: open
+        )
+        .task(id: state == .opensOutside) {
+            guard let rows, state == .opensOutside else { return }
+
+            hint = await rows.media.hint(for: ChatPreviewPolicy.facts(of: named.ref))
+        }
+    }
+
+    /// Through the one content link opener, which says whether the engine
+    /// no longer has the file's bytes.
+    private func open() {
+        guard let rows else { return }
+
+        Task { gone = await rows.links.open(ref: named.ref.ref) == .missing }
+    }
+}
+
+/// A file's card and button, whatever its file: its icon, its name, and its
+/// kind, or "Not available" where it is gone. One the pane does not show
+/// carries the pane's open-in-app glyph, and VoiceOver hears where it goes.
+private struct ChatFileCardButton: View {
+    let width: Double
+    let state: ChatTileState
+    let type: UTType
+    let name: String
+    let kind: String
+    let label: String
+    let hint: ChatTileHint?
+    let open: () -> Void
+
+    var body: some View {
+        let missing = state == .notAvailable
+
+        Button(action: open) {
+            ChatCardFace(
+                width: width,
+                title: name,
+                detail: missing ? ProductStrings[.chatTileNotAvailable] : kind,
+                opensOutside: state == .opensOutside,
+                titleTruncation: .middle
+            ) {
+                ChatCardIcon(type: type, dimmed: missing)
             }
         }
         .buttonStyle(ChatTileButtonStyle())
-        .disabled(true)
-        .accessibilityLabel(ProductStrings.commaPair(name, kind))
-        .accessibilityValue(ProductStrings[.chatTileNotAvailable])
+        .onKeyPress(.return) {
+            open()
+            return .handled
+        }
+        .disabled(missing)
+        .accessibilityLabel(label)
+        .accessibilityValue(missing ? ProductStrings[.chatTileNotAvailable] : "")
+        .accessibilityHint(state == .opensOutside ? hint.map(ChatFileReading.spoken) ?? "" : "")
     }
 }
 
 /// A web address (M66 §3.3): with the preview the engine stored for it, its
-/// title over its site; without one, its host over its path, read from the
-/// address alone. Nothing is fetched to draw it. A click opens the address
-/// as the text wrote it, where the person's preference says.
+/// title over its site, and its picture where it stored one; without one,
+/// its host over its path, read from the address alone. Nothing is fetched
+/// from the web to draw it. A click opens the address as the text wrote it,
+/// where the person's preference says.
 private struct ChatLinkCard: View {
     let link: ChatStripLink
     let width: Double
@@ -515,11 +675,11 @@ private struct ChatLinkCard: View {
     var body: some View {
         Button { openURL(link.address) } label: {
             ChatCardFace(width: width, title: title, detail: detail, opensOutside: false, titleTruncation: .tail) {
-                Image(systemName: "link")
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.secondary.color)
-                    .frame(width: ChatMetrics.cardIconSize, height: ChatMetrics.cardIconSize)
-                    .background(Circle().fill(Palette.monoDisc.color))
+                if let picture {
+                    ChatLinkPicture(ref: picture)
+                } else {
+                    ChatLinkGlyph()
+                }
             }
         }
         .buttonStyle(ChatTileButtonStyle())
@@ -543,6 +703,11 @@ private struct ChatLinkCard: View {
         return path.isEmpty ? ProductStrings[.chatKindLink] : path
     }
 
+    /// The stored preview's picture, a phone-side file, where its ref is one.
+    private var picture: String? {
+        link.preview?.imageRef.flatMap { CompanionProtocol.isMediaRef($0) ? $0 : nil }
+    }
+
     private var host: String {
         link.address.host(percentEncoded: false) ?? link.address.absoluteString
     }
@@ -551,6 +716,55 @@ private struct ChatLinkCard: View {
     private var path: String {
         let path = link.address.path(percentEncoded: false)
         return path == "/" ? "" : path
+    }
+}
+
+/// A stored link preview's picture in its card's icon place, filling it
+/// (M66 §3.3, decision 1): made while the card is on screen, from the file
+/// the engine grants for its ref only while the picture is made, through the
+/// same previews as every tile's. The link glyph stands in until it comes,
+/// and where it cannot.
+private struct ChatLinkPicture: View {
+    let ref: String
+
+    @State private var outcome: ChatPreviewOutcome?
+    @State private var onScreen = false
+    @Environment(\.chatRows) private var rows
+    @Environment(\.displayScale) private var scale
+
+    var body: some View {
+        Group {
+            if case .made(let preview)? = outcome {
+                Image(decorative: preview.image, scale: scale)
+                    .resizable()
+                    .frame(width: ChatMetrics.cardIconSize, height: ChatMetrics.cardIconSize)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.iconTileSmall, style: .continuous))
+                    .accessibilityHidden(true)
+            } else {
+                ChatLinkGlyph()
+            }
+        }
+        .onScrollVisibilityChange(threshold: 0.01) { onScreen = $0 }
+        .task(id: onScreen) {
+            guard onScreen, let rows, outcome?.isFinal != true else { return }
+
+            let size = CGSize(width: ChatMetrics.cardIconSize, height: ChatMetrics.cardIconSize)
+            let made = await rows.media.previews.preview(ChatPreviewRequest(ref: ref, family: .picture, size: size, scale: scale))
+            guard !Task.isCancelled else { return }
+
+            outcome = made
+        }
+    }
+}
+
+/// A link's glyph in its card's icon place, on the quiet disc.
+private struct ChatLinkGlyph: View {
+    var body: some View {
+        Image(systemName: "link")
+            .fermixType(Typography.style(.calloutSmall))
+            .foregroundStyle(Palette.secondary.color)
+            .frame(width: ChatMetrics.cardIconSize, height: ChatMetrics.cardIconSize)
+            .background(Circle().fill(Palette.monoDisc.color))
     }
 }
 

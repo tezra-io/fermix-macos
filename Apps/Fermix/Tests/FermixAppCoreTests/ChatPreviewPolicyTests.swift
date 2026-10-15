@@ -181,7 +181,7 @@ struct ChatPreviewPolicyTests {
         #expect(Self.paneKind(package) == .document)
         #expect(ChatPreviewPolicy.family(of: package) == .document)
         #expect(ChatPreviewPolicy.drawsContent(package))
-        #expect(ChatPreviewPolicy.handsToApp(package))
+        #expect(ChatPreviewPolicy.handsToApp(package.disk))
         #expect(ChatPreviewPolicy.kindWord(ChatPreviewPolicy.family(of: package)) == "Document")
         #expect(Self.paneKind(single) == .document)
         #expect(ChatPreviewPolicy.family(of: single) == .document)
@@ -218,13 +218,13 @@ struct ChatPreviewPolicyTests {
             F.facts("/h/out", type: .folder, isDirectory: true), F.facts("/h/Report.pages", isDirectory: true),
         ]
         for facts in files {
-            #expect(ChatPreviewPolicy.handsToApp(facts) == BrowserLocalFile.mayGoToAnApp(facts.disk), "\(facts.file.path)")
+            #expect(ChatPreviewPolicy.handsToApp(facts.disk) == BrowserLocalFile.mayGoToAnApp(facts.disk), "\(facts.file.path)")
         }
 
-        #expect(ChatPreviewPolicy.handsToApp(F.facts("/h/clip.mov")))
-        #expect(!ChatPreviewPolicy.handsToApp(F.facts("/h/clip.mov", isExecutable: true)))
-        #expect(!ChatPreviewPolicy.handsToApp(F.facts("/h/book.epub")))
-        #expect(!ChatPreviewPolicy.handsToApp(F.facts("/h/out", type: .folder, isDirectory: true)))
+        #expect(ChatPreviewPolicy.handsToApp(F.facts("/h/clip.mov").disk))
+        #expect(!ChatPreviewPolicy.handsToApp(F.facts("/h/clip.mov", isExecutable: true).disk))
+        #expect(!ChatPreviewPolicy.handsToApp(F.facts("/h/book.epub").disk))
+        #expect(!ChatPreviewPolicy.handsToApp(F.facts("/h/out", type: .folder, isDirectory: true).disk))
     }
 
     // MARK: - States
@@ -252,6 +252,85 @@ struct ChatPreviewPolicyTests {
         #expect(ChatPreviewPolicy.state(of: .found(shot), outcome: .dropped) == .previewUnavailable)
         #expect(ChatPreviewPolicy.state(of: .found(F.facts("/h/clip.mov")), outcome: .unplayable) == .opensOutside)
         #expect(ChatPreviewPolicy.state(of: .found(shot), outcome: .failed) != .notAvailable)
+    }
+
+    // MARK: - Phone-side files
+
+    private static func ref(_ filename: String?, kind: String, mime: String) -> CompanionMediaRef {
+        CompanionMediaRef(ref: String(repeating: "a", count: 64), kind: kind, mime: mime, sizeBytes: 2_048, sha256: nil, filename: filename, caption: nil)
+    }
+
+    /// Read from the row before any file is granted: the mime's type, and
+    /// the kind's broad one where the Mac knows no type by the mime.
+    @Test("a phone-side file's type is its mime's, and its kind's where the mime names nothing known")
+    func refTypes() {
+        #expect(ChatPreviewPolicy.type(of: Self.ref(nil, kind: "image", mime: "image/png")) == .png)
+        #expect(ChatPreviewPolicy.type(of: Self.ref(nil, kind: "audio", mime: "audio/ogg")).conforms(to: .audio))
+        #expect(ChatPreviewPolicy.type(of: Self.ref(nil, kind: "document", mime: "application/pdf")) == .pdf)
+        #expect(ChatPreviewPolicy.type(of: Self.ref(nil, kind: "image", mime: "image/x-fermix-unknown")) == .image)
+        #expect(ChatPreviewPolicy.type(of: Self.ref(nil, kind: "video", mime: "video/x-fermix-unknown")) == .movie)
+        #expect(ChatPreviewPolicy.type(of: Self.ref(nil, kind: "document", mime: "application/x-fermix-unknown")) == .data)
+    }
+
+    /// Through the same rule as a path: a picture, a film, a PDF and a
+    /// document draw their content; an SVG, text and data do not.
+    @Test("a phone-side file draws its content by the type its row names")
+    func refContent() {
+        let drawn = [("image", "image/jpeg"), ("video", "video/quicktime"), ("document", "application/pdf"), ("image", "image/x-fermix-unknown")]
+        for (kind, mime) in drawn {
+            #expect(ChatPreviewPolicy.showsContent(ChatPreviewPolicy.type(of: Self.ref(nil, kind: kind, mime: mime))), "\(mime)")
+        }
+        for (kind, mime) in [("image", "image/svg+xml"), ("document", "text/plain"), ("document", "application/zip"), ("audio", "audio/mpeg")] {
+            #expect(!ChatPreviewPolicy.showsContent(ChatPreviewPolicy.type(of: Self.ref(nil, kind: kind, mime: mime))), "\(mime)")
+        }
+    }
+
+    /// A ref with no filename is named by its kind's word, which VoiceOver
+    /// then reads once rather than twice.
+    @Test("a phone-side file is named by its filename or its kind, and labelled with its kind once")
+    func refNames() {
+        let named = Self.ref("chart.png", kind: "image", mime: "image/png")
+        let unnamed = Self.ref(nil, kind: "image", mime: "image/png")
+
+        #expect(ChatPreviewPolicy.name(of: named) == "chart.png")
+        #expect(ChatPreviewPolicy.label(of: named) == ProductStrings.commaPair("chart.png", ProductStrings[.chatKindPicture]))
+        #expect(ChatPreviewPolicy.name(of: unnamed) == ProductStrings[.chatKindPicture])
+        #expect(ChatPreviewPolicy.label(of: unnamed) == ProductStrings[.chatKindPicture])
+        #expect(ChatPreviewPolicy.label(of: Self.ref("Q3.pdf", kind: "document", mime: "application/pdf")) == "Q3.pdf, PDF")
+    }
+
+    /// The engine makes a ref's file as a plain file of its type: the facts a
+    /// hint is read from, and never anything that runs.
+    @Test("a phone-side file's facts are a regular file of its type and size that runs nothing")
+    func refFacts() {
+        let facts = ChatPreviewPolicy.facts(of: Self.ref(nil, kind: "video", mime: "video/mp4"))
+
+        #expect(facts.type == .mpeg4Movie)
+        #expect(facts.entry == .file(size: 2_048, isExecutable: false))
+        #expect(ChatPreviewPolicy.handsToApp(facts))
+    }
+
+    /// A card asks the engine for nothing until it is clicked, so it is
+    /// Ready, or Opens outside by its type, until a click finds it gone.
+    @Test("a phone-side card is Ready or Opens outside by its type, and Not available once a click finds it gone")
+    func refCards() {
+        let text = Self.ref("notes.txt", kind: "document", mime: "text/plain")
+        let ebook = Self.ref("book.epub", kind: "document", mime: "application/epub+zip")
+
+        #expect(ChatPreviewPolicy.cardState(of: text, gone: false) == .ready(nil))
+        #expect(ChatPreviewPolicy.cardState(of: text, gone: true) == .notAvailable)
+        #expect(ChatPreviewPolicy.cardState(of: ebook, gone: false) == .opensOutside)
+    }
+
+    @Test("a phone-side preview tile's state is its preview's answer, and missing bytes are Not available")
+    func refStates() {
+        let preview = ChatPreview(image: fixturePicture(), detail: nil)
+
+        #expect(ChatPreviewPolicy.state(of: nil) == .loading)
+        #expect(ChatPreviewPolicy.state(of: .made(preview)) == .ready(preview))
+        #expect(ChatPreviewPolicy.state(of: .failed) == .previewUnavailable)
+        #expect(ChatPreviewPolicy.state(of: .unplayable) == .opensOutside)
+        #expect(ChatPreviewPolicy.state(of: .missing) == .notAvailable)
     }
 
     @Test("a PDF's page count reads in words, one key for one page and one for more")

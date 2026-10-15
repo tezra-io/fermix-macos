@@ -143,6 +143,19 @@ enum CompanionServerWire {
             ])
         case .error(let error):
             return errorFields(error)
+        case .mediaPath(let grant):
+            return [
+                "ref": grant.ref,
+                "path": grant.path,
+                "kind": grant.kind,
+                "mime": grant.mime,
+                "size_bytes": grant.sizeBytes,
+                "sha256": grant.sha256
+            ]
+        case .mediaMissing(let ref):
+            return ["ref": ref]
+        case .rowUpdated(let profileId, let serverSeq):
+            return ["profile_id": profileId, "server_seq": serverSeq]
         case .unrecognized:
             return [:]
         }
@@ -178,7 +191,9 @@ enum CompanionServerWire {
             "ts": row.timestamp,
             "client_msg_id": row.clientMsgId,
             "kind": row.kind,
-            "metadata": row.metadata.map { $0.mapValues(value) }
+            "metadata": row.metadata.map { $0.mapValues(value) },
+            "media_refs": row.mediaRefs.map(mediaRef),
+            "link_previews": row.linkPreviews.map { $0.map(linkPreview) }
         ])
     }
 
@@ -262,7 +277,8 @@ enum CompanionServerWire {
             "direction": error.direction?.rawValue,
             "client_version": error.clientVersion,
             "min_version": error.minVersion,
-            "max_version": error.maxVersion
+            "max_version": error.maxVersion,
+            "ref": error.ref
         ])
     }
 

@@ -8,17 +8,22 @@ struct ChatRowContext: Equatable, Sendable {
     let media: ChatMedia
     /// The app's one player, which a sound in a row plays on (M66 §3.4).
     let player: AppPlayer
+    /// The one content link opener, which a phone-side file's tile opens
+    /// through, as a link opens through `openURL` (M66 §3.5).
+    let links: ContentLinkOpener
     /// The Fermix home as this visit to Chat read it, nil until the surface
     /// has read it.
     let visit: ChatVisit?
     /// The reading column's width, which a strip fits its tiles to.
     let columnWidth: Double
 
-    /// The media and the player are each one object for the app's life, so
-    /// two contexts are the same when they, the visit and the column are: a
-    /// keystroke that redraws the surface must not redraw every row.
+    /// The media, the player and the opener are each one object for the
+    /// app's life, so two contexts are the same when they, the visit and the
+    /// column are: a keystroke that redraws the surface must not redraw every
+    /// row.
     static func == (lhs: ChatRowContext, rhs: ChatRowContext) -> Bool {
-        lhs.media === rhs.media && lhs.player === rhs.player && lhs.visit == rhs.visit && lhs.columnWidth == rhs.columnWidth
+        lhs.media === rhs.media && lhs.player === rhs.player && lhs.links === rhs.links
+            && lhs.visit == rhs.visit && lhs.columnWidth == rhs.columnWidth
     }
 }
 
@@ -60,13 +65,13 @@ struct ChatItemView: View {
 }
 
 /// A finished row, on its side: its words, or its voice note with its words
-/// as the transcript; under them the sound files it names in the Fermix home,
-/// each playable where it is (M66 §3.4); and then its strip (§3.1). Its words
-/// are the strip's text, without the lines that only name what the strip and
-/// the players show. A row with no other words, a picture Fermix sent to the
-/// phone or a reply that only lists what it made, draws its strip alone. A
-/// turn still being written is no row yet, so nothing here looks at the disk
-/// while a reply streams.
+/// as the transcript; under them the sound files it names in the Fermix home;
+/// the note and each sound playable where it is (M66 §3.4); and then its
+/// strip (§3.1). Its words are the strip's text, without the lines that only
+/// name what the strip and the players show. A row with no other words, a
+/// picture Fermix sent to the phone or a reply that only lists what it made,
+/// draws its strip alone. A turn still being written is no row yet, so
+/// nothing here looks at the disk while a reply streams.
 private struct ChatRow: View {
     let row: CompanionRow
     let marked: [String]
@@ -83,8 +88,8 @@ private struct ChatRow: View {
         let user = ChatSpeaker.isUser(row.role)
 
         return VStack(alignment: user ? .trailing : .leading, spacing: ChatMetrics.stripTopGap) {
-            if strip.voiceNote != nil {
-                ChatVoiceNote(transcript: words(strip), speaker: row.role)
+            if let note = strip.voiceNote {
+                ChatVoiceNote(note: note, transcript: words(strip), speaker: row.role, player: rows.player)
             } else if !strip.text.isEmpty {
                 if user {
                     ChatUserRow(text: words(strip), sending: false)

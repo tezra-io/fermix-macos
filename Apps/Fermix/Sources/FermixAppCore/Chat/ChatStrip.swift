@@ -19,10 +19,11 @@ import Foundation
 ///    it has one.
 ///
 /// They are drawn in two kinds, each keeping that order: first the previews,
-/// the paths inside the Fermix home to a picture, a video, a PDF or a
-/// document, which draw what the file holds; then every other item as a
-/// compact card. An item's kind is read from its path, so a tile keeps its
-/// shape whatever its file turns out to be.
+/// the phone-side files and the paths inside the Fermix home that are a
+/// picture, a video, a PDF or a document, which draw what the file holds;
+/// then every other item as a compact card. An item's kind is read from its
+/// path or from the type its row names, so a tile keeps its shape whatever
+/// its file turns out to be.
 ///
 /// Its words are read once, as the row draws them (`ReplyText`): Fermix's as
 /// markdown, a person's as the plain text they typed.
@@ -33,8 +34,8 @@ struct ChatStrip: Equatable {
     /// The row's voice note, its first `audio` ref, drawn as its chip with
     /// the row's text as its transcript.
     let voiceNote: CompanionMediaRef?
-    /// The files whose tiles draw what they hold.
-    let previews: [URL]
+    /// The items whose tiles draw what their file holds.
+    let previews: [ChatStripItem]
     /// Every other item, as a compact card.
     let cards: [ChatStripItem]
     /// The sound files inside the Fermix home the text names, in reading
@@ -51,7 +52,7 @@ struct ChatStrip: Equatable {
 
     /// Every item, previews first: the order they are drawn and counted in.
     var items: [ChatStripItem] {
-        previews.map(ChatStripItem.file) + cards
+        previews + cards
     }
 
     /// The strip of a row's content. `plain` reads the words as a person's,
@@ -80,8 +81,8 @@ struct ChatStrip: Equatable {
             ChatStripItem.link(ChatStripLink(address: address, preview: previews.first { $0.written == address }?.preview))
         }
         let items = Self.unique(refs + loose + files + links)
-        self.previews = items.compactMap { Self.preview($0, home: home) }
-        cards = items.filter { Self.preview($0, home: home) == nil }
+        self.previews = items.filter { Self.drawsContent($0, home: home) }
+        cards = items.filter { !Self.drawsContent($0, home: home) }
 
         let shown = Set(items.map(\.id) + sounds.map { ChatStripItem.file($0).id })
         let kept = Self.withoutShownLines(text, shown: shown, userHome: userHome)
@@ -93,15 +94,20 @@ struct ChatStrip: Equatable {
         plain ? ReplyText(plain: text, home: userHome) : ReplyText(markdown: text, home: userHome)
     }
 
-    /// The file an item draws a preview of: a path inside the Fermix home
-    /// whose type is drawn by its content. A ref has no bytes in the app's
-    /// hands yet, and a link is drawn from its address.
-    private static func preview(_ item: ChatStripItem, home: ChatHome?) -> URL? {
-        guard case .file(let file) = item, home?.contains(file) == true,
-              ChatPreviewPolicy.type(ofPath: file.path).map(ChatPreviewPolicy.showsContent) == true
-        else { return nil }
+    /// Whether an item's tile draws what its file holds: a phone-side file,
+    /// or a path inside the Fermix home, of a type drawn by its content. A
+    /// link is drawn from its address.
+    private static func drawsContent(_ item: ChatStripItem, home: ChatHome?) -> Bool {
+        switch item {
+        case .media(let ref):
+            return ChatPreviewPolicy.showsContent(ChatPreviewPolicy.type(of: ref))
+        case .file(let file):
+            guard home?.contains(file) == true else { return false }
 
-        return file
+            return ChatPreviewPolicy.type(ofPath: file.path).map(ChatPreviewPolicy.showsContent) ?? false
+        case .link:
+            return false
+        }
     }
 
     /// A path is a tile when it names something inside the Fermix home or a
@@ -315,8 +321,9 @@ struct ChatStrip: Equatable {
 /// One tile of a strip. Two items are one when they name one destination
 /// (M66 §3.1), so an item is equal to, and hashes as, its id.
 enum ChatStripItem: Hashable, Identifiable {
-    /// A file the row refers to by ref. Its bytes are in the engine's media
-    /// store, which no request returns yet, so its tile is Not available.
+    /// A file the row refers to by ref, a phone-side file: its bytes are in
+    /// the engine's media store, which grants a file of them while a tile, a
+    /// tab or the player uses it (M66 decision 1).
     case media(CompanionMediaRef)
     /// A file a path in the text names, at the address the path makes.
     case file(URL)

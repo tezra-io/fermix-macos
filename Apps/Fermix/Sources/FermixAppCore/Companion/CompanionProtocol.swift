@@ -10,10 +10,10 @@ import Foundation
 public enum CompanionProtocol {
     /// Wire protocol version this build speaks, declared in `client_hello` and
     /// validated against the window the daemon advertises in `server_hello`.
-    public static let version = 2
+    public static let version = 3
 
     /// The daemon's window at the pinned contract, which `version` sits inside.
-    public static let supportedWindow = CompanionVersionWindow(minimum: 1, maximum: 2)
+    public static let supportedWindow = CompanionVersionWindow(minimum: 2, maximum: 3)
 
     /// The longest client line the daemon reads. A longer one is refused with
     /// `line_too_large` and closes the connection, so `line()` refuses it first.
@@ -26,11 +26,16 @@ public enum CompanionProtocol {
     /// `role` is who wrote it: the person, from this Mac or a phone, or Fermix.
     public static let userRole = "user"
     public static let assistantRole = "assistant"
-    /// A history message's `kind` for a row that carries files.
-    public static let mediaKind = "media"
     /// A file's `kind` for a sound: on the person's row, a voice note the
     /// phone recorded.
     public static let audioKind = "audio"
+
+    /// Whether `ref` is one the daemon takes: 64 lowercase hex digits, a
+    /// sha256. Any other is `invalid_field`, which closes the connection, so a
+    /// ref that is not one is never sent.
+    public static func isMediaRef(_ ref: String) -> Bool {
+        ref.utf8.count == 64 && ref.utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
+    }
 
     /// How long the daemon has to answer `client_hello` with `server_hello`.
     /// The contract sets no deadline; this is the client's, the realtime
@@ -150,7 +155,7 @@ public enum CompanionHistoryCursor: Equatable, Sendable {
 public enum CompanionClientEvent: Equatable, Sendable, Encodable {
     case clientHello(protocolVersion: Int)
     /// A message to the agent. This wire carries no attachments in versions 1
-    /// and 2, so the line always sends an empty `attach_ids`.
+    /// to 3, so the line always sends an empty `attach_ids`.
     case msg(clientMsgId: String, profileId: String, text: String)
     /// A slash command, `/name args`. An approval's routes are sent this way.
     case command(clientMsgId: String, profileId: String, name: String, args: String?)
@@ -164,6 +169,13 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
     case historySearch(profileId: String, query: String, limit: Int, beforeSeq: Int?)
     /// Advances the monotonic read frontier.
     case readState(profileId: String, readUpToSeq: Int)
+    /// Version 3: asks the engine for a managed local file holding the bytes
+    /// of `ref`. Answered by `media_path`, `media_missing`, or an `error`
+    /// naming the ref.
+    case mediaFetch(profileId: String, ref: String)
+    /// Version 3: this client has finished with the file of `ref`. Never
+    /// answered.
+    case mediaRelease(profileId: String, ref: String)
 
     public var wireType: String {
         switch self {
@@ -174,11 +186,13 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         case .historyPull: return "history_pull"
         case .historySearch: return "history_search"
         case .readState: return "read_state"
+        case .mediaFetch: return "media_fetch"
+        case .mediaRelease: return "media_release"
         }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, text, name, args, query, limit
+        case type, text, name, args, query, limit, ref
         case protocolVersion = "protocol_version"
         case clientMsgId = "client_msg_id"
         case profileId = "profile_id"
@@ -225,6 +239,9 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         case .readState(let profileId, let readUpToSeq):
             try container.encode(profileId, forKey: .profileId)
             try container.encode(readUpToSeq, forKey: .readUpToSeq)
+        case .mediaFetch(let profileId, let ref), .mediaRelease(let profileId, let ref):
+            try container.encode(profileId, forKey: .profileId)
+            try container.encode(ref, forKey: .ref)
         }
     }
 
@@ -398,9 +415,12 @@ public struct CompanionServerError: Equatable, Sendable, Decodable {
     public let clientVersion: Int?
     public let minVersion: Int?
     public let maxVersion: Int?
+    /// Version 3: the media ref of a `media_fetch` the daemon could not serve
+    /// for a reason of its own, on `request_failed`.
+    public let ref: String?
 
     private enum CodingKeys: String, CodingKey {
-        case reason, message, field, event, direction
+        case reason, message, field, event, direction, ref
         case clientMsgId = "client_msg_id"
         case clientVersion = "client_version"
         case minVersion = "min_version"
@@ -412,6 +432,25 @@ public struct CompanionServerError: Equatable, Sendable, Decodable {
         guard let minVersion, let maxVersion else { return nil }
 
         return CompanionVersionWindow(minimum: minVersion, maximum: maxVersion)
+    }
+}
+
+/// Version 3: the engine's grant of a managed local file holding a ref's
+/// bytes. `kind`, `mime` and `sizeBytes` are the ones the timeline row names
+/// for the ref, and `sha256` is the ref, checked against the bytes when the
+/// file was made.
+public struct CompanionMediaPath: Equatable, Sendable, Decodable {
+    public let ref: String
+    /// Absolute: a file the engine manages under its home, named by the ref.
+    public let path: String
+    public let kind: String
+    public let mime: String
+    public let sizeBytes: Int
+    public let sha256: String
+
+    private enum CodingKeys: String, CodingKey {
+        case ref, path, kind, mime, sha256
+        case sizeBytes = "size_bytes"
     }
 }
 
@@ -438,6 +477,13 @@ public enum CompanionServerEvent: Equatable, Sendable {
     case historyPage(CompanionHistoryPage)
     case searchResults(CompanionSearchResults)
     case error(CompanionServerError)
+    /// Version 3: the answer to a `media_fetch` the engine could grant.
+    case mediaPath(CompanionMediaPath)
+    /// Version 3: the answer to a `media_fetch` with nothing to grant.
+    case mediaMissing(ref: String)
+    /// Version 3: a row already written changed, its text, its media or its
+    /// link previews. It carries no content: the row is read from history.
+    case rowUpdated(profileId: String, serverSeq: Int)
     /// An event type published after this build shipped: logged by the session,
     /// never silently dropped.
     case unrecognized(type: String)
@@ -459,6 +505,9 @@ public enum CompanionServerEvent: Equatable, Sendable {
         case .historyPage: return "history_page"
         case .searchResults: return "search_results"
         case .error: return "error"
+        case .mediaPath: return "media_path"
+        case .mediaMissing: return "media_missing"
+        case .rowUpdated: return "row_updated"
         case .unrecognized(let type): return type
         }
     }
@@ -508,7 +557,7 @@ public enum CompanionServerEvent: Equatable, Sendable {
 
 extension CompanionServerEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case type, text, code, message, outcome
+        case type, text, code, message, outcome, ref
         case minVersion = "min_version"
         case maxVersion = "max_version"
         case profileId = "profile_id"
@@ -580,6 +629,15 @@ extension CompanionServerEvent: Decodable {
             self = .searchResults(try CompanionSearchResults(from: decoder))
         case "error":
             self = .error(try CompanionServerError(from: decoder))
+        case "media_path":
+            self = .mediaPath(try CompanionMediaPath(from: decoder))
+        case "media_missing":
+            self = .mediaMissing(ref: try fields.decode(String.self, forKey: .ref))
+        case "row_updated":
+            self = .rowUpdated(
+                profileId: try fields.decode(String.self, forKey: .profileId),
+                serverSeq: try fields.decode(Int.self, forKey: .serverSeq)
+            )
         default:
             self = .unrecognized(type: type)
         }

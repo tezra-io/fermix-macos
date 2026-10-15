@@ -12,6 +12,9 @@ import SwiftUI
 ///   the reader where they were by the same rule.
 /// - The newest row on screen, in a window that is in front, is read, and the
 ///   session moves the read frontier the phone shares.
+/// - The session is told which held rows are on screen whenever that set
+///   changes, so a row that may have changed while chat was disconnected is
+///   read again as it comes into view (M66 §3.6).
 ///
 /// A search hit is revealed the way scrolling up reads: page by page until its
 /// row is held, then scrolled to the middle with its matches marked.
@@ -24,6 +27,8 @@ struct ChatTranscript: View {
 
     /// The items on screen, as the scroll view last reported them.
     @State private var visible: Set<ChatItemID> = []
+    /// The held rows on screen, as the session was last told them.
+    @State private var rowsOnScreen = ChatRowsOnScreen()
     /// Whether the reader is on the bottom edge. The transcript opens there,
     /// and it stays true until the reader scrolls away from it.
     @State private var atBottom = true
@@ -73,8 +78,13 @@ struct ChatTranscript: View {
             }
             .onScrollTargetVisibilityChange(idType: ChatItemID.self, threshold: 0.01) { ids in
                 visible = Set(ids)
+                reportRowsOnScreen()
                 readOlderAtTheTop()
                 markNewestSeen()
+            }
+            .onDisappear {
+                visible = []
+                reportRowsOnScreen()
             }
             .onChange(of: items.last) {
                 follow(proxy)
@@ -115,6 +125,13 @@ struct ChatTranscript: View {
         guard ChatFollow.follows(atBottom: atBottom, sent: sent) else { return }
 
         proxy.scrollTo(newest.id, anchor: .bottom)
+    }
+
+    /// Tells the session the held rows on screen, only when they changed.
+    private func reportRowsOnScreen() {
+        guard let seqs = rowsOnScreen.update(visible) else { return }
+
+        session.rowsOnScreen(seqs)
     }
 
     private func readOlderAtTheTop() {
@@ -221,6 +238,27 @@ struct ChatViewport: Equatable {
     init(_ geometry: ScrollGeometry) {
         size = geometry.containerSize
         atBottom = geometry.visibleRect.maxY >= geometry.contentSize.height - Spacing.l
+    }
+}
+
+/// The held rows on screen, as the transcript last reported them to the
+/// session. Scrolling changes which items are visible far more often than it
+/// changes which rows are, so only a change of the rows is a report.
+struct ChatRowsOnScreen: Equatable {
+    private(set) var seqs: Set<Int> = []
+
+    /// The rows to report for the items now on screen, or nil when they are
+    /// the rows reported last.
+    mutating func update(_ visible: Set<ChatItemID>) -> Set<Int>? {
+        let rows = Set(visible.compactMap { id -> Int? in
+            guard case .row(let seq) = id else { return nil }
+
+            return seq
+        })
+        guard rows != seqs else { return nil }
+
+        seqs = rows
+        return rows
     }
 }
 
