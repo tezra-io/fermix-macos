@@ -146,7 +146,8 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var mobileStatusScript: [Result<ManagementMobileStatus, any Error>] = []
     var mobileStatusIndex = 0
     /// Holds a channel read open once its answer is chosen, so a case can
-    /// land two reads in the other order from the one they were asked in.
+    /// show a second read waiting behind the first rather than reaching the
+    /// daemon.
     var mobileStatusGate: (@Sendable () async -> Void)?
     var mobileDevicesResult: ManagementMobileDevices?
     var pairingStartResult: ManagementPairingStart?

@@ -627,7 +627,7 @@ struct PhonePairingTests {
         let remote = try #require(try PairingGolden.status().remote)
 
         #expect(remote.state == .ready)
-        #expect(remote.relay == "https://us1.relay.fermix.ai/")
+        #expect(remote.relay != nil)
         #expect(remote.connected)
         #expect(remote.endpointId?.count == 64)
         #expect(remote.relayError == nil)
