@@ -413,6 +413,13 @@
 "chat.kind.file" = "File";
 "chat.kind.link" = "Link";
 "chat.code" = "Code";
+"chat.table" = "Table";
+"chat.quote" = "Quote";
+"chat.list.bullet" = "•";
+"chat.list.bulletNested" = "◦";
+"chat.list.numberFormat" = "%lld.";
+"chat.task.done" = "Done";
+"chat.task.open" = "Not done";
 "chat.code.copy" = "Copy";
 "chat.code.copied" = "Copied";
 

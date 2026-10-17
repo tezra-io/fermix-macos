@@ -8,28 +8,21 @@ import Foundation
 ///
 /// Fermix's words are blocks in reading order: a fenced code block
 /// (`ReplyFences`) is code, kept as it was written with the language its
-/// fence names, and the words between are inline markdown, their headings read
-/// inline (`headingsInlined`), with every local path (`ReplyPaths`) and every
-/// web address written out (`ReplyLinks`) a link. Code carries no links. A
-/// person's words are drawn as they typed them, so they are read as plain
-/// text, one block: only the paths and addresses written out in them count,
-/// and no markdown is read into them.
+/// fence names, and the words between are the paragraphs, lists, tables and
+/// quotes they are written as (`ReplyStructure`), every stretch of their
+/// words inline markdown, their headings read inline (`headingsInlined`),
+/// with every local path (`ReplyPaths`) and every web address written out
+/// (`ReplyLinks`) a link. Code carries no links. A person's words are drawn
+/// as they typed them, so they are read as plain text, one block: only the
+/// paths and addresses written out in them count, and no markdown is read
+/// into them.
 struct ReplyText: Equatable {
     /// The words in reading order.
     let blocks: [ReplyBlock]
 
-    /// Fermix's words, `~` read as `home`. Each run of words between two
-    /// code blocks loses the blank lines at its ends, which the space between
-    /// blocks stands for, and a run with nothing else is no block.
+    /// Fermix's words, `~` read as `home`.
     init(markdown text: String, home: String) {
-        blocks = ReplyFences.runs(text).compactMap { run in
-            switch run {
-            case .prose(let lines):
-                return Self.trimmed(lines).map { .prose(Self.parsed($0, home: home)) }
-            case .code(let code, _):
-                return .code(code)
-            }
-        }
+        blocks = Self.reading(text, home: home).blocks
     }
 
     /// A person's words, `~` read as `home`.
@@ -37,10 +30,31 @@ struct ReplyText: Equatable {
         blocks = [.prose(ReplyPaths.linked(ReplyLinks.linked(AttributedString(text)), home: home))]
     }
 
+    /// Fermix's words, `~` read as `home`, as blocks, with the last place
+    /// they can be cut: what a turn still being written reads (`ReplyDraft`).
+    static func reading(_ text: String, home: String) -> ReplyReading {
+        var blocks: [ReplyBlock] = []
+        var cut: ReplyReading.Cut?
+        for run in ReplyFences.runs(text) {
+            switch run {
+            case .prose(let lines):
+                let structure = ReplyStructure(lines: lines) { parsed($0, home: home) }
+                if let local = structure.cut {
+                    cut = ReplyReading.Cut(index: local.index, blocks: blocks.count + local.blocks)
+                }
+                blocks += structure.blocks
+            case .code(let code, _):
+                blocks.append(.code(code))
+            }
+        }
+
+        return ReplyReading(blocks: blocks, cut: cut)
+    }
+
     /// Every link, in reading order, a link drawn over several runs (a bold
     /// word inside it) counted once.
     var links: [URL] {
-        blocks.compactMap(\.prose).flatMap { words in
+        blocks.flatMap(\.words).flatMap { words in
             words.runs[\.link].compactMap { link, _ in link }
         }
     }
@@ -65,25 +79,11 @@ struct ReplyText: Equatable {
         return ReplyPaths.linked(ReplyLinks.linked(parsed), home: home)
     }
 
-    /// A run's lines less the blank lines at its ends, as one text, or nil
-    /// where nothing else is left.
-    private static func trimmed(_ lines: [Substring]) -> String? {
-        guard let first = lines.firstIndex(where: { !isBlank($0) }),
-              let last = lines.lastIndex(where: { !isBlank($0) })
-        else { return nil }
-
-        return lines[first...last].joined(separator: "\n")
-    }
-
-    private static func isBlank(_ line: Substring) -> Bool {
-        line.allSatisfy(\.isWhitespace)
-    }
-
-    /// Inline markdown only; blocks and tables are read as the text they are,
-    /// except a heading line, one to six `#` then a space then its text, which
-    /// becomes that text strongly emphasised: a reply is a conversation, and a
-    /// heading reads as noise on the ground rather than as structure (owner,
-    /// 2026-09-28). Every other line is left as it is.
+    /// Inline markdown only, except a heading line, one to six `#` then a
+    /// space then its text, which becomes that text strongly emphasised: a
+    /// reply is a conversation, and a heading reads as noise on the ground
+    /// rather than as structure (owner, 2026-09-28). Every other line is left
+    /// as it is.
     private static func headingsInlined(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false)
             .map { line in heading(line).map { "**\($0)**" } ?? String(line) }
@@ -99,12 +99,34 @@ struct ReplyText: Equatable {
     }
 }
 
+/// Fermix's words read as blocks, and the last place they can be cut: the
+/// start of a line from which the rest reads as words of their own, so the
+/// blocks before it are what the words before it read as, whatever is
+/// written after them (`ReplyStructure`).
+struct ReplyReading {
+    struct Cut {
+        /// Where the line starts, in the words read.
+        let index: String.Index
+        /// How many of the blocks lie before it.
+        let blocks: Int
+    }
+
+    let blocks: [ReplyBlock]
+    /// Nil where the words cannot be cut yet.
+    let cut: Cut?
+}
+
 /// One block of a reply, in reading order.
 enum ReplyBlock: Equatable {
-    /// Words, with their links set.
+    /// A paragraph: words, with their links set.
     case prose(AttributedString)
     /// A fenced code block, as it was written.
     case code(ReplyCode)
+    /// A list, its nested items among its own.
+    case list(ReplyList)
+    case table(ReplyTable)
+    /// A quote's words.
+    case quote(AttributedString)
 
     var prose: AttributedString? {
         guard case .prose(let words) = self else { return nil }
@@ -115,6 +137,85 @@ enum ReplyBlock: Equatable {
         guard case .code(let code) = self else { return nil }
         return code
     }
+
+    /// Every stretch of words the block draws, in reading order: a list's
+    /// items, and a table's header and then its rows. Code has none.
+    var words: [AttributedString] {
+        switch self {
+        case .prose(let words), .quote(let words): return [words]
+        case .code: return []
+        case .list(let list): return list.items.map(\.words)
+        case .table(let table): return table.header + table.rows.flatMap { $0 }
+        }
+    }
+
+    /// The block with each stretch of its words changed, and the rest of it
+    /// as it was: how its words are drawn and marked.
+    func mappingWords(_ change: (AttributedString) -> AttributedString) -> ReplyBlock {
+        switch self {
+        case .prose(let words):
+            return .prose(change(words))
+        case .quote(let words):
+            return .quote(change(words))
+        case .code:
+            return self
+        case .list(let list):
+            return .list(ReplyList(items: list.items.map { ReplyListItem(depth: $0.depth, marker: $0.marker, words: change($0.words)) }))
+        case .table(let table):
+            return .table(ReplyTable(alignments: table.alignments, header: table.header.map(change), rows: table.rows.map { $0.map(change) }))
+        }
+    }
+}
+
+/// A list: its items in reading order, each as deep as it is nested.
+struct ReplyList: Equatable {
+    /// The deepest an item is drawn: one nested further is drawn here.
+    static let deepest = 2
+
+    let items: [ReplyListItem]
+}
+
+struct ReplyListItem: Equatable {
+    /// 0 for the list's own items, one more for each list an item is
+    /// nested in, never past `ReplyList.deepest`.
+    let depth: Int
+    let marker: ReplyListMarker
+    /// The words after its mark, and the lines indented under it.
+    let words: AttributedString
+}
+
+enum ReplyListMarker: Equatable {
+    case bullet
+    /// A number as CommonMark numbers a list: its first item's number as
+    /// written, and one more for each item after it at the same depth.
+    case number(Int)
+    /// A task (`- [ ]`), done or not (`- [x]`).
+    case task(done: Bool)
+}
+
+/// A table: how each column aligns, its header's cells, and its rows, each
+/// with as many cells as the header.
+struct ReplyTable: Equatable {
+    let alignments: [ReplyTableAlignment]
+    let header: [AttributedString]
+    let rows: [[AttributedString]]
+
+    /// The table as text with tabs, what Copy writes, to paste into a
+    /// spreadsheet: a line for its header and one for each row, each cell's
+    /// words as they read.
+    var text: String {
+        ([header] + rows)
+            .map { cells in cells.map { String($0.characters) }.joined(separator: "\t") }
+            .joined(separator: "\n")
+    }
+}
+
+/// How a table's column aligns, as its delimiter row says: `:--` or no
+/// colon is leading, `:-:` centred, and `--:` trailing.
+enum ReplyTableAlignment: Equatable {
+    case leading
+    case center
+    case trailing
 }
 
 /// A fenced code block: the language its fence names, as written, and its

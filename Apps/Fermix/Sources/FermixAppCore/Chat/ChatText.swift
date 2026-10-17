@@ -101,22 +101,25 @@ enum ChatTurnStatus: Equatable {
 /// A link opens through the surface's content link opener, in the pane or the
 /// person's own browser, or, for a local path, as the file it names.
 enum ChatText {
-    /// Fermix's words, `~` read as `home`, parsed and drawn: for a turn still
-    /// being written, which has no strip to have read them yet.
-    static func reply(_ text: String, home: String) -> [ReplyBlock] {
-        drawn(ReplyText(markdown: text, home: home))
+    /// The blank line between two paragraphs drawn as one text.
+    private static let paragraphBreak = "\n\n"
+
+    /// Each block of the words drawn (`drawn(_:marking:)`).
+    static func drawn(_ reply: ReplyText) -> [ReplyBlock] {
+        reply.blocks.map { drawn($0) }
     }
 
-    /// Each block of the words drawn: words in their links' colours with
-    /// their inline code on a faint fill, and code as it was written, which
-    /// its own block colours (`code`).
-    static func drawn(_ reply: ReplyText) -> [ReplyBlock] {
-        reply.blocks.map { block in
-            switch block {
-            case .prose(let words): return .prose(drawn(words))
-            case .code: return block
-            }
-        }
+    /// A block drawn: every stretch of its words in their links' colours with
+    /// their inline code on a faint fill, and a search's matches marked; code
+    /// as it was written, which its own block colours and marks (`code`).
+    static func drawn(_ block: ReplyBlock, marking terms: [String] = []) -> ReplyBlock {
+        block.mappingWords { marking(terms, in: drawn($0)) }
+    }
+
+    /// A run of paragraphs drawn as one text, as a block's words are, with
+    /// a blank line between each two.
+    static func paragraphs(_ run: [AttributedString], marking terms: [String]) -> AttributedString {
+        marking(terms, in: joined(run.map(drawn), by: paragraphBreak))
     }
 
     /// Words drawn in their links' colours. A markdown link's own words are
@@ -175,19 +178,40 @@ enum ChatText {
     }
 
     /// The blocks as one text, for a place that draws a row's words as one, a
-    /// voice note's transcript: each code block's lines as code, on lines of
-    /// their own.
+    /// voice note's transcript: each part a row draws (`ChatReplyPart`) on
+    /// lines of its own, a run of paragraphs as a row draws it, code as code,
+    /// a list's items each after its mark (`ChatListBlock.label`) and a
+    /// table's rows as Copy writes them.
     static func oneText(_ blocks: [ReplyBlock]) -> AttributedString {
-        var text = AttributedString()
-        for (index, block) in blocks.enumerated() {
-            if index > 0 { text += AttributedString("\n") }
-            switch block {
-            case .prose(let words): text += words
-            case .code(let code): text += codeLines(code)
-            }
-        }
+        joined(ChatReplyPart.parts(of: blocks).map(oneText), by: "\n")
+    }
 
-        return text
+    private static func oneText(_ part: ChatReplyPart) -> AttributedString {
+        switch part {
+        case .paragraphs(let run): return joined(run, by: paragraphBreak)
+        case .block(let block): return oneText(block)
+        }
+    }
+
+    private static func oneText(_ block: ReplyBlock) -> AttributedString {
+        switch block {
+        case .prose(let words), .quote(let words):
+            return words
+        case .code(let code):
+            return codeLines(code)
+        case .list(let list):
+            return joined(list.items.map { AttributedString(ChatListBlock.label($0) + " ") + $0.words }, by: "\n")
+        case .table(let table):
+            return joined(([table.header] + table.rows).map { joined($0, by: "\t") }, by: "\n")
+        }
+    }
+
+    /// The parts one after another, the separator between each two.
+    private static func joined(_ parts: [AttributedString], by separator: String) -> AttributedString {
+        parts.enumerated().reduce(into: AttributedString()) { text, part in
+            if part.offset > 0 { text += AttributedString(separator) }
+            text += part.element
+        }
     }
 
     private static func codeLines(_ code: ReplyCode) -> AttributedString {
@@ -214,6 +238,33 @@ enum ChatText {
         }
 
         return marked
+    }
+}
+
+/// A reply's blocks as a row draws them: each run of paragraphs one text, a
+/// blank line between each two as they were written, so a reader selects
+/// across them and the line between them follows the type; and every other
+/// block on its own.
+enum ChatReplyPart: Equatable {
+    /// A run of paragraphs, in reading order.
+    case paragraphs([AttributedString])
+    case block(ReplyBlock)
+
+    static func parts(of blocks: [ReplyBlock]) -> [ChatReplyPart] {
+        var parts: [ChatReplyPart] = []
+        for block in blocks {
+            guard let words = block.prose else {
+                parts.append(.block(block))
+                continue
+            }
+            if case .paragraphs(let run)? = parts.last {
+                parts[parts.count - 1] = .paragraphs(run + [words])
+            } else {
+                parts.append(.paragraphs([words]))
+            }
+        }
+
+        return parts
     }
 }
 

@@ -9,6 +9,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 - Channels: your phones’ settings are shorter. The port, the address Fermix listens on and the local-network announcement, which most people never change, sit under a closed Advanced at the end.
 - Chat: a voice note is one lean line: its play button, a waveform drawn from its own sound that fills in as it plays and that you click or drag to move along, and its time, with the transcript under it. A sound file Fermix names shows the same waveform under its name. A voice note Fermix no longer keeps says Not available as soon as it shows, rather than when you press play.
 - Chat: code in a reply reads as code. Each block sits on its own soft panel with its language above it, quietly coloured so comments, strings and keywords stand apart, and a long line scrolls sideways instead of wrapping. Copy appears when you point at a block and takes its exact text. A short bit of code inside a sentence sits on a faint fill.
+- Chat: lists, numbered steps, tables and quotes in a reply read as what they are. A list keeps its bullets or numbers with each item indented under its own, a table sits on a soft panel with its columns lined up, scrolling sideways when it is wide and copied as a table, and a quote has a thin bar beside it. A long reply also takes less work to draw while Fermix is still writing it.
 
 ## 0.5.0 (2026-10-14)
 

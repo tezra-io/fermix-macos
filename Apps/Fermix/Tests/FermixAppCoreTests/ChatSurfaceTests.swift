@@ -282,7 +282,7 @@ struct ChatSurfaceTests {
     /// which opens them in the pane or the person's own browser.
     @Test("reply markdown is inline only, and its links are live")
     func replyText() throws {
-        let reply = try #require(ChatText.reply("See **the notes** at [the site](https://example.com).", home: "/Users/me").first?.prose)
+        let reply = try #require(ChatText.drawn(ReplyText(markdown: "See **the notes** at [the site](https://example.com).", home: "/Users/me")).first?.prose)
 
         #expect(String(reply.characters) == "See the notes at the site.")
         #expect(reply.runs.compactMap(\.link) == [URL(string: "https://example.com")!])
@@ -290,22 +290,25 @@ struct ChatSurfaceTests {
         #expect(reply.runs.contains { $0.inlinePresentationIntent == .stronglyEmphasized })
     }
 
-    /// A heading line is drawn as its text in bold, its marks gone; a `#`
-    /// that is not a heading, and every other block mark, stays the text it
-    /// is. A fenced block is a block of its own, kept as written.
-    @Test("a heading line is drawn in bold, a fenced block is its own block, and other block marks stay")
+    /// A heading line is drawn as its text in bold, its marks gone, inside
+    /// its paragraph; a `#` that is not a heading stays the text it is. A
+    /// list mark opens a list (`ReplyStructureTests`), and a fenced block is
+    /// a block of its own, kept as written.
+    @Test("a heading line is drawn in bold, a list is a list, and a fenced block is its own block")
     func replyBlocks() throws {
-        let blocks = ChatText.reply(
-            "Plan\n### What to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n```text\n/tmp/a.png\n\nx `y`\n```\nDone",
+        let blocks = ChatText.drawn(ReplyText(
+            markdown: "Plan\n### What to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n```text\n/tmp/a.png\n\nx `y`\n```\nDone",
             home: "/Users/me"
-        )
+        ))
 
-        #expect(blocks.count == 3)
+        #expect(blocks.count == 5)
         let reply = try #require(blocks.first?.prose)
-        #expect(String(reply.characters) == "Plan\nWhat to expect\n- Heat: humid\n#hashtag\n####### seven\n## ")
+        #expect(String(reply.characters) == "Plan\nWhat to expect")
         let bold = reply.runs.filter { $0.inlinePresentationIntent == .stronglyEmphasized }
         #expect(bold.map { String(reply[$0.range].characters) } == ["What to expect"])
-        #expect(blocks[1].code == ReplyCode(language: "text", text: "/tmp/a.png\n\nx `y`"))
+        #expect(ReplyStructureTests.described(blocks[1]) == "list • Heat: humid")
+        #expect(blocks[2].prose.map { String($0.characters) } == "#hashtag\n####### seven\n## ")
+        #expect(blocks[3].code == ReplyCode(language: "text", text: "/tmp/a.png\n\nx `y`"))
         #expect(blocks.last?.prose.map { String($0.characters) } == "Done")
     }
 

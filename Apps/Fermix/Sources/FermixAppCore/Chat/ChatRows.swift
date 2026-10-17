@@ -52,6 +52,7 @@ struct ChatItemView: View {
         switch item {
         case .row(let row):
             ChatRow(row: row, marked: marked)
+                .equatable()
         case .turn(let turn):
             ChatTurnRow(turn: turn)
         case .approval(let approval, let answering):
@@ -72,11 +73,20 @@ struct ChatItemView: View {
 /// picture Fermix sent to the phone or a reply that only lists what it made,
 /// draws its strip alone. A turn still being written is no row yet, so
 /// nothing here looks at the disk while a reply streams.
-private struct ChatRow: View {
+///
+/// It draws again only when what it draws changes: the row, compared whole
+/// so a field the row gains is never missed, and the words a search marks in
+/// it. What it reads from the surface comes through the environment, which
+/// draws it again when that changes.
+struct ChatRow: View, Equatable {
     let row: CompanionRow
     let marked: [String]
 
     @Environment(\.chatRows) private var rows
+
+    static func == (lhs: ChatRow, rhs: ChatRow) -> Bool {
+        lhs.row == rhs.row && lhs.marked == rhs.marked
+    }
 
     var body: some View {
         if let rows {
@@ -94,7 +104,7 @@ private struct ChatRow: View {
                 if user {
                     ChatUserRow(text: words(strip), sending: false)
                 } else if let reply = strip.reply {
-                    ChatReplyRow(blocks: ChatText.drawn(reply), marked: marked, speaker: row.role)
+                    ChatReplyRow(blocks: reply.blocks, marked: marked, speaker: row.role)
                 }
             }
 
@@ -156,10 +166,12 @@ private struct ChatUserRow: View {
 }
 
 /// What Fermix wrote: on the leading side, its words straight on the ground
-/// with no fill of its own, and each code block in its own between them
-/// (`ChatCodeBlock`). A delivery, a row with no turn, and the turn still being
-/// written are drawn the same way.
+/// with no fill of its own, each run of paragraphs one text (`ChatReplyPart`),
+/// and between them each code block, list, table and quote in its own view.
+/// A delivery, a row with no turn, and the turn still being written are drawn
+/// the same way.
 private struct ChatReplyRow: View {
+    /// The blocks as they read, which each part's own view draws.
     let blocks: [ReplyBlock]
     /// Words to mark, where the reader was sent here by a search.
     let marked: [String]
@@ -167,42 +179,73 @@ private struct ChatReplyRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: ChatMetrics.codeBlockGap) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .prose(let words):
-                    prose(ChatText.marking(marked, in: words))
-                case .code(let code):
-                    ChatCodeBlock(code: code, marked: marked)
-                }
+            ForEach(Array(ChatReplyPart.parts(of: blocks).enumerated()), id: \.offset) { _, part in
+                ChatReplyPartView(part: part, marked: marked, speaker: speaker)
+                    .equatable()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
 
-    private func prose(_ text: AttributedString) -> some View {
-        Text(text)
+/// One part of what Fermix wrote, drawn (`ChatText`): a run of paragraphs
+/// straight on the ground as one text, and every other block in its own
+/// view. Compared by what it draws, so its words are coloured once for each
+/// reading of them: a turn still being written colours only the part it is
+/// writing, and a row drawn again for a narrower column colours nothing.
+struct ChatReplyPartView: View, Equatable {
+    let part: ChatReplyPart
+    /// Words to mark, where the reader was sent here by a search.
+    let marked: [String]
+    let speaker: String?
+
+    var body: some View {
+        switch part {
+        case .paragraphs(let run):
+            words(ChatText.paragraphs(run, marking: marked))
+        case .block(let block):
+            switch ChatText.drawn(block, marking: marked) {
+            case .prose(let paragraph):
+                words(paragraph)
+            case .code(let code):
+                ChatCodeBlock(code: code, marked: marked)
+            case .list(let list):
+                ChatListBlock(list: list)
+            case .table(let table):
+                ChatTableBlock(table: table)
+            case .quote(let quote):
+                ChatQuoteBlock(words: quote)
+            }
+        }
+    }
+
+    private func words(_ words: AttributedString) -> some View {
+        Text(words)
             .fermixType(Typography.style(.body))
             .foregroundStyle(Palette.ink.color)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(ChatSpeaker.name(role: speaker))
-            .accessibilityValue(String(text.characters))
+            .accessibilityValue(String(words.characters))
     }
 }
 
 /// The turn answering now: its text so far, and under it one quiet line for
 /// whichever of thinking or the latest tool call applies (`ChatTurnStatus`).
+/// Its text is read as it arrives (`ReplyDraft`), so each piece reads only
+/// the block still being written.
 private struct ChatTurnRow: View {
     let turn: CompanionTurn
 
     @Environment(\.chatRows) private var rows
+    @State private var draft = ReplyDraft()
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             if let rows, !turn.text.isEmpty {
                 ChatReplyRow(
-                    blocks: ChatText.reply(turn.text, home: rows.media.userHome),
+                    blocks: draft.blocks(turn.text, home: rows.media.userHome),
                     marked: [],
                     speaker: CompanionProtocol.assistantRole
                 )

@@ -12,14 +12,9 @@ import Testing
 struct ReplyBlocksTests {
     private static let home = "/Users/me"
 
-    /// Each block as one short line: its words, or its language and code.
+    /// Each block as one short line (`ReplyStructureTests.described`).
     private static func described(_ text: String) -> [String] {
-        ReplyText(markdown: text, home: home).blocks.map { block in
-            switch block {
-            case .prose(let words): return "prose " + String(words.characters)
-            case .code(let code): return "code \(code.language ?? "-") " + code.text
-            }
-        }
+        ReplyText(markdown: text, home: home).blocks.map(ReplyStructureTests.described)
     }
 
     @Test("words, a code block with its language, and words again, the blank lines between set aside")
@@ -70,7 +65,7 @@ struct ReplyBlocksTests {
     func indentedFence() {
         let text = "1. Run:\n   ```sh\n   ls -la\n     two in\n  short\n   ```\n2. Done"
 
-        #expect(Self.described(text) == ["prose 1. Run:", "code sh ls -la\n  two in\nshort", "prose 2. Done"])
+        #expect(Self.described(text) == ["list 1. Run:", "code sh ls -la\n  two in\nshort", "list 2. Done"])
     }
 
     @Test("code is kept as written: no markdown read, no links, its spaces and tabs as they are")
@@ -84,7 +79,7 @@ struct ReplyBlocksTests {
 
     @Test("a heading is still drawn as its text in bold, beside a code block")
     func headingsUnchanged() throws {
-        let blocks = ChatText.reply("## Steps\n```\nls\n```", home: Self.home)
+        let blocks = ChatText.drawn(ReplyText(markdown: "## Steps\n```\nls\n```", home: Self.home))
         let heading = try #require(blocks.first?.prose)
 
         #expect(String(heading.characters) == "Steps")
@@ -103,7 +98,7 @@ struct ReplyBlocksTests {
     /// its line taller than the words round it.
     @Test("an inline code span is drawn on a faint fill, and the words round it on none")
     func inlineCodeChip() throws {
-        let words = try #require(ChatText.reply("Run `ls -la` now.", home: Self.home).first?.prose)
+        let words = try #require(ChatText.drawn(ReplyText(markdown: "Run `ls -la` now.", home: Self.home)).first?.prose)
         let code = try #require(words.runs.first { $0.inlinePresentationIntent == .code })
 
         #expect(String(words[code.range].characters) == "ls -la")
@@ -138,7 +133,7 @@ struct ReplyBlocksTests {
     /// code on lines of its own.
     @Test("the blocks as one text keep their order, code as code")
     func oneText() {
-        let text = ChatText.oneText(ChatText.reply("See:\n```\nls\n```\nDone", home: Self.home))
+        let text = ChatText.oneText(ChatText.drawn(ReplyText(markdown: "See:\n```\nls\n```\nDone", home: Self.home)))
         let code = text.runs.filter { $0.inlinePresentationIntent == .code }
 
         #expect(String(text.characters) == "See:\nls\nDone")
@@ -152,7 +147,7 @@ struct ReplyBlocksTests {
         let announcer = RecordingAnnouncer()
         let code = ReplyCode(language: "sh", text: "ls -la  \n\techo \"done\"\n")
 
-        ChatCodeCopy(write: { written.set((written.value ?? []) + [$0]) }, announcer: announcer)(code)
+        ChatCopy(write: { written.set((written.value ?? []) + [$0]) }, announcer: announcer)(code.text)
 
         #expect(written.value == ["ls -la  \n\techo \"done\"\n"])
         #expect(announcer.sentences == [ProductStrings[.chatCodeCopied]])

@@ -472,7 +472,18 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatKindLink = "chat.kind.link"
     /// A reply's code block, as VoiceOver names it, its language after it.
     case chatCode = "chat.code"
-    /// A code block's Copy, and what it says for a moment once pressed.
+    /// A reply's table and quote, as VoiceOver names them.
+    case chatTable = "chat.table"
+    case chatQuote = "chat.quote"
+    /// A list's marks: a bullet, a nested one, and a number with its point.
+    case chatListBullet = "chat.list.bullet"
+    case chatListBulletNested = "chat.list.bulletNested"
+    case chatListNumberFormat = "chat.list.numberFormat"
+    /// A task's box, as VoiceOver reads it before the task's words.
+    case chatTaskDone = "chat.task.done"
+    case chatTaskOpen = "chat.task.open"
+    /// A code block's or a table's Copy, and what it says for a moment once
+    /// pressed.
     case chatCodeCopy = "chat.code.copy"
     case chatCodeCopied = "chat.code.copied"
 

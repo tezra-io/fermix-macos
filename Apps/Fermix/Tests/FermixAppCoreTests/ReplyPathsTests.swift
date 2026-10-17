@@ -14,7 +14,7 @@ struct ReplyPathsTests {
 
     /// A reply as drawn, its blocks as one text.
     private static func reply(_ text: String) -> AttributedString {
-        ChatText.oneText(ChatText.reply(text, home: home))
+        ChatText.oneText(ChatText.drawn(ReplyText(markdown: text, home: home)))
     }
 
     /// Each linked stretch of a reply, by its text, as the address it opens.
@@ -213,7 +213,7 @@ struct ReplyPathsTests {
     @Test("a fenced block carries no links, and the words round it keep theirs")
     func fencedBlock() {
         let text = "Here, ~/work/a.png:\n```\n/Users/me/shots/a.png\ncp /Users/me/a.png /tmp/b.png\n~/notes\n```\nDone"
-        let blocks = ChatText.reply(text, home: Self.home)
+        let blocks = ChatText.drawn(ReplyText(markdown: text, home: Self.home))
 
         #expect(blocks.compactMap(\.code) == [ReplyCode(language: nil, text: "/Users/me/shots/a.png\ncp /Users/me/a.png /tmp/b.png\n~/notes")])
         #expect(Self.links(Self.reply(text)) == ["~/work/a.png": "file:///Users/me/work/a.png"])
