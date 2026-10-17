@@ -119,11 +119,11 @@ struct ChatPlacesTests {
         )
     }
 
-    /// VoiceOver hears what a click does: a place Apple Maps found shows its
-    /// card here (§14.1), and any other opens in Maps.
-    @Test("a card's hint says a place Apple Maps found shows its card, and any other opens in Maps")
+    /// VoiceOver hears what a click does: a place Apple Maps found is shown
+    /// on the map (§14.1), and any other opens in Maps.
+    @Test("a card's hint says a place Apple Maps found is shown on the map, and any other opens in Maps")
     func hint() {
-        #expect(ChatPlaceFacts(Self.applePlace(distance: nil)).hint == ProductStrings[.chatPlaceShowCard])
+        #expect(ChatPlaceFacts(Self.applePlace(distance: nil)).hint == ProductStrings[.chatPlaceShowOnMap])
         #expect(ChatPlaceFacts(Self.place()).hint == ProductStrings[.chatPlaceOpenInMaps])
     }
 
@@ -343,8 +343,8 @@ struct ChatPlacesTests {
 /// person's preference for links (M72 decision 3), by what its record
 /// carries: Apple's identifier where Apple Maps found it (§14.1), and the
 /// address built from its name and coordinates where another source did. A
-/// click shows a place Apple Maps found here instead, at Apple's own card
-/// for it, asked for by its identifier alone.
+/// click shows a place Apple Maps found here instead, on the reply's own
+/// map, by its identifier alone.
 @Suite("Opening a place")
 @MainActor
 struct PlaceOpeningTests {
@@ -411,9 +411,9 @@ struct PlaceOpeningTests {
 
     // MARK: - A click
 
-    /// The chat is handed the identifier its popover asks for the card by;
-    /// Maps, the pane and the workspace are left alone.
-    @Test("a click on a place Apple Maps found shows its card here by its identifier, and opens nothing", arguments: LinkDestination.allCases)
+    /// The chat is handed the identifier the place is shown by; Maps, the
+    /// pane and the workspace are left alone.
+    @Test("a click on a place Apple Maps found shows it here by its identifier, and opens nothing", arguments: LinkDestination.allCases)
     func clickShowsAnApplePlace(_ destination: LinkDestination) {
         let maps = FakeMediaReader()
         let (opener, harness, workspace) = Self.opener(destination, maps: maps)
@@ -425,7 +425,7 @@ struct PlaceOpeningTests {
         #expect(!harness.model.isOpen)
     }
 
-    @Test("a click on a place another source found opens Maps at its address, and shows no card", arguments: LinkDestination.allCases)
+    @Test("a click on a place another source found opens Maps at its address, and shows nothing here", arguments: LinkDestination.allCases)
     func clickOpensAnotherPlaceInMaps(_ destination: LinkDestination) {
         let maps = FakeMediaReader()
         let (opener, harness, workspace) = Self.opener(destination, maps: maps)
@@ -433,148 +433,120 @@ struct PlaceOpeningTests {
 
         #expect(opener.show(place) == nil)
         #expect(workspace.opened == [PlaceMapsAddress.url(for: place)])
-        #expect(maps.cardsAsked.isEmpty)
         #expect(maps.placesOpened.isEmpty)
         #expect(harness.model.tabs.isEmpty)
     }
-
-    /// The card is laid out at the popover's size from the start, and its
-    /// own close button reaches what shows it, which puts the popover away.
-    @Test("a place's card is Apple's own, asked for by its identifier alone at the popover's size, and its close button is heard")
-    func cardIsAskedForByIdentifier() async {
-        let maps = FakeMediaReader()
-        let (opener, harness, workspace) = Self.opener(maps: maps)
-        let size = CGSize(width: 320, height: 358)
-        var closed = false
-
-        let answer = await opener.placeCard("I15D3EC7F56AE8D5C", size: size) { closed = true }
-
-        guard case .card = answer else {
-            Issue.record("a place Maps found gave no card: \(answer)")
-            return
-        }
-        #expect(maps.cardsAsked == ["I15D3EC7F56AE8D5C"])
-        #expect(maps.cardSizes == [size])
-        #expect(maps.placesOpened.isEmpty)
-        #expect(workspace.opened.isEmpty)
-        #expect(!harness.model.isOpen)
-        #expect(!closed)
-        maps.closeCard()
-        #expect(closed)
-    }
-
-    /// Where Maps finds no place by the identifier, the popover says so in
-    /// its own sentence: the pane stays shut, and the place is not looked up
-    /// again by its name or opened anywhere else.
-    @Test("a card Maps cannot give is said in the popover, and nothing else is looked up or opened")
-    func missingCardIsSaid() async {
-        let maps = FakeMediaReader(findsPlaces: false)
-        let (opener, harness, workspace) = Self.opener(maps: maps)
-
-        let answer = await opener.placeCard("I47957D91CD7E2F7B", size: CGSize(width: 320, height: 358)) {}
-
-        guard case .said(let sentence) = answer else {
-            Issue.record("a place Maps did not find gave a card")
-            return
-        }
-        #expect(sentence == ProductStrings[.chatPlaceCardUnavailable])
-        #expect(maps.cardsAsked == ["I47957D91CD7E2F7B"])
-        #expect(maps.placesOpened.isEmpty, "the place was opened in Maps instead")
-        #expect(workspace.opened.isEmpty, "the place was looked up again another way")
-        #expect(harness.model.notice == nil)
-        #expect(!harness.model.isOpen)
-    }
 }
 
-/// The one card a reply's places show at a time (M72 §14.1), as its
-/// popovers come and go: a popover asked for while another is still on
-/// screen is never presented, so the card asked for waits for the one on
-/// screen to go, and the card already on screen, asked for again, goes.
-@Suite("A place's card")
+/// The one place the whole chat shows on a reply's map (M72 §14.1), as the
+/// person asks and Maps answers: a place Apple Maps found is shown in place
+/// of any other, in its reply or another; asked for again it goes; a place
+/// another source found goes to Maps at its address; and where Maps finds no
+/// place by its identifier, the pane says so and the map stays its picture.
+@Suite("The place a reply's map shows")
 @MainActor
-struct ChatPlaceCardsTests {
-    private static let first = ChatPlaceShown(number: 1, identifier: "I15D3EC7F56AE8D5C", anchor: .card)
-    private static let second = ChatPlaceShown(number: 2, identifier: "I47957D91CD7E2F7B", anchor: .card)
-    private static let firstAtPin = ChatPlaceShown(number: 1, identifier: "I15D3EC7F56AE8D5C", anchor: .pin)
+struct ChatPlaceSelectionTests {
+    private static let tequila = FixtureRepliesScript.applePlaceRecords[0]
+    private static let betos = FixtureRepliesScript.applePlaceRecords[1]
+    private static let brave = FixtureRepliesScript.placeRecords[1]
 
-    /// A card on screen: asked for, presented and appeared.
-    private static func showing(_ card: ChatPlaceShown) -> ChatPlaceCards {
-        let cards = ChatPlaceCards()
-        cards.ask(card)
-        cards.appeared(card)
-        return cards
+    private static func selection() -> (ChatPlaceSelection, BrowserHarness, RecordingWorkspaceOpener, FakeMediaReader) {
+        let harness = BrowserHarness()
+        let workspace = RecordingWorkspaceOpener()
+        let maps = FakeMediaReader()
+        let opener = ContentLinkOpener(preference: InMemoryLinkPreferenceStore(), browser: harness.coordinator, workspace: workspace, maps: maps)
+
+        return (ChatPlaceSelection(links: opener), harness, workspace, maps)
     }
 
-    @Test("a card asked for with none on screen is shown at once")
-    func showsAtOnce() {
-        let cards = ChatPlaceCards()
+    @Test("a place Apple Maps found is shown on its reply's map by its identifier, and nothing opens")
+    func showsAnApplePlace() {
+        let (selection, harness, workspace, maps) = Self.selection()
 
-        cards.ask(Self.first)
+        selection.click(Self.tequila, numbered: 1, in: 10)
 
-        #expect(cards.shown == Self.first)
+        #expect(selection.shown == ChatPlaceShown(reply: 10, number: 1, identifier: "I15D3EC7F56AE8D5C"))
+        #expect(workspace.opened.isEmpty)
+        #expect(maps.placesOpened.isEmpty)
+        #expect(!harness.model.isOpen)
     }
 
-    @Test("another card asked for while one is on screen comes once that one has gone, in its place")
-    func movesToAnotherCard() {
-        let cards = Self.showing(Self.first)
+    /// One callout in the whole chat: another place, in the same reply or
+    /// another, takes the place shown's place.
+    @Test("another place, in the same reply or another, is shown in place of the first")
+    func oneAtATime() {
+        let (selection, _, _, _) = Self.selection()
 
-        cards.ask(Self.second)
-        #expect(cards.shown == nil, "a second popover was asked for while the first was on screen")
+        selection.click(Self.tequila, numbered: 1, in: 10)
+        selection.click(Self.betos, numbered: 2, in: 10)
+        #expect(selection.shown == ChatPlaceShown(reply: 10, number: 2, identifier: "I47957D91CD7E2F7B"))
 
-        cards.closed(Self.first)
-        cards.gone(Self.first)
-        #expect(cards.shown == Self.second)
+        selection.click(Self.tequila, numbered: 1, in: 24)
+        #expect(selection.shown == ChatPlaceShown(reply: 24, number: 1, identifier: "I15D3EC7F56AE8D5C"))
     }
 
-    /// The pin and the card are two anchors: a click on the place's pin
-    /// while its card's popover is up moves the popover to the pin.
-    @Test("the same place asked for at its other anchor moves there")
-    func movesToThePin() {
-        let cards = Self.showing(Self.first)
+    @Test("the place shown, clicked again, is put away")
+    func sameClickPutsItAway() {
+        let (selection, _, _, _) = Self.selection()
 
-        cards.ask(Self.firstAtPin)
-        cards.gone(Self.first)
+        selection.click(Self.tequila, numbered: 1, in: 10)
+        selection.click(Self.tequila, numbered: 1, in: 10)
 
-        #expect(cards.shown == Self.firstAtPin)
+        #expect(selection.shown == nil)
     }
 
-    @Test("the card on screen, asked for again, goes and stays gone")
-    func askingAgainPutsItAway() {
-        let cards = Self.showing(Self.first)
+    @Test("a place another source found goes to Maps at its address, and the map stays as it is")
+    func bravePlaceGoesToMaps() {
+        let (selection, _, workspace, _) = Self.selection()
+        selection.click(Self.tequila, numbered: 1, in: 10)
 
-        cards.ask(Self.first)
-        #expect(cards.shown == nil)
+        selection.click(Self.brave, numbered: 2, in: 2)
 
-        cards.gone(Self.first)
-        #expect(cards.shown == nil)
+        #expect(workspace.opened == [PlaceMapsAddress.url(for: Self.brave)])
+        #expect(selection.shown == ChatPlaceShown(reply: 10, number: 1, identifier: "I15D3EC7F56AE8D5C"))
     }
 
-    /// Escape, a click outside or the card's own close button: the system
-    /// lets the popover go, and nothing comes after it.
-    @Test("a card the system closes is let go, and nothing comes in its place")
-    func systemClose() {
-        let cards = Self.showing(Self.first)
+    /// Escape, or a click on the empty map, puts away the place its reply
+    /// shows, and never another reply's.
+    @Test("Escape or a click on the empty map puts away its own reply's place, and no other")
+    func dismissInItsReply() {
+        let (selection, _, _, _) = Self.selection()
+        selection.click(Self.tequila, numbered: 1, in: 10)
 
-        cards.closed(Self.first)
-        cards.gone(Self.first)
+        selection.dismiss(in: 24)
+        #expect(selection.shown != nil)
 
-        #expect(cards.shown == nil)
-        #expect(cards.onScreen == nil)
+        selection.dismiss(in: 10)
+        #expect(selection.shown == nil)
     }
 
-    /// The first card's popover closing late never takes down a card asked
-    /// for since.
-    @Test("a late close of one card never lets go of another")
-    func lateCloseKeepsTheNewCard() {
-        let cards = Self.showing(Self.first)
-        cards.ask(Self.second)
-        cards.gone(Self.first)
-        cards.appeared(Self.second)
+    /// Nothing is looked up by the place's name, and nothing opens instead.
+    @Test("a place Maps cannot show is said in the pane and put away, and nothing else is looked up")
+    func failureIsSaid() {
+        let (selection, harness, workspace, maps) = Self.selection()
+        selection.click(Self.betos, numbered: 2, in: 10)
+        let asked = selection.shown
 
-        cards.closed(Self.first)
-        cards.gone(Self.first)
+        selection.failed(ChatPlaceShown(reply: 10, number: 2, identifier: "I47957D91CD7E2F7B"))
 
-        #expect(cards.shown == Self.second)
-        #expect(cards.onScreen == Self.second)
+        #expect(asked != nil)
+        #expect(selection.shown == nil)
+        #expect(harness.model.notice == ProductStrings[.browserNoticePlaceNotShown])
+        #expect(workspace.opened.isEmpty, "the place was looked up again another way")
+        #expect(maps.placesOpened.isEmpty)
+    }
+
+    /// A place the person has moved on from that Maps then fails to show
+    /// says nothing, and leaves the place shown since alone.
+    @Test("a failure for a place no longer asked for says nothing and keeps the place shown")
+    func staleFailureSaysNothing() {
+        let (selection, harness, _, _) = Self.selection()
+        selection.click(Self.tequila, numbered: 1, in: 10)
+        selection.click(Self.betos, numbered: 2, in: 10)
+
+        selection.failed(ChatPlaceShown(reply: 10, number: 1, identifier: "I15D3EC7F56AE8D5C"))
+
+        #expect(selection.shown == ChatPlaceShown(reply: 10, number: 2, identifier: "I47957D91CD7E2F7B"))
+        #expect(harness.model.notice == nil)
     }
 }

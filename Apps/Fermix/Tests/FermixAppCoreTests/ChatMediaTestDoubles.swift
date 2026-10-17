@@ -9,11 +9,10 @@ import UniformTypeIdentifiers
 /// ImageIO and PDF say of each file is set up front, and each thumbnail
 /// either comes at once or waits until the case finishes or fails it. A map
 /// comes at once as the case's picture, or fails where the case gave none. No file is read,
-/// and neither Quick Look nor MapKit is asked. A place's card asked for and a
-/// place opened, each by its identifier, are recorded, and found or not as the
-/// case says: a card found is a bare controller whose view is never loaded,
-/// whose close button the case presses through `closeCard`, and Maps never
-/// opens. What AVFoundation says is `FakeMediaFacts`'s.
+/// and neither Quick Look nor MapKit is asked. A place opened by its
+/// identifier is recorded, and found or not as the case says, and Maps never
+/// opens; a live map is one that shows a place or not as the case says, and
+/// draws nothing. What AVFoundation says is `FakeMediaFacts`'s.
 final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     /// How a thumbnail comes.
     enum Thumbnails {
@@ -41,9 +40,6 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     private var cancelled = 0
     private var mapped: [MapAsk] = []
     private var placed: [String] = []
-    private var carded: [String] = []
-    private var cardSized: [CGSize] = []
-    private var cardFinished: (@MainActor () -> Void)?
 
     /// One map asked for.
     struct MapAsk: Equatable {
@@ -123,32 +119,15 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
         return mapPicture
     }
 
-    /// Every identifier a place's card was asked for by, in order.
-    var cardsAsked: [String] { lock.withLock { carded } }
-
-    /// The size each card was asked for at, in order.
-    var cardSizes: [CGSize] { lock.withLock { cardSized } }
-
     @MainActor
-    func placeCard(
-        _ identifier: String,
+    func liveMap(
+        of area: PlaceMapArea,
         size: CGSize,
-        finished: @escaping @MainActor () -> Void
-    ) async throws -> NSViewController {
-        lock.withLock {
-            carded.append(identifier)
-            cardSized.append(size)
-        }
-        guard findsPlaces else { throw CocoaError(.fileReadUnknown) }
-
-        lock.withLock { cardFinished = finished }
-        return NSViewController()
-    }
-
-    /// The last card found, its own close button pressed.
-    @MainActor
-    func closeCard() {
-        lock.withLock { cardFinished }?()
+        appearance: PlaceMapAppearance,
+        pins: [PlaceMapPin],
+        clicked: @escaping @MainActor (Int?) -> Void
+    ) -> any PlaceLiveMap {
+        FakeLiveMap(findsPlaces: findsPlaces)
     }
 
     /// Every identifier a place was opened by, in order.
@@ -317,4 +296,23 @@ enum ChatFactsFixture {
             insideHome: insideHome
         )
     }
+}
+
+/// A live map that draws nothing: it shows a place at once where Maps finds
+/// places, and fails where it does not.
+@MainActor
+final class FakeLiveMap: PlaceLiveMap {
+    private let findsPlaces: Bool
+
+    init(findsPlaces: Bool) {
+        self.findsPlaces = findsPlaces
+    }
+
+    let view = NSView()
+
+    func show(_ number: Int, identifier: String) async throws {
+        guard findsPlaces else { throw CocoaError(.fileReadUnknown) }
+    }
+
+    func putAway() async {}
 }

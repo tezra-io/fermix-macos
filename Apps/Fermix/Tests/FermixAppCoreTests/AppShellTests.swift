@@ -386,14 +386,22 @@ struct WindowCoordinatorTests {
     /// that can hang is worth less than the assertion; the behaviour itself is
     /// measured live, where the Integrations pane drove the primary window to
     /// 980 by 2115 points on a 3840 by 1080 point display.
+    ///
+    /// The one other hosting view is no window's: a reply's live map draws
+    /// each place's pin face in it, inside the map (M72 §14.1), where it has
+    /// no window to size. It is named here, so any other one still fails.
     @Test("every window content view is built by the one hosting builder")
     func hostingViewsNeverSizeTheirWindow() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
         let constructions = files.reduce(0) { total, file in
             total + occurrences(of: "NSHostingView(rootView:", in: file.text)
         }
+        let builders = files.filter { $0.text.contains("NSHostingView(rootView:") }.map { file in
+            String(file.path.split(separator: "/").suffix(2).joined(separator: "/"))
+        }
 
-        #expect(constructions == 1, "a hosting view is built outside the builder")
+        #expect(constructions == 2, "a hosting view is built outside the builder")
+        #expect(Set(builders) == ["App/AppKitWindowHost.swift", "Chat/ChatPlaces.swift"], "a hosting view is built outside the builder")
 
         let host = try SourceTree.swiftFiles(matching: "App/AppKitWindowHost.swift")
         let text = try #require(host.first?.text)

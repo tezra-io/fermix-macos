@@ -24,6 +24,9 @@ struct ChatVisit: Equatable, Sendable {
 @MainActor
 final class ChatMedia {
     let previews: ChatPreviews
+    /// The Mac's own maps, which draw a reply's map live while a place is
+    /// shown on it (M72 §14.1); its picture comes through the previews.
+    let maps: any PlaceMaps
     /// What `~` reads as in a row's words.
     let userHome: String
     private let readHome: () throws -> URL
@@ -66,6 +69,7 @@ final class ChatMedia {
         self.userHome = userHome
         self.documentApplication = documentApplication
         previews = ChatPreviews(reader: reader, facts: facts, levels: levels, grants: grants, deadlines: deadlines)
+        maps = reader
     }
 
     /// The Fermix home for a visit to Chat, read from the bootstrap record

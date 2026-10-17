@@ -167,6 +167,9 @@ struct ChatSurfaceView: View {
     /// The Fermix home as this visit read it, as the surface appeared, and
     /// forgotten with the surface, so the next visit reads it again.
     @State private var visit: ChatVisit?
+    /// The one place the chat shows on a reply's map, forgotten with the
+    /// surface as the visit is.
+    @StateObject private var places: ChatPlaceSelection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -191,19 +194,21 @@ struct ChatSurfaceView: View {
         self.player = player
         self.router = router
         _draft = State(initialValue: session.draft)
+        _places = StateObject(wrappedValue: ChatPlaceSelection(links: links))
     }
 
     var body: some View {
         let items = ChatTimeline.items(of: model)
 
         column(items)
-            // Every row reads its media, the player, the opener, the home and
-            // its strip's width from here: the transcript builds its rows
-            // with nothing of their own to pass them (M66 §3.2).
+            // Every row reads its media, the player, the opener, the place
+            // shown, the home and its strip's width from here: the transcript
+            // builds its rows with nothing of their own to pass them (M66 §3.2).
             .environment(\.chatRows, ChatRowContext(
                 media: media,
                 player: player,
                 links: links,
+                places: places,
                 visit: visit,
                 columnWidth: ChatMetrics.column(inBody: bodyWidth)
             ))

@@ -3,14 +3,14 @@ import FermixAppCore
 import MapKit
 
 /// The chat's maps (M72 §7.2, §14.1): a picture of an area from the Mac's own
-/// maps, nothing bundled, and no live map view in the transcript; and a place
-/// Apple Maps found, at Apple's own card for it, drawn for the chat's popover
-/// or opened in Maps.
+/// maps, nothing bundled; the same area live, only while a place is shown on
+/// it (`LivePlaceMap`); and a place Apple Maps found, opened in Maps at
+/// Apple's own card for it.
 ///
 /// The only module that imports MapKit. `FermixAppCore` declares
 /// `PlaceMaps` and imports it nowhere, because both executables link that
 /// library and `FermixAgent` draws no map; the media reader `main.swift`
-/// hands in is what draws one, draws a place's card and opens a place.
+/// hands in is what draws one, live or not, and opens a place.
 extension SystemMediaReader {
     public func map(of area: PlaceMapArea, size: CGSize, appearance: PlaceMapAppearance) async throws -> CGImage {
         let snapshot = PendingSnapshot(options: Self.options(area, size: size, appearance: appearance))
@@ -28,14 +28,15 @@ extension SystemMediaReader {
         return image
     }
 
-    /// Apple's own card for the place, as MapKit draws it (`PlaceCard`).
     @MainActor
-    public func placeCard(
-        _ identifier: String,
+    public func liveMap(
+        of area: PlaceMapArea,
         size: CGSize,
-        finished: @escaping @MainActor () -> Void
-    ) async throws -> NSViewController {
-        PlaceCard(place: try await Self.place(identifier), size: size, finished: finished)
+        appearance: PlaceMapAppearance,
+        pins: [PlaceMapPin],
+        clicked: @escaping @MainActor (Int?) -> Void
+    ) -> any PlaceLiveMap {
+        LivePlaceMap(area: Self.mapRect(area), size: size, appearance: Self.appearance(appearance), pins: pins, clicked: clicked)
     }
 
     /// Apple's own place for the identifier, then Maps on it. A place Maps
@@ -57,11 +58,11 @@ extension SystemMediaReader {
     }
 
     /// The place Apple Maps knows by the identifier, as Maps has it now, for
-    /// its card and for Maps alike. An identifier that does not parse and a
-    /// place Maps no longer has each throw, and neither is looked up by any
+    /// the live map and for Maps alike. An identifier that does not parse and
+    /// a place Maps no longer has each throw, and neither is looked up by any
     /// other way.
     @MainActor
-    private static func place(_ identifier: String) async throws -> MKMapItem {
+    static func place(_ identifier: String) async throws -> MKMapItem {
         guard let identifier = MKMapItem.Identifier(rawValue: identifier) else {
             throw MKError(.placemarkNotFound)
         }
@@ -74,76 +75,39 @@ extension SystemMediaReader {
     }
 
     /// Exactly the area, which keeps the picture's proportion, so a place
-    /// falls where the area's own projection says, in the standard map at its
-    /// quietest, flat and muted, with no points of interest of its own.
+    /// falls where the area's own projection says, in the map the chat
+    /// draws (`configuration`).
     private static func options(_ area: PlaceMapArea, size: CGSize, appearance: PlaceMapAppearance) -> MKMapSnapshotter.Options {
-        let world = MKMapSize.world
-        let configuration = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
-        configuration.pointOfInterestFilter = .excludingAll
-
         let options = MKMapSnapshotter.Options()
-        options.mapRect = MKMapRect(
+        options.mapRect = mapRect(area)
+        options.size = size
+        options.appearance = Self.appearance(appearance)
+        options.preferredConfiguration = configuration()
+        return options
+    }
+
+    /// The area on Apple's map: the unit square scaled to the world's map
+    /// points, the one answer to what a reply's map shows, picture or live.
+    static func mapRect(_ area: PlaceMapArea) -> MKMapRect {
+        let world = MKMapSize.world
+        return MKMapRect(
             x: area.x * world.width,
             y: area.y * world.height,
             width: area.width * world.width,
             height: area.height * world.height
         )
-        options.size = size
-        options.appearance = NSAppearance(named: appearance == .dark ? .darkAqua : .aqua)
-        options.preferredConfiguration = configuration
-        return options
-    }
-}
-
-/// Apple's own card for a place Apple Maps found, without the small map of its
-/// own it can show: the reply's map beside the popover already shows where
-/// the place is, with its pin. MapKit's card keeps its delegate weakly and
-/// takes no subclass, so it is held here, by a controller of its own that is
-/// its delegate for as long as it shows, and its close button reaches
-/// `finished`.
-private final class PlaceCard: NSViewController, MKMapItemDetailViewControllerDelegate {
-    private let card: MKMapItemDetailViewController
-    private let size: CGSize
-    private let finished: @MainActor () -> Void
-
-    init(place: MKMapItem, size: CGSize, finished: @escaping @MainActor () -> Void) {
-        card = MKMapItemDetailViewController(mapItem: place, displaysMap: false)
-        self.size = size
-        self.finished = finished
-        super.init(nibName: nil, bundle: nil)
-        card.delegate = self
-        addChild(card)
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        preconditionFailure("a place card is built in code")
+    /// The map the chat draws, picture or live: the standard map at its
+    /// quietest, flat and muted, with no points of interest of its own.
+    static func configuration() -> MKStandardMapConfiguration {
+        let configuration = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
+        configuration.pointOfInterestFilter = .excludingAll
+        return configuration
     }
 
-    /// The card fills this controller's view, which is the popover's size
-    /// and no other. The card lays itself out by constraints and asks for a
-    /// height of its own, taller than the popover's, so it is pinned to this
-    /// view's edges with that ask let go of, and scrolls inside the
-    /// popover's height rather than growing past it and losing its top.
-    override func loadView() {
-        let shown = card.view
-        view = NSView(frame: NSRect(origin: .zero, size: size))
-        shown.translatesAutoresizingMaskIntoConstraints = false
-        shown.setContentHuggingPriority(.defaultLow, for: .vertical)
-        shown.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        view.addSubview(shown)
-        NSLayoutConstraint.activate([
-            view.widthAnchor.constraint(equalToConstant: size.width),
-            view.heightAnchor.constraint(equalToConstant: size.height),
-            shown.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            shown.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            shown.topAnchor.constraint(equalTo: view.topAnchor),
-            shown.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-    }
-
-    func mapItemDetailViewControllerDidFinish(_ detailViewController: MKMapItemDetailViewController) {
-        finished()
+    static func appearance(_ appearance: PlaceMapAppearance) -> NSAppearance? {
+        NSAppearance(named: appearance == .dark ? .darkAqua : .aqua)
     }
 }
 

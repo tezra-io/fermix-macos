@@ -155,24 +155,26 @@ struct ChatMediaTests {
     // MARK: - What the rows read
 
     /// The media, the player and the opener are each one object for the
-    /// app's life, so two contexts are the same when they, the visit and the
-    /// column are: a keystroke that redraws the surface must not redraw every
-    /// row.
-    @Test("two row contexts are the same when their media, player, opener, visit and column are")
+    /// app's life, and the places shown one for the surface's, so two
+    /// contexts are the same when they, the visit and the column are: a
+    /// keystroke that redraws the surface must not redraw every row.
+    @Test("two row contexts are the same when their media, player, opener, places shown, visit and column are")
     func contextEquality() {
         let media = Self.media()
         let browser = BrowserHarness()
         let player = browser.player
         let links = Self.links(browser)
+        let places = ChatPlaceSelection(links: links)
         let visit = media.surfaceEntered()
-        let context = ChatRowContext(media: media, player: player, links: links, visit: visit, columnWidth: 720)
+        let context = ChatRowContext(media: media, player: player, links: links, places: places, visit: visit, columnWidth: 720)
 
-        #expect(context == ChatRowContext(media: media, player: player, links: links, visit: visit, columnWidth: 720))
-        #expect(context != ChatRowContext(media: media, player: player, links: links, visit: visit, columnWidth: 430))
-        #expect(context != ChatRowContext(media: media, player: player, links: links, visit: nil, columnWidth: 720))
-        #expect(context != ChatRowContext(media: Self.media(), player: player, links: links, visit: visit, columnWidth: 720))
-        #expect(context != ChatRowContext(media: media, player: BrowserHarness().player, links: links, visit: visit, columnWidth: 720))
-        #expect(context != ChatRowContext(media: media, player: player, links: Self.links(browser), visit: visit, columnWidth: 720))
+        #expect(context == ChatRowContext(media: media, player: player, links: links, places: places, visit: visit, columnWidth: 720))
+        #expect(context != ChatRowContext(media: media, player: player, links: links, places: places, visit: visit, columnWidth: 430))
+        #expect(context != ChatRowContext(media: media, player: player, links: links, places: places, visit: nil, columnWidth: 720))
+        #expect(context != ChatRowContext(media: Self.media(), player: player, links: links, places: places, visit: visit, columnWidth: 720))
+        #expect(context != ChatRowContext(media: media, player: BrowserHarness().player, links: links, places: places, visit: visit, columnWidth: 720))
+        #expect(context != ChatRowContext(media: media, player: player, links: Self.links(browser), places: places, visit: visit, columnWidth: 720))
+        #expect(context != ChatRowContext(media: media, player: player, links: links, places: ChatPlaceSelection(links: links), visit: visit, columnWidth: 720))
     }
 
     private static func links(_ browser: BrowserHarness) -> ContentLinkOpener {

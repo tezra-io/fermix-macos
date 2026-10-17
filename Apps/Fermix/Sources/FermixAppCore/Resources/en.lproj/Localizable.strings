@@ -466,8 +466,7 @@
 "chat.code.copied" = "Copied";
 "chat.places.map" = "Map of the places";
 "chat.place.openInMaps" = "Open in Maps";
-"chat.place.showCard" = "Shows the place’s card from Maps.";
-"chat.place.cardUnavailable" = "Maps could not show that place.";
+"chat.place.showOnMap" = "Shows the place on the map.";
 "chat.place.openWebsite" = "Open website";
 "chat.place.copyAddress" = "Copy address";
 "chat.place.ratingFormat" = "%1$@ (%2$@)";
@@ -482,6 +481,7 @@
 "browser.notice.fileNotReady" = "Fermix could not get this file ready to open. Try again.";
 "browser.notice.fileTooLarge" = "This file is too large to show here.";
 "browser.notice.placeNotOpened" = "Maps could not open that place.";
+"browser.notice.placeNotShown" = "Maps could not show that place.";
 "browser.notice.downloadingFormat" = "Downloading “%@”.";
 "browser.notice.downloadSavedFormat" = "Saved “%@”.";
 "browser.notice.downloadFailedFormat" = "“%@” did not finish downloading. %@";

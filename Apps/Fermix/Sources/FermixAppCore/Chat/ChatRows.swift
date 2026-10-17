@@ -11,6 +11,8 @@ struct ChatRowContext: Equatable, Sendable {
     /// The one content link opener, which a phone-side file's tile opens
     /// through, as a link opens through `openURL` (M66 §3.5).
     let links: ContentLinkOpener
+    /// The one place the whole chat shows on a reply's map (M72 §14.1).
+    let places: ChatPlaceSelection
     /// The Fermix home as this visit to Chat read it, nil until the surface
     /// has read it.
     let visit: ChatVisit?
@@ -18,12 +20,12 @@ struct ChatRowContext: Equatable, Sendable {
     let columnWidth: Double
 
     /// The media, the player and the opener are each one object for the
-    /// app's life, so two contexts are the same when they, the visit and the
-    /// column are: a keystroke that redraws the surface must not redraw every
-    /// row.
+    /// app's life, and the places shown one for the surface's, so two
+    /// contexts are the same when they, the visit and the column are: a
+    /// keystroke that redraws the surface must not redraw every row.
     static func == (lhs: ChatRowContext, rhs: ChatRowContext) -> Bool {
         lhs.media === rhs.media && lhs.player === rhs.player && lhs.links === rhs.links
-            && lhs.visit == rhs.visit && lhs.columnWidth == rhs.columnWidth
+            && lhs.places === rhs.places && lhs.visit == rhs.visit && lhs.columnWidth == rhs.columnWidth
     }
 }
 
@@ -110,7 +112,7 @@ struct ChatRow: View, Equatable {
                 }
             }
 
-            ChatRecords(blocks: row.blocks)
+            ChatRecords(blocks: row.blocks, reply: row.serverSeq)
 
             ForEach(strip.sounds, id: \.self) { sound in
                 ChatSoundRow(url: sound, name: sound.lastPathComponent, player: rows.player)

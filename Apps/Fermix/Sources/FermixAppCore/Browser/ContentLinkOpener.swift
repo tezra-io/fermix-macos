@@ -18,8 +18,8 @@ public final class ContentLinkOpener {
     private let preference: any LinkPreferenceStoring
     private let browser: BrowserCoordinator
     private let workspace: any WorkspaceLinkOpening
-    /// The Mac's own maps, which show a place Apple Maps found by its
-    /// identifier, at Apple's own card for it here or in Maps.
+    /// The Mac's own maps, which open a place Apple Maps found by its
+    /// identifier.
     private let maps: any PlaceMaps
 
     public init(
@@ -83,11 +83,11 @@ public final class ContentLinkOpener {
     }
 
     /// A click on a place a reply found. A place Apple Maps found is shown
-    /// here rather than in Maps, at Apple's own card for it (§14.1), so what
-    /// comes back is the identifier its card is asked for by (`placeCard`)
-    /// and the chat shows the card at what was clicked. Any other place opens
-    /// in Maps at its address, as `openInMaps` opens it, and nothing comes
-    /// back, since nothing is shown here.
+    /// here rather than in Maps, on the reply's own map with Apple's compact
+    /// callout at its pin (§14.1), so what comes back is the identifier it is
+    /// looked up by (`ChatPlaceSelection`). Any other place opens in Maps at
+    /// its address, as `openInMaps` opens it, and nothing comes back, since
+    /// nothing is shown here.
     func show(_ place: CompanionPlace) -> String? {
         guard let identifier = place.applePlaceID else {
             openInMaps(place)
@@ -97,18 +97,11 @@ public final class ContentLinkOpener {
         return identifier
     }
 
-    /// Apple's own card for the place Apple Maps knows by `identifier`, at
-    /// `size`, for the popover a click on the place opens, which `finished`
-    /// puts away when the card's own close button is pressed. Where Maps
-    /// finds no place by it or cannot be asked, the popover says so in one
-    /// sentence of its own: the pane is not involved, and the place is never
-    /// looked up again by its name, so no other place can stand in.
-    func placeCard(_ identifier: String, size: CGSize, finished: @escaping @MainActor () -> Void) async -> PlaceCardAnswer {
-        do {
-            return .card(try await maps.placeCard(identifier, size: size, finished: finished))
-        } catch {
-            return .said(ProductStrings[.chatPlaceCardUnavailable])
-        }
+    /// A place Apple Maps found that Maps could not show on the reply's map
+    /// by its identifier, said in the pane as an identifier Maps cannot open
+    /// is; the place is not looked up again by its name.
+    func placeNotShown() {
+        browser.report(ProductStrings[.browserNoticePlaceNotShown])
     }
 
     /// A phone-side file, by its ref, goes where a file at the path the

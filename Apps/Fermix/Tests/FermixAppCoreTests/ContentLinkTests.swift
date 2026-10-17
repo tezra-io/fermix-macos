@@ -151,8 +151,9 @@ struct SignInStaysExternalTests {
     }
 
     /// The structure the behaviour stands on: the opener is built once, in the
-    /// composition, and reaches the chat and nothing else, while everything
-    /// that starts a sign-in or opens an installer holds `ExternalOpening`.
+    /// composition, and reaches the chat and nothing else, the place a reply's
+    /// map shows among it, while everything that starts a sign-in or opens an
+    /// installer holds `ExternalOpening`.
     @Test("the content link opener reaches the chat and nothing that signs in")
     func openerReachesOnlyContent() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
@@ -166,7 +167,8 @@ struct SignInStaysExternalTests {
             "App/AppKitWindowHost.swift",
             "App/MainWindowView.swift",
             "Chat/ChatSurfaceView.swift",
-            "Chat/ChatRows.swift"
+            "Chat/ChatRows.swift",
+            "Chat/ChatPlaceSelection.swift"
         ])
 
         // Every surface that starts a sign-in or opens the installer, which the

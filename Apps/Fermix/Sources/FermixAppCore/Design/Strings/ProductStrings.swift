@@ -535,11 +535,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// count or units.
     case chatPlacesMap = "chat.places.map"
     case chatPlaceOpenInMaps = "chat.place.openInMaps"
-    /// What a click on a place Apple Maps found does, as VoiceOver hints it,
-    /// and what its popover says where Maps has no card to show for it
+    /// What a click on a place Apple Maps found does, as VoiceOver hints it
     /// (§14.1).
-    case chatPlaceShowCard = "chat.place.showCard"
-    case chatPlaceCardUnavailable = "chat.place.cardUnavailable"
+    case chatPlaceShowOnMap = "chat.place.showOnMap"
     case chatPlaceOpenWebsite = "chat.place.openWebsite"
     case chatPlaceCopyAddress = "chat.place.copyAddress"
     case chatPlaceRatingFormat = "chat.place.ratingFormat"
@@ -564,6 +562,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// identifier for it (M72 §14.1), which is never looked up again by its
     /// name.
     case browserNoticePlaceNotOpened = "browser.notice.placeNotOpened"
+    /// A place from a reply that Maps could not show on the reply's map by
+    /// Apple's own identifier for it (§14.1), which is never looked up again
+    /// by its name.
+    case browserNoticePlaceNotShown = "browser.notice.placeNotShown"
     /// A file the person chose a place for, by its name: on its way, saved,
     /// and stopped short, with the system's own sentence after.
     case browserNoticeDownloadingFormat = "browser.notice.downloadingFormat"

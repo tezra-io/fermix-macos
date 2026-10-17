@@ -3,9 +3,10 @@ import CoreGraphics
 import Foundation
 
 /// The Mac's own maps, for a reply's places: a map of them (M72 §7.2), a
-/// picture of an area and nothing else, and a place Apple Maps found shown at
-/// Apple's own card for it, inside Fermix or in Maps (§14.1). Where each
-/// place falls on the map is the area's own projection
+/// picture of an area and nothing else; the same area live, while a place
+/// Apple Maps found is shown on it with Apple's compact callout at its pin;
+/// and a place Apple Maps found, opened in Maps at Apple's own card for it
+/// (§14.1). Where each place falls on the map is the area's own projection
 /// (`PlaceMapArea.point(of:in:)`), so the pins never wait for the picture.
 /// Behind a protocol because MapKit is GUI-only: `FermixAgent` links this
 /// library and never draws a map, so the maps are `FermixViewers`'s, and the
@@ -15,20 +16,20 @@ public protocol PlaceMaps: Sendable {
     /// with none of the map's own points of interest, so the pins read. It
     /// stops when the task asking for it is cancelled.
     func map(of area: PlaceMapArea, size: CGSize, appearance: PlaceMapAppearance) async throws -> CGImage
-    /// Apple's own card for the place Apple Maps knows by `identifier`
-    /// (`CompanionPlace.applePlaceID`), as MapKit draws it: its photos, its
-    /// hours and whether it is open now, its address and the ways to reach
-    /// it, for a popover in the chat to hold. It is exactly `size` points,
-    /// the popover's, and what it holds past them scrolls inside it. The
-    /// core hosts it as it comes and never names what it is; `finished`
-    /// hears the card's own close button, so what holds it can put it away.
-    /// It throws where Maps finds no place by the identifier or cannot be
-    /// asked; nothing else about the place is ever looked up instead.
-    @MainActor func placeCard(
-        _ identifier: String,
+    /// Exactly `area` again, live, drawn as its picture is, at `size` points
+    /// in the light or the dark map, with each of `pins` where the area's
+    /// projection puts it and nothing the person can pan or zoom: what
+    /// stands in for the picture while a place is shown on it
+    /// (`PlaceLiveMap.show`). `clicked` hears what the person asks of it, a
+    /// click on a pin by its number, or nil for a click on the empty map or
+    /// Escape, which the core decides on.
+    @MainActor func liveMap(
+        of area: PlaceMapArea,
         size: CGSize,
-        finished: @escaping @MainActor () -> Void
-    ) async throws -> NSViewController
+        appearance: PlaceMapAppearance,
+        pins: [PlaceMapPin],
+        clicked: @escaping @MainActor (Int?) -> Void
+    ) -> any PlaceLiveMap
     /// The place Apple Maps knows by `identifier` (`CompanionPlace.applePlaceID`),
     /// opened in Maps at its own card. `failed` hears where Maps finds no
     /// place by it or does not open it; nothing else about the place is
@@ -36,12 +37,37 @@ public protocol PlaceMaps: Sendable {
     @MainActor func openPlace(_ identifier: String, failed: @escaping @MainActor () -> Void)
 }
 
-/// What a place's popover holds once Maps has answered (M72 §14.1): Apple's
-/// own card for the place, or, where Maps finds no place by its identifier or
-/// cannot be asked, the one sentence the popover says instead.
-enum PlaceCardAnswer {
-    case card(NSViewController)
-    case said(String)
+/// A place's pin on a live map: its number, where it is, and its face, the
+/// disc the core draws for it, which the map shows as the place's own mark,
+/// under the callout.
+public struct PlaceMapPin {
+    public let number: Int
+    public let location: CompanionPlaceLocation
+    public let face: NSView
+
+    public init(number: Int, location: CompanionPlaceLocation, face: NSView) {
+        self.number = number
+        self.location = location
+        self.face = face
+    }
+}
+
+/// A reply's map, live (`PlaceMaps.liveMap`).
+@MainActor
+public protocol PlaceLiveMap: AnyObject {
+    /// The map, to stand where its picture stands.
+    var view: NSView { get }
+    /// The place on the pin numbered `number`, looked up by Apple's
+    /// `identifier` for it and selected, with Apple's compact callout at its
+    /// pin. It returns once the map is drawn as its picture is and the place
+    /// is selected on it, so the map can take the picture's place as the
+    /// callout comes; it throws where Maps finds no place by the identifier
+    /// or cannot be asked, and nothing else is looked up instead.
+    func show(_ number: Int, identifier: String) async throws
+    /// The callout put away, and the map back at exactly its area, where
+    /// fitting the callout moved it: it returns once the map is its picture
+    /// again.
+    func putAway() async
 }
 
 /// Which map a picture is drawn in: the one the app's own appearance reads.
