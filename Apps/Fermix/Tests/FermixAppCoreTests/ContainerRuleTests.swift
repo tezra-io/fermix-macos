@@ -326,8 +326,9 @@ struct ContainerRuleTests {
     /// The maps are a reply's map's and nobody else's (M72 §7.2), for the
     /// same reason: a MapKit import in `FermixAppCore` would put the maps
     /// into `FermixAgent`, which draws nothing. The core declares the
-    /// `PlaceMapDrawing` seam and imports nothing; `FermixViewers`, linked by
-    /// the GUI executable alone, is the one place a snapshot is taken.
+    /// `PlaceMaps` seam and imports nothing; `FermixViewers`, linked by
+    /// the GUI executable alone, is the one place a snapshot is taken and a
+    /// place is opened in Maps.
     @Test("only the viewers target imports MapKit")
     func noMapKit() throws {
         let importers = try SparkleAdapterSource.everySwiftFileUnderSources()

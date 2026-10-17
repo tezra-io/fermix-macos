@@ -2,13 +2,14 @@ import AppKit
 import FermixAppCore
 import MapKit
 
-/// The chat's maps (M72 §7.2): a picture of an area from the Mac's own maps,
-/// nothing bundled, and no live map view in the transcript.
+/// The chat's maps (M72 §7.2, §14.1): a picture of an area from the Mac's own
+/// maps, nothing bundled, and no live map view in the transcript; and a place
+/// Apple Maps found, opened at Apple's own card for it.
 ///
 /// The only module that imports MapKit. `FermixAppCore` declares
-/// `PlaceMapDrawing` and imports it nowhere, because both executables link
-/// that library and `FermixAgent` draws no map; the media reader `main.swift`
-/// hands in is what draws one.
+/// `PlaceMaps` and imports it nowhere, because both executables link that
+/// library and `FermixAgent` draws no map; the media reader `main.swift`
+/// hands in is what draws one and opens one.
 extension SystemMediaReader {
     public func map(of area: PlaceMapArea, size: CGSize, appearance: PlaceMapAppearance) async throws -> CGImage {
         let snapshot = PendingSnapshot(options: Self.options(area, size: size, appearance: appearance))
@@ -24,6 +25,30 @@ extension SystemMediaReader {
         }
 
         return image
+    }
+
+    /// Apple's own place for the identifier, then Maps on it. An identifier
+    /// that does not parse, a place Maps no longer has, and a Maps that does
+    /// not open are each a failure, and none is looked up by any other way.
+    @MainActor
+    public func openPlace(_ identifier: String, failed: @escaping @MainActor () -> Void) {
+        guard let identifier = MKMapItem.Identifier(rawValue: identifier) else {
+            failed()
+            return
+        }
+
+        MKMapItemRequest(mapItemIdentifier: identifier).getMapItem { item, _ in
+            guard let item else {
+                failed()
+                return
+            }
+
+            item.openInMaps(launchOptions: nil) { opened in
+                guard !opened else { return }
+
+                Task { @MainActor in failed() }
+            }
+        }
     }
 
     /// Exactly the area, which keeps the picture's proportion, so a place

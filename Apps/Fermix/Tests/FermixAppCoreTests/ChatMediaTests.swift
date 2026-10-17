@@ -179,7 +179,7 @@ struct ChatMediaTests {
     }
 
     private static func links(_ browser: BrowserHarness) -> ContentLinkOpener {
-        ContentLinkOpener(preference: InMemoryLinkPreferenceStore(), browser: browser.coordinator, workspace: browser.workspace)
+        ContentLinkOpener(preference: InMemoryLinkPreferenceStore(), browser: browser.coordinator, workspace: browser.workspace, maps: FakeMediaReader())
     }
 }
 

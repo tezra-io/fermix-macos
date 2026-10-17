@@ -287,14 +287,14 @@ struct ChatMapRequest: Sendable {
 
 /// What the Mac's own frameworks draw of a file a tile names: its
 /// thumbnail, a picture's size and motion, and a PDF's page count, from Quick
-/// Look, ImageIO and PDF; and, as a `PlaceMapDrawing`, a map of a reply's
-/// places, from MapKit. Behind a protocol, so the budgets are provable with a
-/// fake and no test opens a file, and because Quick Look's thumbnails and
-/// MapKit's maps are GUI-only: the reader is `FermixViewers`'s
-/// `SystemMediaReader`, which `main.swift` hands in. Whether a film plays and
-/// how long it is are AVFoundation's, asked of the one owner of both
-/// (`MediaFacts`).
-public protocol ChatMediaReading: PlaceMapDrawing {
+/// Look, ImageIO and PDF; and, as the `PlaceMaps`, a map of a reply's places
+/// and a place opened in Maps, from MapKit. Behind a protocol, so the budgets
+/// are provable with a fake and no test opens a file, and because Quick
+/// Look's thumbnails and MapKit's maps are GUI-only: the reader is
+/// `FermixViewers`'s `SystemMediaReader`, which `main.swift` hands in.
+/// Whether a film plays and how long it is are AVFoundation's, asked of the
+/// one owner of both (`MediaFacts`).
+public protocol ChatMediaReading: PlaceMaps {
     /// A picture's pixel count and whether it moves, from its properties
     /// alone, or nil where ImageIO cannot read them.
     func picture(at file: URL) -> ChatPictureFacts?
@@ -590,10 +590,10 @@ final class ChatPreviews {
     /// A map of a reply's places, off the main thread, cut to its pixels as
     /// a thumbnail is. The area keeps the map's proportion, so the cut only
     /// scales it, and every place stays where the area's projection puts it.
-    nonisolated static func map(_ request: ChatMapRequest, with drawer: any PlaceMapDrawing) async -> ChatPreviewOutcome {
+    nonisolated static func map(_ request: ChatMapRequest, with maps: any PlaceMaps) async -> ChatPreviewOutcome {
         let drawn: CGImage
         do {
-            drawn = try await drawer.map(of: request.area, size: request.size, appearance: request.appearance)
+            drawn = try await maps.map(of: request.area, size: request.size, appearance: request.appearance)
         } catch {
             return Task.isCancelled ? .dropped : .failed
         }

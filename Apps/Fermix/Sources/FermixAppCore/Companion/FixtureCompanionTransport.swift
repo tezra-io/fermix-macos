@@ -335,11 +335,13 @@ enum FixtureCompanionScript {
     }
 }
 
-/// What the replies timeline holds (M72): four questions, each answered in
+/// What the replies timeline holds (M72): five questions, each answered in
 /// the shape its answer takes. Places in SoHo with the engine's block of
 /// them, one place with every field and the others each missing one, the
 /// last with a long name; then a list and steps, a table, and a quote, which
-/// are the reply's own markdown.
+/// are the reply's own markdown; and last, places Apple Maps found around a
+/// named town (§14.1), each with Apple's own identifier and page and its
+/// kind, and no rating, price, hours or distance.
 enum FixtureRepliesScript {
     static let rows: [CompanionTimelineRow] = [
         FixtureCompanionScript.row(1, "user", "Can you find a few quiet coffee shops in SoHo where I could work for an hour?", clientMsgId: "fixture-replies-1"),
@@ -350,6 +352,8 @@ enum FixtureRepliesScript {
         FixtureCompanionScript.row(6, "assistant", table, inReplyTo: "fixture-replies-5"),
         FixtureCompanionScript.row(7, "user", "What did Priya say about the launch in her last email?", clientMsgId: "fixture-replies-7"),
         FixtureCompanionScript.row(8, "assistant", quote, inReplyTo: "fixture-replies-7"),
+        FixtureCompanionScript.row(9, "user", "Where can I get tacos around Suwanee Town Center?", clientMsgId: "fixture-replies-9"),
+        FixtureCompanionScript.row(10, "assistant", applePlaces, inReplyTo: "fixture-replies-9", blocks: [.places(applePlaceRecords)]),
     ]
 
     /// A short lead and one line per place, each linked by name, in the order
@@ -370,6 +374,7 @@ enum FixtureRepliesScript {
             name: "Little Wooster Espresso Bar",
             canonicalURL: "https://littlewooster.example/",
             sourceURL: "https://places.example/p/little-wooster-espresso-bar",
+            applePlaceID: nil,
             location: CompanionPlaceLocation(latitude: 40.7239, longitude: -74.0011),
             address: "88 Wooster St, New York, NY 10012",
             rating: CompanionPlaceRating(value: 4.4, best: 5, count: 87),
@@ -382,6 +387,7 @@ enum FixtureRepliesScript {
             name: "Mercer Roasting Room",
             canonicalURL: "https://mercerroasting.example/",
             sourceURL: "https://places.example/p/mercer-roasting-room",
+            applePlaceID: nil,
             location: CompanionPlaceLocation(latitude: 40.7247, longitude: -73.9986),
             address: "112 Mercer St, New York, NY 10012",
             rating: CompanionPlaceRating(value: 4.6, best: 5, count: 321),
@@ -394,6 +400,7 @@ enum FixtureRepliesScript {
             name: "Spring and Thompson",
             canonicalURL: nil,
             sourceURL: "https://places.example/p/spring-and-thompson",
+            applePlaceID: nil,
             location: CompanionPlaceLocation(latitude: 40.7255, longitude: -74.0023),
             address: "201 Spring St, New York, NY 10012",
             rating: nil,
@@ -406,6 +413,7 @@ enum FixtureRepliesScript {
             name: "The Reading Room at Broome Street Books and Coffee",
             canonicalURL: "https://broomestreetbooks.example/reading-room",
             sourceURL: "https://places.example/p/broome-street-books",
+            applePlaceID: nil,
             location: CompanionPlaceLocation(latitude: 40.7226, longitude: -74.0004),
             address: "421 Broome St, New York, NY 10013",
             rating: CompanionPlaceRating(value: 4.8, best: 5, count: 1204),
@@ -413,6 +421,64 @@ enum FixtureRepliesScript {
             categories: ["book_store"],
             openingHours: CompanionPlaceHours(currentDay: "Thursday 09:00-21:00"),
             distance: CompanionPlaceDistance(value: 0.8, units: "km")
+        ),
+    ]
+
+    /// Apple Maps' places, the first linked by its own website and the other
+    /// two by Apple's own page for them, as the model writes whichever link
+    /// the search gave it.
+    static let applePlaces = """
+        Three taquerias within a few minutes of Town Center.
+
+        - [Tequila Mama Taqueria](https://tequilamama.com/) is on Town Center Avenue, facing the park.
+        - [Beto's Tacos](https://maps.apple.com/place?place-id=I47957D91CD7E2F7B) is a short drive south on Lawrenceville-Suwanee Road.
+        - [A Tacoria](https://maps.apple.com/place?place-id=I89FC92F8D04D97C5) is a few minutes north-west, on Peachtree Industrial Boulevard.
+
+        Maps has their hours and photos.
+        """
+
+    /// Real places, by the identifiers Apple Maps gave them, so a card opens
+    /// each one's own card in Maps. The second's website is plain HTTP, which
+    /// the engine drops, and the third gave none of its own.
+    static let applePlaceRecords: [CompanionPlace] = [
+        CompanionPlace(
+            name: "Tequila Mama Taqueria",
+            canonicalURL: "https://tequilamama.com/",
+            sourceURL: "https://maps.apple.com/place?place-id=I15D3EC7F56AE8D5C",
+            applePlaceID: "I15D3EC7F56AE8D5C",
+            location: CompanionPlaceLocation(latitude: 34.0555026, longitude: -84.0647238),
+            address: "340 Town Center Ave, Suwanee, GA 30024, United States",
+            rating: nil,
+            priceRange: nil,
+            categories: ["restaurant"],
+            openingHours: nil,
+            distance: nil
+        ),
+        CompanionPlace(
+            name: "Beto's Tacos",
+            canonicalURL: nil,
+            sourceURL: "https://maps.apple.com/place?place-id=I47957D91CD7E2F7B",
+            applePlaceID: "I47957D91CD7E2F7B",
+            location: CompanionPlaceLocation(latitude: 34.043542, longitude: -84.0541653),
+            address: "3463 Lawrenceville-Suwanee Rd, Unit 110, Suwanee, GA 30024, United States",
+            rating: nil,
+            priceRange: nil,
+            categories: ["restaurant"],
+            openingHours: nil,
+            distance: nil
+        ),
+        CompanionPlace(
+            name: "A Tacoria",
+            canonicalURL: nil,
+            sourceURL: "https://maps.apple.com/place?place-id=I89FC92F8D04D97C5",
+            applePlaceID: "I89FC92F8D04D97C5",
+            location: CompanionPlaceLocation(latitude: 34.0666864, longitude: -84.0718644),
+            address: "315 Peachtree Industrial Blvd, Suwanee, GA 30024, United States",
+            rating: nil,
+            priceRange: nil,
+            categories: ["restaurant"],
+            openingHours: nil,
+            distance: nil
         ),
     ]
 

@@ -141,7 +141,8 @@ final class AppComposition {
         links = ContentLinkOpener(
             preference: environment.linkPreference,
             browser: browser,
-            workspace: environment.workspace
+            workspace: environment.workspace,
+            maps: environment.mediaReader
         )
         chatMedia = ChatMedia(
             home: { [store] in try store.resolvedHome() },

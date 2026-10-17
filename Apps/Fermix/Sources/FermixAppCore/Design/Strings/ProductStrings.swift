@@ -511,6 +511,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// A text file that grew past what a file tab shows by the time it was
     /// read again.
     case browserNoticeFileTooLarge = "browser.notice.fileTooLarge"
+    /// A place from a reply that Maps could not open by Apple's own
+    /// identifier for it (M72 §14.1), which is never looked up again by its
+    /// name.
+    case browserNoticePlaceNotOpened = "browser.notice.placeNotOpened"
     /// A file the person chose a place for, by its name: on its way, saved,
     /// and stopped short, with the system's own sentence after.
     case browserNoticeDownloadingFormat = "browser.notice.downloadingFormat"

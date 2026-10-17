@@ -479,7 +479,7 @@ struct DescriptorCoverageTests {
     @Test("a backend section's key rows are whatever the daemon handed over")
     func backendKeyRowsAreTheDaemons() throws {
         let published: [String: Set<String>] = [
-            "web_search": ["web_search_backend", "brave_api_key"],
+            "web_search": ["web_search_backend", "place_search_backend", "brave_api_key"],
             "generate_image": ["image_backend", "image_model", "openai_api_key"],
             "transcription": ["transcription_backend", "transcription_model", "transcription_openai_api_key"]
         ]

@@ -431,7 +431,7 @@ struct FixtureConfigurationTests {
         let session = fixtureChat(.replies)
         session.connect()
 
-        #expect(session.model.rows.map(\.serverSeq) == Array(1...8))
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...10))
         #expect(!session.model.hasOlder)
         #expect(session.model.turn == nil)
 
@@ -459,6 +459,40 @@ struct FixtureConfigurationTests {
         for seq in [4, 6, 8] {
             #expect(session.model.rows.first { $0.serverSeq == seq }?.blocks == [])
         }
+    }
+
+    /// Last, places Apple Maps found around a named town (M72 §14.1): each
+    /// with Apple's identifier and Apple's page for it, its kind and its
+    /// address, and none of what Apple does not give or the engine leaves
+    /// out for a named area, linked in the text by one of its two addresses.
+    @MainActor
+    @Test("the replies timeline ends with places Apple Maps found, each with its identifier and none of what Apple does not give")
+    func applePlacesArrive() throws {
+        let session = fixtureChat(.replies)
+        session.connect()
+
+        let reply = try #require(session.model.rows.first { $0.serverSeq == 10 })
+        guard case .places(let places)? = reply.blocks.first else {
+            Issue.record("the Apple places reply arrived without its block")
+            return
+        }
+        #expect(reply.blocks.count == 1)
+        #expect(places.count == 3)
+        for place in places {
+            let identifier = try #require(place.applePlaceID)
+            #expect(place.sourceURL == "https://maps.apple.com/place?place-id=" + identifier)
+            #expect(place.categories?.count == 1)
+            #expect(place.address != nil)
+            #expect(place.rating == nil && place.priceRange == nil && place.openingHours == nil && place.distance == nil)
+            #expect(ChatPlaceFacts(place).lines.count == 1)
+        }
+        #expect(Set(places.compactMap(\.applePlaceID)).count == 3)
+
+        let linked = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)).map(ChatPlaceLink.init) }
+        let named = places.map { place in
+            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(ChatPlaceLink.init) }
+        }
+        #expect(named.map { $0.first(where: linked.contains) } == linked.map(Optional.some))
     }
 
     @MainActor
@@ -655,6 +689,19 @@ struct FixtureConfigurationTests {
         #expect(overview.realtime.engine == "openai_realtime")
         #expect(voice.rows.contains { $0.key == "realtime_reasoning_effort" })
         #expect(!voice.rows.contains { $0.key == "realtime_backend" })
+    }
+
+    /// The web search section publishes one golden per place search backend
+    /// for the same request. The home is the Mac app's engine at its build's
+    /// default, so it answers the one with Apple Maps in force, which needs
+    /// no key and so publishes no Brave key row.
+    @Test("the web search section answers with Apple Maps in force")
+    func webSearchSectionSearchesAppleMaps() async throws {
+        let client = try await negotiatedClient()
+        let search = try await client.settings(section: "web_search")
+
+        #expect(search.rows.first { $0.key == "place_search_backend" }?.value == .text("apple_maps"))
+        #expect(!search.rows.contains { $0.key == "brave_api_key" })
     }
 
     /// A section this home does not publish is loud, not empty: a pane

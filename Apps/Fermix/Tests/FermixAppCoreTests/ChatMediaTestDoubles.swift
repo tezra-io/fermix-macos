@@ -8,8 +8,9 @@ import UniformTypeIdentifiers
 /// ImageIO and PDF say of each file is set up front, and each thumbnail
 /// either comes at once or waits until the case finishes or fails it. A map
 /// comes at once as the case's picture, or fails where the case gave none. No file is read,
-/// and neither Quick Look nor MapKit is asked. What AVFoundation says is
-/// `FakeMediaFacts`'s.
+/// and neither Quick Look nor MapKit is asked. A place opened by its
+/// identifier is recorded, and found or not as the case says, and Maps never
+/// opens. What AVFoundation says is `FakeMediaFacts`'s.
 final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     /// How a thumbnail comes.
     enum Thumbnails {
@@ -26,6 +27,8 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     /// finishes its work whatever it is told.
     private let stopsWhenCancelled: Bool
     private let mapPicture: CGImage?
+    /// Whether Maps finds a place by its identifier.
+    private let findsPlaces: Bool
 
     private let lock = NSLock()
     private var waiting: [(id: UUID, file: URL, continuation: CheckedContinuation<CGImage, Error>)] = []
@@ -33,6 +36,7 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     private var asked: [URL] = []
     private var cancelled = 0
     private var mapped: [MapAsk] = []
+    private var placed: [String] = []
 
     /// One map asked for.
     struct MapAsk: Equatable {
@@ -46,13 +50,15 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
         pictures: [URL: ChatPictureFacts] = [:],
         pages: [URL: Int] = [:],
         stopsWhenCancelled: Bool = true,
-        map: CGImage? = nil
+        map: CGImage? = nil,
+        findsPlaces: Bool = true
     ) {
         self.thumbnails = thumbnails
         self.pictures = pictures
         self.pages = pages
         self.stopsWhenCancelled = stopsWhenCancelled
         mapPicture = map
+        self.findsPlaces = findsPlaces
     }
 
     /// Every file a thumbnail was asked of, in order.
@@ -108,6 +114,15 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
         guard let mapPicture else { throw CocoaError(.fileReadUnknown) }
 
         return mapPicture
+    }
+
+    /// Every identifier a place was opened by, in order.
+    var placesOpened: [String] { lock.withLock { placed } }
+
+    @MainActor
+    func openPlace(_ identifier: String, failed: @escaping @MainActor () -> Void) {
+        lock.withLock { placed.append(identifier) }
+        if !findsPlaces { failed() }
     }
 
     private func resume(_ id: UUID, with answer: (CheckedContinuation<CGImage, Error>) -> Void) {

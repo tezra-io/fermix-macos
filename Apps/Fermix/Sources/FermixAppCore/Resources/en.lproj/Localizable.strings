@@ -437,6 +437,7 @@
 "browser.notice.fileMissing" = "There is no file at that path.";
 "browser.notice.fileNotReady" = "Fermix could not get this file ready to open. Try again.";
 "browser.notice.fileTooLarge" = "This file is too large to show here.";
+"browser.notice.placeNotOpened" = "Maps could not open that place.";
 "browser.notice.downloadingFormat" = "Downloading “%@”.";
 "browser.notice.downloadSavedFormat" = "Saved “%@”.";
 "browser.notice.downloadFailedFormat" = "“%@” did not finish downloading. %@";

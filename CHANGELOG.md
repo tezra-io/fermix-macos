@@ -11,6 +11,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 - Chat: code in a reply reads as code. Each block sits on its own soft panel with its language above it, quietly coloured so comments, strings and keywords stand apart, and a long line scrolls sideways instead of wrapping. Copy appears when you point at a block and takes its exact text. A short bit of code inside a sentence sits on a faint fill.
 - Chat: lists, numbered steps, tables and quotes in a reply read as what they are. A list keeps its bullets or numbers with each item indented under its own, a table sits on a soft panel with its columns lined up, scrolling sideways when it is wide and copied as a table, and a quote has a thin bar beside it. A long reply also takes less work to draw while Fermix is still writing it.
 - Chat: when Fermix recommends places it found, they show under its reply on a map with a numbered pin for each and as cards in a row that scrolls sideways, each with its rating, price, kind, today's hours and distance. Clicking a card or a pin opens the place in Maps, with its photos, reviews and directions, and a card's menu opens its website or copies its address. The reply still links every place, so nothing is lost where cards are not shown.
+- Chat: the places Fermix finds come from Apple Maps, with no key to set up, and clicking a place's card or pin opens the place's own page in Maps, with its hours, photos and directions. Web search settings can switch place search to Brave instead.
 
 ## 0.5.0 (2026-10-14)
 

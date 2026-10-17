@@ -212,7 +212,7 @@ struct FixtureManagementTransport: ManagementTransport {
             grouped[record.method, default: []].append(record)
         }
 
-        return atVoiceEngine(atPhoneMoment(grouped, declared: phoneMoment))
+        return atPlaceSearch(atVoiceEngine(atPhoneMoment(grouped, declared: phoneMoment)))
     }
 
     /// The voice engine this daemon runs.
@@ -231,6 +231,23 @@ struct FixtureManagementTransport: ManagementTransport {
         var records = grouped
         records[ManagementMethod.settingsGet.rawValue] = grouped[ManagementMethod.settingsGet.rawValue]?
             .filter { $0.liveVoice == nil || $0.liveVoice == live }
+
+        return records
+    }
+
+    /// The place search this daemon runs.
+    ///
+    /// `settings.get {section: "web_search"}` publishes one golden per place
+    /// search backend, every one for the same request, because the section's
+    /// `place_search_backend` value and its key row follow the backend in
+    /// force (PROTOCOL.md), and no other answer names it. This daemon is the
+    /// Mac app's engine left at its build's default, which searches Apple
+    /// Maps: the section published with Apple Maps in force is this machine's
+    /// answer, and the other is a home that chose Brave.
+    private static func atPlaceSearch(_ grouped: [String: [Record]]) -> [String: [Record]] {
+        var records = grouped
+        records[ManagementMethod.settingsGet.rawValue] = grouped[ManagementMethod.settingsGet.rawValue]?
+            .filter { $0.placeSearch == nil || $0.placeSearch == Self.buildDefaultPlaceSearch }
 
         return records
     }
@@ -275,6 +292,9 @@ struct FixtureManagementTransport: ManagementTransport {
         /// Whether this answer speaks of the Live voice engine, where it names
         /// an engine at all.
         let liveVoice: Bool?
+        /// The place search backend this answer has in force, where it names
+        /// one.
+        let placeSearch: String?
         let result: Data
 
         func answers(_ params: [String: Any]) -> Bool {
@@ -307,6 +327,7 @@ struct FixtureManagementTransport: ManagementTransport {
             selector: selector(method: method, result: result),
             moment: pairingMoment(method: method, result: result),
             liveVoice: liveVoice(method: method, result: result),
+            placeSearch: placeSearch(method: method, result: result),
             result: try JSONSerialization.data(withJSONObject: result)
         )
     }
@@ -335,6 +356,25 @@ struct FixtureManagementTransport: ManagementTransport {
     private static let voiceSection = "realtime"
     private static let liveEngine = "openai_live"
     private static let liveOnlyRow = "realtime_backend"
+
+    /// The backend a web search section has in force: its
+    /// `place_search_backend` row's value. Nil for every other answer.
+    private static func placeSearch(method: String, result: Any) -> String? {
+        guard method == ManagementMethod.settingsGet.rawValue,
+              let object = result as? [String: Any],
+              object["id"] as? String == Self.searchSection
+        else { return nil }
+
+        let rows = object["rows"] as? [[String: Any]] ?? []
+        return rows.first { $0["key"] as? String == Self.placeSearchRow }?["value"] as? String
+    }
+
+    /// The wire names `placeSearch` reads, and the backend the Mac app's
+    /// engine searches when its home names none, each as PROTOCOL.md
+    /// publishes it.
+    private static let searchSection = "web_search"
+    private static let placeSearchRow = "place_search_backend"
+    private static let buildDefaultPlaceSearch = "apple_maps"
 
     /// The pairing session an answer speaks of: `mobile.status` under
     /// `pairing`, a start or a read as the whole result. Nil for every other

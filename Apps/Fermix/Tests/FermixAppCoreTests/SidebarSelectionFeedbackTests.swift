@@ -181,7 +181,8 @@ struct SidebarSelectionFeedbackTests {
             links: ContentLinkOpener(
                 preference: InMemoryLinkPreferenceStore(),
                 browser: browser.coordinator,
-                workspace: RecordingWorkspaceOpener()
+                workspace: RecordingWorkspaceOpener(),
+                maps: FakeMediaReader()
             ),
             chatMedia: ChatMedia(
                 home: { URL(fileURLWithPath: "/nonexistent/home") },

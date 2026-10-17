@@ -15,7 +15,7 @@ struct ContentLinkTests {
         let workspace = RecordingWorkspaceOpener()
         let preference = InMemoryLinkPreferenceStore()
         preference.linkDestination = destination
-        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace)
+        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace, maps: FakeMediaReader())
 
         return (opener, harness, workspace)
     }
@@ -87,7 +87,7 @@ struct ContentLinkTests {
         let workspace = RecordingWorkspaceOpener()
         let preference = InMemoryLinkPreferenceStore()
         preference.linkDestination = destination
-        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace)
+        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace, maps: FakeMediaReader())
         let notes = try place.write("notes.md", in: place.home)
         let app = try place.folder("Thing.app", in: place.home)
 
@@ -118,7 +118,7 @@ struct SignInStaysExternalTests {
         let harness = place.harness()
         let preference = InMemoryLinkPreferenceStore()
         preference.linkDestination = destination
-        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: harness.workspace)
+        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: harness.workspace, maps: FakeMediaReader())
         let ref = FakeMediaGrants.ref("a")
         let file = FilePlaceFixture.real(try place.write(ref + ".pdf", in: place.home))
         let grant = MediaGrantOutcome.granted(MediaGrant(ref: ref, url: file))
@@ -136,7 +136,7 @@ struct SignInStaysExternalTests {
         let model = SettingsFixture.model(gateway: gateway, opener: external)
         let browser = BrowserHarness()
         let workspace = RecordingWorkspaceOpener()
-        _ = ContentLinkOpener(preference: InMemoryLinkPreferenceStore(), browser: browser.coordinator, workspace: workspace)
+        _ = ContentLinkOpener(preference: InMemoryLinkPreferenceStore(), browser: browser.coordinator, workspace: workspace, maps: FakeMediaReader())
         let runner = model.makeJobRunner()
 
         #expect(await model.startSignIn(provider: "openai_codex", on: runner) == nil)
@@ -180,11 +180,13 @@ struct SignInStaysExternalTests {
         }
 
         // The composition builds the opener over the workspace, never over the
-        // external opener that carries sign-in.
+        // external opener that carries sign-in, and over the one owner of the
+        // Mac's maps, the media reader the executable hands in.
         let composition = try #require(files.first { $0.path.hasSuffix("App/AppComposition.swift") }?.text)
         let built = try #require(composition.range(of: "links = ContentLinkOpener("))
         let arguments = composition[built.upperBound...].prefix { $0 != ")" }
         #expect(arguments.contains("workspace: environment.workspace"))
+        #expect(arguments.contains("maps: environment.mediaReader"))
         #expect(!arguments.contains("environment.opener"))
     }
 }

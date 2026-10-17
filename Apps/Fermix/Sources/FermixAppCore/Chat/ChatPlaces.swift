@@ -303,7 +303,9 @@ private struct ChatPlaceCard: View {
 
 /// What a place card says of its place (M72 §8.1), read from the record
 /// alone: its two lines of facts, each without the parts the record lacks,
-/// and no line at all where it lacks every one.
+/// and no line at all where it lacks every one. A place Apple Maps found has
+/// no rating, price or hours (§14.1), so its card says its kind, with the
+/// distance under it where it has one.
 struct ChatPlaceFacts: Equatable {
     /// The rating with its count, the price and the kind:
     /// `4.6 (321)`, `$$`, `Coffee shop`. A count without a rating says

@@ -18,15 +18,20 @@ public final class ContentLinkOpener {
     private let preference: any LinkPreferenceStoring
     private let browser: BrowserCoordinator
     private let workspace: any WorkspaceLinkOpening
+    /// The Mac's own maps, which open a place Apple Maps found by its
+    /// identifier.
+    private let maps: any PlaceMaps
 
     public init(
         preference: any LinkPreferenceStoring,
         browser: BrowserCoordinator,
-        workspace: any WorkspaceLinkOpening
+        workspace: any WorkspaceLinkOpening,
+        maps: any PlaceMaps
     ) {
         self.preference = preference
         self.browser = browser
         self.workspace = workspace
+        self.maps = maps
     }
 
     /// The schemes the pane opens from a link. A page itself may move to more
@@ -57,11 +62,22 @@ public final class ContentLinkOpener {
     }
 
     /// A place a reply found goes to Apple Maps (M72 decision 3), whatever
-    /// the preference, at the address the app builds from the place's own
-    /// record (`PlaceMapsAddress`): never through the pane, and never by a
-    /// link the reply wrote, so no reply chooses which app opens.
+    /// the preference, by what its own record carries: a place Apple Maps
+    /// found opens at Apple's own card for it, by its identifier (§14.1), and
+    /// any other at the address the app builds from it (`PlaceMapsAddress`).
+    /// Never through the pane, and never by a link the reply wrote, so no
+    /// reply chooses which app opens. An identifier Maps cannot open is said
+    /// in the pane, as a reply's file that cannot open is, and the place is
+    /// not looked up again by its name.
     public func openInMaps(_ place: CompanionPlace) {
-        _ = workspace.open(PlaceMapsAddress.url(for: place))
+        guard let identifier = place.applePlaceID else {
+            _ = workspace.open(PlaceMapsAddress.url(for: place))
+            return
+        }
+
+        maps.openPlace(identifier) { [browser] in
+            browser.report(ProductStrings[.browserNoticePlaceNotOpened])
+        }
     }
 
     /// A phone-side file, by its ref, goes where a file at the path the

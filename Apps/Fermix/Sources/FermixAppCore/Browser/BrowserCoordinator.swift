@@ -180,6 +180,15 @@ public final class BrowserCoordinator {
         return outcome
     }
 
+    /// The sentence that says something a reply asked for did not open,
+    /// such as a place Maps could not find, opening the pane to say it, as
+    /// a reply's file that could not open does: a reply's link arrives with
+    /// the pane closed.
+    func report(_ notice: String) {
+        model.notice = notice
+        showPane()
+    }
+
     /// The name a phone-side file goes by: its row's name, which whoever
     /// sent it chose, with the extension of the file it really is, and none
     /// of the invisible characters that can reorder or hide one. Neither its

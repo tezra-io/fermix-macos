@@ -1,18 +1,24 @@
 import CoreGraphics
 import Foundation
 
-/// A map of a reply's places, as the Mac's own maps draw it (M72 §7.2): a
-/// picture of an area, and nothing else. Where each place falls on it is the
-/// area's own projection (`PlaceMapArea.point(of:in:)`), so the pins never
-/// wait for the picture. Behind a protocol because MapKit is GUI-only:
-/// `FermixAgent` links this library and never draws a map, so the drawer is
-/// `FermixViewers`'s, and the executable hands it in as the chat's media
+/// The Mac's own maps, for a reply's places: a map of them (M72 §7.2), a
+/// picture of an area and nothing else, and a place Apple Maps found opened
+/// at Apple's own card for it (§14.1). Where each place falls on the map is
+/// the area's own projection (`PlaceMapArea.point(of:in:)`), so the pins
+/// never wait for the picture. Behind a protocol because MapKit is GUI-only:
+/// `FermixAgent` links this library and never draws a map, so the maps are
+/// `FermixViewers`'s, and the executable hands them in as the chat's media
 /// reader (`ChatMediaReading`).
-public protocol PlaceMapDrawing: Sendable {
+public protocol PlaceMaps: Sendable {
     /// Exactly `area`, drawn at `size` points in the light or the dark map,
     /// with none of the map's own points of interest, so the pins read. It
     /// stops when the task asking for it is cancelled.
     func map(of area: PlaceMapArea, size: CGSize, appearance: PlaceMapAppearance) async throws -> CGImage
+    /// The place Apple Maps knows by `identifier` (`CompanionPlace.applePlaceID`),
+    /// opened in Maps at its own card. `failed` hears where Maps finds no
+    /// place by it or does not open it; nothing else about the place is
+    /// ever looked up instead.
+    @MainActor func openPlace(_ identifier: String, failed: @escaping @MainActor () -> Void)
 }
 
 /// Which map a picture is drawn in: the one the app's own appearance reads.
@@ -102,10 +108,12 @@ public struct PlaceMapArea: Equatable, Sendable {
     }
 }
 
-/// Where Apple Maps opens a place (M72 decision 3): an address the app builds
-/// from the place's own record, its name at its coordinates, and never a link
-/// the reply wrote. Maps looks the name up at that point and shows its own
-/// card, with photos, reviews, hours and directions.
+/// Where Apple Maps opens a place another source found (M72 decision 3): an
+/// address the app builds from the place's own record, its name at its
+/// coordinates, and never a link the reply wrote. Maps looks the name up at
+/// that point and shows its own card, with photos, reviews, hours and
+/// directions. A place Apple Maps found opens by its identifier instead
+/// (`PlaceMaps.openPlace`).
 enum PlaceMapsAddress {
     /// The characters a query value keeps as they are: RFC 3986's
     /// unreserved ones, so a name's `&`, `=`, `+` or `#` cannot reach Maps

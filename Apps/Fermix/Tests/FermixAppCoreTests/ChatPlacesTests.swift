@@ -16,6 +16,7 @@ struct ChatPlacesTests {
         _ name: String = "Example Coffee",
         canonical: String? = "https://example.coffee/",
         source: String? = "https://provider.example/place/1",
+        apple: String? = nil,
         at location: CompanionPlaceLocation = CompanionPlaceLocation(latitude: 40.7233, longitude: -74.0030),
         address: String? = "12 Example St, New York",
         rating: CompanionPlaceRating? = CompanionPlaceRating(value: 4.6, best: 5, count: 321),
@@ -28,6 +29,7 @@ struct ChatPlacesTests {
             name: name,
             canonicalURL: canonical,
             sourceURL: source,
+            applePlaceID: apple,
             location: location,
             address: address,
             rating: rating,
@@ -77,6 +79,44 @@ struct ChatPlacesTests {
         #expect(countOnly.summary == ["$$", "Coffee shop"])
         #expect(noUnits.today == ["Thursday 07:00-19:00"])
         #expect(many.summary.first == "4.8 (1,204)")
+    }
+
+    /// An Apple Maps place (M72 §14.1) has no rating, price or hours: its
+    /// card says its kind, and under it the distance where the search had
+    /// coordinates to measure from, with no empty line and no stray mark.
+    @Test("an Apple Maps place's card says its kind, and its distance where it has one")
+    func applePlace() {
+        let named = ChatPlaceFacts(Self.applePlace(distance: nil), locale: Self.english)
+        let measured = ChatPlaceFacts(Self.applePlace(distance: CompanionPlaceDistance(value: 1.25, units: "km")), locale: Self.english)
+
+        #expect(named.lines == ["Restaurant"])
+        #expect(named.spoken(name: "Tequila Mama Taqueria") == "Tequila Mama Taqueria, Restaurant")
+        #expect(measured.lines == ["Restaurant", "1.25 km"])
+        #expect(measured.spoken(name: "Tequila Mama Taqueria") == "Tequila Mama Taqueria, Restaurant, 1.25 km")
+        #expect(named.website == URL(string: "https://tequilamama.com/"))
+        #expect(ChatPlaceFacts(Self.applePlace(canonical: nil, distance: nil)).website == URL(string: Self.applePage))
+    }
+
+    /// Apple's own page for the place, as the engine writes it beside the
+    /// identifier.
+    private static let applePage = "https://maps.apple.com/place?place-id=I15D3EC7F56AE8D5C"
+
+    /// A place as Apple Maps gives it: Apple's identifier and page, its own
+    /// website, its kind and address, and nothing else.
+    private static func applePlace(canonical: String? = "https://tequilamama.com/", distance: CompanionPlaceDistance?) -> CompanionPlace {
+        place(
+            "Tequila Mama Taqueria",
+            canonical: canonical,
+            source: applePage,
+            apple: "I15D3EC7F56AE8D5C",
+            at: CompanionPlaceLocation(latitude: 34.0555026, longitude: -84.0647238),
+            address: "340 Town Center Ave, Suwanee, GA 30024, United States",
+            rating: nil,
+            price: nil,
+            categories: ["restaurant"],
+            hours: nil,
+            distance: distance
+        )
     }
 
     @Test("a source's category is said in sentence case, the first one only")
@@ -260,23 +300,70 @@ struct ChatPlacesTests {
 }
 
 /// A place opens in Maps through the one content link opener, whatever the
-/// person's preference for links (M72 decision 3).
+/// person's preference for links (M72 decision 3), by what its record
+/// carries: Apple's identifier where Apple Maps found it (§14.1), and the
+/// address built from its name and coordinates where another source did.
 @Suite("Opening a place")
 @MainActor
 struct PlaceOpeningTests {
-    @Test("a place goes to Maps at the address built from its record, never to the pane", arguments: LinkDestination.allCases)
-    func placeOpensInMaps(_ destination: LinkDestination) {
+    private static func opener(
+        _ destination: LinkDestination = .fermix,
+        maps: FakeMediaReader = FakeMediaReader()
+    ) -> (ContentLinkOpener, BrowserHarness, RecordingWorkspaceOpener) {
         let harness = BrowserHarness()
         let workspace = RecordingWorkspaceOpener()
         let preference = InMemoryLinkPreferenceStore()
         preference.linkDestination = destination
-        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace)
+        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace, maps: maps)
+
+        return (opener, harness, workspace)
+    }
+
+    @Test("a place another source found goes to Maps at the address built from its record, never to the pane", arguments: LinkDestination.allCases)
+    func placeOpensInMaps(_ destination: LinkDestination) {
+        let maps = FakeMediaReader()
+        let (opener, harness, workspace) = Self.opener(destination, maps: maps)
         let place = FixtureRepliesScript.placeRecords[1]
 
         opener.openInMaps(place)
 
         #expect(workspace.opened == [PlaceMapsAddress.url(for: place)])
         #expect(workspace.opened.first?.scheme == "maps")
+        #expect(maps.placesOpened.isEmpty)
         #expect(harness.model.tabs.isEmpty)
+    }
+
+    /// Apple's own card, by the identifier alone: no address is built, and
+    /// neither the record's links nor the pane are involved.
+    @Test("a place Apple Maps found opens at its own card by its identifier, never by an address", arguments: LinkDestination.allCases)
+    func applePlaceOpensByIdentifier(_ destination: LinkDestination) {
+        let maps = FakeMediaReader()
+        let (opener, harness, workspace) = Self.opener(destination, maps: maps)
+        let place = FixtureRepliesScript.applePlaceRecords[0]
+
+        opener.openInMaps(place)
+
+        #expect(maps.placesOpened == ["I15D3EC7F56AE8D5C"])
+        #expect(workspace.opened.isEmpty)
+        #expect(harness.model.tabs.isEmpty)
+        #expect(!harness.model.isOpen)
+        #expect(harness.model.notice == nil)
+    }
+
+    /// An identifier Maps cannot open is said where a reply's file that
+    /// cannot open is said, in the pane, which opens to say it; the place is
+    /// not looked up again by its name, so no other place can stand in.
+    @Test("an identifier Maps cannot open is said in the pane, and the place is never looked up by its name")
+    func unopenedIdentifierIsSaid() {
+        let maps = FakeMediaReader(findsPlaces: false)
+        let (opener, harness, workspace) = Self.opener(maps: maps)
+
+        opener.openInMaps(FixtureRepliesScript.applePlaceRecords[1])
+
+        #expect(maps.placesOpened == ["I47957D91CD7E2F7B"])
+        #expect(harness.model.notice == ProductStrings[.browserNoticePlaceNotOpened])
+        #expect(harness.model.isOpen)
+        #expect(harness.model.tabs.isEmpty)
+        #expect(workspace.opened.isEmpty, "the place was looked up again another way")
     }
 }

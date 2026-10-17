@@ -56,6 +56,10 @@ public struct CompanionPlace: Equatable, Hashable, Sendable, Decodable {
     public let canonicalURL: String?
     /// The provider's page for the place.
     public let sourceURL: String?
+    /// Apple Maps' own identifier for the place (`MKMapItem.Identifier`), on
+    /// a place Apple Maps found (M72 §14.1), by which Maps opens its own card
+    /// for it.
+    public let applePlaceID: String?
     public let location: CompanionPlaceLocation
     public let address: String?
     public let rating: CompanionPlaceRating?
@@ -71,6 +75,7 @@ public struct CompanionPlace: Equatable, Hashable, Sendable, Decodable {
         case name, location, address, rating, categories, distance
         case canonicalURL = "canonical_url"
         case sourceURL = "source_url"
+        case applePlaceID = "apple_place_id"
         case priceRange = "price_range"
         case openingHours = "opening_hours"
     }

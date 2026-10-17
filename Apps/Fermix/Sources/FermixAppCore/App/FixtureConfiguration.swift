@@ -45,7 +45,8 @@ enum FixtureStart: Equatable {
     /// empty state is drawn: `chat` itself opens on the full timeline.
     case emptyChat
     /// Chat over replies drawn for what they hold (M72): a reply's places on
-    /// their map and cards, lists and steps, a table and a quote.
+    /// their map and cards, lists and steps, a table and a quote, and last
+    /// the places Apple Maps found, which open at Apple's own card.
     case chatReplies
     /// Chat with the browser pane open beside it on two fake tabs. The pane
     /// closed is `chat` itself.

@@ -20,10 +20,18 @@ struct CompanionBlocksTests {
     {"name":"Bare Cafe","source_url":"https://provider.example/place/2","location":{"latitude":40.72,"longitude":-74.0}}
     """#
 
+    /// A place as Apple Maps gives it (M72 §14.1): Apple's identifier and
+    /// its page beside it, the place's own website, its kind and address,
+    /// and no rating, price, hours or distance.
+    static let applePlace = #"""
+    {"name":"Tequila Mama Taqueria","canonical_url":"https://tequilamama.com/","source_url":"https://maps.apple.com/place?place-id=I15D3EC7F56AE8D5C","apple_place_id":"I15D3EC7F56AE8D5C","location":{"latitude":34.0555026,"longitude":-84.0647238},"address":"340 Town Center Ave, Suwanee, GA 30024, United States","categories":["restaurant"]}
+    """#
+
     static let example = CompanionPlace(
         name: "Example Coffee",
         canonicalURL: "https://example.coffee/",
         sourceURL: "https://provider.example/place/1",
+        applePlaceID: nil,
         location: CompanionPlaceLocation(latitude: 40.7233, longitude: -74.0030),
         address: "12 Example St, New York",
         rating: CompanionPlaceRating(value: 4.6, best: 5, count: 321),
@@ -62,6 +70,34 @@ struct CompanionBlocksTests {
         #expect(places.last?.canonicalURL == nil)
         #expect(places.last?.rating == nil)
         #expect(places.last?.openingHours == nil)
+        #expect(CompanionServerWire.object(try CompanionServerEvent.decode(line)) as NSDictionary == (try wireObject(line)))
+    }
+
+    @Test("an Apple Maps place carries its identifier, and every other place none")
+    func applePlaceCarriesItsIdentifier() throws {
+        let line = Self.textDone(blocks: #"[{"type":"places","places":[\#(Self.applePlace),\#(Self.fullPlace)]}]"#)
+
+        guard case .textDone(_, _, _, let blocks) = try CompanionServerEvent.decode(line),
+              case .places(let places)? = blocks.first
+        else {
+            Issue.record("the line did not decode as text_done with places")
+            return
+        }
+
+        #expect(places.first == CompanionPlace(
+            name: "Tequila Mama Taqueria",
+            canonicalURL: "https://tequilamama.com/",
+            sourceURL: "https://maps.apple.com/place?place-id=I15D3EC7F56AE8D5C",
+            applePlaceID: "I15D3EC7F56AE8D5C",
+            location: CompanionPlaceLocation(latitude: 34.0555026, longitude: -84.0647238),
+            address: "340 Town Center Ave, Suwanee, GA 30024, United States",
+            rating: nil,
+            priceRange: nil,
+            categories: ["restaurant"],
+            openingHours: nil,
+            distance: nil
+        ))
+        #expect(places.last?.applePlaceID == nil)
         #expect(CompanionServerWire.object(try CompanionServerEvent.decode(line)) as NSDictionary == (try wireObject(line)))
     }
 
@@ -124,6 +160,7 @@ struct CompanionBlocksTests {
     func misshapenBlockIsRefused() {
         let noLocation = #"{"type":"places","places":[{"name":"Lost","source_url":"https://provider.example/place/3"}]}"#
         let wordLatitude = #"{"type":"places","places":[{"name":"Lost","location":{"latitude":"north","longitude":-74.0}}]}"#
+        let numberIdentifier = #"{"type":"places","places":[{"name":"Lost","apple_place_id":7,"location":{"latitude":40.7,"longitude":-74.0}}]}"#
 
         #expect(throws: CompanionDecodeFailure.missingField("blocks.0.places.0.location")) {
             _ = try CompanionServerEvent.decode(Self.textDone(blocks: "[\(noLocation)]"))
@@ -133,6 +170,9 @@ struct CompanionBlocksTests {
         }
         #expect(throws: CompanionDecodeFailure.invalidField("blocks.0.places.0.location.latitude")) {
             _ = try CompanionServerEvent.decode(Self.textDone(blocks: "[\(wordLatitude)]"))
+        }
+        #expect(throws: CompanionDecodeFailure.invalidField("blocks.0.places.0.apple_place_id")) {
+            _ = try CompanionServerEvent.decode(Self.textDone(blocks: "[\(numberIdentifier)]"))
         }
         #expect(throws: CompanionDecodeFailure.missingField("blocks.0.type")) {
             _ = try CompanionServerEvent.decode(Self.textDone(blocks: #"[{"places":[]}]"#))

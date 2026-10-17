@@ -253,6 +253,7 @@ enum CompanionServerWire {
             "name": place.name,
             "canonical_url": place.canonicalURL,
             "source_url": place.sourceURL,
+            "apple_place_id": place.applePlaceID,
             "location": ["latitude": place.location.latitude, "longitude": place.location.longitude],
             "address": place.address,
             "rating": place.rating.map { present(["value": $0.value, "best": $0.best, "count": $0.count]) },
