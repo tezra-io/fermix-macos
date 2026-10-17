@@ -12,6 +12,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 - Chat: lists, numbered steps, tables and quotes in a reply read as what they are. A list keeps its bullets or numbers with each item indented under its own, a table sits on a soft panel with its columns lined up, scrolling sideways when it is wide and copied as a table, and a quote has a thin bar beside it. A long reply also takes less work to draw while Fermix is still writing it.
 - Chat: when Fermix recommends places it found, they show under its reply on a map with a numbered pin for each and as cards in a row that scrolls sideways, each with its rating, price, kind, today's hours and distance. Clicking a card or a pin opens the place in Maps, with its photos, reviews and directions, and a card's menu opens its website or copies its address. The reply still links every place, so nothing is lost where cards are not shown.
 - Chat: the places Fermix finds come from Apple Maps, with no key to set up, and clicking a place's card or pin opens the place's own page in Maps, with its hours, photos and directions. Web search settings can switch place search to Brave instead.
+- Chat: the links under a reply are cards the size of a place's, each with the page's picture, title and site where Fermix has a preview of it, and the site's initial and the words of its address where it has none, never a raw path. A link to a page on a recommended place's own website, such as its menu, is left to that place's card.
 
 ## 0.5.0 (2026-10-14)
 

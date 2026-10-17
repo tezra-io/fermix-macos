@@ -431,7 +431,7 @@ struct FixtureConfigurationTests {
         let session = fixtureChat(.replies)
         session.connect()
 
-        #expect(session.model.rows.map(\.serverSeq) == Array(1...10))
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...12))
         #expect(!session.model.hasOlder)
         #expect(session.model.turn == nil)
 
@@ -456,7 +456,7 @@ struct FixtureConfigurationTests {
         }
         #expect(named.map { $0.first(where: linked.contains) } == linked.map(Optional.some))
 
-        for seq in [4, 6, 8] {
+        for seq in [4, 6, 8, 12] {
             #expect(session.model.rows.first { $0.serverSeq == seq }?.blocks == [])
         }
     }
@@ -488,11 +488,36 @@ struct FixtureConfigurationTests {
         }
         #expect(Set(places.compactMap(\.applePlaceID)).count == 3)
 
-        let linked = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)).map(ChatPlaceLink.init) }
+        let addresses = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)) }
         let named = places.map { place in
             [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(ChatPlaceLink.init) }
         }
+        let linked = addresses.map(ChatPlaceLink.init).filter { named.joined().contains($0) }
         #expect(named.map { $0.first(where: linked.contains) } == linked.map(Optional.some))
+
+        let menu = try #require(addresses.first { !named.joined().contains(ChatPlaceLink($0)) })
+        #expect(ChatPlaceLinks(reply.blocks).covers(menu))
+    }
+
+    /// Then a reply that links four pages (M72): the engine's previews of
+    /// three of them, two with a picture the fixture daemon grants from a
+    /// sample photo, one whose page gave none, and the fourth left with no
+    /// preview, as a page the engine could not read is.
+    @MainActor
+    @Test("the replies timeline ends with a reply linking four pages, three of them previewed")
+    func linkedPagesArrive() throws {
+        let session = fixtureChat(.replies)
+        session.connect()
+
+        let reply = try #require(session.model.rows.first { $0.serverSeq == 12 })
+        let addresses = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).map { String($0.output.1) }
+        #expect(addresses.count == 4)
+        #expect(reply.linkPreviews.map(\.url) == Array(addresses.prefix(3)))
+
+        let pictures = reply.linkPreviews.compactMap(\.imageRef)
+        #expect(pictures.count == 2)
+        #expect(pictures.allSatisfy(CompanionProtocol.isMediaRef))
+        #expect(Set(pictures) == Set(FixtureRepliesScript.pictures.keys))
     }
 
     @MainActor

@@ -261,11 +261,7 @@ struct ChatPlacesTests {
     }
 
     private static func links(_ strip: ChatStrip) -> [String] {
-        strip.cards.compactMap { item in
-            guard case .link(let link) = item else { return nil }
-
-            return link.address.absoluteString
-        }
+        strip.links.map(\.address.absoluteString)
     }
 
     /// Each destination once (M66 §3.1): a place's card opens its page, so
@@ -295,7 +291,43 @@ struct ChatPlacesTests {
         #expect(ChatPlaceLink(URL(string: "HTTPS://Example.Coffee/menu/#today")!) == own)
         #expect(ChatPlaceLink(URL(string: "https://example.coffee/Menu")!) != own)
         #expect(ChatPlaceLink(URL(string: "https://example.coffee/menu?day=1")!) != own)
-        #expect(ChatPlaceLink.links(of: []).isEmpty)
+    }
+
+    /// A page on a place's own website is the place's (M72 §8.5): its menu
+    /// or its order page is offered by the card, so the strip leaves it
+    /// there too. Only the place's own website counts, never the page at the
+    /// source, whose host every other place shares.
+    @Test("the strip leaves the pages on a place's own website to its card, and its source's other pages alone")
+    func stripLeavesPlaceWebsitePages() {
+        let text = """
+            [Example Coffee](https://example.coffee/) has its [menu](https://www.Example.Coffee/menu/today) online, \
+            and [another place](https://provider.example/place/9) is near.
+            """
+        let blocks: [CompanionBlock] = [.places([Self.place()])]
+
+        #expect(Self.links(Self.strip(text, blocks: blocks)) == ["https://provider.example/place/9"])
+    }
+
+    @Test("a place's website holds its pages and no other site's; a website with a path holds only the pages under it")
+    func placeWebsiteHolds() throws {
+        let root = try #require(ChatPlaceSite(URL(string: "https://www.tequilamama.com/")!))
+        #expect(root.holds(URL(string: "https://tequilamama.com/menu")!))
+        #expect(root.holds(URL(string: "http://WWW.TequilaMama.com")!))
+        #expect(!root.holds(URL(string: "https://tequilamama.co/menu")!))
+        #expect(!root.holds(URL(string: "https://order.tequilamama.com/")!))
+
+        let page = try #require(ChatPlaceSite(URL(string: "https://example.social/tequilamama/")!))
+        #expect(page.holds(URL(string: "https://example.social/tequilamama")!))
+        #expect(page.holds(URL(string: "https://example.social/tequilamama/photos")!))
+        #expect(!page.holds(URL(string: "https://example.social/tequilamamas")!))
+        #expect(!page.holds(URL(string: "https://example.social/another")!))
+
+        #expect(ChatPlaceSite(URL(string: "mailto:hello@example.coffee")!) == nil)
+    }
+
+    @Test("a reply with no places stands for no link")
+    func noPlacesCoverNothing() {
+        #expect(!ChatPlaceLinks([]).covers(URL(string: "https://example.coffee/")!))
     }
 }
 

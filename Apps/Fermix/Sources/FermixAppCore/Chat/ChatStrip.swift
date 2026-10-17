@@ -16,15 +16,17 @@ import Foundation
 ///    Fermix home, and a picture, video, sound, PDF or document anywhere. A
 ///    path that is only talked about (`/etc/hosts`) stays a link in the text.
 /// 4. The web addresses the text links to, each with its stored preview where
-///    it has one, less the ones a place card under the text already opens
+///    it has one, less the ones a place under the text stands for: its page,
+///    and anything on its own website, which its card opens or offers
 ///    (M72 §8.5).
 ///
-/// They are drawn in two kinds, each keeping that order: first the previews,
-/// the phone-side files and the paths inside the Fermix home that are a
-/// picture, a video, a PDF or a document, which draw what the file holds;
-/// then every other item as a compact card. An item's kind is read from its
-/// path or from the type its row names, so a tile keeps its shape whatever
-/// its file turns out to be.
+/// They are drawn in three kinds, each keeping that order: first the
+/// previews, the phone-side files and the paths inside the Fermix home that
+/// are a picture, a video, a PDF or a document, which draw what the file
+/// holds; then every other file as a compact card; then the web addresses,
+/// each as its link card. An item's kind is read from its path or from the
+/// type its row names, so a tile keeps its shape whatever its file turns out
+/// to be.
 ///
 /// Its words are read once, as the row draws them (`ReplyText`): Fermix's as
 /// markdown, a person's as the plain text they typed.
@@ -37,8 +39,10 @@ struct ChatStrip: Equatable {
     let voiceNote: CompanionMediaRef?
     /// The items whose tiles draw what their file holds.
     let previews: [ChatStripItem]
-    /// Every other item, as a compact card.
+    /// Every other file, as a compact card.
     let cards: [ChatStripItem]
+    /// The web addresses, each as its link card.
+    let links: [ChatStripLink]
     /// The sound files inside the Fermix home the text names, in reading
     /// order: each plays in the row rather than showing as a tile.
     let sounds: [URL]
@@ -53,7 +57,7 @@ struct ChatStrip: Equatable {
 
     /// Every item, previews first: the order they are drawn and counted in.
     var items: [ChatStripItem] {
-        previews + cards
+        previews + cards + links.map(ChatStripItem.link)
     }
 
     /// The strip of a row's content. `plain` reads the words as a person's,
@@ -72,10 +76,10 @@ struct ChatStrip: Equatable {
     ) {
         let read = Self.read(text, plain: plain, userHome: userHome)
         let paths = read.files
-        let placed = ChatPlaceLink.links(of: blocks)
+        let placed = ChatPlaceLinks(blocks)
         let addresses = read.addresses
         let previews = Self.paired(linkPreviews, in: text, with: addresses)
-            .filter { !placed.contains(ChatPlaceLink($0.opens)) }
+            .filter { !placed.covers($0.opens) }
 
         voiceNote = mediaRefs.first { $0.kind == Self.voiceKind }
         sounds = Self.unique(paths.filter { Self.isSound($0, home: home) })
@@ -83,12 +87,13 @@ struct ChatStrip: Equatable {
         let refs = mediaRefs.filter { $0.kind != Self.voiceKind }.map(ChatStripItem.media)
         let loose = previews.filter { $0.written == nil }.map { ChatStripItem.link(ChatStripLink(address: $0.opens, preview: $0.preview)) }
         let files = paths.filter { Self.isTile($0, home: home) }.map(ChatStripItem.file)
-        let links = addresses.filter { !placed.contains(ChatPlaceLink($0)) }.map { address in
+        let linked = addresses.filter { !placed.covers($0) }.map { address in
             ChatStripItem.link(ChatStripLink(address: address, preview: previews.first { $0.written == address }?.preview))
         }
-        let items = Self.unique(refs + loose + files + links)
+        let items = Self.unique(refs + loose + files + linked)
         self.previews = items.filter { Self.drawsContent($0, home: home) }
-        cards = items.filter { !Self.drawsContent($0, home: home) }
+        cards = items.filter { $0.link == nil && !Self.drawsContent($0, home: home) }
+        links = items.compactMap(\.link)
 
         let shown = Set(items.map(\.id) + sounds.map { ChatStripItem.file($0).id })
         let kept = Self.withoutShownLines(text, shown: shown, userHome: userHome)
@@ -341,6 +346,13 @@ enum ChatStripItem: Hashable, Identifiable {
         }
     }
 
+    /// The web address the item is, where it is one.
+    var link: ChatStripLink? {
+        guard case .link(let link) = self else { return nil }
+
+        return link
+    }
+
     static func == (lhs: ChatStripItem, rhs: ChatStripItem) -> Bool {
         lhs.id == rhs.id
     }
@@ -352,9 +364,11 @@ enum ChatStripItem: Hashable, Identifiable {
 
 /// A web address as a tile: what a click opens, and the preview the engine
 /// stored for it, where it stored one.
-struct ChatStripLink: Equatable {
+struct ChatStripLink: Equatable, Identifiable {
     let address: URL
     let preview: CompanionLinkPreview?
+
+    var id: String { ChatDestination(address).key }
 }
 
 /// An address as the strip compares two: the same destination only when they
@@ -395,16 +409,67 @@ struct ChatPlaceLink: Hashable {
         }
         key = parts.string ?? address.absoluteString
     }
+}
 
-    /// Every address the places in `blocks` are known by: each one's own
-    /// website and its page at the source.
-    static func links(of blocks: [CompanionBlock]) -> Set<ChatPlaceLink> {
-        var links: Set<ChatPlaceLink> = []
-        for case .places(let places) in blocks {
-            let addresses = places.flatMap { [$0.canonicalURL, $0.sourceURL] }.compactMap { $0.flatMap(URL.init(string:)) }
-            links.formUnion(addresses.map(ChatPlaceLink.init))
+/// What the places in a reply's blocks stand for, which the strip leaves to
+/// their cards (M72 §8.5): each one's page at the source and its own website,
+/// as the engine matches them (`ChatPlaceLink`), and every page inside that
+/// website (`ChatPlaceSite`), such as its menu, which the card offers as the
+/// place's website.
+struct ChatPlaceLinks {
+    private let pages: Set<ChatPlaceLink>
+    private let sites: [ChatPlaceSite]
+
+    init(_ blocks: [CompanionBlock]) {
+        var places: [CompanionPlace] = []
+        for case .places(let found) in blocks {
+            places += found
         }
-        return links
+        let pages = places.flatMap { [$0.canonicalURL, $0.sourceURL] }.compactMap { $0.flatMap(URL.init(string:)) }
+        self.pages = Set(pages.map(ChatPlaceLink.init))
+        sites = places.compactMap { $0.canonicalURL.flatMap(URL.init(string:)).flatMap(ChatPlaceSite.init) }
+    }
+
+    /// Whether a link is one of the places', or a page on one's website.
+    func covers(_ address: URL) -> Bool {
+        pages.contains(ChatPlaceLink(address)) || sites.contains { $0.holds(address) }
+    }
+}
+
+/// A place's own website as the pages under it: its host, with or without
+/// `www.`, and its path, so `https://tequilamama.com/` holds every page of
+/// that site and `https://example.social/tequilamama` only the pages under
+/// that path, never the rest of a site many places share.
+struct ChatPlaceSite: Equatable {
+    let host: String
+    let path: String
+
+    init?(_ website: URL) {
+        guard let host = Self.host(of: website) else { return nil }
+
+        self.host = host
+        path = Self.path(of: website)
+    }
+
+    func holds(_ address: URL) -> Bool {
+        guard Self.host(of: address) == host else { return false }
+
+        let path = Self.path(of: address)
+        return path == self.path || path.hasPrefix(self.path + "/")
+    }
+
+    private static func host(of address: URL) -> String? {
+        guard let host = address.host(percentEncoded: false)?.lowercased(), !host.isEmpty else { return nil }
+
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    private static func path(of address: URL) -> String {
+        var path = Substring(address.path(percentEncoded: true))
+        while path.hasSuffix("/") {
+            path = path.dropLast()
+        }
+        return String(path)
     }
 }
 

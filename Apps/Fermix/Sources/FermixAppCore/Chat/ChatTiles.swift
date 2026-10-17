@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// A row's strip (M66 §3.2): its previews in one sideways row, then its cards
-/// in another, each on the row's side. A row with more than fits scrolls
+/// A row's strip (M66 §3.2): its previews in one sideways row, then its
+/// files' cards in another, then its links' cards (M72), each on the row's
+/// side. A row with more than fits scrolls
 /// sideways, by trackpad or a shifted wheel, by the arrows at its ends, or by
 /// the arrow keys from tile to tile; a plain wheel still scrolls the
 /// transcript. Nothing opens over the chat.
@@ -28,6 +29,10 @@ struct ChatStripView: View {
                 ChatStripLane(items: strip.cards, itemWidth: card, width: width, trailing: trailing) { item in
                     ChatCard(item: item, width: card)
                 }
+            }
+
+            if !strip.links.isEmpty {
+                ChatLinkLane(links: strip.links, width: width, trailing: trailing)
             }
         }
         .accessibilityElement(children: .contain)
@@ -544,7 +549,7 @@ private struct ChatCard: View {
         switch item {
         case .media(let ref): ChatRefCard(named: ChatNamedRef(ref: ref), width: width)
         case .file(let file): ChatFileCard(named: ChatNamedFile(file: file), width: width)
-        case .link(let link): ChatLinkCard(link: link, width: width)
+        case .link(let link): ChatLinkCard(link: link)
         }
     }
 }
@@ -662,113 +667,6 @@ private struct ChatFileCardButton: View {
         .accessibilityLabel(label)
         .accessibilityValue(missing ? ProductStrings[.chatTileNotAvailable] : "")
         .accessibilityHint(state == .opensOutside ? hint.map(ChatFileReading.spoken) ?? "" : "")
-    }
-}
-
-/// A web address (M66 §3.3): with the preview the engine stored for it, its
-/// title over its site, and its picture where it stored one; without one,
-/// its host over its path, read from the address alone. Nothing is fetched
-/// from the web to draw it. A click opens the address as the text wrote it,
-/// where the person's preference says.
-private struct ChatLinkCard: View {
-    let link: ChatStripLink
-    let width: Double
-
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        Button { openURL(link.address) } label: {
-            ChatCardFace(width: width, title: title, detail: detail, opensOutside: false, titleTruncation: .tail) {
-                if let picture {
-                    ChatLinkPicture(ref: picture)
-                } else {
-                    ChatLinkGlyph()
-                }
-            }
-        }
-        .buttonStyle(ChatTileButtonStyle())
-        .onKeyPress(.return) {
-            openURL(link.address)
-            return .handled
-        }
-        .help(link.address.absoluteString)
-        .accessibilityLabel(ProductStrings.commaPair(title, ProductStrings[.chatKindLink]))
-    }
-
-    private var title: String {
-        link.preview?.title ?? host
-    }
-
-    /// The stored preview's site, or the address's path, or the kind's word
-    /// for an address that is only its host.
-    private var detail: String {
-        if let site = link.preview?.site { return site }
-
-        return path.isEmpty ? ProductStrings[.chatKindLink] : path
-    }
-
-    /// The stored preview's picture, a phone-side file, where its ref is one.
-    private var picture: String? {
-        link.preview?.imageRef.flatMap { CompanionProtocol.isMediaRef($0) ? $0 : nil }
-    }
-
-    private var host: String {
-        link.address.host(percentEncoded: false) ?? link.address.absoluteString
-    }
-
-    /// The address's path, where it has more of one than `/`.
-    private var path: String {
-        let path = link.address.path(percentEncoded: false)
-        return path == "/" ? "" : path
-    }
-}
-
-/// A stored link preview's picture in its card's icon place, filling it
-/// (M66 §3.3, decision 1): made while the card is on screen, from the file
-/// the engine grants for its ref only while the picture is made, through the
-/// same previews as every tile's. The link glyph stands in until it comes,
-/// and where it cannot.
-private struct ChatLinkPicture: View {
-    let ref: String
-
-    @State private var outcome: ChatPreviewOutcome?
-    @State private var onScreen = false
-    @Environment(\.chatRows) private var rows
-    @Environment(\.displayScale) private var scale
-
-    var body: some View {
-        Group {
-            if case .made(.picture(let preview))? = outcome {
-                Image(decorative: preview.image, scale: scale)
-                    .resizable()
-                    .frame(width: ChatMetrics.cardIconSize, height: ChatMetrics.cardIconSize)
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.iconTileSmall, style: .continuous))
-                    .accessibilityHidden(true)
-            } else {
-                ChatLinkGlyph()
-            }
-        }
-        .onScrollVisibilityChange(threshold: 0.01) { onScreen = $0 }
-        .task(id: onScreen) {
-            guard onScreen, let rows, outcome?.isFinal != true else { return }
-
-            let size = CGSize(width: ChatMetrics.cardIconSize, height: ChatMetrics.cardIconSize)
-            let made = await rows.media.previews.preview(ChatPreviewRequest(ref: ref, family: .picture, size: size, scale: scale))
-            guard !Task.isCancelled else { return }
-
-            outcome = made
-        }
-    }
-}
-
-/// A link's glyph in its card's icon place, on the quiet disc.
-private struct ChatLinkGlyph: View {
-    var body: some View {
-        Image(systemName: "link")
-            .fermixType(Typography.style(.calloutSmall))
-            .foregroundStyle(Palette.secondary.color)
-            .frame(width: ChatMetrics.cardIconSize, height: ChatMetrics.cardIconSize)
-            .background(Circle().fill(Palette.monoDisc.color))
     }
 }
 

@@ -79,10 +79,7 @@ struct ChatMediaTests {
         #expect(media.strip(for: row, in: visit) == first)
         #expect(first.items.map(\.id) == ["file:///Users/me/.fermix/out/notes.txt", "https://a.com/x"])
 
-        guard case .link(let link)? = media.strip(for: enriched, in: visit).cards.last else {
-            Issue.record("the address is not a card")
-            return
-        }
+        let link = try #require(media.strip(for: enriched, in: visit).links.last)
         #expect(link.preview?.title == "A page")
 
         #expect(media.strip(for: enriched, in: nil).items.map(\.id) == ["https://a.com/x"])

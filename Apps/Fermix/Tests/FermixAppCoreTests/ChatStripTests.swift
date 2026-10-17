@@ -47,11 +47,12 @@ struct ChatStripTests {
 
     // MARK: - Order and membership
 
-    /// A preview that is no address's stands on its own before the paths,
-    /// and an address's own preview is drawn at the address's place. A
-    /// phone-side picture and a page Fermix made draw their content, so they
-    /// lead, refs first, ahead of every card.
-    @Test("previews lead; then refs, loose previews, paths worth seeing and addresses, each once")
+    /// A phone-side picture and a page Fermix made draw their content, so
+    /// they lead, refs first; then the other files' cards; then the links,
+    /// where a preview that is no address's stands on its own before the
+    /// addresses, and an address's own preview is drawn at the address's
+    /// place.
+    @Test("previews lead; then the files' cards; then loose previews and addresses, each once")
     func order() {
         let strip = Self.strip(
             "See https://b.com/x and /Users/me/.fermix/workspace/report.pdf, then https://b.com/x and ~/notes.pdf again.",
@@ -63,8 +64,8 @@ struct ChatStripTests {
             "ref photo.png",
             "file /Users/me/.fermix/workspace/report.pdf",
             "ref log.txt",
-            "link https://c.com/z = https://c.com/z",
             "file /Users/me/notes.pdf",
+            "link https://c.com/z = https://c.com/z",
             "link https://b.com/x = https://b.com/x",
         ])
     }
@@ -72,7 +73,7 @@ struct ChatStripTests {
     /// A tile's kind is read from its path, before the disk is asked, so it
     /// keeps its shape whatever the file turns out to be: a preview only for
     /// what is drawn by its content, and only inside the home.
-    @Test("a preview is a path inside the home to a picture, a video, a PDF or a document; the rest are cards")
+    @Test("a preview is a path inside the home to a picture, a video, a PDF or a document; other files are cards, addresses links")
     func previewsAndCards() {
         let strip = Self.strip(
             "Made /Users/me/.fermix/w/shot.png, /Users/me/.fermix/w/clip.mov, /Users/me/.fermix/w/q3.docx and "
@@ -93,8 +94,8 @@ struct ChatStripTests {
             "file /Users/me/.fermix/w/page.html",
             "file /Users/me/.fermix/w/table.csv",
             "file /Users/me/Desktop/far.png",
-            "link https://a.com/x",
         ])
+        #expect(strip.links.map(\.address.absoluteString) == ["https://a.com/x"])
     }
 
     /// The engine reads code too: a preview of an address the text has in

@@ -1,4 +1,5 @@
 #if DEBUG
+import CryptoKit
 import Foundation
 
 /// Which timeline a fixture launch's chat holds.
@@ -21,8 +22,9 @@ enum FixtureCompanionTimeline: Equatable {
 /// in by hand. What the daemon would decide is scripted, and no more: it
 /// answers the handshake with this build's window, pages and searches its own
 /// rows, takes a message into a row and a short reply, resolves an approval's
-/// answer, stops a turn that is cancelled, and grants no file: its rows carry
-/// no bytes, so every `media_fetch` is answered `media_missing`.
+/// answer, stops a turn that is cancelled, and grants only the link
+/// pictures of the replies timeline, from sample photos every Mac has; every
+/// other `media_fetch` is answered `media_missing`.
 ///
 /// Callbacks go out on whatever thread asked, which is the main one; the
 /// composition wraps this in the same main-actor delivery the real socket
@@ -104,12 +106,29 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
         case "read_state":
             emit(.readState(profileId: CompanionProtocol.profileId, readUpToSeq: event["read_up_to_seq"] as? Int ?? 0))
         case "media_fetch":
-            emit(.mediaMissing(ref: event["ref"] as? String ?? ""))
+            emit(Self.grant(ref: event["ref"] as? String ?? ""))
         case "media_release":
             break
         default:
             preconditionFailure("the fixture daemon has no answer for \(type)")
         }
+    }
+
+    /// A link picture's sample photo, as the engine grants a file it holds;
+    /// any other ref, or a photo this Mac does not have, is missing.
+    private static func grant(ref: String) -> CompanionServerEvent {
+        guard let path = FixtureRepliesScript.pictures[ref], let bytes = FileManager.default.contents(atPath: path) else {
+            return .mediaMissing(ref: ref)
+        }
+
+        return .mediaPath(CompanionMediaPath(
+            ref: ref,
+            path: path,
+            kind: "image",
+            mime: "image/heic",
+            sizeBytes: bytes.count,
+            sha256: SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        ))
     }
 
     private var head: Int { rows.last?.serverSeq ?? 0 }
@@ -317,6 +336,7 @@ enum FixtureCompanionScript {
         _ content: String,
         clientMsgId: String? = nil,
         inReplyTo: String? = nil,
+        linkPreviews: [CompanionLinkPreview]? = nil,
         blocks: [CompanionBlock]? = nil
     ) -> CompanionTimelineRow {
         CompanionTimelineRow(
@@ -329,7 +349,7 @@ enum FixtureCompanionScript {
             clientMsgId: clientMsgId,
             inReplyTo: inReplyTo,
             metadata: nil,
-            linkPreviews: nil,
+            linkPreviews: linkPreviews,
             blocks: blocks.map(CompanionBlocks.init)
         )
     }
@@ -354,6 +374,55 @@ enum FixtureRepliesScript {
         FixtureCompanionScript.row(8, "assistant", quote, inReplyTo: "fixture-replies-7"),
         FixtureCompanionScript.row(9, "user", "Where can I get tacos around Suwanee Town Center?", clientMsgId: "fixture-replies-9"),
         FixtureCompanionScript.row(10, "assistant", applePlaces, inReplyTo: "fixture-replies-9", blocks: [.places(applePlaceRecords)]),
+        FixtureCompanionScript.row(11, "user", "Any good guides on growing sunflowers and dahlias this spring?", clientMsgId: "fixture-replies-11"),
+        FixtureCompanionScript.row(12, "assistant", links, inReplyTo: "fixture-replies-11", linkPreviews: linkPreviews),
+    ]
+
+    /// Four pages the reply links, as the engine previews them: two with a
+    /// picture, one whose page gave none, and the last with no preview at
+    /// all, as a page the engine could not read is left.
+    static let links = """
+        Three good reads before you plant, and a seed list to start from.
+
+        - [Sunflowers from seed](https://gardennotes.example/grow/sunflowers) covers sowing dates, spacing and staking.
+        - [Dahlias for beginners](https://bloomandroot.example/guides/dahlias-for-beginners) explains tubers and when to lift them.
+        - [A cutting garden in one bed](https://weekendplot.example/2026/03/cutting-garden-in-one-bed) fits both into a small space.
+        - The [spring seed list](https://seedswap.example/lists/spring-seeds) has both in stock.
+
+        Start the sunflowers indoors about three weeks before your last frost.
+        """
+
+    static let linkPreviews: [CompanionLinkPreview] = [
+        CompanionLinkPreview(
+            url: "https://gardennotes.example/grow/sunflowers",
+            site: "Garden Notes",
+            title: "How to grow sunflowers from seed, from sowing to staking",
+            description: "When to sow, how far apart, and how to keep tall stems standing.",
+            imageRef: sunflowerPicture
+        ),
+        CompanionLinkPreview(
+            url: "https://bloomandroot.example/guides/dahlias-for-beginners",
+            site: "Bloom and Root",
+            title: "Dahlias for beginners",
+            description: "Tubers, spacing, and when to lift them before the first frost.",
+            imageRef: dahliaPicture
+        ),
+        CompanionLinkPreview(
+            url: "https://weekendplot.example/2026/03/cutting-garden-in-one-bed",
+            site: "Weekend Plot",
+            title: "A cutting garden in one bed",
+            description: nil,
+            imageRef: nil
+        ),
+    ]
+
+    static let sunflowerPicture = "fba54ed7dccc3de7aefa463fe159b5b315a38c452f51bf526aa9ac3222ade744"
+    static let dahliaPicture = "d08cccaf4c5bf5dbceb48adb1807de2698ccc1cebd82c4e7a09c90ba3d37cdb5"
+
+    /// Each picture's file: a sample photo macOS keeps for account pictures.
+    static let pictures = [
+        sunflowerPicture: "/Library/User Pictures/Flowers/Sunflower.heic",
+        dahliaPicture: "/Library/User Pictures/Flowers/Dahlia.heic",
     ]
 
     /// A short lead and one line per place, each linked by name, in the order
@@ -430,7 +499,7 @@ enum FixtureRepliesScript {
     static let applePlaces = """
         Three taquerias within a few minutes of Town Center.
 
-        - [Tequila Mama Taqueria](https://tequilamama.com/) is on Town Center Avenue, facing the park.
+        - [Tequila Mama Taqueria](https://tequilamama.com/) is on Town Center Avenue, facing the park, with its [menu](https://tequilamama.com/menu) online.
         - [Beto's Tacos](https://maps.apple.com/place?place-id=I47957D91CD7E2F7B) is a short drive south on Lawrenceville-Suwanee Road.
         - [A Tacoria](https://maps.apple.com/place?place-id=I89FC92F8D04D97C5) is a few minutes north-west, on Peachtree Industrial Boulevard.
 
