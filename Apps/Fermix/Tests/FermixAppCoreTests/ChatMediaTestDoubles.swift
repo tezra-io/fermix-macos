@@ -6,8 +6,9 @@ import UniformTypeIdentifiers
 
 /// The Mac's frameworks as a tile's previews meet them, played by hand: what
 /// ImageIO and PDF say of each file is set up front, and each thumbnail
-/// either comes at once or waits until the case finishes or fails it. No file
-/// is read and Quick Look is never asked. What AVFoundation says is
+/// either comes at once or waits until the case finishes or fails it. A map
+/// comes at once as the case's picture, or fails where the case gave none. No file is read,
+/// and neither Quick Look nor MapKit is asked. What AVFoundation says is
 /// `FakeMediaFacts`'s.
 final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     /// How a thumbnail comes.
@@ -24,23 +25,34 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     /// Whether a cancelled thumbnail stops; false plays a renderer that
     /// finishes its work whatever it is told.
     private let stopsWhenCancelled: Bool
+    private let mapPicture: CGImage?
 
     private let lock = NSLock()
     private var waiting: [(id: UUID, file: URL, continuation: CheckedContinuation<CGImage, Error>)] = []
     private var cancelledEarly: Set<UUID> = []
     private var asked: [URL] = []
     private var cancelled = 0
+    private var mapped: [MapAsk] = []
+
+    /// One map asked for.
+    struct MapAsk: Equatable {
+        let area: PlaceMapArea
+        let size: CGSize
+        let appearance: PlaceMapAppearance
+    }
 
     init(
         thumbnails: Thumbnails = .held,
         pictures: [URL: ChatPictureFacts] = [:],
         pages: [URL: Int] = [:],
-        stopsWhenCancelled: Bool = true
+        stopsWhenCancelled: Bool = true,
+        map: CGImage? = nil
     ) {
         self.thumbnails = thumbnails
         self.pictures = pictures
         self.pages = pages
         self.stopsWhenCancelled = stopsWhenCancelled
+        mapPicture = map
     }
 
     /// Every file a thumbnail was asked of, in order.
@@ -86,6 +98,16 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
 
     func pageCount(of file: URL) async -> Int? {
         pages[file]
+    }
+
+    /// Every map asked for, in order.
+    var mapsAsked: [MapAsk] { lock.withLock { mapped } }
+
+    func map(of area: PlaceMapArea, size: CGSize, appearance: PlaceMapAppearance) async throws -> CGImage {
+        lock.withLock { mapped.append(MapAsk(area: area, size: size, appearance: appearance)) }
+        guard let mapPicture else { throw CocoaError(.fileReadUnknown) }
+
+        return mapPicture
     }
 
     private func resume(_ id: UUID, with answer: (CheckedContinuation<CGImage, Error>) -> Void) {

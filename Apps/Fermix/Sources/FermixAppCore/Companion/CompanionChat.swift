@@ -22,6 +22,10 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
     /// The link previews the engine stored on the row, as the event that
     /// brought the row had them. One stored later arrives as `row_updated`.
     public let linkPreviews: [CompanionLinkPreview]
+    /// The records the engine kept with a reply, drawn under its text
+    /// (M72 §8.3). Every event that brings a reply carries them, its turn's
+    /// `text_done` too, so history bringing the row again changes nothing.
+    public let blocks: [CompanionBlock]
 
     public var id: Int { serverSeq }
 
@@ -34,7 +38,8 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
         inReplyTo: String?,
         turnId: String?,
         mediaRefs: [CompanionMediaRef] = [],
-        linkPreviews: [CompanionLinkPreview] = []
+        linkPreviews: [CompanionLinkPreview] = [],
+        blocks: [CompanionBlock] = []
     ) {
         self.serverSeq = serverSeq
         self.text = text
@@ -45,6 +50,7 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
         self.turnId = turnId
         self.mediaRefs = mediaRefs
         self.linkPreviews = linkPreviews
+        self.blocks = blocks
     }
 }
 
@@ -60,7 +66,8 @@ extension CompanionRow {
             inReplyTo: row.inReplyTo,
             turnId: nil,
             mediaRefs: row.mediaRefs,
-            linkPreviews: row.linkPreviews ?? []
+            linkPreviews: row.linkPreviews ?? [],
+            blocks: row.blocks?.known ?? []
         )
     }
 
@@ -76,12 +83,13 @@ extension CompanionRow {
             inReplyTo: nil,
             turnId: nil,
             mediaRefs: row.mediaRefs,
-            linkPreviews: row.linkPreviews ?? []
+            linkPreviews: row.linkPreviews ?? [],
+            blocks: row.blocks?.known ?? []
         )
     }
 
-    /// A reply part at its row, from the turn's `text_done`.
-    init(reply turnId: String, serverSeq: Int, text: String, inReplyTo: String?) {
+    /// A reply part at its row, from the turn's `text_done`, with its blocks.
+    init(reply turnId: String, serverSeq: Int, text: String, inReplyTo: String?, blocks: [CompanionBlock]) {
         self.init(
             serverSeq: serverSeq,
             text: text,
@@ -89,15 +97,17 @@ extension CompanionRow {
             timestamp: nil,
             clientMsgId: nil,
             inReplyTo: inReplyTo,
-            turnId: turnId
+            turnId: turnId,
+            blocks: blocks
         )
     }
 
-    /// Whether two rows at one seq draw alike: the same text, files and
-    /// previews (M66 §3.1). Who wrote a row and when are not what changes its
-    /// height when history brings it again.
+    /// Whether two rows at one seq draw alike: the same text, files,
+    /// previews (M66 §3.1) and blocks (M72 §8.5). Who wrote a row and when
+    /// are not what changes its height when history brings it again.
     func drawsAlike(_ other: CompanionRow) -> Bool {
         text == other.text && mediaRefs == other.mediaRefs && linkPreviews == other.linkPreviews
+            && blocks == other.blocks
     }
 }
 

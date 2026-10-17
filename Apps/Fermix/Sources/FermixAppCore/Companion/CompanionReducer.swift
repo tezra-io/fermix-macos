@@ -217,8 +217,8 @@ enum CompanionReducer {
             var turn = held(tool.turnId, in: chat)
             turn.tool = tool
             chat.turn = turn
-        case .textDone(let turnId, let serverSeq, let text):
-            return finish(turnId, at: serverSeq, text: text, into: &chat)
+        case .textDone(let turnId, let serverSeq, let text, let blocks):
+            return finish(turnId, at: serverSeq, text: text, blocks: blocks, into: &chat)
         case .turnError(let turnId, let code, let message):
             end(turnId, in: &chat)
             chat.lastError = sentence(forTurnError: code, message: message)
@@ -265,12 +265,14 @@ enum CompanionReducer {
         _ turnId: String,
         at serverSeq: Int,
         text: String,
+        blocks: [CompanionBlock],
         into chat: inout CompanionChat
     ) -> [CompanionClientEvent] {
         let inReplyTo = chat.turn?.turnId == turnId ? chat.turn?.inReplyTo : nil
         end(turnId, in: &chat)
 
-        return applyLive(CompanionRow(reply: turnId, serverSeq: serverSeq, text: text, inReplyTo: inReplyTo), into: &chat)
+        let row = CompanionRow(reply: turnId, serverSeq: serverSeq, text: text, inReplyTo: inReplyTo, blocks: blocks)
+        return applyLive(row, into: &chat)
     }
 
     private static func end(_ turnId: String, in chat: inout CompanionChat) {

@@ -323,6 +323,21 @@ struct ContainerRuleTests {
         #expect(offenders.isEmpty, "web content outside the browser target in: \(offenders.map(\.path))")
     }
 
+    /// The maps are a reply's map's and nobody else's (M72 §7.2), for the
+    /// same reason: a MapKit import in `FermixAppCore` would put the maps
+    /// into `FermixAgent`, which draws nothing. The core declares the
+    /// `PlaceMapDrawing` seam and imports nothing; `FermixViewers`, linked by
+    /// the GUI executable alone, is the one place a snapshot is taken.
+    @Test("only the viewers target imports MapKit")
+    func noMapKit() throws {
+        let importers = try SparkleAdapterSource.everySwiftFileUnderSources()
+            .filter { $0.text.contains("import MapKit") || $0.text.contains("MKMapSnapshotter") }
+        let offenders = importers.filter { !$0.path.contains("/FermixViewers/") }
+
+        #expect(importers.contains { $0.path.contains("/FermixViewers/") }, "the scan found no viewers target")
+        #expect(offenders.isEmpty, "maps outside the viewers target in: \(offenders.map(\.path))")
+    }
+
     /// The primitives M34 §6 deletes. Written as one invariant over the whole
     /// list so a resurrection of any of them fails here.
     @Test("the deleted primitives are gone from the tree")

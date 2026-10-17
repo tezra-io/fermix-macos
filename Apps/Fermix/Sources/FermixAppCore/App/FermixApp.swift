@@ -24,8 +24,9 @@ public enum FermixApp {
     /// - Parameter viewers: the pane's own viewers, handed in for the same
     ///   reason: their implementation links AVKit and QuickLookUI.
     /// - Parameter mediaReader: what the Mac's own frameworks say of a file a
-    ///   chat tile names, handed in for the same reason: its implementation
-    ///   links QuickLookThumbnailing.
+    ///   chat tile names, and the map of a reply's places, handed in for the
+    ///   same reason: its implementation links QuickLookThumbnailing and
+    ///   MapKit.
     @MainActor
     public static func main(
         updater: any UpdaterDriving,

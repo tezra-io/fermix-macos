@@ -46,7 +46,8 @@ enum CompanionMediaRows {
                 kind: "media",
                 metadata: nil,
                 mediaRefs: refs,
-                linkPreviews: previews
+                linkPreviews: previews,
+                blocks: nil
             )
         )
     }
@@ -70,7 +71,8 @@ enum CompanionMediaRows {
             clientMsgId: nil,
             inReplyTo: nil,
             metadata: nil,
-            linkPreviews: previews
+            linkPreviews: previews,
+            blocks: nil
         )
     }
 

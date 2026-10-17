@@ -50,7 +50,8 @@ enum CompanionEvents {
                 kind: "text",
                 metadata: nil,
                 mediaRefs: [],
-                linkPreviews: nil
+                linkPreviews: nil,
+                blocks: nil
             )
         )
     }
@@ -66,7 +67,8 @@ enum CompanionEvents {
             clientMsgId: nil,
             inReplyTo: nil,
             metadata: nil,
-            linkPreviews: nil
+            linkPreviews: nil,
+            blocks: nil
         )
     }
 

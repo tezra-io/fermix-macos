@@ -44,6 +44,9 @@ enum FixtureStart: Equatable {
     /// Chat over a timeline with nothing in it, which is the only way its
     /// empty state is drawn: `chat` itself opens on the full timeline.
     case emptyChat
+    /// Chat over replies drawn for what they hold (M72): a reply's places on
+    /// their map and cards, lists and steps, a table and a quote.
+    case chatReplies
     /// Chat with the browser pane open beside it on two fake tabs. The pane
     /// closed is `chat` itself.
     case browser
@@ -64,6 +67,7 @@ enum FixtureStart: Equatable {
     static let restartSheetName = "restart-sheet"
     static let approvalStepName = "assistant/approval"
     static let emptyChatName = "chat-empty"
+    static let chatRepliesName = "chat-replies"
     static let browserName = "browser"
     static let chatCallName = "chat-call"
     static let failedChatCallName = "chat-call-failed"
@@ -78,6 +82,8 @@ enum FixtureStart: Equatable {
             self = .approvalStep
         } else if name == Self.emptyChatName {
             self = .emptyChat
+        } else if name == Self.chatRepliesName {
+            self = .chatReplies
         } else if name == Self.browserName {
             self = .browser
         } else if name == Self.chatCallName {
@@ -104,7 +110,7 @@ enum FixtureStart: Equatable {
         AppRoute.allCases.map(\.rawValue)
             + SettingsPane.allCases.map { settingsPrefix + $0.slug }
             + OnboardingStage.allCases.map { assistantPrefix + $0.rawValue }
-            + [restartSheetName, approvalStepName, emptyChatName, browserName, chatCallName, failedChatCallName]
+            + [restartSheetName, approvalStepName, emptyChatName, chatRepliesName, browserName, chatCallName, failedChatCallName]
             + FixturePhoneStart.allCases.map { phonePrefix + $0.rawValue }
     }
 }
@@ -275,7 +281,7 @@ struct FixtureLaunch {
         case .surface(let route): return .route(route)
         case .settings(let pane): return .settings(pane)
         case .restartSheet: return .homeWithRestartSheet
-        case .emptyChat: return .route(.chat)
+        case .emptyChat, .chatReplies: return .route(.chat)
         case .browser: return .chatWithBrowser
         case .chatCall, .failedChatCall: return .chatWithCall
         case .phone(let step): return .channelsWithPhone(step.intent)
@@ -291,10 +297,15 @@ struct FixtureLaunch {
         return home == .fresh ? .switchedOff : .published
     }
 
-    /// The timeline the chat holds. Every start but the empty one gets the
-    /// full timeline, so Chat reached from any of them shows a conversation.
+    /// The timeline the chat holds. Every start but the empty one and the
+    /// replies' gets the full timeline, so Chat reached from any of them
+    /// shows a conversation.
     var companionTimeline: FixtureCompanionTimeline {
-        start == .emptyChat ? .empty : .full
+        switch start {
+        case .emptyChat: return .empty
+        case .chatReplies: return .replies
+        default: return .full
+        }
     }
 
     /// The call the voice socket's scripted daemon plays. Every start but the
@@ -314,6 +325,7 @@ struct FixtureLaunch {
         case .restartSheet: return FixtureStart.restartSheetName
         case .approvalStep: return "assistant-approval"
         case .emptyChat: return FixtureStart.emptyChatName
+        case .chatReplies: return FixtureStart.chatRepliesName
         case .browser: return FixtureStart.browserName
         case .chatCall: return FixtureStart.chatCallName
         case .failedChatCall: return FixtureStart.failedChatCallName

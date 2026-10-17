@@ -32,13 +32,14 @@ final class ChatMedia {
     private var hints: [String: ChatTileHint] = [:]
 
     /// What a row's strip is worked out from, so it is worked out again only
-    /// when that changes: history may bring the same row with more in it, and
-    /// a visit may find the home elsewhere.
+    /// when that changes: history may bring the same row with more in it,
+    /// its blocks among it, and a visit may find the home elsewhere.
     private struct StripSource: Equatable {
         let text: String
         let plain: Bool
         let mediaRefs: [CompanionMediaRef]
         let linkPreviews: [CompanionLinkPreview]
+        let blocks: [CompanionBlock]
         let home: ChatHome?
     }
 
@@ -84,6 +85,7 @@ final class ChatMedia {
             plain: ChatSpeaker.isUser(row.role),
             mediaRefs: row.mediaRefs,
             linkPreviews: row.linkPreviews,
+            blocks: row.blocks,
             home: visit?.paths
         )
         if let kept = strips[row.serverSeq], kept.source == source { return kept.strip }
@@ -93,6 +95,7 @@ final class ChatMedia {
             plain: source.plain,
             mediaRefs: source.mediaRefs,
             linkPreviews: source.linkPreviews,
+            blocks: source.blocks,
             userHome: userHome,
             home: source.home
         )

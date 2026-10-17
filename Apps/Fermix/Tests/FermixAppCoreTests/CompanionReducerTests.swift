@@ -254,7 +254,7 @@ struct CompanionReducerTests {
         #expect(chat.turn == nil)
         #expect(
             chat.rows.last
-                == CompanionRow(reply: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10.", inReplyTo: "mac-1")
+                == CompanionRow(reply: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10.", inReplyTo: "mac-1", blocks: [])
         )
         #expect(chat.cursor == 13)
     }

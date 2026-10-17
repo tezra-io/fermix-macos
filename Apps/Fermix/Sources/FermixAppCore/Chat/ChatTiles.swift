@@ -48,12 +48,15 @@ struct ChatStripView: View {
 /// has focus the arrow keys move focus from item to item instead, bringing
 /// each into view. Neither ever takes an arrow key from anything else that
 /// has focus, the composer among them.
-private struct ChatStripLane<Tile: View>: View {
-    let items: [ChatStripItem]
+///
+/// A reply's place cards ride the same row (M72 §8.1), so it takes any item
+/// known by a string.
+struct ChatStripLane<Item: Identifiable, Tile: View>: View where Item.ID == String {
+    let items: [Item]
     let itemWidth: Double
     let width: Double
     let trailing: Bool
-    @ViewBuilder let tile: (ChatStripItem) -> Tile
+    @ViewBuilder let tile: (Item) -> Tile
 
     @State private var position = ScrollPosition(idType: String.self, edge: .leading)
     @State private var scroll = ChatStripScroll(offset: 0, content: 0, container: 0)
@@ -827,7 +830,7 @@ private struct ChatCardIcon: View {
 /// A tile's own shape: the chip's fill and the user chip's corners, at a size
 /// it keeps from the moment it is drawn, whatever it is waiting for, so
 /// nothing under it moves as previews arrive.
-private struct ChatTileFrame<Content: View>: View {
+struct ChatTileFrame<Content: View>: View {
     let size: CGSize
     @ViewBuilder let content: Content
 
@@ -993,7 +996,7 @@ private struct ChatTileIcon: View {
 
 /// A tile's press: it dims while held, and nothing else, since the tile draws
 /// its own rest and hover.
-private struct ChatTileButtonStyle: ButtonStyle {
+struct ChatTileButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? ChatMetrics.tilePressedStrength : 1)

@@ -16,9 +16,10 @@ struct ChatStripTests {
         plain: Bool = false,
         refs: [CompanionMediaRef] = [],
         previews: [CompanionLinkPreview] = [],
+        blocks: [CompanionBlock] = [],
         home: ChatHome? = home
     ) -> ChatStrip {
-        ChatStrip(text: text, plain: plain, mediaRefs: refs, linkPreviews: previews, userHome: "/Users/me", home: home)
+        ChatStrip(text: text, plain: plain, mediaRefs: refs, linkPreviews: previews, blocks: blocks, userHome: "/Users/me", home: home)
     }
 
     private static func ref(_ name: String, kind: String = "image", mime: String = "image/png") -> CompanionMediaRef {

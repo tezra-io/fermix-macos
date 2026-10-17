@@ -463,7 +463,9 @@ public enum CompanionServerEvent: Equatable, Sendable {
     case textDelta(turnId: String, text: String)
     case toolEvent(CompanionToolEvent)
     /// A reply's canonical text at its timeline row; it replaces the draft.
-    case textDone(turnId: String, serverSeq: Int, text: String)
+    /// Its blocks (M72 §8.3) come with it, never mid-stream, so they appear
+    /// once, under text that has finished.
+    case textDone(turnId: String, serverSeq: Int, text: String, blocks: [CompanionBlock] = [])
     /// The turn's terminal failure: `cancelled` after a cancel, `interrupted`
     /// when the daemon lost the turn, or the failure's own code.
     case turnError(turnId: String, code: String, message: String)
@@ -557,7 +559,7 @@ public enum CompanionServerEvent: Equatable, Sendable {
 
 extension CompanionServerEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case type, text, code, message, outcome, ref
+        case type, text, code, message, outcome, ref, blocks
         case minVersion = "min_version"
         case maxVersion = "max_version"
         case profileId = "profile_id"
@@ -599,7 +601,8 @@ extension CompanionServerEvent: Decodable {
             self = .textDone(
                 turnId: try fields.decode(String.self, forKey: .turnId),
                 serverSeq: try fields.decode(Int.self, forKey: .serverSeq),
-                text: try fields.decode(String.self, forKey: .text)
+                text: try fields.decode(String.self, forKey: .text),
+                blocks: try fields.decodeIfPresent(CompanionBlocks.self, forKey: .blocks)?.known ?? []
             )
         case "turn_error":
             self = .turnError(

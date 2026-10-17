@@ -66,7 +66,9 @@ struct ChatItemView: View {
 }
 
 /// A finished row, on its side: its words, or its voice note with its words
-/// as the transcript; under them the sound files it names in the Fermix home;
+/// as the transcript; under them the records its reply was drawn with, a map
+/// and cards for the places it recommends (M72 §8.1); then the sound files it
+/// names in the Fermix home;
 /// the note and each sound playable where it is (M66 §3.4); and then its
 /// strip (§3.1). Its words are the strip's text, without the lines that only
 /// name what the strip and the players show. A row with no other words, a
@@ -107,6 +109,8 @@ struct ChatRow: View, Equatable {
                     ChatReplyRow(blocks: reply.blocks, marked: marked, speaker: row.role)
                 }
             }
+
+            ChatRecords(blocks: row.blocks)
 
             ForEach(strip.sounds, id: \.self) { sound in
                 ChatSoundRow(url: sound, name: sound.lastPathComponent, player: rows.player)

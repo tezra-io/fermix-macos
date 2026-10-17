@@ -23,9 +23,12 @@ public struct CompanionTimelineRow: Equatable, Sendable, Decodable {
     /// The link previews the engine stored on the row, at most four. The key
     /// is present only when there is one.
     public let linkPreviews: [CompanionLinkPreview]?
+    /// The records the engine kept with a reply (M72 §8.3). The key is
+    /// present only when there is one.
+    public let blocks: CompanionBlocks?
 
     private enum CodingKeys: String, CodingKey {
-        case role, content, kind, metadata
+        case role, content, kind, metadata, blocks
         case serverSeq = "server_seq"
         case timestamp = "ts"
         case mediaRefs = "media_refs"
@@ -75,9 +78,12 @@ public struct CompanionAnnouncedRow: Equatable, Sendable, Decodable {
     /// one. A preview stored later arrives as `row_updated`.
     public let mediaRefs: [CompanionMediaRef]
     public let linkPreviews: [CompanionLinkPreview]?
+    /// The history message's blocks (M72 §8.3), only when it has one: the
+    /// phone's reply arrives as a row.
+    public let blocks: CompanionBlocks?
 
     private enum CodingKeys: String, CodingKey {
-        case role, text, kind, metadata
+        case role, text, kind, metadata, blocks
         case profileId = "profile_id"
         case serverSeq = "server_seq"
         case timestamp = "ts"

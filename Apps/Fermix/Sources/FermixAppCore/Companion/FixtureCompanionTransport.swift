@@ -8,6 +8,9 @@ enum FixtureCompanionTimeline: Equatable {
     /// A dozen rows of both sides with older ones behind them, a reply being
     /// written with a tool running, and an approval waiting.
     case full
+    /// Replies drawn for what they hold (M72): places with their map and
+    /// cards, lists, a table and a quote, and nothing happening now.
+    case replies
 }
 
 /// The companion socket, replaced by a scripted daemon.
@@ -51,6 +54,9 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
         case .full:
             rows = FixtureCompanionScript.rows
             opening = FixtureCompanionScript.opening
+        case .replies:
+            rows = FixtureRepliesScript.rows
+            opening = []
         }
     }
 
@@ -193,7 +199,8 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             kind: "text",
             metadata: nil,
             mediaRefs: [],
-            linkPreviews: nil
+            linkPreviews: nil,
+            blocks: nil
         )))
 
         repliesWritten += 1
@@ -309,7 +316,8 @@ enum FixtureCompanionScript {
         _ role: String,
         _ content: String,
         clientMsgId: String? = nil,
-        inReplyTo: String? = nil
+        inReplyTo: String? = nil,
+        blocks: [CompanionBlock]? = nil
     ) -> CompanionTimelineRow {
         CompanionTimelineRow(
             serverSeq: seq,
@@ -321,8 +329,126 @@ enum FixtureCompanionScript {
             clientMsgId: clientMsgId,
             inReplyTo: inReplyTo,
             metadata: nil,
-            linkPreviews: nil
+            linkPreviews: nil,
+            blocks: blocks.map(CompanionBlocks.init)
         )
     }
+}
+
+/// What the replies timeline holds (M72): four questions, each answered in
+/// the shape its answer takes. Places in SoHo with the engine's block of
+/// them, one place with every field and the others each missing one, the
+/// last with a long name; then a list and steps, a table, and a quote, which
+/// are the reply's own markdown.
+enum FixtureRepliesScript {
+    static let rows: [CompanionTimelineRow] = [
+        FixtureCompanionScript.row(1, "user", "Can you find a few quiet coffee shops in SoHo where I could work for an hour?", clientMsgId: "fixture-replies-1"),
+        FixtureCompanionScript.row(2, "assistant", places, inReplyTo: "fixture-replies-1", blocks: [.places(placeRecords)]),
+        FixtureCompanionScript.row(3, "user", "What should I pack for the hike on Saturday?", clientMsgId: "fixture-replies-3"),
+        FixtureCompanionScript.row(4, "assistant", lists, inReplyTo: "fixture-replies-3"),
+        FixtureCompanionScript.row(5, "user", "Compare the three flights to Lisbon for me.", clientMsgId: "fixture-replies-5"),
+        FixtureCompanionScript.row(6, "assistant", table, inReplyTo: "fixture-replies-5"),
+        FixtureCompanionScript.row(7, "user", "What did Priya say about the launch in her last email?", clientMsgId: "fixture-replies-7"),
+        FixtureCompanionScript.row(8, "assistant", quote, inReplyTo: "fixture-replies-7"),
+    ]
+
+    /// A short lead and one line per place, each linked by name, in the order
+    /// the block holds them.
+    static let places = """
+        Here are four quiet places within a short walk, with seats and steady wifi.
+
+        - [Little Wooster Espresso Bar](https://littlewooster.example/) is small but calm before noon.
+        - [Mercer Roasting Room](https://mercerroasting.example/) has long tables at the back, away from the counter.
+        - [Spring and Thompson](https://places.example/p/spring-and-thompson) is quiet in the afternoon, with outlets along the wall.
+        - [The Reading Room at Broome Street Books and Coffee](https://broomestreetbooks.example/reading-room) asks for low voices, so it stays hushed.
+
+        Hours and ratings change, so check before you go.
+        """
+
+    static let placeRecords: [CompanionPlace] = [
+        CompanionPlace(
+            name: "Little Wooster Espresso Bar",
+            canonicalURL: "https://littlewooster.example/",
+            sourceURL: "https://places.example/p/little-wooster-espresso-bar",
+            location: CompanionPlaceLocation(latitude: 40.7239, longitude: -74.0011),
+            address: "88 Wooster St, New York, NY 10012",
+            rating: CompanionPlaceRating(value: 4.4, best: 5, count: 87),
+            priceRange: "$$",
+            categories: ["espresso_bar"],
+            openingHours: nil,
+            distance: CompanionPlaceDistance(value: 0.3, units: "km")
+        ),
+        CompanionPlace(
+            name: "Mercer Roasting Room",
+            canonicalURL: "https://mercerroasting.example/",
+            sourceURL: "https://places.example/p/mercer-roasting-room",
+            location: CompanionPlaceLocation(latitude: 40.7247, longitude: -73.9986),
+            address: "112 Mercer St, New York, NY 10012",
+            rating: CompanionPlaceRating(value: 4.6, best: 5, count: 321),
+            priceRange: "$$",
+            categories: ["coffee_shop", "bakery"],
+            openingHours: CompanionPlaceHours(currentDay: "Thursday 07:00-19:00"),
+            distance: CompanionPlaceDistance(value: 0.4, units: "km")
+        ),
+        CompanionPlace(
+            name: "Spring and Thompson",
+            canonicalURL: nil,
+            sourceURL: "https://places.example/p/spring-and-thompson",
+            location: CompanionPlaceLocation(latitude: 40.7255, longitude: -74.0023),
+            address: "201 Spring St, New York, NY 10012",
+            rating: nil,
+            priceRange: "$",
+            categories: ["cafe"],
+            openingHours: CompanionPlaceHours(currentDay: "Thursday 08:00-18:00"),
+            distance: CompanionPlaceDistance(value: 0.6, units: "km")
+        ),
+        CompanionPlace(
+            name: "The Reading Room at Broome Street Books and Coffee",
+            canonicalURL: "https://broomestreetbooks.example/reading-room",
+            sourceURL: "https://places.example/p/broome-street-books",
+            location: CompanionPlaceLocation(latitude: 40.7226, longitude: -74.0004),
+            address: "421 Broome St, New York, NY 10013",
+            rating: CompanionPlaceRating(value: 4.8, best: 5, count: 1204),
+            priceRange: "$$",
+            categories: ["book_store"],
+            openingHours: CompanionPlaceHours(currentDay: "Thursday 09:00-21:00"),
+            distance: CompanionPlaceDistance(value: 0.8, units: "km")
+        ),
+    ]
+
+    static let lists = """
+        For a day hike this time of year, pack light and in layers.
+
+        - Water, at least two litres
+        - A warm layer and a rain shell
+        - Snacks that will not melt
+        - A charged phone and a paper map
+
+        Before you set off:
+
+        1. Check the forecast for the trailhead, not the town.
+        2. Tell someone your route and when you expect to be back.
+        3. Start early, so you finish in daylight.
+        """
+
+    static let table = """
+        Here are the three options, cheapest first.
+
+        | Flight | Departs | Arrives | Price |
+        | --- | --- | --- | --- |
+        | TP 202 | 08:10 | 20:35 | $412 |
+        | UA 66 | 17:55 | 06:20 next day | $468 |
+        | DL 260 | 19:30 | 08:15 next day | $503 |
+
+        The first is the only one that lands the same day.
+        """
+
+    static let quote = """
+        She wrote:
+
+        > The release notes are ready for review. If nobody objects by Wednesday, we ship on the 14th as planned.
+
+        Nobody has objected so far.
+        """
 }
 #endif

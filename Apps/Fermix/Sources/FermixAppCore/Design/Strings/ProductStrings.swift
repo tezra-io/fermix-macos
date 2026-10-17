@@ -486,6 +486,15 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// pressed.
     case chatCodeCopy = "chat.code.copy"
     case chatCodeCopied = "chat.code.copied"
+    /// A reply's places (M72 §8.1): what VoiceOver calls the map, a card's
+    /// menu, and the rating and distance on a card, each a number and its
+    /// count or units.
+    case chatPlacesMap = "chat.places.map"
+    case chatPlaceOpenInMaps = "chat.place.openInMaps"
+    case chatPlaceOpenWebsite = "chat.place.openWebsite"
+    case chatPlaceCopyAddress = "chat.place.copyAddress"
+    case chatPlaceRatingFormat = "chat.place.ratingFormat"
+    case chatPlaceDistanceFormat = "chat.place.distanceFormat"
 
     // The browser pane. Its one sentence says why something the person asked
     // for did not happen, or what became of a file they saved.

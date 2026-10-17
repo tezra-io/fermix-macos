@@ -422,6 +422,12 @@
 "chat.task.open" = "Not done";
 "chat.code.copy" = "Copy";
 "chat.code.copied" = "Copied";
+"chat.places.map" = "Map of the places";
+"chat.place.openInMaps" = "Open in Maps";
+"chat.place.openWebsite" = "Open website";
+"chat.place.copyAddress" = "Copy address";
+"chat.place.ratingFormat" = "%1$@ (%2$@)";
+"chat.place.distanceFormat" = "%1$@ %2$@";
 
 /* MARK: Browser */
 "browser.notice.notAnAddress" = "Enter a web address, such as fermix.ai.";

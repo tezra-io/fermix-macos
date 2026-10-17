@@ -5,16 +5,18 @@ import UniformTypeIdentifiers
 /// What a preview job made of a file's content: the picture a tile draws of
 /// it, or the levels a sound's waveform is drawn from. A waveform is a preview
 /// of its sound as a thumbnail is of its file, made, kept and let go by the
-/// same previews.
+/// same previews, and so is a map of a reply's places (M72 §7.2).
 enum ChatPreviewMade: Equatable, Sendable {
     case picture(ChatPreview)
     case levels(SoundLevels)
+    case map(PlaceMapPicture)
 
     /// What it holds decoded, which the cache counts.
     var bytes: Int {
         switch self {
         case .picture(let preview): return preview.bytes
         case .levels(let levels): return levels.bytes
+        case .map(let map): return map.bytes
         }
     }
 }
@@ -116,21 +118,25 @@ enum ChatPreviewBudget {
 }
 
 /// What a preview is kept by: what its content is known by, and what was
-/// made of it, a picture at a pixel size and scale or a sound's levels in so
-/// many stretches (M66 §3.7).
+/// made of it, a picture at a pixel size and scale, a sound's levels in so
+/// many stretches (M66 §3.7), or a map at a pixel size, scale and appearance
+/// (M72 §7.2).
 struct ChatPreviewKey: Hashable, Sendable {
     /// A file's identity, modification date and size, so an edited or
     /// replaced file is a new key and a stale result can never be shown for
     /// it; or a phone-side file's ref, which names its content and never
-    /// changes, so a fresh copy of the same file is no new work.
+    /// changes, so a fresh copy of the same file is no new work; or a map's
+    /// places, by their coordinates alone, which are all a map draws.
     enum Content: Hashable, Sendable {
         case file(ChatFileIdentity, modified: Date, size: Int)
         case ref(String)
+        case places([CompanionPlaceLocation])
     }
 
     enum Form: Hashable, Sendable {
         case picture(pixelWidth: Int, pixelHeight: Int, scale: Double)
         case levels(buckets: Int)
+        case map(pixelWidth: Int, pixelHeight: Int, scale: Double, appearance: PlaceMapAppearance)
     }
 
     let content: Content
@@ -147,6 +153,13 @@ struct ChatPreviewKey: Hashable, Sendable {
     init(_ content: Content, buckets: Int) {
         self.content = content
         form = .levels(buckets: buckets)
+    }
+
+    /// A map of `places` at `size` points and `scale`, in one appearance.
+    init(places: [CompanionPlaceLocation], size: CGSize, scale: Double, appearance: PlaceMapAppearance) {
+        let pixels = Self.pixels(of: size, scale: scale)
+        content = .places(places)
+        form = .map(pixelWidth: Int(pixels.width), pixelHeight: Int(pixels.height), scale: scale, appearance: appearance)
     }
 
     /// A tile's own pixels: its points at the screen's scale, whole.
@@ -244,14 +257,44 @@ struct ChatLevelsRequest: Sendable {
     }
 }
 
+/// One map to draw (M72 §7.2): a reply's places, at its map's size and the
+/// screen's scale, in the light or the dark map, over the area that fits them
+/// with room for their pins.
+struct ChatMapRequest: Sendable {
+    let places: [CompanionPlaceLocation]
+    let size: CGSize
+    let scale: Double
+    let appearance: PlaceMapAppearance
+    let key: ChatPreviewKey
+
+    init(places: [CompanionPlaceLocation], size: CGSize, scale: Double, appearance: PlaceMapAppearance) {
+        self.places = places
+        self.size = size
+        self.scale = scale
+        self.appearance = appearance
+        key = ChatPreviewKey(places: places, size: size, scale: scale, appearance: appearance)
+    }
+
+    var area: PlaceMapArea {
+        PlaceMapArea.fitting(places, in: size, padding: ChatMetrics.placeMapPadding)
+    }
+
+    /// The map's own pixels, which the picture is cut to.
+    var pixels: CGSize {
+        ChatPreviewKey.pixels(of: size, scale: scale)
+    }
+}
+
 /// What the Mac's own frameworks draw of a file a tile names: its
 /// thumbnail, a picture's size and motion, and a PDF's page count, from Quick
-/// Look, ImageIO and PDF. Behind a protocol, so the budgets are provable with
-/// a fake and no test opens a file, and because Quick Look's thumbnails are
-/// GUI-only: the reader is `FermixViewers`'s `SystemMediaReader`, which
-/// `main.swift` hands in. Whether a film plays and how long it is are
-/// AVFoundation's, asked of the one owner of both (`MediaFacts`).
-public protocol ChatMediaReading: Sendable {
+/// Look, ImageIO and PDF; and, as a `PlaceMapDrawing`, a map of a reply's
+/// places, from MapKit. Behind a protocol, so the budgets are provable with a
+/// fake and no test opens a file, and because Quick Look's thumbnails and
+/// MapKit's maps are GUI-only: the reader is `FermixViewers`'s
+/// `SystemMediaReader`, which `main.swift` hands in. Whether a film plays and
+/// how long it is are AVFoundation's, asked of the one owner of both
+/// (`MediaFacts`).
+public protocol ChatMediaReading: PlaceMapDrawing {
     /// A picture's pixel count and whether it moves, from its properties
     /// alone, or nil where ImageIO cannot read them.
     func picture(at file: URL) -> ChatPictureFacts?
@@ -261,9 +304,9 @@ public protocol ChatMediaReading: Sendable {
     func pageCount(of file: URL) async -> Int?
 }
 
-/// Makes a tile's preview, and a sound's levels for its waveform, within the
-/// budgets (M66 §3.7): both are previews of their file, and share every rule
-/// below.
+/// Makes a tile's preview, a sound's levels for its waveform, and a map of a
+/// reply's places, within the budgets (M66 §3.7): each is a preview of what
+/// it shows, and shares every rule below.
 ///
 /// At most two jobs run at once and at most 64 wait, the oldest let go past
 /// that; two tiles asking for one preview share one job; a tile that leaves
@@ -293,22 +336,17 @@ final class ChatPreviews {
     private var failures: [ChatPreviewKey: Int] = [:]
     private var nextWaiter = 0
 
-    /// What one job makes: a tile's picture or a sound's levels.
+    /// What one job makes: a tile's picture, a sound's levels or a map.
     private enum Ask: Sendable {
         case picture(ChatPreviewRequest)
         case levels(ChatLevelsRequest)
+        case map(ChatMapRequest)
 
         var key: ChatPreviewKey {
             switch self {
             case .picture(let request): return request.key
             case .levels(let request): return request.key
-            }
-        }
-
-        var source: ChatPreviewSource {
-            switch self {
-            case .picture(let request): return request.source
-            case .levels(let request): return request.source
+            case .map(let request): return request.key
             }
         }
     }
@@ -357,6 +395,12 @@ final class ChatPreviews {
     /// as a tile asks for its preview, and under the same rules.
     func levels(_ request: ChatLevelsRequest) async -> ChatPreviewOutcome {
         await ask(.levels(request))
+    }
+
+    /// A map of a reply's places, which its block asks for while it is on
+    /// screen, and under the same rules.
+    func map(_ request: ChatMapRequest) async -> ChatPreviewOutcome {
+        await ask(.map(request))
     }
 
     private func ask(_ ask: Ask) async -> ChatPreviewOutcome {
@@ -443,15 +487,37 @@ final class ChatPreviews {
         }
     }
 
-    /// One job's work: on a file at once, and on a phone-side file's once
-    /// the engine has granted it, the grant let go as the work ends, however
-    /// it ends. `inHand` starts the job's clock. A job let go while it waited
-    /// for the grant is dropped.
+    /// One job's work: a file's preview or levels on its file (`onFile`),
+    /// and a map at once, drawn from its places alone. `inHand` starts the
+    /// job's clock.
     private func work(_ ask: Ask, inHand: () -> Void) async -> ChatPreviewOutcome {
-        switch ask.source {
+        switch ask {
+        case .picture(let request):
+            return await onFile(request.source, inHand: inHand) { file in
+                await Self.make(request, from: file, with: reader, facts: facts)
+            }
+        case .levels(let request):
+            return await onFile(request.source, inHand: inHand) { file in
+                await Self.levels(request, from: file, with: levels)
+            }
+        case .map(let request):
+            inHand()
+            return await Self.map(request, with: reader)
+        }
+    }
+
+    /// Work on a file: at once, and on a phone-side file's once the engine
+    /// has granted it, the grant let go as the work ends, however it ends. A
+    /// job let go while it waited for the grant is dropped.
+    private func onFile(
+        _ source: ChatPreviewSource,
+        inHand: () -> Void,
+        make: (URL) async -> ChatPreviewOutcome
+    ) async -> ChatPreviewOutcome {
+        switch source {
         case .file(let file):
             inHand()
-            return await make(ask, from: file)
+            return await make(file)
         case .ref(let ref):
             let grant = await grants.hold(ref)
             defer { grants.release(ref) }
@@ -459,18 +525,10 @@ final class ChatPreviews {
             switch grant {
             case .granted(let granted):
                 inHand()
-                return await make(ask, from: granted.url)
+                return await make(granted.url)
             case .missing: return .missing
             case .failed: return Task.isCancelled ? .dropped : .failed
             }
-        }
-    }
-
-    /// What a job makes of its file once it is in hand, off the main thread.
-    private func make(_ ask: Ask, from file: URL) async -> ChatPreviewOutcome {
-        switch ask {
-        case .picture(let request): return await Self.make(request, from: file, with: reader, facts: facts)
-        case .levels(let request): return await Self.levels(request, from: file, with: levels)
         }
     }
 
@@ -527,6 +585,21 @@ final class ChatPreviews {
         guard let image = ChatPreviewCover.image(thumbnail, filling: request.pixels, anchor: request.anchor) else { return .failed }
 
         return .made(.picture(ChatPreview(image: image, detail: detail)))
+    }
+
+    /// A map of a reply's places, off the main thread, cut to its pixels as
+    /// a thumbnail is. The area keeps the map's proportion, so the cut only
+    /// scales it, and every place stays where the area's projection puts it.
+    nonisolated static func map(_ request: ChatMapRequest, with drawer: any PlaceMapDrawing) async -> ChatPreviewOutcome {
+        let drawn: CGImage
+        do {
+            drawn = try await drawer.map(of: request.area, size: request.size, appearance: request.appearance)
+        } catch {
+            return Task.isCancelled ? .dropped : .failed
+        }
+        guard let image = ChatPreviewCover.image(drawn, filling: request.pixels, anchor: .center) else { return .failed }
+
+        return .made(.map(PlaceMapPicture(image: image)))
     }
 
     /// A sound's levels, read off the main thread. One AVFoundation cannot

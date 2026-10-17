@@ -733,6 +733,53 @@ struct ChatPreviewsTests {
         #expect(ChatPreviewMade.levels(SoundLevels(values: Array(repeating: 0.5, count: 64), seconds: 1)).bytes == 64 * MemoryLayout<Float>.stride)
     }
 
+    // MARK: - Maps
+
+    private static let places = [
+        CompanionPlaceLocation(latitude: 40.7239, longitude: -74.0011),
+        CompanionPlaceLocation(latitude: 40.7247, longitude: -73.9986)
+    ]
+
+    private static func mapRequest(_ appearance: PlaceMapAppearance = .light) -> ChatMapRequest {
+        ChatMapRequest(places: places, size: CGSize(width: 340, height: 100), scale: 2, appearance: appearance)
+    }
+
+    /// A map is a preview of its places (M72 §7.2): drawn over the area that
+    /// fits them, cut to the map's pixels, kept like any preview, and drawn
+    /// again only for another appearance.
+    @Test("a map is drawn over its places' area, cut to its pixels, and kept by appearance")
+    func mapsAreKept() async {
+        let reader = FakeMediaReader(map: fixturePicture())
+        let previews = ChatPreviews(reader: reader, facts: FakeMediaFacts(), levels: FakeSoundLevels(), grants: FakeMediaGrants(), deadlines: ManualDeadlineScheduler())
+        let request = Self.mapRequest()
+
+        let made = await previews.map(request)
+        guard case .made(.map(let map)) = made else {
+            Issue.record("no map was made: \(made)")
+            return
+        }
+        #expect(map.image.width == 680 && map.image.height == 200)
+        #expect(reader.mapsAsked == [FakeMediaReader.MapAsk(area: request.area, size: request.size, appearance: .light)])
+
+        #expect(await previews.map(Self.mapRequest()) == made)
+        #expect(reader.mapsAsked.count == 1)
+
+        _ = await previews.map(Self.mapRequest(.dark))
+        #expect(reader.mapsAsked.map(\.appearance) == [.light, .dark])
+        #expect(previews.cachedBytes == 2 * map.bytes)
+    }
+
+    @Test("a map that cannot be drawn fails, and is tried once more")
+    func failedMaps() async {
+        let reader = FakeMediaReader()
+        let previews = ChatPreviews(reader: reader, facts: FakeMediaFacts(), levels: FakeSoundLevels(), grants: FakeMediaGrants(), deadlines: ManualDeadlineScheduler())
+
+        #expect(await previews.map(Self.mapRequest()) == .failed)
+        #expect(await previews.map(Self.mapRequest()) == .failed)
+        #expect(await previews.map(Self.mapRequest()) == .failed)
+        #expect(reader.mapsAsked.count == ChatPreviewBudget.tries)
+    }
+
     // MARK: - The cache
 
     @Test("the cache keeps decoded bytes under its cap, letting the least recently used go first")

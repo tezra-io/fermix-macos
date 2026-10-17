@@ -49,9 +49,9 @@ struct AppEnvironment {
     /// The pane's own viewers, AVKit's player view and Quick Look's preview
     /// view, behind the same kind of seam: the agent shows neither.
     let viewers: any BrowserViewerMaking
-    /// What the Mac's own frameworks say of a file a chat tile names, behind
-    /// the same kind of seam: its thumbnails are Quick Look's, which the agent
-    /// never makes.
+    /// What the Mac's own frameworks say of a file a chat tile names, and the
+    /// map of a reply's places, behind the same kind of seam: its thumbnails
+    /// are Quick Look's and its maps MapKit's, which the agent never makes.
     let mediaReader: any ChatMediaReading
     /// Whether the pane's tabs can be driven now: this Mac's screen lock,
     /// display sleep and the app's own quit.

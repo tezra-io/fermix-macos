@@ -56,6 +56,14 @@ public final class ContentLinkOpener {
         }
     }
 
+    /// A place a reply found goes to Apple Maps (M72 decision 3), whatever
+    /// the preference, at the address the app builds from the place's own
+    /// record (`PlaceMapsAddress`): never through the pane, and never by a
+    /// link the reply wrote, so no reply chooses which app opens.
+    public func openInMaps(_ place: CompanionPlace) {
+        _ = workspace.open(PlaceMapsAddress.url(for: place))
+    }
+
     /// A phone-side file, by its ref, goes where a file at the path the
     /// engine grants for it would (M66 §3.5): the pane's own rule for files.
     /// What the engine answered comes back, so the tile that asked can say

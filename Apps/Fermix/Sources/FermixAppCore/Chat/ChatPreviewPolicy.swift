@@ -214,9 +214,9 @@ enum ChatPreviewPolicy {
         switch outcome {
         case nil: return .loading
         case .made(.picture(let preview))?: return .ready(preview)
-        // A sound's levels are its waveform's, never a tile's: were one to
-        // reach a tile, it would show its icon.
-        case .made(.levels)?, .iconOnly?: return .ready(nil)
+        // A sound's levels are its waveform's and a map its block's, never a
+        // tile's: were one to reach a tile, it would show its icon.
+        case .made(.levels)?, .made(.map)?, .iconOnly?: return .ready(nil)
         case .unplayable?: return .opensOutside
         case .failed?, .dropped?: return .previewUnavailable
         case .missing?: return .notAvailable

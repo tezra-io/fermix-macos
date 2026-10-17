@@ -111,6 +111,7 @@ struct FixtureConfigurationTests {
         }
         #expect(FixtureStart(name: "restart-sheet") == .restartSheet)
         #expect(FixtureStart(name: "chat-empty") == .emptyChat)
+        #expect(FixtureStart(name: "chat-replies") == .chatReplies)
         #expect(FixtureStart(name: "browser") == .browser)
         #expect(FixtureStart(name: "chat-call") == .chatCall)
         #expect(FixtureStart(name: "chat-call-failed") == .failedChatCall)
@@ -148,7 +149,7 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 6 + FixturePhoneStart.allCases.count)
+            + OnboardingStage.allCases.count + 7 + FixturePhoneStart.allCases.count)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -272,7 +273,7 @@ struct FixtureConfigurationTests {
         case .approvalStep:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.onboardingStage == .starting)
-        case .emptyChat, .browser, .chatCall, .failedChatCall:
+        case .emptyChat, .chatReplies, .browser, .chatCall, .failedChatCall:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.route == .chat)
         case .phone:
@@ -293,6 +294,16 @@ struct FixtureConfigurationTests {
         #expect(FixtureLaunch(start: .surface(.chat)).companionTimeline == .full)
         #expect(FixtureLaunch(start: .surface(.home)).companionTimeline == .full)
         #expect(FixtureHome.forStart(.emptyChat) == .settled)
+    }
+
+    /// Replies drawn for what they hold (M72) are looked at on a timeline of
+    /// their own, which nothing else in the chat crowds.
+    @Test("chat-replies opens Chat on the replies timeline")
+    func repliesStartNamesItsTimeline() {
+        #expect(FixtureLaunch(start: .chatReplies).presentation == .route(.chat))
+        #expect(FixtureLaunch(start: .chatReplies).companionTimeline == .replies)
+        #expect(FixtureLaunch(start: .chatReplies).startSlug == "chat-replies")
+        #expect(FixtureHome.forStart(.chatReplies) == .settled)
     }
 
     /// A call is looked at beside a conversation, so both call starts hold the
@@ -408,6 +419,46 @@ struct FixtureConfigurationTests {
         session.pullOlder()
         #expect(session.model.rows.map(\.serverSeq) == Array(1...20))
         #expect(!session.model.hasOlder)
+    }
+
+    /// The replies arrive as the contract's events like every fixture row,
+    /// the places reply with its block, in the order its text links them, as
+    /// the engine matches them (M72 §8.4): one place with every field, one
+    /// with no rating, one with no hours, and one with a long name.
+    @MainActor
+    @Test("the replies timeline holds a places reply with its block, then lists, a table and a quote")
+    func repliesTimelineArrives() throws {
+        let session = fixtureChat(.replies)
+        session.connect()
+
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...8))
+        #expect(!session.model.hasOlder)
+        #expect(session.model.turn == nil)
+
+        let reply = try #require(session.model.rows.first { $0.serverSeq == 2 })
+        guard case .places(let places)? = reply.blocks.first else {
+            Issue.record("the places reply arrived without its block")
+            return
+        }
+        #expect(reply.blocks.count == 1)
+        #expect(places.count == 4)
+        #expect(places.filter { $0.rating == nil }.count == 1)
+        #expect(places.filter { $0.openingHours == nil }.count == 1)
+        #expect(places.contains { $0.name.count > 40 })
+        #expect(places.contains { place in
+            place.canonicalURL != nil && place.sourceURL != nil && place.address != nil && place.rating?.count != nil
+                && place.priceRange != nil && place.categories != nil && place.openingHours != nil && place.distance != nil
+        })
+
+        let linked = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)).map(ChatPlaceLink.init) }
+        let named = places.map { place in
+            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(ChatPlaceLink.init) }
+        }
+        #expect(named.map { $0.first(where: linked.contains) } == linked.map(Optional.some))
+
+        for seq in [4, 6, 8] {
+            #expect(session.model.rows.first { $0.serverSeq == seq }?.blocks == [])
+        }
     }
 
     @MainActor

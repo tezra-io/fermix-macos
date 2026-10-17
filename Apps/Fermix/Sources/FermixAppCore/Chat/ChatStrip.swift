@@ -16,7 +16,8 @@ import Foundation
 ///    Fermix home, and a picture, video, sound, PDF or document anywhere. A
 ///    path that is only talked about (`/etc/hosts`) stays a link in the text.
 /// 4. The web addresses the text links to, each with its stored preview where
-///    it has one.
+///    it has one, less the ones a place card under the text already opens
+///    (M72 §8.5).
 ///
 /// They are drawn in two kinds, each keeping that order: first the previews,
 /// the phone-side files and the paths inside the Fermix home that are a
@@ -56,20 +57,25 @@ struct ChatStrip: Equatable {
     }
 
     /// The strip of a row's content. `plain` reads the words as a person's,
-    /// `userHome` is what `~` reads as, and `home` the Fermix home, nil where
-    /// it could not be read, which leaves nothing inside it.
+    /// `blocks` are the records drawn above the strip, whose places' links it
+    /// leaves to their cards, `userHome` is what `~` reads as, and `home` the
+    /// Fermix home, nil where it could not be read, which leaves nothing
+    /// inside it.
     init(
         text: String,
         plain: Bool,
         mediaRefs: [CompanionMediaRef],
         linkPreviews: [CompanionLinkPreview],
+        blocks: [CompanionBlock],
         userHome: String,
         home: ChatHome?
     ) {
         let read = Self.read(text, plain: plain, userHome: userHome)
         let paths = read.files
+        let placed = ChatPlaceLink.links(of: blocks)
         let addresses = read.addresses
         let previews = Self.paired(linkPreviews, in: text, with: addresses)
+            .filter { !placed.contains(ChatPlaceLink($0.opens)) }
 
         voiceNote = mediaRefs.first { $0.kind == Self.voiceKind }
         sounds = Self.unique(paths.filter { Self.isSound($0, home: home) })
@@ -77,7 +83,7 @@ struct ChatStrip: Equatable {
         let refs = mediaRefs.filter { $0.kind != Self.voiceKind }.map(ChatStripItem.media)
         let loose = previews.filter { $0.written == nil }.map { ChatStripItem.link(ChatStripLink(address: $0.opens, preview: $0.preview)) }
         let files = paths.filter { Self.isTile($0, home: home) }.map(ChatStripItem.file)
-        let links = addresses.map { address in
+        let links = addresses.filter { !placed.contains(ChatPlaceLink($0)) }.map { address in
             ChatStripItem.link(ChatStripLink(address: address, preview: previews.first { $0.written == address }?.preview))
         }
         let items = Self.unique(refs + loose + files + links)
@@ -366,6 +372,39 @@ struct ChatDestination: Hashable {
         parts.scheme = parts.scheme?.lowercased()
         parts.percentEncodedHost = parts.percentEncodedHost?.lowercased()
         key = parts.string ?? address.absoluteString
+    }
+}
+
+/// An address as the engine matches a reply's link to a place it found
+/// (M72 §8.4): the scheme and host lowercased, without the fragment and a
+/// trailing slash. A link the text writes and a place's own address that
+/// match are one destination, which the place's card opens.
+struct ChatPlaceLink: Hashable {
+    let key: String
+
+    init(_ address: URL) {
+        guard var parts = URLComponents(url: address, resolvingAgainstBaseURL: false) else {
+            key = address.absoluteString
+            return
+        }
+        parts.scheme = parts.scheme?.lowercased()
+        parts.percentEncodedHost = parts.percentEncodedHost?.lowercased()
+        parts.fragment = nil
+        while parts.percentEncodedPath.hasSuffix("/") {
+            parts.percentEncodedPath.removeLast()
+        }
+        key = parts.string ?? address.absoluteString
+    }
+
+    /// Every address the places in `blocks` are known by: each one's own
+    /// website and its page at the source.
+    static func links(of blocks: [CompanionBlock]) -> Set<ChatPlaceLink> {
+        var links: Set<ChatPlaceLink> = []
+        for case .places(let places) in blocks {
+            let addresses = places.flatMap { [$0.canonicalURL, $0.sourceURL] }.compactMap { $0.flatMap(URL.init(string:)) }
+            links.formUnion(addresses.map(ChatPlaceLink.init))
+        }
+        return links
     }
 }
 
