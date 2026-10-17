@@ -267,7 +267,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case attentionProviderCredentialsBody = "attention.provider.credentials.body"
     case attentionChannelTitleFormat = "attention.channel.titleFormat"
     case attentionChannelBody = "attention.channel.body"
-    case attentionVoiceTitle = "attention.voice.title"
+    case attentionVoiceTitleFormat = "attention.voice.titleFormat"
     case attentionVoiceBody = "attention.voice.body"
     case attentionSandboxEnvMissingTitle = "attention.sandboxEnv.missing.title"
     case attentionSandboxEnvMissingBody = "attention.sandboxEnv.missing.body"

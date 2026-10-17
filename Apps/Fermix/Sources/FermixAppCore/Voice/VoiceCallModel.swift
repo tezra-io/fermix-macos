@@ -9,7 +9,9 @@ public enum VoiceEffect: Equatable, Sendable {
     /// The daemon is listening: attach the chunk handler and unmute.
     case startCapture
     case setCaptureMuted(Bool)
-    case play(base64: String)
+    /// Plays a chunk. A chunk sent under a playback id is reported back as it
+    /// plays (`playback_progress`).
+    case play(base64: String, playbackId: String? = nil)
     case stopPlayback
     case resetUtteranceAnchor
     /// Tear the microphone all the way down.
@@ -327,6 +329,14 @@ public final class VoiceCallModel: ObservableObject {
     /// turn, which takes longer than this to say anything.
     static let stoppedReplyGap: TimeInterval = 0.8
 
+    /// Whether this call's audio arrives under playback ids, as a Grok call's
+    /// does. The daemon then fences a stopped reply itself and sends none of
+    /// it after its `playback_stop`, and the pet must play every chunk it
+    /// sent, because the daemon waits for each to be reported played and ends
+    /// a call whose audio goes unreported. So nothing of such a call is ever
+    /// dropped as the stopped reply.
+    private var audioCarriesPlaybackIds = false
+
     /// A monotonic clock in seconds, a seam so the gap can be proved without
     /// waiting on it.
     private let now: () -> TimeInterval
@@ -351,6 +361,7 @@ public final class VoiceCallModel: ObservableObject {
     @discardableResult
     public func callStarting() -> Int {
         stoppedReplyHeardAt = nil
+        audioCarriesPlaybackIds = false
         audioLevel = 0
         let petResting = petRestsInTheBox
 
@@ -460,7 +471,7 @@ public final class VoiceCallModel: ObservableObject {
     public func voiceInterrupted() {
         voice.audioActive = false
         audioLevel = 0
-        stoppedReplyHeardAt = now()
+        stoppedReplyHeardAt = audioCarriesPlaybackIds ? nil : now()
 
         guard voice.phase == .active else { return }
 
@@ -611,7 +622,7 @@ public final class VoiceCallModel: ObservableObject {
     /// phase.
     private func dropped(_ event: RealtimeServerEvent) -> [VoiceEffect] {
         switch event {
-        case .serverHello, .transcriptDelta, .assistantTextDelta:
+        case .serverHello, .transcriptDelta, .assistantTextDelta, .assistantTextDone:
             break
         default:
             log.info("dropping \(event.wireType, privacy: .public): no call carries it")
@@ -624,11 +635,13 @@ public final class VoiceCallModel: ObservableObject {
         switch event {
         case .state(let turnState):
             return applyTurnState(turnState, audioIsPlaying: audioIsPlaying)
-        case .audioDelta(let base64):
+        case .audioDelta(let base64, let playbackId):
+            if playbackId != nil { audioCarriesPlaybackIds = true }
+            let play = VoiceEffect.play(base64: base64, playbackId: playbackId)
             // Live pads its output with silence for the whole call, one chunk
             // every 100 ms: padding plays, but it is not speech, and it must
             // neither keep the pet speaking nor keep a stopped reply alive.
-            guard PCM16.isVoiced(base64: base64) else { return [.play(base64: base64)] }
+            guard PCM16.isVoiced(base64: base64) else { return [play] }
             if stoppedReplyContinues() { return [] }
             // Every chunk of a reply lands here, tens a second. Only the first
             // changes anything, and each write publishes, so the window, the
@@ -638,7 +651,7 @@ public final class VoiceCallModel: ObservableObject {
             speaking.status = .speaking
             speaking.audioActive = true
             if speaking != voice { voice = speaking }
-            return [.play(base64: base64)]
+            return [play]
         case .playbackStop:
             return applyPlaybackStop()
         case .toolEvent(let status, let reason):
@@ -656,7 +669,7 @@ public final class VoiceCallModel: ObservableObject {
             // arrives as its own `error`, carrying the cost_limit kind.
             voice.usage = usage
             return []
-        case .serverHello, .transcriptDelta, .assistantTextDelta:
+        case .serverHello, .transcriptDelta, .assistantTextDelta, .assistantTextDone:
             return []
         case .unrecognized(let type):
             log.debug("no presentation for realtime event \(type, privacy: .public)")

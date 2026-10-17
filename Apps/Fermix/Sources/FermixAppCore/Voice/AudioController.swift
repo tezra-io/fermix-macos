@@ -33,6 +33,11 @@ final class AudioController: VoiceAudioEngine {
     private var captureMuted = true
     private let chunkHandlerLock = NSLock()
     private var onChunkHandler: (@Sendable (Data) -> Void)?
+    /// What has played of each playback id, and which stop of the player the
+    /// segments it holds belong to. Both on the queue: a buffer flushed by a
+    /// stop completes too, and must not count as played.
+    private var playbackTimeline = PlaybackTimeline()
+    private var playerGeneration = 0
 
     /// Invoked on the main thread with the RMS amplitude (0...1) of each
     /// played PCM chunk. Drives the mascot's speaking-pulse visual.
@@ -46,6 +51,10 @@ final class AudioController: VoiceAudioEngine {
     /// for the whole call, so a queue that holds padding never empties
     /// (`PCM16`).
     var onPlaybackDrained: (() -> Void)?
+
+    /// Invoked on the main thread when the player finishes the last audio
+    /// queued under a playback id.
+    var onPlaybackIdDrained: (() -> Void)?
 
     /// Whether voice is still queued or playing. Padding does not count.
     var isPlayingBack: Bool {
@@ -361,6 +370,7 @@ final class AudioController: VoiceAudioEngine {
         queue.async {
             self.stopCapture()
             self.stopPlayer()
+            self.playbackTimeline = PlaybackTimeline()
 
             // Voice processing keeps the audio session and the macOS mic
             // indicator alive even after engine.stop() — disable it explicitly
@@ -400,7 +410,7 @@ final class AudioController: VoiceAudioEngine {
         return "auth=\(auth), avfDevice=\(avfDevice), \(engineView)"
     }
 
-    func play(base64PCM16 encoded: String) {
+    func play(base64PCM16 encoded: String, playbackId: String?) {
         guard let data = Data(base64Encoded: encoded), !data.isEmpty else {
             log.error("playback skipped: the daemon sent an empty or undecodable audio chunk")
             return
@@ -417,11 +427,11 @@ final class AudioController: VoiceAudioEngine {
         emitOutputLevel(from: data)
         let voiced = PCM16.isVoiced(data)
 
-        queue.sync { schedule(buffer, voiced: voiced) }
+        queue.sync { schedule(buffer, voiced: voiced, playbackId: playbackId) }
     }
 
     /// On the queue.
-    private func schedule(_ buffer: AVAudioPCMBuffer, voiced: Bool) {
+    private func schedule(_ buffer: AVAudioPCMBuffer, voiced: Bool, playbackId: String?) {
         if !engine.isRunning {
             do {
                 try startEngineIfNeeded()
@@ -432,6 +442,8 @@ final class AudioController: VoiceAudioEngine {
         }
 
         let wasPlaying = player.isPlaying
+        let segment = playbackId.map { record(buffer, under: $0, playerWasPlaying: wasPlaying) }
+        let generation = playerGeneration
 
         if voiced {
             playbackCounterLock.lock()
@@ -440,7 +452,11 @@ final class AudioController: VoiceAudioEngine {
         }
 
         player.scheduleBuffer(buffer, completionHandler: { [weak self] in
-            guard let self, voiced else { return }
+            guard let self else { return }
+            if let segment {
+                self.queue.async { self.segmentPlayed(segment, generation: generation) }
+            }
+            guard voiced else { return }
             self.playbackCounterLock.lock()
             self.pendingVoiceBuffers = max(0, self.pendingVoiceBuffers - 1)
             let drained = self.pendingVoiceBuffers == 0
@@ -455,6 +471,34 @@ final class AudioController: VoiceAudioEngine {
             player.play()
             utteranceAnchorSampleTime = currentPlayerSampleTime() ?? 0
         }
+    }
+
+    /// Puts a chunk sent under a playback id on the timeline, and answers the
+    /// serial its completion settles. A player that is not playing starts its
+    /// timeline at zero with this chunk. On the queue.
+    private func record(_ buffer: AVAudioPCMBuffer, under playbackId: String, playerWasPlaying: Bool) -> Int {
+        if !playerWasPlaying, playbackTimeline.unplayed {
+            log.info("the player stopped under queued playback audio: counting it played")
+            playbackTimeline.restart()
+        }
+
+        let now = playerWasPlaying ? currentPlayerSampleTime() : nil
+        return playbackTimeline.schedule(playbackId, frames: Int64(buffer.frameLength), now: now)
+    }
+
+    /// The player finished a chunk sent under a playback id. A completion from
+    /// before the player's last stop is the flush, not playback. On the queue.
+    private func segmentPlayed(_ serial: Int, generation: Int) {
+        guard generation == playerGeneration else { return }
+
+        guard playbackTimeline.finish(through: serial) else { return }
+
+        DispatchQueue.main.async { self.onPlaybackIdDrained?() }
+    }
+
+    /// What has played of each playback id since the last report.
+    func takePlaybackProgress() -> PlaybackProgressReport {
+        queue.sync { playbackTimeline.report(now: currentPlayerSampleTime()) }
     }
 
     /// Compute RMS over the raw PCM16 chunk and dispatch to the main thread,
@@ -523,8 +567,11 @@ final class AudioController: VoiceAudioEngine {
         queue.sync { stopPlayer() }
     }
 
-    /// On the queue.
+    /// The timeline keeps what had played before the player lets go of the
+    /// rest. On the queue.
     private func stopPlayer() {
+        playbackTimeline.stop(now: currentPlayerSampleTime())
+        playerGeneration += 1
         player.stop()
         utteranceAnchorSampleTime = nil
         clearPendingVoice()

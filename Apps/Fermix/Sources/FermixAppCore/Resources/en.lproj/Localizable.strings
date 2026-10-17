@@ -186,8 +186,8 @@
 "attention.provider.credentials.body" = "Fermix has no working credential for this provider yet.";
 "attention.channel.titleFormat" = "%@ is on but not finished";
 "attention.channel.body" = "The channel is enabled and still missing something it needs, so it will not answer.";
-"attention.voice.title" = "The voice companion needs an OpenAI key";
-"attention.voice.body" = "Voice uses the OpenAI Realtime API, which a ChatGPT or Claude sign-in does not authorize.";
+"attention.voice.titleFormat" = "The voice companion needs a key from %@";
+"attention.voice.body" = "Voice calls take an API key, which a subscription sign-in does not authorize.";
 "attention.sandboxEnv.missing.title" = "Some allowed environment variables are not set";
 "attention.sandboxEnv.missing.body" = "Sandboxed commands run without them until each value is stored or its name is removed from the allowed list. Fermix runs in the background and does not read your shell profile.";
 "attention.sandboxEnv.helperFailed.title" = "A helper command for an environment variable failed";

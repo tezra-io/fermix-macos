@@ -292,6 +292,18 @@ struct HomeSurfaceTests {
         #expect(credentials.title == "Connect Anthropic", "the daemon's own label, not the id")
         #expect(credentials.body == ProductStrings[.attentionProviderCredentialsBody])
 
+        // Voice's own family: the provider is the one the engine in force
+        // dials, OpenAI's for the OpenAI engines and SpaceXAI's for Grok, and
+        // the row names it by the daemon's label too.
+        let voice = AttentionCatalogue.row(
+            for: AttentionDetail(detailKey: "realtime:xai"),
+            names: AttentionNames(state: state, sections: inventory.sections)
+        )
+
+        #expect(voice.title == "The voice companion needs a key from SpaceXAI")
+        #expect(voice.body == ProductStrings[.attentionVoiceBody])
+        #expect(voice.action == .openSettings(.voice))
+
         // The advisory half, keyed the same way: a channel row names its own
         // channel, which a pane key could not have told from Slack's.
         let channel = try #require(rows.first { $0.id == "channel:whatsapp" })
@@ -395,7 +407,8 @@ struct HomeSurfaceTests {
     func catalogueCoversTheClosedSet() {
         let synthesised: [AttentionDetail] = [
             .providerCredentials(provider: "anthropic"),
-            .channel(name: "telegram")
+            .channel(name: "telegram"),
+            .voiceCredentials(provider: "openai")
         ]
 
         for detail in Array(AttentionDetail.publishedKeys.values) + synthesised {
@@ -437,6 +450,9 @@ struct HomeSurfaceTests {
         #expect(AttentionDetail(detailKey: "channel:slack").wireKey == "channel:slack")
         #expect(AttentionDetail(detailKey: "provider:missing_credentials:xai").wireKey
             == "provider:missing_credentials:xai")
+        #expect(AttentionDetail(detailKey: "realtime:openai") == .voiceCredentials(provider: "openai"))
+        #expect(AttentionDetail(detailKey: "realtime:xai").wireKey == "realtime:xai")
+        #expect(AttentionDetail(detailKey: "realtime:") == .unrecognized("realtime:"))
     }
 
     /// Every gap that a pane can clear carries a deep link into that pane
@@ -451,7 +467,8 @@ struct HomeSurfaceTests {
             (.providerInvalidAuthMode, .providers),
             (.providerCredentials(provider: "anthropic"), .providers),
             (.channel(name: "telegram"), .channels),
-            (.voiceRealtime, .voice),
+            (.voiceCredentials(provider: "openai"), .voice),
+            (.voiceCredentials(provider: "xai"), .voice),
             (.sandboxEnvMissing, .sandbox),
             (.sandboxEnvHelperFailed, .sandbox)
         ]

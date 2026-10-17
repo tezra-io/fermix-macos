@@ -22,7 +22,10 @@ public enum AttentionDetail: Equatable, Sendable {
     /// Swift is the field inventory M34 §7.7 forbids.
     case providerCredentials(provider: String)
     case channel(name: String)
-    case voiceRealtime
+    /// Voice is on and its provider has no API key. Parameterised like a
+    /// provider's credentials: which provider voice dials follows from the
+    /// engine the daemon runs, and the set is the daemon's.
+    case voiceCredentials(provider: String)
     /// Allowed sandbox environment variables the daemon cannot read where it
     /// runs, one case per cause. Not parameterised: the daemon sends one
     /// failure per cause however many variables share it, and the wire carries
@@ -44,7 +47,6 @@ public enum AttentionDetail: Equatable, Sendable {
         "provider:unknown_configured": .providerUnknown,
         "provider:multiple_primary": .providerMultiplePrimary,
         "provider:invalid_auth_mode": .providerInvalidAuthMode,
-        "realtime:openai": .voiceRealtime,
         "sandbox:env_missing": .sandboxEnvMissing,
         "sandbox:env_helper_failed": .sandboxEnvHelperFailed,
         "restart_pending": .restartPending,
@@ -54,9 +56,10 @@ public enum AttentionDetail: Equatable, Sendable {
         "secret_acl_restricted": .secretACLRestricted
     ]
 
-    /// The two parameterised families, by their key prefix.
+    /// The three parameterised families, by their key prefix.
     public static let credentialsPrefix = "provider:missing_credentials:"
     public static let channelPrefix = "channel:"
+    public static let voicePrefix = "realtime:"
 
     public init(detailKey: String) {
         if let known = Self.publishedKeys[detailKey] {
@@ -76,6 +79,12 @@ public enum AttentionDetail: Equatable, Sendable {
             return
         }
 
+        if detailKey.hasPrefix(Self.voicePrefix) {
+            let provider = String(detailKey.dropFirst(Self.voicePrefix.count))
+            self = provider.isEmpty ? .unrecognized(detailKey) : .voiceCredentials(provider: provider)
+            return
+        }
+
         self = .unrecognized(detailKey)
     }
 
@@ -84,6 +93,7 @@ public enum AttentionDetail: Equatable, Sendable {
         switch self {
         case .providerCredentials(let provider): return Self.credentialsPrefix + provider
         case .channel(let name): return Self.channelPrefix + name
+        case .voiceCredentials(let provider): return Self.voicePrefix + provider
         case .unrecognized(let value): return value
         default:
             guard let match = Self.publishedKeys.first(where: { $0.value == self })?.key else {
@@ -233,7 +243,8 @@ public enum AttentionCatalogue {
             )
         case .channel(let name):
             return String(format: ProductStrings[.attentionChannelTitleFormat], names.channel(name))
-        case .voiceRealtime: return ProductStrings[.attentionVoiceTitle]
+        case .voiceCredentials(let provider):
+            return String(format: ProductStrings[.attentionVoiceTitleFormat], names.provider(provider))
         case .sandboxEnvMissing: return ProductStrings[.attentionSandboxEnvMissingTitle]
         case .sandboxEnvHelperFailed: return ProductStrings[.attentionSandboxEnvHelperFailedTitle]
         case .restartPending: return ProductStrings[.attentionRestartTitle]
@@ -253,7 +264,7 @@ public enum AttentionCatalogue {
         case .providerInvalidAuthMode: return ProductStrings[.attentionProviderAuthModeBody]
         case .providerCredentials: return ProductStrings[.attentionProviderCredentialsBody]
         case .channel: return ProductStrings[.attentionChannelBody]
-        case .voiceRealtime: return ProductStrings[.attentionVoiceBody]
+        case .voiceCredentials: return ProductStrings[.attentionVoiceBody]
         case .sandboxEnvMissing: return ProductStrings[.attentionSandboxEnvMissingBody]
         case .sandboxEnvHelperFailed: return ProductStrings[.attentionSandboxEnvHelperFailedBody]
         // The daemon owns the reason sentences; the app never composes its own
@@ -289,7 +300,7 @@ public enum AttentionCatalogue {
         case .providerUnknown, .providerMultiplePrimary, .providerInvalidAuthMode, .providerCredentials:
             return .openSettings(.providers)
         case .channel: return .openSettings(.channels)
-        case .voiceRealtime: return .openSettings(.voice)
+        case .voiceCredentials: return .openSettings(.voice)
         case .sandboxEnvMissing, .sandboxEnvHelperFailed: return .openSettings(.sandbox)
         // Answered outside Fermix, so the row opens the sheet that prints the
         // commands rather than carrying none at all (M34 §15.2, §3.2).

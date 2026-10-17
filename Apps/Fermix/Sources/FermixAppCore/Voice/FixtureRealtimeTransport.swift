@@ -245,7 +245,7 @@ final class FixtureRealtimeTransport: LineSocketTransport, @unchecked Sendable {
 enum FixtureRealtimeScript {
     /// The window the pinned daemon advertises, which the contract publishes as
     /// its `x-supported-version-range`.
-    static let window = RealtimeVersionWindow(minimum: 1, maximum: 2)
+    static let window = RealtimeVersionWindow(minimum: 1, maximum: 3)
     static let callId = "voice_live:fixture"
     static let delegationId = "dg_fixture_lease"
     /// One chunk of Live's padding: 100 ms of digital silence at 24 kHz.
@@ -403,6 +403,7 @@ final class FixtureAudioEngine: VoiceAudioEngine {
 
     var onOutputLevel: ((Float) -> Void)?
     var onPlaybackDrained: (() -> Void)?
+    var onPlaybackIdDrained: (() -> Void)?
     var isPlayingBack: Bool { false }
 
     private let deadlines: any DeadlineScheduling
@@ -428,7 +429,7 @@ final class FixtureAudioEngine: VoiceAudioEngine {
 
     func setCaptureMuted(_ muted: Bool) {}
 
-    func play(base64PCM16 encoded: String) {
+    func play(base64PCM16 encoded: String, playbackId: String?) {
         guard let chunk = Data(base64Encoded: encoded), !chunk.isEmpty else {
             log.error("fixture playback skipped: the daemon sent an empty or undecodable audio chunk")
             return
@@ -436,6 +437,10 @@ final class FixtureAudioEngine: VoiceAudioEngine {
 
         MainActor.assumeIsolated { heard(chunk) }
     }
+
+    /// The scripted call is Live's, whose audio carries no playback ids, and
+    /// nothing is ever played, so there is nothing to report.
+    func takePlaybackProgress() -> PlaybackProgressReport { .none }
 
     func stopPlayback() {
         MainActor.assumeIsolated { settle(after: Self.restingInterval, reports: Self.restingReports) }

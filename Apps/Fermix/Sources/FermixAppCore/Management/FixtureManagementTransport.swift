@@ -221,16 +221,19 @@ struct FixtureManagementTransport: ManagementTransport {
     /// every one for the same request, because the section's rows are scoped
     /// to the engine its model implies (PROTOCOL.md), so no selector tells them
     /// apart. A daemon runs one engine, and `overview.get` names it under
-    /// `realtime.engine`; the voice section published under that engine is
-    /// this machine's answer, and the other is another machine's. An overview
-    /// that names no engine leaves the records as published, and `resolve` says
-    /// so.
+    /// `realtime.engine`; the voice sections published under that kind of
+    /// engine are this machine's answer, and the others another machine's.
+    /// The kinds are the Realtime engine and the task engines (Live, Grok),
+    /// which is all the overview's golden needs, since it runs Realtime: one
+    /// naming a task engine would keep both task engines' sections, and
+    /// `resolve` would say so. An overview that names no engine leaves the
+    /// records as published, and `resolve` says so too.
     private static func atVoiceEngine(_ grouped: [String: [Record]]) -> [String: [Record]] {
-        guard let live = grouped[ManagementMethod.overviewGet.rawValue]?.first?.liveVoice else { return grouped }
+        guard let task = grouped[ManagementMethod.overviewGet.rawValue]?.first?.taskVoice else { return grouped }
 
         var records = grouped
         records[ManagementMethod.settingsGet.rawValue] = grouped[ManagementMethod.settingsGet.rawValue]?
-            .filter { $0.liveVoice == nil || $0.liveVoice == live }
+            .filter { $0.taskVoice == nil || $0.taskVoice == task }
 
         return records
     }
@@ -289,9 +292,9 @@ struct FixtureManagementTransport: ManagementTransport {
         let selector: [String: String]
         /// The pairing session this answer is a moment of, where it is one.
         let moment: PairingMoment?
-        /// Whether this answer speaks of the Live voice engine, where it names
-        /// an engine at all.
-        let liveVoice: Bool?
+        /// Whether this answer speaks of a task voice engine (Live, Grok),
+        /// where it names an engine at all.
+        let taskVoice: Bool?
         /// The place search backend this answer has in force, where it names
         /// one.
         let placeSearch: String?
@@ -326,36 +329,36 @@ struct FixtureManagementTransport: ManagementTransport {
             method: method,
             selector: selector(method: method, result: result),
             moment: pairingMoment(method: method, result: result),
-            liveVoice: liveVoice(method: method, result: result),
+            taskVoice: taskVoice(method: method, result: result),
             placeSearch: placeSearch(method: method, result: result),
             result: try JSONSerialization.data(withJSONObject: result)
         )
     }
 
-    /// Whether an answer speaks of the Live voice engine: `overview.get` names
-    /// the engine under `realtime.engine`, and the voice section is Live's
-    /// exactly when it carries `realtime_backend`, the row PROTOCOL.md publishes
-    /// only under Live. Nil for every other answer, and for an overview whose
-    /// voice is off.
-    private static func liveVoice(method: String, result: Any) -> Bool? {
+    /// Whether an answer speaks of a task engine: `overview.get` names the
+    /// engine under `realtime.engine`, and the voice section is a task
+    /// engine's exactly when it carries `realtime_backend`, the row
+    /// PROTOCOL.md publishes only under a task engine. Nil for every other
+    /// answer, and for an overview whose voice is off.
+    private static func taskVoice(method: String, result: Any) -> Bool? {
         guard let object = result as? [String: Any] else { return nil }
 
         switch method {
         case ManagementMethod.overviewGet.rawValue:
             let engine = (object["realtime"] as? [String: Any])?["engine"] as? String
-            return engine.map { $0 == Self.liveEngine }
+            return engine.map { Self.taskEngines.contains($0) }
         case ManagementMethod.settingsGet.rawValue where object["id"] as? String == Self.voiceSection:
             let rows = object["rows"] as? [[String: Any]] ?? []
-            return rows.contains { $0["key"] as? String == Self.liveOnlyRow }
+            return rows.contains { $0["key"] as? String == Self.taskEngineRow }
         default:
             return nil
         }
     }
 
-    /// The wire names `liveVoice` reads, each as PROTOCOL.md publishes it.
+    /// The wire names `taskVoice` reads, each as PROTOCOL.md publishes it.
     private static let voiceSection = "realtime"
-    private static let liveEngine = "openai_live"
-    private static let liveOnlyRow = "realtime_backend"
+    private static let taskEngines: Set = ["openai_live", "xai_realtime"]
+    private static let taskEngineRow = "realtime_backend"
 
     /// The backend a web search section has in force: its
     /// `place_search_backend` row's value. Nil for every other answer.

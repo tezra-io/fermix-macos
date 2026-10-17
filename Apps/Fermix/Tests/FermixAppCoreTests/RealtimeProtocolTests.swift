@@ -47,11 +47,12 @@ struct RealtimeProtocolTests {
             return try RealtimeServerEvent.decode(fixture.line)
         }
 
-        #expect(try event("server_hello") == .serverHello(minVersion: 1, maxVersion: 2))
+        #expect(try event("server_hello") == .serverHello(minVersion: 1, maxVersion: 3))
         #expect(try event("state") == .state(.listening))
         #expect(try event("audio_delta") == .audioDelta(base64: "AAAA"))
         #expect(try event("transcript_delta") == .transcriptDelta(text: "hello"))
         #expect(try event("assistant_text_delta") == .assistantTextDelta(text: "hi"))
+        #expect(try event("assistant_text_done") == .assistantTextDone(text: "hi"))
         #expect(try event("tool_event") == .toolEvent(status: .completed, reason: nil))
         #expect(try event("usage") == .usage(RealtimeUsage()))
         #expect(try event("playback_stop") == .playbackStop)
@@ -103,7 +104,7 @@ struct RealtimeProtocolTests {
                     reason: "unsupported_protocol_version",
                     direction: .clientTooNew,
                     minVersion: 1,
-                    maxVersion: 2
+                    maxVersion: 3
                 )
             )
         )
@@ -117,10 +118,58 @@ struct RealtimeProtocolTests {
                     requiredFor: "openai_live",
                     direction: .clientTooOld,
                     minVersion: 2,
-                    maxVersion: 2
+                    maxVersion: 3
                 )
             )
         )
+    }
+
+    /// A Grok call's frames: its audio arrives under a playback id, and the rest
+    /// is the task engines' shape. Grok's refusal of a pet too old for it names
+    /// the engine, which is what tells the pet an update is what it needs.
+    @Test("the golden Grok frames carry their fields")
+    func grokFixtureFields() throws {
+        let fixtures = try RealtimeFixtures.load(.serverEvents)
+        let events = try fixtures.map { try RealtimeServerEvent.decode($0.line) }
+
+        #expect(events.contains(.audioDelta(base64: "AAAA", playbackId: "p17")))
+        #expect(
+            events.contains(
+                .callReady(
+                    RealtimeCallReady(
+                        engine: "xai_realtime",
+                        callId: "voice_live:18",
+                        providerSessionId: "sess_grok_01HB",
+                        captions: true
+                    )
+                )
+            )
+        )
+        #expect(
+            events.contains(
+                .error(
+                    RealtimeServerError(
+                        reason: "unsupported_protocol_version",
+                        kind: .updateRequired,
+                        requiredFor: "xai_realtime",
+                        direction: .clientTooOld,
+                        minVersion: 3,
+                        maxVersion: 3
+                    )
+                )
+            )
+        )
+
+        let reasons = events.compactMap { event -> String? in
+            guard case .error(let failure) = event else { return nil }
+            return failure.reason
+        }
+        for reason in [
+            "unknown_playback", "playback_regressed", "playback_beyond_sent",
+            "playback_stalled", "playback_overflow", "call_ids_exhausted"
+        ] {
+            #expect(reasons.contains(reason), "\(reason)")
+        }
     }
 
     @Test("every golden client event is produced by a typed value")
@@ -129,12 +178,15 @@ struct RealtimeProtocolTests {
         let produced: [RealtimeClientEvent] = [
             .clientHello(protocolVersion: 1),
             .clientHello(protocolVersion: 2),
+            .clientHello(protocolVersion: 3),
             .callStart,
             .audioChunk(base64: "MTIzNA=="),
             .interrupt(audioEndMs: nil),
             .interrupt(audioEndMs: 1_500),
             .mute(enabled: true),
             .taskCancel(delegationId: "dg_01H9"),
+            .playbackProgress(RealtimePlaybackProgress(playbackId: "p17", playedMs: 420, drained: false)),
+            .playbackProgress(RealtimePlaybackProgress(playbackId: "p17", playedMs: 870, drained: true)),
             .callStop
         ]
 

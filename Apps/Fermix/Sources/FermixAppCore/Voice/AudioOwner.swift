@@ -31,6 +31,8 @@ public enum CaptureError: Error, Equatable, Sendable, LocalizedError {
 public protocol VoiceAudioEngine: AnyObject {
     var onOutputLevel: ((Float) -> Void)? { get set }
     var onPlaybackDrained: (() -> Void)? { get set }
+    /// The player finished the last audio queued under a playback id.
+    var onPlaybackIdDrained: (() -> Void)? { get set }
     var isPlayingBack: Bool { get }
 
     func requestCapturePermission() async throws
@@ -40,7 +42,12 @@ public protocol VoiceAudioEngine: AnyObject {
     func prepareCapture() async throws
     func beginStreaming(onChunk: @escaping @Sendable (Data) -> Void) throws
     func setCaptureMuted(_ muted: Bool)
-    func play(base64PCM16 encoded: String)
+    /// Plays a chunk. One sent under a playback id is put on the timeline
+    /// `takePlaybackProgress()` reads.
+    func play(base64PCM16 encoded: String, playbackId: String?)
+    /// What has played of each playback id since the last call. A stop keeps
+    /// what had played, so the report after it is the final one.
+    func takePlaybackProgress() -> PlaybackProgressReport
     func stopPlayback()
     func resetUtteranceAnchor()
     func currentUtterancePlayedMs() -> Int?
@@ -65,12 +72,18 @@ public final class AudioOwner {
     /// pet would turn from speaking to listening and back inside a second.
     static let drainGrace: TimeInterval = 0.35
 
+    /// How often the playback of a call whose audio carries playback ids is
+    /// reported while it plays: the contract's most frequent cadence.
+    static let progressInterval: TimeInterval = 0.1
+
     public private(set) var callActive = false
     public private(set) var muted = false
     public private(set) var isStreaming = false
 
     public var onLevel: ((Float) -> Void)?
     public var onPlaybackDrained: (() -> Void)?
+    /// What has played of each playback id, for `playback_progress`.
+    public var onPlaybackProgress: (([RealtimePlaybackProgress]) -> Void)?
 
     public var isPlayingBack: Bool { engine.isPlayingBack }
 
@@ -80,6 +93,9 @@ public final class AudioOwner {
     private var level: Float = 0
     /// The drain report waiting out `drainGrace`. New audio calls it off.
     private var pendingDrain: DeadlineToken?
+    /// The next playback progress report, while audio under a playback id is
+    /// queued.
+    private var progressTick: DeadlineToken?
     /// Which call capture is being brought up for. Bring-up waits twice, on
     /// the permission prompt and on the engine's warm-up, and the call can
     /// end, or end and the next one begin, during either: only the call still
@@ -104,6 +120,13 @@ public final class AudioOwner {
             MainActor.assumeIsolated {
                 guard let self, !self.engine.isPlayingBack else { return }
                 self.reportDrainAfterGrace()
+            }
+        }
+        // A drained id is reported at once, not at the next tick.
+        engine.onPlaybackIdDrained = { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.reportPlaybackProgress()
             }
         }
     }
@@ -180,6 +203,8 @@ public final class AudioOwner {
     public func endCall() {
         pendingDrain?.cancel()
         pendingDrain = nil
+        progressTick?.cancel()
+        progressTick = nil
         callActive = false
         muted = false
         isStreaming = false
@@ -189,11 +214,40 @@ public final class AudioOwner {
 
     // MARK: - Playback
 
-    public func play(base64PCM16 encoded: String) {
+    public func play(base64PCM16 encoded: String, playbackId: String? = nil) {
         // More of the reply: the queue that emptied was a gap, not its end.
         pendingDrain?.cancel()
         pendingDrain = nil
-        engine.play(base64PCM16: encoded)
+        engine.play(base64PCM16: encoded, playbackId: playbackId)
+
+        if playbackId != nil { watchPlaybackProgress() }
+    }
+
+    /// Reports what has played every `progressInterval` while audio under a
+    /// playback id is queued. A report that says nothing changed is not sent,
+    /// but the watch goes on: the daemon ends a call whose sent audio goes
+    /// unreported, so playback that resumes must be heard about.
+    private func watchPlaybackProgress() {
+        guard progressTick == nil else { return }
+
+        progressTick = deadlines.schedule(after: Self.progressInterval) { [weak self] in
+            guard let self else { return }
+
+            self.progressTick = nil
+            if self.reportPlaybackProgress().unplayed {
+                self.watchPlaybackProgress()
+            }
+        }
+    }
+
+    @discardableResult
+    private func reportPlaybackProgress() -> PlaybackProgressReport {
+        let report = engine.takePlaybackProgress()
+        if !report.changed.isEmpty {
+            onPlaybackProgress?(report.changed)
+        }
+
+        return report
     }
 
     /// Reports the drain once playback has stayed empty for `drainGrace`.
@@ -209,21 +263,28 @@ public final class AudioOwner {
         }
     }
 
+    /// Stops playback, then reports what of each playback id had played, so
+    /// the daemon cuts the reply at what was heard.
     public func stopPlayback() {
         engine.stopPlayback()
+        progressTick?.cancel()
+        progressTick = nil
+        reportPlaybackProgress()
     }
 
     public func resetUtteranceAnchor() {
         engine.resetUtteranceAnchor()
     }
 
-    /// Stops playback and reports how much of the current utterance actually
+    /// Stops playback and answers how much of the current utterance actually
     /// reached the speaker, which is what the daemon needs to truncate its own
-    /// transcript on an interrupt.
+    /// transcript on an interrupt. A call whose audio carries playback ids
+    /// truncates at what they report instead, so their final progress goes
+    /// out first, before the caller sends `interrupt`.
     @discardableResult
     public func interruptPlayback() -> Int? {
         let played = engine.currentUtterancePlayedMs()
-        engine.stopPlayback()
+        stopPlayback()
         return played
     }
 

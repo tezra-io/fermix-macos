@@ -403,7 +403,7 @@ struct ProductStringsTests {
         #expect(ProductStrings[.providerAccount] == "Account")
         #expect(
             ProductStrings[.attentionVoiceBody]
-                == "Voice uses the OpenAI Realtime API, which a ChatGPT or Claude sign-in does not authorize."
+                == "Voice calls take an API key, which a subscription sign-in does not authorize."
         )
     }
 
