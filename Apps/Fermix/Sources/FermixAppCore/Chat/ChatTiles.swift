@@ -242,7 +242,7 @@ enum ChatStripNavigation {
     }
 }
 
-/// The mask a sideways row is drawn through, a strip's or a code block's:
+/// The mask a sideways row is drawn through, a strip's or a wide table's:
 /// whole, but fading out at an end with more past it. A mask's colours are
 /// only how much shows.
 struct ChatStripFade: View {

@@ -1,24 +1,47 @@
+import AppKit
 import CoreGraphics
 import Foundation
 
 /// The Mac's own maps, for a reply's places: a map of them (M72 §7.2), a
-/// picture of an area and nothing else, and a place Apple Maps found opened
-/// at Apple's own card for it (§14.1). Where each place falls on the map is
-/// the area's own projection (`PlaceMapArea.point(of:in:)`), so the pins
-/// never wait for the picture. Behind a protocol because MapKit is GUI-only:
-/// `FermixAgent` links this library and never draws a map, so the maps are
-/// `FermixViewers`'s, and the executable hands them in as the chat's media
-/// reader (`ChatMediaReading`).
+/// picture of an area and nothing else, and a place Apple Maps found shown at
+/// Apple's own card for it, inside Fermix or in Maps (§14.1). Where each
+/// place falls on the map is the area's own projection
+/// (`PlaceMapArea.point(of:in:)`), so the pins never wait for the picture.
+/// Behind a protocol because MapKit is GUI-only: `FermixAgent` links this
+/// library and never draws a map, so the maps are `FermixViewers`'s, and the
+/// executable hands them in as the chat's media reader (`ChatMediaReading`).
 public protocol PlaceMaps: Sendable {
     /// Exactly `area`, drawn at `size` points in the light or the dark map,
     /// with none of the map's own points of interest, so the pins read. It
     /// stops when the task asking for it is cancelled.
     func map(of area: PlaceMapArea, size: CGSize, appearance: PlaceMapAppearance) async throws -> CGImage
+    /// Apple's own card for the place Apple Maps knows by `identifier`
+    /// (`CompanionPlace.applePlaceID`), as MapKit draws it: its photos, its
+    /// hours and whether it is open now, its address and the ways to reach
+    /// it, for a popover in the chat to hold. It is exactly `size` points,
+    /// the popover's, and what it holds past them scrolls inside it. The
+    /// core hosts it as it comes and never names what it is; `finished`
+    /// hears the card's own close button, so what holds it can put it away.
+    /// It throws where Maps finds no place by the identifier or cannot be
+    /// asked; nothing else about the place is ever looked up instead.
+    @MainActor func placeCard(
+        _ identifier: String,
+        size: CGSize,
+        finished: @escaping @MainActor () -> Void
+    ) async throws -> NSViewController
     /// The place Apple Maps knows by `identifier` (`CompanionPlace.applePlaceID`),
     /// opened in Maps at its own card. `failed` hears where Maps finds no
     /// place by it or does not open it; nothing else about the place is
     /// ever looked up instead.
     @MainActor func openPlace(_ identifier: String, failed: @escaping @MainActor () -> Void)
+}
+
+/// What a place's popover holds once Maps has answered (M72 §14.1): Apple's
+/// own card for the place, or, where Maps finds no place by its identifier or
+/// cannot be asked, the one sentence the popover says instead.
+enum PlaceCardAnswer {
+    case card(NSViewController)
+    case said(String)
 }
 
 /// Which map a picture is drawn in: the one the app's own appearance reads.

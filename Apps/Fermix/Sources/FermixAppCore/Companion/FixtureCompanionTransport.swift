@@ -10,7 +10,8 @@ enum FixtureCompanionTimeline: Equatable {
     /// written with a tool running, and an approval waiting.
     case full
     /// Replies drawn for what they hold (M72): places with their map and
-    /// cards, lists, a table and a quote, and nothing happening now.
+    /// cards, lists, a table, a quote, links and code, all on one page, and
+    /// nothing happening now.
     case replies
 }
 
@@ -38,6 +39,9 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
     /// The most rows one page carries, below the contract's page so the
     /// newest one has older rows behind it for the reader to reach.
     static let historyPage = 12
+    /// The replies timeline is looked at whole: its one page carries every
+    /// row it holds, so none is behind it.
+    static let repliesPage = FixtureRepliesScript.rows.count
     /// The most hits one answer carries, below the contract's page so the
     /// fixture can show the action that asks for older ones.
     static let searchPage = 4
@@ -46,6 +50,8 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
 
     private var rows: [CompanionTimelineRow]
     private let opening: [CompanionServerEvent]
+    /// The most rows one of this timeline's pages carries.
+    private let pageLimit: Int
     private var repliesWritten = 0
 
     init(timeline: FixtureCompanionTimeline) {
@@ -53,12 +59,15 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
         case .empty:
             rows = []
             opening = []
+            pageLimit = Self.historyPage
         case .full:
             rows = FixtureCompanionScript.rows
             opening = FixtureCompanionScript.opening
+            pageLimit = Self.historyPage
         case .replies:
             rows = FixtureRepliesScript.rows
             opening = []
+            pageLimit = Self.repliesPage
         }
     }
 
@@ -136,7 +145,7 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
     /// A page, as the contract cuts one: the newest rows below a cursor, or the
     /// oldest above one, oldest first either way.
     private func page(_ event: [String: Any]) -> CompanionHistoryPage {
-        let limit = min(event["limit"] as? Int ?? Self.historyPage, Self.historyPage)
+        let limit = min(event["limit"] as? Int ?? pageLimit, pageLimit)
 
         if let before = event["before_seq"] as? Int {
             let below = rows.filter { $0.serverSeq < before }
@@ -355,13 +364,16 @@ enum FixtureCompanionScript {
     }
 }
 
-/// What the replies timeline holds (M72): five questions, each answered in
+/// What the replies timeline holds (M72): seven questions, each answered in
 /// the shape its answer takes. Places in SoHo with the engine's block of
 /// them, one place with every field and the others each missing one, the
 /// last with a long name; then a list and steps, a table, and a quote, which
-/// are the reply's own markdown; and last, places Apple Maps found around a
-/// named town (§14.1), each with Apple's own identifier and page and its
-/// kind, and no rating, price, hours or distance.
+/// are the reply's own markdown; then places Apple Maps found around a named
+/// town (§14.1), each with Apple's own identifier and page and its kind, and
+/// no rating, price, hours or distance; then a reply linking pages the
+/// engine previewed; and last, code, a shell one-liner too long for one line
+/// of the reply and a short Python function, each fence naming its language
+/// by a common tag.
 enum FixtureRepliesScript {
     static let rows: [CompanionTimelineRow] = [
         FixtureCompanionScript.row(1, "user", "Can you find a few quiet coffee shops in SoHo where I could work for an hour?", clientMsgId: "fixture-replies-1"),
@@ -376,7 +388,41 @@ enum FixtureRepliesScript {
         FixtureCompanionScript.row(10, "assistant", applePlaces, inReplyTo: "fixture-replies-9", blocks: [.places(applePlaceRecords)]),
         FixtureCompanionScript.row(11, "user", "Any good guides on growing sunflowers and dahlias this spring?", clientMsgId: "fixture-replies-11"),
         FixtureCompanionScript.row(12, "assistant", links, inReplyTo: "fixture-replies-11", linkPreviews: linkPreviews),
+        FixtureCompanionScript.row(13, "user", "How do I find the biggest files in my Downloads folder?", clientMsgId: "fixture-replies-13"),
+        FixtureCompanionScript.row(14, "assistant", code, inReplyTo: "fixture-replies-13"),
     ]
+
+    /// A one-liner wider than the reply, which wraps, and a short function,
+    /// fenced as `sh` and `python`, which the blocks name Shell and Python.
+    static let code = """
+        This lists the twenty largest files under Downloads, biggest first, and saves the list to your Desktop.
+
+        ```sh
+        find ~/Downloads -type f -size +10M -exec du -h {} + 2>/dev/null | sort -rh | head -n 20 | sed "s|$HOME|~|" | tee ~/Desktop/largest-downloads.txt
+        ```
+
+        If you would rather stay in Python, this does the same and skips anything it cannot read.
+
+        ```python
+        from pathlib import Path
+
+
+        def largest(folder, count=20):
+            # Every file under the folder with its size, biggest first.
+            sizes = []
+            for path in Path(folder).expanduser().rglob("*"):
+                try:
+                    if path.is_file():
+                        sizes.append((path.stat().st_size, path))
+                except OSError:
+                    continue
+            return sorted(sizes, reverse=True)[:count]
+
+
+        for size, path in largest("~/Downloads"):
+            print(f"{size / 1_000_000:8.1f} MB  {path}")
+        ```
+        """
 
     /// Four pages the reply links, as the engine previews them: two with a
     /// picture, one whose page gave none, and the last with no preview at
@@ -394,6 +440,7 @@ enum FixtureRepliesScript {
 
     static let linkPreviews: [CompanionLinkPreview] = [
         CompanionLinkPreview(
+            link: "https://gardennotes.example/grow/sunflowers",
             url: "https://gardennotes.example/grow/sunflowers",
             site: "Garden Notes",
             title: "How to grow sunflowers from seed, from sowing to staking",
@@ -401,6 +448,7 @@ enum FixtureRepliesScript {
             imageRef: sunflowerPicture
         ),
         CompanionLinkPreview(
+            link: "https://bloomandroot.example/guides/dahlias-for-beginners",
             url: "https://bloomandroot.example/guides/dahlias-for-beginners",
             site: "Bloom and Root",
             title: "Dahlias for beginners",
@@ -408,6 +456,7 @@ enum FixtureRepliesScript {
             imageRef: dahliaPicture
         ),
         CompanionLinkPreview(
+            link: "https://weekendplot.example/2026/03/cutting-garden-in-one-bed",
             url: "https://weekendplot.example/2026/03/cutting-garden-in-one-bed",
             site: "Weekend Plot",
             title: "A cutting garden in one bed",

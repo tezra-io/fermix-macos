@@ -127,6 +127,50 @@ struct CodeHighlightTests {
         }
     }
 
+    // MARK: - Names
+
+    /// A block's header and VoiceOver name the language a fence's tag is,
+    /// by its common spellings in any case.
+    @Test("a fence's common tags name their language", arguments: [
+        ("sh", "Shell"), ("bash", "Shell"), ("zsh", "Shell"), ("shell", "Shell"), ("console", "Shell"),
+        ("py", "Python"), ("python", "Python"), ("Python3", "Python"),
+        ("js", "JavaScript"), ("jsx", "JavaScript"), ("mjs", "JavaScript"),
+        ("ts", "TypeScript"), ("tsx", "TypeScript"),
+        ("swift", "Swift"), ("json", "JSON"), ("yaml", "YAML"), ("yml", "YAML"), ("html", "HTML"), ("css", "CSS"),
+        ("sql", "SQL"), ("rb", "Ruby"), ("go", "Go"), ("rs", "Rust"), ("ex", "Elixir"), ("exs", "Elixir"),
+        ("kt", "Kotlin"), ("java", "Java"), ("c", "C"), ("cpp", "C++"), ("c++", "C++"), ("cc", "C++"), ("hpp", "C++"),
+        ("cs", "C#"), ("csharp", "C#"), ("md", "Markdown"), ("diff", "Diff"), ("toml", "TOML"), ("xml", "XML"),
+        ("dockerfile", "Dockerfile"), ("Makefile", "Makefile"), ("ps1", "PowerShell"), ("powershell", "PowerShell"),
+        ("BASH", "Shell"), ("JSON", "JSON"),
+    ])
+    func languageNames(_ tag: String, _ name: String) {
+        #expect(CodeLanguage.name(of: tag) == name)
+    }
+
+    @Test("a tag it does not know names itself as written")
+    func unknownTagsAsWritten() {
+        for tag in ["brainfuck", "Nim", "c--"] {
+            #expect(CodeLanguage(tag: tag) == nil)
+            #expect(CodeLanguage.name(of: tag) == tag)
+        }
+    }
+
+    /// One owner of which language a tag is: no spelling is two languages'.
+    @Test("no tag is given to two languages")
+    func tagsAreOneLanguagesEach() {
+        let tags = CodeLanguage.allCases.flatMap(\.tags)
+
+        #expect(tags.count == Set(tags).count)
+        #expect(tags.allSatisfy { $0 == $0.lowercased() })
+    }
+
+    @Test("VoiceOver names a block by its language's name, and a block with no language as code")
+    func spokenLanguage() {
+        #expect(ChatCodeBlock.label(of: ReplyCode(language: "py", text: "x = 1")) == ProductStrings.commaPair(ProductStrings[.chatCode], "Python"))
+        #expect(ChatCodeBlock.label(of: ReplyCode(language: "nim", text: "x")) == ProductStrings.commaPair(ProductStrings[.chatCode], "nim"))
+        #expect(ChatCodeBlock.label(of: ReplyCode(language: nil, text: "x")) == ProductStrings[.chatCode])
+    }
+
     // MARK: - Hostile input
 
     @Test("a string never closed is no string, and a quote inside another is part of it")

@@ -29,7 +29,8 @@ struct CodeToken: Equatable {
 enum CodeHighlight {
     /// The coloured stretches of `text`, in order, none overlapping.
     static func tokens(in text: String, language: String?) -> [CodeToken] {
-        var scanner = CodeScanner(bytes: Array(text.utf8), syntax: CodeSyntax.named(language))
+        let syntax = language.flatMap(CodeLanguage.init(tag:))?.syntax ?? .unknown
+        var scanner = CodeScanner(bytes: Array(text.utf8), syntax: syntax)
         return indexed(scanner.scan(), in: text)
     }
 
@@ -54,6 +55,170 @@ enum CodeHighlight {
     }
 }
 
+/// A language a fence names, the one answer to which language a tag is: by
+/// its common spellings in any case (`py`, `yml`, `C++`), the name a block's
+/// header and VoiceOver call it, and the syntax its colours follow. A tag it
+/// does not know is no language: its block says the tag as written and gets
+/// strings, numbers and the commonest comments, and no keywords
+/// (`CodeSyntax.unknown`).
+enum CodeLanguage: CaseIterable {
+    case shell, powerShell, batch
+    case python, ruby, perl, lua, php, r
+    case swift, objectiveC, kotlin, java, scala, dart
+    case c, cPlusPlus, cSharp, go, rust
+    case javaScript, typeScript
+    case elixir, erlang, haskell
+    case sql, graphQL
+    case json, yaml, toml, ini, xml, svg
+    case html, css, scss, less
+    case markdown, diff, dockerfile, makefile, text
+
+    /// The language a fence's tag names, or nil where it names none this
+    /// knows.
+    init?(tag: String) {
+        guard let language = Self.tagged[tag.lowercased()] else { return nil }
+
+        self = language
+    }
+
+    /// What a block's header and VoiceOver call the language a fence names:
+    /// its name where it is a language this knows, and the tag as written
+    /// where it is not.
+    static func name(of tag: String) -> String {
+        CodeLanguage(tag: tag)?.name ?? tag
+    }
+
+    /// Every spelling, to its one language. Built once; a spelling given to
+    /// two languages stops the app at its first code block.
+    private static let tagged = Dictionary(uniqueKeysWithValues: allCases.flatMap { language in
+        language.tags.map { ($0, language) }
+    })
+
+    /// The spellings a fence writes it in, lowercased.
+    var tags: [String] {
+        switch self {
+        case .shell: return ["sh", "bash", "zsh", "shell", "console", "shellscript", "shell-session", "terminal", "ksh", "fish"]
+        case .powerShell: return ["powershell", "ps1", "pwsh"]
+        case .batch: return ["bat", "batch", "cmd"]
+        case .python: return ["python", "py", "python3", "ipython"]
+        case .ruby: return ["ruby", "rb"]
+        case .perl: return ["perl", "pl"]
+        case .lua: return ["lua"]
+        case .php: return ["php"]
+        case .r: return ["r"]
+        case .swift: return ["swift"]
+        case .objectiveC: return ["objective-c", "objectivec", "objc", "obj-c"]
+        case .kotlin: return ["kotlin", "kt", "kts"]
+        case .java: return ["java"]
+        case .scala: return ["scala"]
+        case .dart: return ["dart"]
+        case .c: return ["c", "h"]
+        case .cPlusPlus: return ["cpp", "c++", "cc", "cxx", "hpp", "hh", "hxx"]
+        case .cSharp: return ["cs", "csharp", "c#"]
+        case .go: return ["go", "golang"]
+        case .rust: return ["rust", "rs"]
+        case .javaScript: return ["javascript", "js", "jsx", "mjs", "cjs", "node"]
+        case .typeScript: return ["typescript", "ts", "tsx", "mts", "cts"]
+        case .elixir: return ["elixir", "ex", "exs", "iex"]
+        case .erlang: return ["erlang", "erl"]
+        case .haskell: return ["haskell", "hs"]
+        case .sql: return ["sql", "postgres", "postgresql", "psql", "mysql", "sqlite"]
+        case .graphQL: return ["graphql", "gql"]
+        case .json: return ["json", "jsonc", "json5"]
+        case .yaml: return ["yaml", "yml"]
+        case .toml: return ["toml"]
+        case .ini: return ["ini"]
+        case .xml: return ["xml", "plist"]
+        case .svg: return ["svg"]
+        case .html: return ["html", "htm", "xhtml"]
+        case .css: return ["css"]
+        case .scss: return ["scss"]
+        case .less: return ["less"]
+        case .markdown: return ["markdown", "md"]
+        case .diff: return ["diff", "patch"]
+        case .dockerfile: return ["dockerfile", "docker", "containerfile"]
+        case .makefile: return ["makefile", "make", "mk"]
+        case .text: return ["text", "txt", "plaintext", "plain"]
+        }
+    }
+
+    /// What a block's header and VoiceOver call it.
+    var name: String {
+        ProductStrings[nameKey]
+    }
+
+    private var nameKey: ProductStringKey {
+        switch self {
+        case .shell: return .chatCodeLanguageShell
+        case .powerShell: return .chatCodeLanguagePowerShell
+        case .batch: return .chatCodeLanguageBatch
+        case .python: return .chatCodeLanguagePython
+        case .ruby: return .chatCodeLanguageRuby
+        case .perl: return .chatCodeLanguagePerl
+        case .lua: return .chatCodeLanguageLua
+        case .php: return .chatCodeLanguagePHP
+        case .r: return .chatCodeLanguageR
+        case .swift: return .chatCodeLanguageSwift
+        case .objectiveC: return .chatCodeLanguageObjectiveC
+        case .kotlin: return .chatCodeLanguageKotlin
+        case .java: return .chatCodeLanguageJava
+        case .scala: return .chatCodeLanguageScala
+        case .dart: return .chatCodeLanguageDart
+        case .c: return .chatCodeLanguageC
+        case .cPlusPlus: return .chatCodeLanguageCPlusPlus
+        case .cSharp: return .chatCodeLanguageCSharp
+        case .go: return .chatCodeLanguageGo
+        case .rust: return .chatCodeLanguageRust
+        case .javaScript: return .chatCodeLanguageJavaScript
+        case .typeScript: return .chatCodeLanguageTypeScript
+        case .elixir: return .chatCodeLanguageElixir
+        case .erlang: return .chatCodeLanguageErlang
+        case .haskell: return .chatCodeLanguageHaskell
+        case .sql: return .chatCodeLanguageSQL
+        case .graphQL: return .chatCodeLanguageGraphQL
+        case .json: return .chatCodeLanguageJSON
+        case .yaml: return .chatCodeLanguageYAML
+        case .toml: return .chatCodeLanguageTOML
+        case .ini: return .chatCodeLanguageINI
+        case .xml: return .chatCodeLanguageXML
+        case .svg: return .chatCodeLanguageSVG
+        case .html: return .chatCodeLanguageHTML
+        case .css: return .chatCodeLanguageCSS
+        case .scss: return .chatCodeLanguageSCSS
+        case .less: return .chatCodeLanguageLess
+        case .markdown: return .chatCodeLanguageMarkdown
+        case .diff: return .chatCodeLanguageDiff
+        case .dockerfile: return .chatCodeLanguageDockerfile
+        case .makefile: return .chatCodeLanguageMakefile
+        case .text: return .chatCodeLanguageText
+        }
+    }
+
+    /// The syntax its colours follow: its family's where the scanner knows
+    /// one, and the unknown language's strings, numbers and comments where it
+    /// does not.
+    var syntax: CodeSyntax {
+        switch self {
+        case .shell: return .shell
+        case .python: return .python
+        case .swift: return .swift
+        case .javaScript, .typeScript: return .javaScript
+        case .json: return .json
+        case .elixir: return .elixir
+        case .go: return .go
+        case .rust: return .rust
+        case .sql: return .sql
+        case .yaml, .toml: return .yaml
+        case .html, .xml, .svg: return .html
+        case .css, .scss, .less: return .css
+        case .powerShell, .batch, .ruby, .perl, .lua, .php, .r, .objectiveC, .kotlin, .java, .scala, .dart,
+             .c, .cPlusPlus, .cSharp, .erlang, .haskell, .graphQL, .ini, .markdown, .diff, .dockerfile,
+             .makefile, .text:
+            return .unknown
+        }
+    }
+}
+
 /// How one family of languages writes the four things the scanner colours.
 struct CodeSyntax {
     /// What starts a comment to the end of its line. It counts only at the
@@ -73,27 +238,6 @@ struct CodeSyntax {
     var keywords: Set<String> = []
     /// SQL's keywords are any case.
     var keywordsIgnoreCase = false
-
-    /// The syntax a fence's language names, by its common spellings; an
-    /// unknown or absent language gets strings, numbers and the commonest
-    /// comments, and no keywords.
-    static func named(_ language: String?) -> CodeSyntax {
-        switch language?.lowercased() {
-        case "sh", "bash", "zsh", "shell", "console", "shellscript", "terminal", "ksh", "fish": return shell
-        case "python", "py", "python3", "ipython": return python
-        case "swift": return swift
-        case "javascript", "js", "jsx", "mjs", "cjs", "node", "typescript", "ts", "tsx": return javaScript
-        case "json", "jsonc", "json5": return json
-        case "elixir", "ex", "exs", "iex": return elixir
-        case "go", "golang": return go
-        case "rust", "rs": return rust
-        case "sql", "postgres", "postgresql", "psql", "mysql", "sqlite": return sql
-        case "yaml", "yml", "toml": return yaml
-        case "html", "htm", "xml", "svg", "xhtml": return html
-        case "css", "scss", "less": return css
-        default: return unknown
-        }
-    }
 
     private static let cBlock = [(open: "/*", close: "*/")]
 

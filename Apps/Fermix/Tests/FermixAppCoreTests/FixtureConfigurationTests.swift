@@ -431,7 +431,7 @@ struct FixtureConfigurationTests {
         let session = fixtureChat(.replies)
         session.connect()
 
-        #expect(session.model.rows.map(\.serverSeq) == Array(1...12))
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...14))
         #expect(!session.model.hasOlder)
         #expect(session.model.turn == nil)
 
@@ -456,17 +456,17 @@ struct FixtureConfigurationTests {
         }
         #expect(named.map { $0.first(where: linked.contains) } == linked.map(Optional.some))
 
-        for seq in [4, 6, 8, 12] {
+        for seq in [4, 6, 8, 12, 14] {
             #expect(session.model.rows.first { $0.serverSeq == seq }?.blocks == [])
         }
     }
 
-    /// Last, places Apple Maps found around a named town (M72 §14.1): each
+    /// Then places Apple Maps found around a named town (M72 §14.1): each
     /// with Apple's identifier and Apple's page for it, its kind and its
     /// address, and none of what Apple does not give or the engine leaves
     /// out for a named area, linked in the text by one of its two addresses.
     @MainActor
-    @Test("the replies timeline ends with places Apple Maps found, each with its identifier and none of what Apple does not give")
+    @Test("the replies timeline then holds places Apple Maps found, each with its identifier and none of what Apple does not give")
     func applePlacesArrive() throws {
         let session = fixtureChat(.replies)
         session.connect()
@@ -504,7 +504,7 @@ struct FixtureConfigurationTests {
     /// sample photo, one whose page gave none, and the fourth left with no
     /// preview, as a page the engine could not read is.
     @MainActor
-    @Test("the replies timeline ends with a reply linking four pages, three of them previewed")
+    @Test("the replies timeline then holds a reply linking four pages, three of them previewed")
     func linkedPagesArrive() throws {
         let session = fixtureChat(.replies)
         session.connect()
@@ -518,6 +518,29 @@ struct FixtureConfigurationTests {
         #expect(pictures.count == 2)
         #expect(pictures.allSatisfy(CompanionProtocol.isMediaRef))
         #expect(Set(pictures) == Set(FixtureRepliesScript.pictures.keys))
+    }
+
+    /// Last, code: a shell one-liner wider than any reply, which its block
+    /// wraps, and a short Python function, each fenced by a common tag its
+    /// block names by the language's own name. Code is the reply's own
+    /// markdown, so the row carries no block of the engine's.
+    @MainActor
+    @Test("the replies timeline ends with code, a long shell one-liner and a Python function fenced by common tags")
+    func codeArrives() throws {
+        let session = fixtureChat(.replies)
+        session.connect()
+
+        let reply = try #require(session.model.rows.last)
+        let code = ReplyFences.runs(reply.text).compactMap { run -> ReplyCode? in
+            guard case .code(let code, _) = run else { return nil }
+            return code
+        }
+
+        #expect(reply.serverSeq == 14)
+        #expect(code.compactMap(\.language).map(CodeLanguage.name(of:)) == ["Shell", "Python"])
+        #expect(code.first?.text.contains("\n") == false)
+        #expect((code.first?.text.count ?? 0) > 120)
+        #expect((code.last?.text.split(separator: "\n").count ?? 0) > 10)
     }
 
     @MainActor

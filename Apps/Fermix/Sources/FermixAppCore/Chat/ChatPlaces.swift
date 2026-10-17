@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension ChatMetrics {
@@ -15,6 +16,15 @@ extension ChatMetrics {
     /// compact card's face with room for a second line of facts.
     static let placeCardWidth: Double = 240
     static let placeCardHeight: Double = cardHeight + 16
+    /// A place's popover (M72 §14.1), one size whatever it holds, so nothing
+    /// moves when Apple's card comes: the width MapKit lays the card out at,
+    /// and a height whose first screen ends between two of the card's rows
+    /// whichever place it shows, after the week's hours under a place's
+    /// photo, and after the phone or the website where it has none. The
+    /// rest, the address and the ways to get there among it, is a short
+    /// scroll below.
+    static let placePopoverWidth: Double = 320
+    static let placePopoverHeight: Double = 358
 }
 
 /// The records a reply carries, drawn under its words (M72 §6.3): each of
@@ -41,14 +51,18 @@ struct ChatRecords: View {
 
 /// A reply's places (M72 §8.1): a map at the reply's width with a numbered
 /// pin for each, then a sideways lane of their cards in the same order,
-/// which scrolls as the M66 strip does. A click on a card or a pin opens the
-/// place in Maps, and the pointer on a card lights its pin.
+/// which scrolls as the M66 strip does. A click on a card or a pin shows a
+/// place Apple Maps found at Apple's own card for it, in a popover at what
+/// was clicked (§14.1), and opens any other in Maps; the pointer on a card
+/// lights its pin.
 struct ChatPlaces: View {
     let places: [CompanionPlace]
     let width: Double
 
     /// The number of the place whose card is under the pointer.
     @State private var lit: Int?
+    /// The place whose card is open, and at what: one at a time.
+    @StateObject private var cards = ChatPlaceCards()
     @Environment(\.chatRows) private var rows
 
     var body: some View {
@@ -59,18 +73,30 @@ struct ChatPlaces: View {
                 places: numbered,
                 size: CGSize(width: width, height: ChatMetrics.placeMapHeight),
                 lit: lit,
-                open: open
+                cards: cards,
+                open: { open($0, at: .pin) }
             )
             ChatStripLane(items: numbered, itemWidth: ChatMetrics.placeCardWidth, width: width, trailing: false) { place in
-                ChatPlaceCard(place: place, open: open) { hover(place.number, $0) }
+                ChatPlaceCard(
+                    place: place,
+                    cards: cards,
+                    open: { open(place, at: .card) },
+                    openInMaps: { rows?.links.openInMaps(place.place) },
+                    hover: { hover(place.number, $0) }
+                )
             }
         }
         .accessibilityElement(children: .contain)
     }
 
-    /// Through the one content link opener, straight to Maps.
-    private func open(_ place: CompanionPlace) {
-        rows?.links.openInMaps(place)
+    /// A click on a place, through the one content link opener: a place
+    /// Apple Maps found opens its card here, at what was clicked, in place of
+    /// any card already open (`ChatPlaceCards`), and any other goes straight
+    /// to Maps.
+    private func open(_ place: ChatNumberedPlace, at anchor: ChatPlaceShown.Anchor) {
+        guard let identifier = rows?.links.show(place.place) else { return }
+
+        cards.ask(ChatPlaceShown(number: place.number, identifier: identifier, anchor: anchor))
     }
 
     /// The pointer reaching a card lights its pin; leaving it puts the pin
@@ -81,6 +107,75 @@ struct ChatPlaces: View {
         } else if lit == number {
             lit = nil
         }
+    }
+}
+
+/// The place whose card a reply's places show (M72 §14.1): by its number,
+/// with Apple's identifier its card is asked for by, at its card in the lane
+/// or its pin on the map, whichever was clicked, which the popover is
+/// anchored to.
+struct ChatPlaceShown: Identifiable, Equatable {
+    enum Anchor: Equatable {
+        case card
+        case pin
+    }
+
+    let number: Int
+    let identifier: String
+    let anchor: Anchor
+
+    var id: String { "\(number) \(anchor)" }
+}
+
+/// The one card a reply's places show at a time (M72 §14.1), and the order
+/// its popovers come and go in. A popover asked for while another is still
+/// on screen, even one already closing, is never presented, so a card asked
+/// for then waits until the one on screen has gone, and comes in its place.
+/// Asking for the card already on screen puts it away instead.
+///
+/// One object the popovers share rather than a value they bind to: a
+/// popover's binding can hand back the value it was presented with, and
+/// writing that back would lose a card asked for since.
+@MainActor
+final class ChatPlaceCards: ObservableObject {
+    /// The card whose popover is presented, at its anchor.
+    @Published private(set) var shown: ChatPlaceShown?
+    /// The card whose popover is on screen, from its appearing until it has
+    /// gone, which outlasts `shown` while it closes.
+    private(set) var onScreen: ChatPlaceShown?
+    /// The card asked for while another was on screen.
+    private(set) var next: ChatPlaceShown?
+
+    /// A click on a place Apple Maps found, or Return on its card.
+    func ask(_ card: ChatPlaceShown) {
+        guard let current = onScreen else {
+            shown = card
+            return
+        }
+
+        shown = nil
+        next = card == current ? nil : card
+    }
+
+    /// The system closed the card's popover: on Escape, a click outside, or
+    /// the card's own close button.
+    func closed(_ card: ChatPlaceShown) {
+        guard shown == card else { return }
+
+        shown = nil
+    }
+
+    func appeared(_ card: ChatPlaceShown) {
+        onScreen = card
+    }
+
+    /// The card's popover has gone; a card asked for meanwhile comes now.
+    func gone(_ card: ChatPlaceShown) {
+        guard onScreen == card else { return }
+
+        onScreen = nil
+        if let next { shown = next }
+        next = nil
     }
 }
 
@@ -111,7 +206,8 @@ private struct ChatPlaceMap: View {
     let places: [ChatNumberedPlace]
     let size: CGSize
     let lit: Int?
-    let open: (CompanionPlace) -> Void
+    let cards: ChatPlaceCards
+    let open: (ChatNumberedPlace) -> Void
 
     /// The previews' last answer, with what it answered: one for another
     /// size or appearance is not shown.
@@ -179,7 +275,7 @@ private struct ChatPlaceMap: View {
     private func pins(in area: PlaceMapArea) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(places) { place in
-                ChatPlacePin(place: place, lit: lit == place.number, open: open)
+                ChatPlacePin(place: place, lit: lit == place.number, cards: cards) { open(place) }
                     .position(area.point(of: place.place.location, in: size))
                     .zIndex(lit == place.number ? 1 : 0)
             }
@@ -191,12 +287,13 @@ private struct ChatPlaceMap: View {
 /// A place's pin: its number on the primary control's disc, which reads on
 /// the light map and the dark one alike, ringed in the card's fill to lift it
 /// off the streets. Lit, while its card or the pin itself is under the
-/// pointer, it grows a little and its ring takes the accent. A click opens the
-/// place in Maps.
+/// pointer, it grows a little and its ring takes the accent. A click shows the
+/// place as its card's click does, its popover anchored at the pin.
 private struct ChatPlacePin: View {
     let place: ChatNumberedPlace
     let lit: Bool
-    let open: (CompanionPlace) -> Void
+    let cards: ChatPlaceCards
+    let open: () -> Void
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -204,7 +301,7 @@ private struct ChatPlacePin: View {
     var body: some View {
         let shown = lit || hovering
 
-        Button { open(place.place) } label: {
+        Button(action: open) {
             ChatPlaceNumber(number: place.number, size: ChatMetrics.placePinSize)
                 .overlay(
                     Circle().strokeBorder(
@@ -218,6 +315,7 @@ private struct ChatPlacePin: View {
         .focusable(false)
         .onHover { hovering = $0 }
         .help(place.place.name)
+        .modifier(ChatPlacePopover(number: place.number, anchor: .pin, cards: cards))
         .animation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade), value: shown)
     }
 }
@@ -242,11 +340,15 @@ private struct ChatPlaceNumber: View {
 /// A place's card (M72 §8.1), one size whatever its record holds: its number
 /// beside its name, then a line of rating, price and kind and a line of
 /// today's hours and the distance, each as the record has it
-/// (`ChatPlaceFacts`). A click opens the place in Maps; its menu also opens
-/// the place's website, as a link in a reply opens, and copies its address.
+/// (`ChatPlaceFacts`). A click, or Return while it has focus, shows a place
+/// Apple Maps found at Apple's own card for it, in a popover anchored here,
+/// and opens any other in Maps; its menu opens the place in Maps whichever it
+/// is, opens its website, as a link in a reply opens, and copies its address.
 private struct ChatPlaceCard: View {
     let place: ChatNumberedPlace
-    let open: (CompanionPlace) -> Void
+    let cards: ChatPlaceCards
+    let open: () -> Void
+    let openInMaps: () -> Void
     let hover: (Bool) -> Void
 
     @Environment(\.openURL) private var openURL
@@ -254,7 +356,7 @@ private struct ChatPlaceCard: View {
     var body: some View {
         let facts = ChatPlaceFacts(place.place)
 
-        Button { open(place.place) } label: {
+        Button(action: open) {
             ChatTileFrame(size: CGSize(width: ChatMetrics.placeCardWidth, height: ChatMetrics.placeCardHeight)) {
                 HStack(spacing: Spacing.s) {
                     ChatPlaceNumber(number: place.number, size: ChatMetrics.cardIconSize)
@@ -277,21 +379,23 @@ private struct ChatPlaceCard: View {
         }
         .buttonStyle(ChatTileButtonStyle())
         .onKeyPress(.return) {
-            open(place.place)
+            open()
             return .handled
         }
         .onHover(perform: hover)
         .help(place.place.name)
         .contextMenu { menu(facts) }
+        .modifier(ChatPlacePopover(number: place.number, anchor: .card, cards: cards))
         .accessibilityLabel(facts.spoken(name: place.place.name))
-        .accessibilityHint(ProductStrings[.chatPlaceOpenInMaps])
+        .accessibilityHint(facts.hint)
     }
 
-    /// Open in Maps always; Open website where the record has an address
-    /// that parses; Copy address where it has an address.
+    /// Open in Maps always, which opens the Maps app whatever a click does;
+    /// Open website where the record has an address that parses; Copy
+    /// address where it has an address.
     @ViewBuilder
     private func menu(_ facts: ChatPlaceFacts) -> some View {
-        Button(ProductStrings[.chatPlaceOpenInMaps]) { open(place.place) }
+        Button(ProductStrings[.chatPlaceOpenInMaps], action: openInMaps)
         if let website = facts.website {
             Button(ProductStrings[.chatPlaceOpenWebsite]) { openURL(website) }
         }
@@ -299,6 +403,103 @@ private struct ChatPlaceCard: View {
             Button(ProductStrings[.chatPlaceCopyAddress]) { Clipboard.write(address) }
         }
     }
+}
+
+/// The one popover a reply's places show (M72 §14.1), at a place's card or
+/// its pin, whichever was clicked (`ChatPlaceCards`): presented while it is
+/// this place's at this anchor, and let go when the system closes it, on
+/// Escape or a click outside. It is a transient popover as the info
+/// control's is, so it never stacks on another popup, and it tells the
+/// cards when it is on screen and when it has gone.
+private struct ChatPlacePopover: ViewModifier {
+    let number: Int
+    let anchor: ChatPlaceShown.Anchor
+    @ObservedObject var cards: ChatPlaceCards
+
+    @Environment(\.chatRows) private var rows
+
+    func body(content: Content) -> some View {
+        content.popover(item: presented) { shown in
+            if let rows {
+                ChatPlaceCardPopover(identifier: shown.identifier, rows: rows)
+                    .onAppear { cards.appeared(shown) }
+                    .onDisappear { cards.gone(shown) }
+            }
+        }
+    }
+
+    private var presented: Binding<ChatPlaceShown?> {
+        Binding {
+            cards.shown.flatMap { $0.number == number && $0.anchor == anchor ? $0 : nil }
+        } set: { now in
+            guard now == nil, let shown = cards.shown, shown.number == number, shown.anchor == anchor else { return }
+
+            cards.closed(shown)
+        }
+    }
+}
+
+/// What a place's popover holds (M72 §14.1): Apple's own card for the place,
+/// as MapKit draws it, with its photos, hours and whether it is open now,
+/// inside Fermix rather than in Maps, and nothing of the app's own around it.
+/// One size whatever it holds (`placePopoverHeight`), so while Apple is asked
+/// it holds the tiles' quiet progress mark, once the wait is long enough to
+/// notice, and where Maps has no card for the place it says so in one
+/// sentence. The place is never looked up another way. The card's own close
+/// button puts the popover away, as Escape does.
+private struct ChatPlaceCardPopover: View {
+    let identifier: String
+    /// The chat's, handed in rather than read from the environment, which a
+    /// popover's content is not promised.
+    let rows: ChatRowContext
+
+    @State private var answer: PlaceCardAnswer?
+    @State private var slow = false
+    @Environment(\.dismiss) private var dismiss
+
+    private let size = CGSize(width: ChatMetrics.placePopoverWidth, height: ChatMetrics.placePopoverHeight)
+
+    var body: some View {
+        ZStack {
+            switch answer {
+            case .card(let card)?:
+                ChatPlaceCardHost(card: card)
+            case .said(let sentence)?:
+                Text(sentence)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+                    .multilineTextAlignment(.center)
+                    .padding(Spacing.s)
+            case nil:
+                if slow {
+                    ActivityMark()
+                }
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .task(id: identifier) {
+            let answer = await rows.links.placeCard(identifier, size: size) { dismiss() }
+            guard !Task.isCancelled else { return }
+
+            self.answer = answer
+        }
+        .task(id: identifier) {
+            try? await Task.sleep(for: ChatMetrics.tileProgressDelay)
+            slow = !Task.isCancelled
+        }
+    }
+}
+
+/// Apple's card as MapKit drew it, hosted as it came (`PlaceMaps.placeCard`):
+/// the core never names what it is, and draws nothing of its own on it.
+private struct ChatPlaceCardHost: NSViewControllerRepresentable {
+    let card: NSViewController
+
+    func makeNSViewController(context: Context) -> NSViewController {
+        card
+    }
+
+    func updateNSViewController(_ card: NSViewController, context: Context) {}
 }
 
 /// What a place card says of its place (M72 §8.1), read from the record
@@ -320,6 +521,10 @@ struct ChatPlaceFacts: Equatable {
     /// website goes through the reply's link opener, which hands any other
     /// scheme to the app that owns it.
     let website: URL?
+    /// What a click on the card does, as VoiceOver hints it: a place Apple
+    /// Maps found shows its card from Maps here, and any other opens in Maps,
+    /// as the one content link opener decides (`show`).
+    let hint: String
 
     init(_ place: CompanionPlace, locale: Locale = .current) {
         summary = [
@@ -334,6 +539,7 @@ struct ChatPlaceFacts: Equatable {
         website = [place.canonicalURL, place.sourceURL]
             .compactMap { $0.flatMap(URL.init(string:)) }
             .first(where: ReplyLinks.isAddress)
+        hint = ProductStrings[place.applePlaceID == nil ? .chatPlaceOpenInMaps : .chatPlaceShowCard]
     }
 
     /// The lines a card draws, each its parts joined by the design's

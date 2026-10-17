@@ -41,7 +41,8 @@ struct ChatPanel<Content: View>: View {
     }
 }
 
-/// What a panel draws sideways, never wrapped: past the panel's width it
+/// What a panel draws sideways, never wrapped, which is a table too wide for
+/// the reply even with its columns at their floor: past the panel's width it
 /// scrolls inside it, fading at an end with more past it, as a strip does.
 struct ChatPanelScroll<Content: View>: View {
     let content: Content

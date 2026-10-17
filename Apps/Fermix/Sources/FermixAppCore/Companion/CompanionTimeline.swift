@@ -38,10 +38,13 @@ public struct CompanionTimelineRow: Equatable, Sendable, Decodable {
     }
 }
 
-/// A link preview the engine stored on a row that touches the phone: it read
-/// the page itself, and stored the card under the address it reached after
-/// redirects, which need not be the one written in the row's text.
+/// A link preview the engine stored on a row once it was written (M72): it
+/// read the page itself, for a link the row's text names, and stored the card
+/// under the address it reached after redirects, which need not be that link.
 public struct CompanionLinkPreview: Equatable, Sendable, Decodable {
+    /// The link the row's text wrote, which the card is paired with. A
+    /// preview stored before links were kept has none.
+    public let link: String?
     public let url: String
     public let site: String
     public let title: String
@@ -50,7 +53,7 @@ public struct CompanionLinkPreview: Equatable, Sendable, Decodable {
     public let imageRef: String?
 
     private enum CodingKeys: String, CodingKey {
-        case url, site, title, description
+        case link, url, site, title, description
         case imageRef = "image_ref"
     }
 }

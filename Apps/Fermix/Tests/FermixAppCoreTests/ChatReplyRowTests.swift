@@ -22,7 +22,7 @@ struct ChatReplyRowTests {
     @Test("a finished row is drawn again only when the row or the words a search marks in it change")
     func rowEquality() {
         let row = ChatRow(row: Self.row(), marked: [])
-        let preview = CompanionLinkPreview(url: "https://a.example", site: "A", title: "A", description: nil, imageRef: nil)
+        let preview = CompanionLinkPreview(link: nil, url: "https://a.example", site: "A", title: "A", description: nil, imageRef: nil)
 
         #expect(row == ChatRow(row: Self.row(), marked: []))
         #expect(row != ChatRow(row: Self.row("Saved it again."), marked: []))

@@ -375,9 +375,4 @@ enum ReplyMarks {
 
     /// What may stand after a path or an address and close round it.
     static let closing: Set<Character> = punctuation.union(closingQuotes).union(brackets.keys)
-
-    /// The engine's own rule for the end of an address it reads a preview
-    /// from (`unfurl.ex`, `@trailing_punctuation`, `),.;!?]}`): the closing
-    /// brackets and every mark that ends a clause but the colon.
-    static let engineClosing: Set<Character> = punctuation.subtracting([":"]).union(brackets.keys)
 }

@@ -26,8 +26,10 @@ struct ChatStripTests {
         CompanionMediaRef(ref: String(repeating: String(name.prefix(1)), count: 64), kind: kind, mime: mime, sizeBytes: 10, sha256: nil, filename: name, caption: nil)
     }
 
-    private static func preview(_ url: String, title: String = "Title") -> CompanionLinkPreview {
-        CompanionLinkPreview(url: url, site: "Site", title: title, description: nil, imageRef: nil)
+    /// A stored preview of `url`, read for `link`, or stored before links were
+    /// kept where it has none.
+    private static func preview(_ url: String, link: String? = nil, title: String = "Title") -> CompanionLinkPreview {
+        CompanionLinkPreview(link: link, url: url, site: "Site", title: title, description: nil, imageRef: nil)
     }
 
     /// Each item as one short line, so a whole strip reads as a list.
@@ -99,11 +101,14 @@ struct ChatStripTests {
     }
 
     /// The engine reads code too: a preview of an address the text has in
-    /// code pairs with it, and stands as its own item, the text's address
-    /// being no link.
+    /// code stands as its own item, the text's address being no link, and
+    /// opens the address it was read for, less the code's closing mark.
     @Test("a preview of an address in code stands on its own and opens that address")
     func previewOfCode() {
-        let strip = Self.strip("Fetched `https://c.com/y` for you", previews: [Self.preview("https://www.c.com/y")])
+        let strip = Self.strip(
+            "Fetched `https://c.com/y` for you",
+            previews: [Self.preview("https://www.c.com/y", link: "https://c.com/y`")]
+        )
 
         #expect(Self.described(strip) == ["link https://c.com/y = https://www.c.com/y"])
     }
@@ -207,14 +212,18 @@ struct ChatStripTests {
 
     // MARK: - Stored previews
 
-    /// The engine stores a preview under the address it reached, so with as
-    /// many previews as addresses it read, they pair by order whatever the
-    /// redirect did, and a click opens the address the text wrote.
-    @Test("a preview stored under a redirected address pairs with the written one by order")
+    /// The engine stores a preview under the address it reached and keeps
+    /// the link it read it for, so a preview pairs with that link whatever
+    /// the redirect did, in the text's order, and a click opens the address
+    /// the text wrote.
+    @Test("a preview stored under a redirected address pairs with the link it was read for")
     func redirectedPreviews() {
         let strip = Self.strip(
             "Old http://a.com/x and short https://t.co/abc",
-            previews: [Self.preview("https://a.com/x"), Self.preview("https://www.example.com/article")]
+            previews: [
+                Self.preview("https://www.example.com/article", link: "https://t.co/abc"),
+                Self.preview("https://a.com/x", link: "http://a.com/x"),
+            ]
         )
 
         #expect(Self.described(strip) == [
@@ -223,9 +232,12 @@ struct ChatStripTests {
         ])
     }
 
-    @Test("a host gaining www pairs by order too, and the click keeps the address as written")
+    @Test("a host gaining www pairs by its link too, and the click keeps the address as written")
     func hostGainingWWW() throws {
-        let strip = Self.strip("Read https://example.com/news.", previews: [Self.preview("https://www.example.com/news")])
+        let strip = Self.strip(
+            "Read https://example.com/news.",
+            previews: [Self.preview("https://www.example.com/news", link: "https://example.com/news")]
+        )
         let item = try #require(strip.items.first)
 
         #expect(strip.items.count == 1)
@@ -234,7 +246,7 @@ struct ChatStripTests {
             return
         }
         #expect(link.address.absoluteString == "https://example.com/news")
-        #expect(link.preview == Self.preview("https://www.example.com/news"))
+        #expect(link.preview?.url == "https://www.example.com/news")
     }
 
     /// The strip's own rule, each destination once (M66 §3.1), is an item's
@@ -252,10 +264,11 @@ struct ChatStripTests {
         #expect(ChatStripItem.file(URL(fileURLWithPath: "/a/../a/b.png")) == .file(URL(fileURLWithPath: "/a/b.png")))
     }
 
-    /// One page failed, so the counts differ: a preview belongs to an
-    /// address only when the two are the same destination.
-    @Test("with fewer previews than addresses, only an equal pair matches")
-    func fewerPreviews() {
+    /// A preview stored before links were kept carries only the address it
+    /// was stored under: it belongs to a link only when the two are the
+    /// same destination, and otherwise stands on its own.
+    @Test("a preview with no link pairs only with an address of its own destination")
+    func previewWithoutLink() {
         let equal = Self.strip("https://a.com/x and https://b.com/y", previews: [Self.preview("https://B.com/y")])
         #expect(Self.described(equal) == ["link https://a.com/x", "link https://b.com/y = https://B.com/y"])
 
@@ -267,35 +280,23 @@ struct ChatStripTests {
         ])
     }
 
-    /// The engine strips every closing bracket, a page's own among them;
-    /// the text's link keeps it, and the two are still one address.
-    @Test("an address the engine read short of its own bracket pairs with the text's link")
+    /// The engine reads a markdown link's target to its first closing
+    /// bracket, a page's own among them; the text's link keeps it, and the
+    /// two are still one address.
+    @Test("a link the engine read short of its own bracket pairs with the text's link")
     func engineReadsShort() {
-        let strip = Self.strip("Read https://w.org/Foo_(bar).", previews: [Self.preview("https://w.org/Foo_(bar")])
+        let strip = Self.strip(
+            "Read [Foo](https://w.org/Foo_(bar)).",
+            previews: [Self.preview("https://w.org/Foo_(bar)", link: "https://w.org/Foo_(bar")]
+        )
 
-        #expect(Self.described(strip) == ["link https://w.org/Foo_(bar) = https://w.org/Foo_(bar"])
+        #expect(Self.described(strip) == ["link https://w.org/Foo_(bar) = https://w.org/Foo_(bar)"])
     }
 
-    /// The engine reads the raw text: code and markdown included, the first
-    /// two different addresses, each less a run of closing marks.
-    @Test("the engine's addresses are the first two different ones in the raw text, closing marks stripped")
-    func engineAddresses() {
-        #expect(ChatStrip.engineAddresses(in: "See https://a.com/x, [b](HTTPS://b.com/y)) and https://a.com/x again, https://c.com") == [
-            "https://a.com/x", "HTTPS://b.com/y",
-        ])
-        // The engine keeps a code span's closing backtick, which pairing sets aside.
-        #expect(ChatStrip.engineAddresses(in: "Run `https://a.com/x`.") == ["https://a.com/x`"])
-        #expect(ChatStrip.engineAddresses(in: "https://w.org/Foo_(bar)!?") == ["https://w.org/Foo_(bar"])
-        #expect(ChatStrip.engineAddresses(in: "no address here").isEmpty)
-    }
-
-    /// Every reader of a reply's words composes its marks from one set; the
-    /// engine's own is its `@trailing_punctuation`, character for character.
-    @Test("the marks compose the engine's rule and every closing mark from one set")
+    /// Every reader of a reply's words composes its marks from one set.
+    @Test("every closing mark comes from one set")
     func marks() {
-        #expect(ReplyMarks.engineClosing == Set("),.;!?]}"))
         #expect(ReplyMarks.closing == ReplyMarks.punctuation.union(ReplyMarks.closingQuotes).union([")", "]", "}"]))
-        #expect(ReplyMarks.closing.isSuperset(of: ReplyMarks.engineClosing))
     }
 
     // MARK: - The fit

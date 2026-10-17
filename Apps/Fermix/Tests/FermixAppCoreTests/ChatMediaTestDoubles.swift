@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import UniformTypeIdentifiers
@@ -8,8 +9,10 @@ import UniformTypeIdentifiers
 /// ImageIO and PDF say of each file is set up front, and each thumbnail
 /// either comes at once or waits until the case finishes or fails it. A map
 /// comes at once as the case's picture, or fails where the case gave none. No file is read,
-/// and neither Quick Look nor MapKit is asked. A place opened by its
-/// identifier is recorded, and found or not as the case says, and Maps never
+/// and neither Quick Look nor MapKit is asked. A place's card asked for and a
+/// place opened, each by its identifier, are recorded, and found or not as the
+/// case says: a card found is a bare controller whose view is never loaded,
+/// whose close button the case presses through `closeCard`, and Maps never
 /// opens. What AVFoundation says is `FakeMediaFacts`'s.
 final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     /// How a thumbnail comes.
@@ -27,7 +30,8 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     /// finishes its work whatever it is told.
     private let stopsWhenCancelled: Bool
     private let mapPicture: CGImage?
-    /// Whether Maps finds a place by its identifier.
+    /// Whether Maps finds a place by its identifier, for its card and for
+    /// Maps alike.
     private let findsPlaces: Bool
 
     private let lock = NSLock()
@@ -37,6 +41,9 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
     private var cancelled = 0
     private var mapped: [MapAsk] = []
     private var placed: [String] = []
+    private var carded: [String] = []
+    private var cardSized: [CGSize] = []
+    private var cardFinished: (@MainActor () -> Void)?
 
     /// One map asked for.
     struct MapAsk: Equatable {
@@ -114,6 +121,34 @@ final class FakeMediaReader: ChatMediaReading, @unchecked Sendable {
         guard let mapPicture else { throw CocoaError(.fileReadUnknown) }
 
         return mapPicture
+    }
+
+    /// Every identifier a place's card was asked for by, in order.
+    var cardsAsked: [String] { lock.withLock { carded } }
+
+    /// The size each card was asked for at, in order.
+    var cardSizes: [CGSize] { lock.withLock { cardSized } }
+
+    @MainActor
+    func placeCard(
+        _ identifier: String,
+        size: CGSize,
+        finished: @escaping @MainActor () -> Void
+    ) async throws -> NSViewController {
+        lock.withLock {
+            carded.append(identifier)
+            cardSized.append(size)
+        }
+        guard findsPlaces else { throw CocoaError(.fileReadUnknown) }
+
+        lock.withLock { cardFinished = finished }
+        return NSViewController()
+    }
+
+    /// The last card found, its own close button pressed.
+    @MainActor
+    func closeCard() {
+        lock.withLock { cardFinished }?()
     }
 
     /// Every identifier a place was opened by, in order.

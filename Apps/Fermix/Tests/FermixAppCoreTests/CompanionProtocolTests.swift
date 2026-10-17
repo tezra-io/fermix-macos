@@ -287,13 +287,14 @@ struct CompanionProtocolTests {
         #expect(row.mediaRefs.first?.filename == "voice-note.ogg")
         #expect(row.linkPreviews == [
             CompanionLinkPreview(
+                link: nil,
                 url: "https://x.test/a",
                 site: "X",
                 title: "A page",
                 description: "What it says",
                 imageRef: "9214332e155bb4042b5019c575d43397cba703a76fe3246218546f13d4055569"
             ),
-            CompanionLinkPreview(url: "https://www.y.test/", site: "Y", title: "Y home", description: nil, imageRef: nil)
+            CompanionLinkPreview(link: nil, url: "https://www.y.test/", site: "Y", title: "Y home", description: nil, imageRef: nil)
         ])
     }
 

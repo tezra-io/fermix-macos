@@ -266,6 +266,7 @@ enum CompanionServerWire {
 
     private static func linkPreview(_ preview: CompanionLinkPreview) -> [String: Any] {
         present([
+            "link": preview.link,
             "url": preview.url,
             "site": preview.site,
             "title": preview.title,

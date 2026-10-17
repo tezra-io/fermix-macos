@@ -4,12 +4,13 @@ import MapKit
 
 /// The chat's maps (M72 §7.2, §14.1): a picture of an area from the Mac's own
 /// maps, nothing bundled, and no live map view in the transcript; and a place
-/// Apple Maps found, opened at Apple's own card for it.
+/// Apple Maps found, at Apple's own card for it, drawn for the chat's popover
+/// or opened in Maps.
 ///
 /// The only module that imports MapKit. `FermixAppCore` declares
 /// `PlaceMaps` and imports it nowhere, because both executables link that
 /// library and `FermixAgent` draws no map; the media reader `main.swift`
-/// hands in is what draws one and opens one.
+/// hands in is what draws one, draws a place's card and opens a place.
 extension SystemMediaReader {
     public func map(of area: PlaceMapArea, size: CGSize, appearance: PlaceMapAppearance) async throws -> CGImage {
         let snapshot = PendingSnapshot(options: Self.options(area, size: size, appearance: appearance))
@@ -27,18 +28,22 @@ extension SystemMediaReader {
         return image
     }
 
-    /// Apple's own place for the identifier, then Maps on it. An identifier
-    /// that does not parse, a place Maps no longer has, and a Maps that does
-    /// not open are each a failure, and none is looked up by any other way.
+    /// Apple's own card for the place, as MapKit draws it (`PlaceCard`).
+    @MainActor
+    public func placeCard(
+        _ identifier: String,
+        size: CGSize,
+        finished: @escaping @MainActor () -> Void
+    ) async throws -> NSViewController {
+        PlaceCard(place: try await Self.place(identifier), size: size, finished: finished)
+    }
+
+    /// Apple's own place for the identifier, then Maps on it. A place Maps
+    /// cannot give, and a Maps that does not open, are each a failure.
     @MainActor
     public func openPlace(_ identifier: String, failed: @escaping @MainActor () -> Void) {
-        guard let identifier = MKMapItem.Identifier(rawValue: identifier) else {
-            failed()
-            return
-        }
-
-        MKMapItemRequest(mapItemIdentifier: identifier).getMapItem { item, _ in
-            guard let item else {
+        Task {
+            guard let item = try? await Self.place(identifier) else {
                 failed()
                 return
             }
@@ -47,6 +52,23 @@ extension SystemMediaReader {
                 guard !opened else { return }
 
                 Task { @MainActor in failed() }
+            }
+        }
+    }
+
+    /// The place Apple Maps knows by the identifier, as Maps has it now, for
+    /// its card and for Maps alike. An identifier that does not parse and a
+    /// place Maps no longer has each throw, and neither is looked up by any
+    /// other way.
+    @MainActor
+    private static func place(_ identifier: String) async throws -> MKMapItem {
+        guard let identifier = MKMapItem.Identifier(rawValue: identifier) else {
+            throw MKError(.placemarkNotFound)
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            MKMapItemRequest(mapItemIdentifier: identifier).getMapItem { item, error in
+                continuation.resume(with: item.map(Result.success) ?? .failure(error ?? MKError(.placemarkNotFound)))
             }
         }
     }
@@ -70,6 +92,58 @@ extension SystemMediaReader {
         options.appearance = NSAppearance(named: appearance == .dark ? .darkAqua : .aqua)
         options.preferredConfiguration = configuration
         return options
+    }
+}
+
+/// Apple's own card for a place Apple Maps found, without the small map of its
+/// own it can show: the reply's map beside the popover already shows where
+/// the place is, with its pin. MapKit's card keeps its delegate weakly and
+/// takes no subclass, so it is held here, by a controller of its own that is
+/// its delegate for as long as it shows, and its close button reaches
+/// `finished`.
+private final class PlaceCard: NSViewController, MKMapItemDetailViewControllerDelegate {
+    private let card: MKMapItemDetailViewController
+    private let size: CGSize
+    private let finished: @MainActor () -> Void
+
+    init(place: MKMapItem, size: CGSize, finished: @escaping @MainActor () -> Void) {
+        card = MKMapItemDetailViewController(mapItem: place, displaysMap: false)
+        self.size = size
+        self.finished = finished
+        super.init(nibName: nil, bundle: nil)
+        card.delegate = self
+        addChild(card)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        preconditionFailure("a place card is built in code")
+    }
+
+    /// The card fills this controller's view, which is the popover's size
+    /// and no other. The card lays itself out by constraints and asks for a
+    /// height of its own, taller than the popover's, so it is pinned to this
+    /// view's edges with that ask let go of, and scrolls inside the
+    /// popover's height rather than growing past it and losing its top.
+    override func loadView() {
+        let shown = card.view
+        view = NSView(frame: NSRect(origin: .zero, size: size))
+        shown.translatesAutoresizingMaskIntoConstraints = false
+        shown.setContentHuggingPriority(.defaultLow, for: .vertical)
+        shown.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        view.addSubview(shown)
+        NSLayoutConstraint.activate([
+            view.widthAnchor.constraint(equalToConstant: size.width),
+            view.heightAnchor.constraint(equalToConstant: size.height),
+            shown.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            shown.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            shown.topAnchor.constraint(equalTo: view.topAnchor),
+            shown.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+    }
+
+    func mapItemDetailViewControllerDidFinish(_ detailViewController: MKMapItemDetailViewController) {
+        finished()
     }
 }
 

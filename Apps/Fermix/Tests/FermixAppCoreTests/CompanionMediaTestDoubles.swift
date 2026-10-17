@@ -78,6 +78,7 @@ enum CompanionMediaRows {
 
     /// A link preview the engine stored for an address in a row.
     static let preview = CompanionLinkPreview(
+        link: nil,
         url: "https://x.test/a",
         site: "X",
         title: "A page",

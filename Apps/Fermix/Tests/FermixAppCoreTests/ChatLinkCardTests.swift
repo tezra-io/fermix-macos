@@ -16,6 +16,7 @@ struct ChatLinkCardTests {
 
     private static func preview(site: String = "Garden Notes", imageRef: String? = picture) -> CompanionLinkPreview {
         CompanionLinkPreview(
+            link: nil,
             url: "https://gardennotes.example/grow/sunflowers",
             site: site,
             title: "How to grow sunflowers from seed",

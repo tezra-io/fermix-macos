@@ -73,7 +73,7 @@ struct ChatMediaTests {
         let media = Self.media()
         let visit = media.surfaceEntered()
         let row = Self.row(7, "Wrote /Users/me/.fermix/out/notes.txt and https://a.com/x")
-        let enriched = Self.row(7, row.text, previews: [CompanionLinkPreview(url: "https://a.com/x", site: "A", title: "A page", description: nil, imageRef: nil)])
+        let enriched = Self.row(7, row.text, previews: [CompanionLinkPreview(link: nil, url: "https://a.com/x", site: "A", title: "A page", description: nil, imageRef: nil)])
 
         let first = media.strip(for: row, in: visit)
         #expect(media.strip(for: row, in: visit) == first)

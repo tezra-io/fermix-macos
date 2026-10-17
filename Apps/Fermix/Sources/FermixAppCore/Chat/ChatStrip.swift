@@ -78,7 +78,7 @@ struct ChatStrip: Equatable {
         let paths = read.files
         let placed = ChatPlaceLinks(blocks)
         let addresses = read.addresses
-        let previews = Self.paired(linkPreviews, in: text, with: addresses)
+        let previews = Self.paired(linkPreviews, with: addresses)
             .filter { !placed.covers($0.opens) }
 
         voiceNote = mediaRefs.first { $0.kind == Self.voiceKind }
@@ -251,38 +251,24 @@ struct ChatStrip: Equatable {
         let opens: URL
     }
 
-    /// Each stored preview with the address in the text it was made from.
-    ///
-    /// The engine stores a preview under the address it reached after
-    /// redirects, not the one written, so the two are paired by the engine's
-    /// own rule: with as many previews as the addresses it read, the first
-    /// preview is the first address's and the second the second's; with
-    /// fewer, because a page failed, a preview is an address's only when the
-    /// two are the same destination. The address the engine read is then
-    /// found among the ones the text links to, which end where the sentence
-    /// does rather than where the engine's rule stops. A click opens the
-    /// address as the text wrote it, or the preview's own where it has none;
-    /// a preview with neither, an address that is no URL, is left out.
-    private static func paired(_ previews: [CompanionLinkPreview], in text: String, with addresses: [URL]) -> [Paired] {
-        let read = engineAddresses(in: text)
-        let byOrder = previews.count == read.count
-
-        return previews.enumerated().compactMap { index, preview in
-            let own = URL(string: preview.url)
-            let partner = byOrder ? read[index] : read.first { address in
-                guard let own, let address = URL(string: address) else { return false }
-
-                return ChatDestination(own) == ChatDestination(address)
-            }
-            let written = partner.flatMap { partner in addresses.first { isReading(partner, of: $0) } }
-            guard let opens = written ?? partner.flatMap(asWritten) ?? own else { return nil }
+    /// Each stored preview with the address in the text it was made from:
+    /// the link the engine read it for (`link`), or, for a preview stored
+    /// before links were kept, the address it was stored under, found among
+    /// the ones the text links to. A click opens the address as the text
+    /// wrote it, or the one the engine read where the text has no such link
+    /// (an address in code); a preview whose address is no URL is left out.
+    private static func paired(_ previews: [CompanionLinkPreview], with addresses: [URL]) -> [Paired] {
+        previews.compactMap { preview in
+            let read = preview.link ?? preview.url
+            let written = addresses.first { isReading(read, of: $0) }
+            guard let opens = written ?? asWritten(read) else { return nil }
 
             return Paired(preview: preview, written: written, opens: opens)
         }
     }
 
     /// Whether the engine's reading of an address is an address the text
-    /// links to: the same destination once the closing marks either rule
+    /// links to: the same destination once the closing marks either reading
     /// leaves at the end are set aside (`Foo_(bar` read, `Foo_(bar)` linked).
     private static func isReading(_ read: String, of written: URL) -> Bool {
         guard let read = bare(read) else { return false }
@@ -290,7 +276,7 @@ struct ChatStrip: Equatable {
         return read == bare(written.absoluteString)
     }
 
-    /// An address's destination with the closing marks either rule may leave
+    /// An address's destination with the closing marks either reading may leave
     /// at its end set aside.
     private static func bare(_ address: String) -> ChatDestination? {
         var trimmed = Substring(address)
@@ -305,25 +291,6 @@ struct ChatStrip: Equatable {
     private static func asWritten(_ read: String) -> URL? {
         URL(string: String(ReplyLinks.trimmed(Substring(read))))
     }
-
-    /// The addresses the engine reads a preview from (`unfurl.ex`): the first
-    /// two different `http` or `https` addresses in the raw text, code and
-    /// markdown included, each less a run of `),.;!?]}` at its end.
-    static func engineAddresses(in text: String) -> [String] {
-        var seen: Set<String> = []
-        let addresses = text.matches(of: #/https?://[^\s<>"']+/#.ignoresCase()).map { match in
-            var address = Substring(match.output)
-            while let last = address.last, ReplyMarks.engineClosing.contains(last) {
-                address = address.dropLast()
-            }
-            return String(address)
-        }
-
-        return Array(addresses.filter { seen.insert($0).inserted }.prefix(engineLinkLimit))
-    }
-
-    /// The engine's `@max_links`.
-    private static let engineLinkLimit = 2
 }
 
 /// One tile of a strip. Two items are one when they name one destination
