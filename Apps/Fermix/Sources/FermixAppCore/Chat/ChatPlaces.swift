@@ -381,7 +381,8 @@ private struct ChatPlaceNumber: View {
 
 /// A place's card (M72 §8.1), one size whatever its record holds: its number
 /// beside its name, then a line of rating, price and kind and a line of
-/// today's hours and the distance, each as the record has it
+/// today's hours, or the street where the source gave none, and the
+/// distance, each as the record has it
 /// (`ChatPlaceFacts`). A click, or Return while it has focus, shows a place
 /// Apple Maps found on the map above with Apple's callout at its pin, and
 /// opens any other in Maps; its menu opens the place in Maps whichever it
@@ -448,17 +449,18 @@ private struct ChatPlaceCard: View {
 /// What a place card says of its place (M72 §8.1), read from the record
 /// alone: its two lines of facts, each without the parts the record lacks,
 /// and no line at all where it lacks every one. A place Apple Maps found has
-/// no rating, price or hours (§14.1), so its card says its kind, with the
-/// distance under it where it has one.
+/// no rating, price or hours (§14.1), so its card says its kind, and under
+/// it its street, with the distance where it has one.
 struct ChatPlaceFacts: Equatable {
     /// The rating with its count, the price and the kind:
     /// `4.6 (321)`, `$$`, `Coffee shop`. A count without a rating says
     /// nothing, and is left out with it.
     let summary: [String]
-    /// Today's hours exactly as the source gave them, and the distance with
-    /// its units: `Thursday 07:00-19:00`, `0.4 km`. A distance without its
-    /// units says nothing, and is left out.
-    let today: [String]
+    /// When and where: today's hours exactly as the source gave them, or,
+    /// where it gave none, the street the place is on, and the distance with
+    /// its units: `Thursday 07:00-19:00`, `0.4 km`; `340 Town Center Ave`. A
+    /// distance without its units says nothing, and is left out.
+    let visit: [String]
     /// The place's own website, or its page at the source where it has none:
     /// the first that is a web address (`ReplyLinks.isAddress`), since Open
     /// website goes through the reply's link opener, which hands any other
@@ -475,8 +477,8 @@ struct ChatPlaceFacts: Equatable {
             place.priceRange,
             place.categories?.first.map(Self.kind)
         ].compactMap { $0 }
-        today = [
-            place.openingHours?.currentDay,
+        visit = [
+            place.openingHours?.currentDay ?? place.address.flatMap(Self.street),
             Self.distance(place.distance, locale: locale)
         ].compactMap { $0 }
         website = [place.canonicalURL, place.sourceURL]
@@ -488,13 +490,13 @@ struct ChatPlaceFacts: Equatable {
     /// The lines a card draws, each its parts joined by the design's
     /// interpunct.
     var lines: [String] {
-        [summary, today].filter { !$0.isEmpty }.map(Self.joined)
+        [summary, visit].filter { !$0.isEmpty }.map(Self.joined)
     }
 
     /// What VoiceOver reads for the card: the name, then every part, as a
     /// list.
     func spoken(name: String) -> String {
-        (summary + today).reduce(name, ProductStrings.commaPair)
+        (summary + visit).reduce(name, ProductStrings.commaPair)
     }
 
     /// A source's category as the card says it: `coffee_shop` is `Coffee
@@ -502,6 +504,14 @@ struct ChatPlaceFacts: Equatable {
     static func kind(_ category: String) -> String {
         let words = category.replacingOccurrences(of: "_", with: " ").lowercased()
         return words.prefix(1).uppercased() + words.dropFirst()
+    }
+
+    /// An address's street, the part before its first comma, as sources
+    /// write it first: `340 Town Center Ave, Suwanee, GA 30024` is
+    /// `340 Town Center Ave`. None where that part is empty.
+    static func street(_ address: String) -> String? {
+        let street = address.prefix { $0 != "," }.trimmingCharacters(in: .whitespaces)
+        return street.isEmpty ? nil : street
     }
 
     private static func joined(_ parts: [String]) -> String {

@@ -484,7 +484,7 @@ struct FixtureConfigurationTests {
             #expect(place.categories?.count == 1)
             #expect(place.address != nil)
             #expect(place.rating == nil && place.priceRange == nil && place.openingHours == nil && place.distance == nil)
-            #expect(ChatPlaceFacts(place).lines.count == 1)
+            #expect(ChatPlaceFacts(place).lines.count == 2)
         }
         #expect(Set(places.compactMap(\.applePlaceID)).count == 3)
 

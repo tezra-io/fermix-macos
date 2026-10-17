@@ -51,17 +51,19 @@ struct ChatPlacesTests {
         #expect(facts.website == URL(string: "https://example.coffee/"))
     }
 
-    @Test("a part the record lacks leaves no gap, and a line with no parts is no line")
+    @Test("a part the record lacks leaves no gap, the street stands in for missing hours, and a line with no parts is no line")
     func missingParts() {
         let noRating = ChatPlaceFacts(Self.place(rating: nil), locale: Self.english)
         let noHours = ChatPlaceFacts(Self.place(hours: nil), locale: Self.english)
+        let noHoursOrAddress = ChatPlaceFacts(Self.place(address: nil, hours: nil), locale: Self.english)
         let bare = ChatPlaceFacts(
-            Self.place(rating: nil, price: nil, categories: nil, hours: nil, distance: nil),
+            Self.place(address: nil, rating: nil, price: nil, categories: nil, hours: nil, distance: nil),
             locale: Self.english
         )
 
         #expect(noRating.lines == ["$$ · Coffee shop", "Thursday 07:00-19:00 · 0.4 km"])
-        #expect(noHours.lines == ["4.6 (321) · $$ · Coffee shop", "0.4 km"])
+        #expect(noHours.lines == ["4.6 (321) · $$ · Coffee shop", "12 Example St · 0.4 km"])
+        #expect(noHoursOrAddress.lines == ["4.6 (321) · $$ · Coffee shop", "0.4 km"])
         #expect(bare.lines.isEmpty)
         #expect(bare.spoken(name: "Bare") == "Bare")
     }
@@ -77,24 +79,32 @@ struct ChatPlacesTests {
 
         #expect(unCounted.summary == ["4.0", "$$", "Coffee shop"])
         #expect(countOnly.summary == ["$$", "Coffee shop"])
-        #expect(noUnits.today == ["Thursday 07:00-19:00"])
+        #expect(noUnits.visit == ["Thursday 07:00-19:00"])
         #expect(many.summary.first == "4.8 (1,204)")
     }
 
     /// An Apple Maps place (M72 §14.1) has no rating, price or hours: its
-    /// card says its kind, and under it the distance where the search had
-    /// coordinates to measure from, with no empty line and no stray mark.
-    @Test("an Apple Maps place's card says its kind, and its distance where it has one")
+    /// card says its kind, and under it its street, with the distance where
+    /// the search had coordinates to measure from, and no stray mark.
+    @Test("an Apple Maps place's card says its kind, then its street and its distance where it has one")
     func applePlace() {
         let named = ChatPlaceFacts(Self.applePlace(distance: nil), locale: Self.english)
         let measured = ChatPlaceFacts(Self.applePlace(distance: CompanionPlaceDistance(value: 1.25, units: "km")), locale: Self.english)
 
-        #expect(named.lines == ["Restaurant"])
-        #expect(named.spoken(name: "Tequila Mama Taqueria") == "Tequila Mama Taqueria, Restaurant")
-        #expect(measured.lines == ["Restaurant", "1.25 km"])
-        #expect(measured.spoken(name: "Tequila Mama Taqueria") == "Tequila Mama Taqueria, Restaurant, 1.25 km")
+        #expect(named.lines == ["Restaurant", "340 Town Center Ave"])
+        #expect(named.spoken(name: "Tequila Mama Taqueria") == "Tequila Mama Taqueria, Restaurant, 340 Town Center Ave")
+        #expect(measured.lines == ["Restaurant", "340 Town Center Ave · 1.25 km"])
+        #expect(measured.spoken(name: "Tequila Mama Taqueria") == "Tequila Mama Taqueria, Restaurant, 340 Town Center Ave, 1.25 km")
         #expect(named.website == URL(string: "https://tequilamama.com/"))
         #expect(ChatPlaceFacts(Self.applePlace(canonical: nil, distance: nil)).website == URL(string: Self.applePage))
+    }
+
+    @Test("a street is an address's part before its first comma, and an empty one is none")
+    func street() {
+        #expect(ChatPlaceFacts.street("3463 Lawrenceville-Suwanee Rd, Unit 110, Suwanee, GA 30024") == "3463 Lawrenceville-Suwanee Rd")
+        #expect(ChatPlaceFacts.street(" 88 Wooster St ") == "88 Wooster St")
+        #expect(ChatPlaceFacts.street(", Suwanee") == nil)
+        #expect(ChatPlaceFacts.street("") == nil)
     }
 
     /// Apple's own page for the place, as the engine writes it beside the
