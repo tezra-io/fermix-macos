@@ -93,6 +93,13 @@ struct ChatPlacesTests {
         #expect(ChatPlaceFacts(Self.place(canonical: nil, source: nil)).website == nil)
     }
 
+    @Test("a website that is not a web address is never offered, so no record opens another app")
+    func websiteIsAWebAddress() {
+        let other = ChatPlaceFacts(Self.place(canonical: "shortcuts://run-shortcut?name=x"))
+        #expect(other.website == URL(string: "https://provider.example/place/1"))
+        #expect(ChatPlaceFacts(Self.place(canonical: "shortcuts://x", source: "file:///etc/hosts")).website == nil)
+    }
+
     // MARK: - Maps
 
     /// Decision 3: Maps looks the name up at the place's own coordinates; the

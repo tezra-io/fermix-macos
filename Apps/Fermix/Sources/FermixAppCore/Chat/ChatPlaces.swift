@@ -313,7 +313,10 @@ struct ChatPlaceFacts: Equatable {
     /// its units: `Thursday 07:00-19:00`, `0.4 km`. A distance without its
     /// units says nothing, and is left out.
     let today: [String]
-    /// The place's own website, or its page at the source where it has none.
+    /// The place's own website, or its page at the source where it has none:
+    /// the first that is a web address (`ReplyLinks.isAddress`), since Open
+    /// website goes through the reply's link opener, which hands any other
+    /// scheme to the app that owns it.
     let website: URL?
 
     init(_ place: CompanionPlace, locale: Locale = .current) {
@@ -326,7 +329,9 @@ struct ChatPlaceFacts: Equatable {
             place.openingHours?.currentDay,
             Self.distance(place.distance, locale: locale)
         ].compactMap { $0 }
-        website = (place.canonicalURL ?? place.sourceURL).flatMap(URL.init(string:))
+        website = [place.canonicalURL, place.sourceURL]
+            .compactMap { $0.flatMap(URL.init(string:)) }
+            .first(where: ReplyLinks.isAddress)
     }
 
     /// The lines a card draws, each its parts joined by the design's
