@@ -159,9 +159,15 @@ extension SettingsModel {
         await start(runner) { try await self.gateway.startProviderProbe(provider: provider) }
     }
 
+    public func startMCPCheck(name: String, on runner: JobRunner) async {
+        precondition(!name.isEmpty, "an MCP server is checked by name")
+
+        await start(runner) { try await self.gateway.startMCPCheck(name: name) }
+    }
+
     /// Starts one job. A refusal is the daemon's own sentence on the row rather
     /// than a silent no-op.
-    private func start(_ runner: JobRunner, _ mint: @escaping () async throws -> ManagementJob) async {
+    func start(_ runner: JobRunner, _ mint: @escaping () async throws -> ManagementJob) async {
         do {
             let job = try await mint()
             runner.start(job)

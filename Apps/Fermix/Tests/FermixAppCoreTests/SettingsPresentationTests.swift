@@ -544,7 +544,8 @@ struct SettingsSourceGateTests {
         "Settings/Panes/IntegrationSheets.swift":
             "the workspace listing and the plugin detail's own rows, each a page of one sheet",
         "Settings/Panes/ComputerPane.swift": "the installed-app picker, inside a sheet",
-        "Settings/Panes/IntegrationsPane.swift": "the plugins page's flat list, which is that pane's only scroll"
+        "Settings/Panes/IntegrationsPane.swift": "the plugins page's flat list, which is that pane's only scroll",
+        "Settings/Panes/MCPServersTools.swift": "an MCP server's tools, a page of its sheet that owns the sheet's one scroll"
     ]
 
     /// Decision D4: no pane draws a scroll indicator, and a pane form is the
@@ -674,13 +675,15 @@ struct SettingsSourceGateTests {
 
         // `listRowSeparator` is a row modifier, so it has to sit on each of the
         // list's own children: on the container it is not the row it names.
-        // Five children, five statements, and the sign-in clients section is
+        // Ten children, ten statements, and the sign-in clients section is
         // one of them, because a section that kept its rules would draw the
-        // ledger back at the foot of the page.
+        // ledger back at the foot of the page. Five are the MCP servers pill's
+        // (M74): its servers, From plugins, its empty, no-match and refused
+        // lines.
         let rows = text.components(separatedBy: ".listRowSeparator(.hidden)").count - 1
         let children = text.components(separatedBy: "List {").count - 1
 
-        #expect(rows == 5, "\(rows) rows hide their separator")
+        #expect(rows == 10, "\(rows) rows hide their separator")
         #expect(children == 1, "the page owns exactly one list")
         #expect(text.contains(".padding(.vertical, Spacing.xs)"))
     }

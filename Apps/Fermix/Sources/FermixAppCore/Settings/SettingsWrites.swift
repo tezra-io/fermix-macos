@@ -237,7 +237,7 @@ extension SettingsModel {
 
     /// The daemon's own sentence, plus the two states a refusal can put the
     /// window into: the external-change banner, and the N-1 engine state.
-    private func refusal(_ error: any Error) -> String {
+    func refusal(_ error: any Error) -> String {
         if ManagementMessage.code(of: error) == .externalChange {
             configState = .externalChange
         }
@@ -269,12 +269,13 @@ extension SettingsModel {
     /// `Stored` and `Add…` follow the write rather than the sheet's own
     /// optimism.
     ///
-    /// One resolver, because there are three answers to "which surface holds
+    /// One resolver, because there are four answers to "which surface holds
     /// this secret" and a secret written into the wrong one of them looked
     /// exactly like a write that did nothing: a descriptor row publishes it as a
-    /// `secret` row, and the two prefixed families — a plugin's own token and a
+    /// `secret` row, the two prefixed families — a plugin's own token and a
     /// sign-in client's secret — are published on `plugins.list` instead, where
-    /// no section re-read can reach them.
+    /// no section re-read can reach them, and a value an MCP server declares is
+    /// `present` beside its name on `mcp.servers.list`.
     private func reloadSurfacesHolding(secret id: String) async {
         for section in sectionsHolding(secret: id) {
             await loadSection(section)
@@ -282,6 +283,10 @@ extension SettingsModel {
 
         if Self.isPluginSecret(id) {
             await refreshPlugins()
+        }
+
+        if id.hasPrefix(MCPSecretId.prefix) {
+            await refreshMCPServers()
         }
 
         await refreshSetupState()

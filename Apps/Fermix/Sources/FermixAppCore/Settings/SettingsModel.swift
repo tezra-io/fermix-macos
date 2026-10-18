@@ -54,6 +54,16 @@ public final class SettingsModel: ObservableObject {
     @Published public internal(set) var sections: [String: SettingsReadState<ManagementSettingsSectionRows>] = [:]
     @Published public internal(set) var detections: SettingsReadState<ManagementDetections> = .unread
     @Published public internal(set) var plugins: SettingsReadState<ManagementPluginCatalog> = .unread
+    /// The MCP servers the owner added (M74). `requiresNewerEngine` where the
+    /// daemon's `hello` does not list `mcp.servers.list`, which is the state
+    /// of that one tab: every other pane is still served.
+    @Published public internal(set) var mcpServers: SettingsReadState<ManagementMCPServerList> = .unread
+    /// One server's tools, by server name, as `mcp.servers.get` answered.
+    /// Only that method carries them.
+    @Published public internal(set) var mcpTools: [String: SettingsReadState<[ManagementMCPTool]>] = [:]
+    /// The methods the daemon's `hello` lists, read with the MCP list: the
+    /// tab draws each of its verbs only where its method is here.
+    @Published public internal(set) var servedMethods: Set<ManagementMethod> = []
     @Published public internal(set) var restart = ManagementRestartState(required: false, reasons: [])
     @Published public internal(set) var configState: ManagementConfigState = .clear
     /// The one answer to "can the daemon in memory serve this bundle's

@@ -809,7 +809,7 @@ struct SettingsPanesTests {
         )
         let rows = IntegrationRowProjection.rows(catalog)
         let features = IntegrationFeature.rows(nil)
-        let counts = IntegrationRowProjection.counts(rows: rows, features: features.count)
+        let counts = IntegrationRowProjection.counts(rows: rows, features: features.count, servers: 0)
 
         #expect(IntegrationFilter.allCases.count == 4)
         #expect(counts[.installed] == rows.filter(\.installed).count)

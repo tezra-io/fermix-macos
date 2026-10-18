@@ -84,7 +84,7 @@ public enum IntegrationTokenSlot: Equatable, Sendable {
 /// The four kind pills of decision D6, each with its live count.
 ///
 /// They are the kinds the daemon publishes rather than Codex's own: Installed,
-/// Available, MCPs and the three native driver Features.
+/// Available, MCP servers and the three native driver Features.
 public enum IntegrationFilter: String, CaseIterable, Identifiable, Sendable {
     case installed
     case available
@@ -116,7 +116,9 @@ public enum IntegrationFilter: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .installed: return row.installed
         case .available: return !row.installed
-        case .mcps: return row.runtimeKind.map(Self.mcpRuntimeKinds.contains) ?? false
+        // Installed ones only: the pill answers which MCP servers Fermix talks
+        // to, and the owner's own servers lead it (M74 §2).
+        case .mcps: return row.installed && (row.runtimeKind.map(Self.mcpRuntimeKinds.contains) ?? false)
         case .features: return false
         }
     }
@@ -292,15 +294,18 @@ public enum IntegrationRowProjection {
     }
 
     /// The counts the four pills carry. Features is a constant three: the
-    /// native drivers are this build's, not the registry's.
+    /// native drivers are this build's, not the registry's. MCP servers counts
+    /// the owner's own servers and the plugins under them together (M74 §2).
     public static func counts(
         rows: [IntegrationRowModel],
-        features: Int
+        features: Int,
+        servers: Int
     ) -> [IntegrationFilter: Int] {
         var counts: [IntegrationFilter: Int] = [.features: features]
         for filter in IntegrationFilter.allCases where filter != .features {
             counts[filter] = rows.filter(filter.admits).count
         }
+        counts[.mcps, default: 0] += servers
 
         return counts
     }
@@ -328,8 +333,8 @@ extension ManagementPluginOAuthClient {
 ///
 /// Nothing here composes a status sentence: the row renders what the registry
 /// said. There is no `Browse directory` action, because the catalog has no
-/// directory to browse, and no `Add` menu, because nothing the daemon publishes
-/// today is addable.
+/// directory to browse. The one `Add` header action is the MCP servers pill's,
+/// present only while the daemon says a server can be added (M74 §4.1).
 struct IntegrationsPane: View {
     @ObservedObject var model: SettingsModel
     @StateObject private var work: JobRunner
@@ -338,14 +343,18 @@ struct IntegrationsPane: View {
     @State private var consenting: IntegrationRowModel?
     @State private var detail: IntegrationRowModel?
     @State private var client: OAuthClientTarget?
+    @State private var serverSheet: MCPSheetTarget?
     @State private var refusal: String?
+    /// Opens Logs, which an MCP server's `Show logs` asks for.
+    let showLogs: () -> Void
     /// Which pane a Features row opens. The feature's own switch lives there
     /// and only there: a second switch here would be a second writer of one
     /// daemon key, and it would need that key's name written in Swift.
     let openPane: (SettingsPane) -> Void
 
-    init(model: SettingsModel, openPane: @escaping (SettingsPane) -> Void) {
+    init(model: SettingsModel, showLogs: @escaping () -> Void, openPane: @escaping (SettingsPane) -> Void) {
         self.model = model
+        self.showLogs = showLogs
         self.openPane = openPane
         _work = StateObject(wrappedValue: model.makeJobRunner())
     }
@@ -380,7 +389,22 @@ struct IntegrationsPane: View {
         .sheet(item: $client) { target in
             OAuthClientSheet(provider: target.provider, model: model) { client = nil }
         }
-        .task { await model.refreshPlugins() }
+        .sheet(item: $serverSheet) { target in
+            MCPServerSheet(
+                opening: target.page,
+                model: model,
+                runner: work,
+                showLogs: {
+                    serverSheet = nil
+                    showLogs()
+                },
+                dismiss: { serverSheet = nil }
+            )
+        }
+        .task {
+            await model.refreshPlugins()
+            await model.refreshMCPServers()
+        }
     }
 
     private var rows: [IntegrationRowModel] {
@@ -400,17 +424,47 @@ struct IntegrationsPane: View {
     }
 
     private var counts: [IntegrationFilter: Int] {
-        IntegrationRowProjection.counts(rows: rows, features: features.count)
+        IntegrationRowProjection.counts(rows: rows, features: features.count, servers: servers.count)
+    }
+
+    /// The servers the owner added, as the daemon last published them, in
+    /// its order.
+    private var servers: [ManagementMCPServer] { model.mcpServers.value?.servers ?? [] }
+
+    private var visibleServers: [ManagementMCPServer] {
+        servers.filter { MCPServerProjection.matches($0, query: query) }
+    }
+
+    /// The add, where the daemon serves it and says one more fits.
+    private var addServer: (() -> Void)? {
+        guard model.serves(.mcpServersAdd), model.mcpServers.value?.canAdd == true else { return nil }
+
+        return { serverSheet = MCPSheetTarget(.add) }
     }
 
     /// The page's lead: a one-line subtitle, then the pill row with the search
     /// field at its trailing edge. The title is the toolbar's.
+    ///
+    /// `Add server` sits at the trailing edge of the subtitle's line rather
+    /// than in the pill row: four counted pills, the button and the search
+    /// field are wider together than the content column, and the pill row
+    /// wrapped `MCP servers` onto two lines. The line keeps the button's
+    /// height under every pill, so choosing one does not move the list.
     private var header: some View {
         VStack(alignment: .leading, spacing: Spacing.s) {
-            Text(ProductStrings[.integrationsSubtitle])
-                .fermixType(Typography.style(.calloutSmall))
-                .foregroundStyle(Palette.secondary.color)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: Spacing.s) {
+                Text(ProductStrings[.integrationsSubtitle])
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: Spacing.s)
+
+                if filter == .mcps, let addServer {
+                    MCPAddServerAction(add: addServer)
+                }
+            }
+            .frame(minHeight: HitTarget.rowAction)
 
             HStack(spacing: Spacing.xs) {
                 ForEach(IntegrationFilter.allCases) { entry in
@@ -437,7 +491,7 @@ struct IntegrationsPane: View {
     /// drawn to look like one.
     private var search: some View {
         SearchField(text: $query, prompt: ProductStrings[.integrationsSearchPrompt])
-            .frame(maxWidth: IntegrationMetrics.searchWidth)
+            .frame(minWidth: IntegrationMetrics.searchMinimumWidth, maxWidth: IntegrationMetrics.searchWidth)
     }
 
     /// The flat list, and the sign-in clients once at its foot. Features is the
@@ -467,7 +521,9 @@ struct IntegrationsPane: View {
     private var list: some View {
         ScrollViewReader { scroller in
             List {
-                if filter == .features {
+                if filter == .mcps, model.mcpServers != .requiresNewerEngine {
+                    mcpServerRows
+                } else if filter == .features {
                     ForEach(visibleFeatures) { feature in
                         IntegrationFeatureRow(feature: feature) { openPane(feature.pane) }
                     }
@@ -509,13 +565,82 @@ struct IntegrationsPane: View {
         }
     }
 
-    /// The id of the row the list opens with, whichever of its three shapes it
-    /// has. A feature search that matches nothing draws no row of its own, and
-    /// the list then stays where it was.
-    private var firstRow: String? {
-        guard filter != .features else { return visibleFeatures.first?.id }
+    /// The MCP servers pill: the owner's servers, then the plugins that run as
+    /// MCP servers under `From plugins` (M74 §4.1). A daemon whose `hello` has
+    /// no `mcp.servers.list` never reaches here: the pill lists its plugins as
+    /// every other pill does.
+    @ViewBuilder
+    private var mcpServerRows: some View {
+        switch model.mcpServers {
+        case .unavailable(let sentence):
+            Text(sentence)
+                .fermixType(Typography.style(.calloutSmall))
+                .foregroundStyle(Palette.warning.color)
+                .listRowSeparator(.hidden)
+        case .unread, .loading, .requiresNewerEngine:
+            EmptyView()
+        case .loaded(let list):
+            if list.servers.isEmpty {
+                MCPServersEmptyState(add: addServer)
+                    .listRowSeparator(.hidden)
+                    .id(Self.noResultsRow)
+            } else if visibleServers.isEmpty && visible.isEmpty {
+                Text(ProductStrings[.integrationsNoResults])
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+                    .listRowSeparator(.hidden)
+                    .id(Self.noResultsRow)
+            } else {
+                ForEach(visibleServers, id: \.name) { row in
+                    MCPServerListRow(
+                        server: row,
+                        setEnabled: MCPServerProjection.switchServed(model.servedMethods) ? setServerEnabled : nil,
+                        open: { serverSheet = MCPSheetTarget(.detail(row.name)) }
+                    )
+                    .id(MCPServerProjection.listId(row))
+                }
+                .listRowSeparator(.hidden)
+            }
+        }
 
-        return visible.first?.id ?? Self.noResultsRow
+        if !visible.isEmpty {
+            Section(ProductStrings[.integrationsMCPFromPlugins]) {
+                ForEach(visible) { row in
+                    IntegrationRow(row: row, open: { detail = row }, setEnabled: setEnabled)
+                }
+                .listRowSeparator(.hidden)
+            }
+        }
+    }
+
+    /// An MCP server's switch. One turned on that leaves a step for the owner
+    /// opens its detail, as a plugin's does.
+    private func setServerEnabled(_ row: ManagementMCPServer, _ isOn: Bool) {
+        Task {
+            switch await model.setMCPServerEnabled(isOn, name: row.name) {
+            case .refused(let sentence):
+                refusal = sentence
+            case .configure(let name):
+                refusal = nil
+                serverSheet = MCPSheetTarget(.detail(name))
+            case .done:
+                refusal = nil
+            }
+        }
+    }
+
+    /// The id of the row the list opens with, whichever of its shapes it has.
+    /// A feature search that matches nothing draws no row of its own, and the
+    /// list then stays where it was.
+    private var firstRow: String? {
+        switch filter {
+        case .features:
+            return visibleFeatures.first?.id
+        case .mcps where model.mcpServers != .requiresNewerEngine:
+            return visibleServers.first.map(MCPServerProjection.listId) ?? visible.first?.id ?? Self.noResultsRow
+        case .installed, .available, .mcps:
+            return visible.first?.id ?? Self.noResultsRow
+        }
     }
 
     private static let noResultsRow = "integrations:no-results"
@@ -600,6 +725,8 @@ struct IntegrationPill: View {
                     .foregroundStyle(Palette.faint.color)
             }
             .fermixType(Typography.style(.calloutSmall))
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, Spacing.xs)
             .padding(.vertical, Spacing.xxs)
             .background(selected ? Palette.chipFill.color : .clear, in: Capsule())
@@ -627,21 +754,47 @@ struct IntegrationRow: View {
     let open: () -> Void
     let setEnabled: (IntegrationRowModel, Bool) -> Void
 
+    var body: some View {
+        IntegrationRowLayout(
+            title: row.title,
+            subtitle: row.subtitle,
+            accessibilityLabel: row.accessibilityLabel,
+            isOn: Binding(get: { row.enabled }, set: { isOn in setEnabled(row, isOn) }),
+            open: open
+        ) {
+            PluginMarkTile(name: row.name, size: IntegrationMetrics.tileSize)
+        }
+    }
+}
+
+/// The anatomy every Integrations row shares, whatever it lists: the tile, the
+/// name over its second line, the chevron that says the row opens something,
+/// and the switch. A plugin and an MCP server the owner added are one kind of
+/// row (M74 §4.1), so they are drawn by one view.
+struct IntegrationRowLayout<Tile: View>: View {
+    let title: String
+    let subtitle: String
+    let accessibilityLabel: String
+    /// The switch, or nil where the daemon serves no way to throw it.
+    let isOn: Binding<Bool>?
+    let open: () -> Void
+    @ViewBuilder let tile: Tile
+
     @State private var hovering = false
 
     var body: some View {
         HStack(spacing: Spacing.s) {
             Button(action: open) {
                 HStack(spacing: Spacing.s) {
-                    PluginMarkTile(name: row.name, size: IntegrationMetrics.tileSize)
+                    tile
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(row.title)
+                        Text(title)
                             .fermixType(Typography.style(.callout).weight(.medium))
                             .foregroundStyle(Palette.ink.color)
                             .lineLimit(1, reservesSpace: true)
 
-                        Text(row.subtitle)
+                        Text(subtitle)
                             .fermixType(Typography.style(.calloutSmall))
                             .foregroundStyle(Palette.secondary.color)
                             .lineLimit(1, reservesSpace: true)
@@ -657,24 +810,22 @@ struct IntegrationRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(row.accessibilityLabel)
+            .accessibilityLabel(accessibilityLabel)
 
             // Stated for the same reason `ChannelRow` states it: this row is
             // hand-built rather than a grouped-form row, so the switch has to
             // be asked for or the control arrives as a checkbox.
-            Toggle(row.title, isOn: enabled)
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.integrationEnabled], row.title))
+            if let isOn {
+                Toggle(title, isOn: isOn)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.integrationEnabled], title))
+            }
         }
         .padding(.vertical, Spacing.xs)
         .padding(.horizontal, Spacing.xs)
         .background(hovering ? Palette.chipFill.color : .clear, in: RoundedRectangle(cornerRadius: Radius.controlCompact, style: .continuous))
         .onHover { hovering = $0 }
-    }
-
-    private var enabled: Binding<Bool> {
-        Binding(get: { row.enabled }, set: { isOn in setEnabled(row, isOn) })
     }
 }
 
@@ -684,4 +835,7 @@ enum IntegrationMetrics {
     static let tileSize: Double = 28
     /// The search field at the trailing edge of the pill row.
     static let searchWidth: Double = 200
+    /// What the search field keeps when the window is narrow: the pills are
+    /// never squeezed, so it gives way first.
+    static let searchMinimumWidth: Double = 140
 }

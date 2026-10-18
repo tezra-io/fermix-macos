@@ -18,7 +18,9 @@ struct SettingsPaneView: View {
         case .integrations:
             // A Features row opens the pane that owns its switch, which is a
             // pane change inside this presentation and not a route.
-            IntegrationsPane(model: model) { pane in model.selectedPane = pane }
+            IntegrationsPane(model: model, showLogs: { router.perform(.showLogs) }) { pane in
+                model.selectedPane = pane
+            }
         case .computer:
             ComputerPane(model: model)
         case .permissions:

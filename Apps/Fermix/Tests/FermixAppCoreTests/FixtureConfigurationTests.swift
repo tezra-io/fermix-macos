@@ -149,7 +149,7 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 7 + FixturePhoneStart.allCases.count)
+            + OnboardingStage.allCases.count + 8 + FixturePhoneStart.allCases.count)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -279,6 +279,10 @@ struct FixtureConfigurationTests {
         case .phone:
             #expect(harness.windows.presented == [.main])
             #expect(harness.settings.selectedPane == .channels)
+            #expect(harness.presentation.isShowing)
+        case .mcpEmpty:
+            #expect(harness.windows.presented == [.main])
+            #expect(harness.settings.selectedPane == .integrations)
             #expect(harness.presentation.isShowing)
         }
     }

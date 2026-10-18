@@ -173,6 +173,9 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var mcpChanges: [ManagementMCPServerChange] = []
     var mcpReads: [String] = []
     var mcpToolWrites: [MCPToolWrite] = []
+    /// The providers each `auth.start` and `auth.logout` named, in order.
+    var signInProviders: [String] = []
+    var signOutProviders: [String] = []
 
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take

@@ -177,6 +177,7 @@ extension FakeDaemonGateway {
     // MARK: - Authentication
 
     func startAuth(provider: String) async throws -> ManagementAuthStart {
+        signInProviders.append(provider)
         let started: ManagementAuthStart = try answer(.authStart, "auth_start")
         if let authStartGate { await authStartGate() }
         // The job's finish is what promotes, and this double's job is already
@@ -194,7 +195,9 @@ extension FakeDaemonGateway {
     }
 
     func logOut(provider: String) async throws -> ManagementRestartOnly {
-        try answer(.authLogout, "auth_logout")
+        signOutProviders.append(provider)
+
+        return try answer(.authLogout, "auth_logout")
     }
 
     // MARK: - Plugins

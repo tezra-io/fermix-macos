@@ -140,8 +140,11 @@ struct DescriptorRows: View {
 /// grouped form draws every row it holds in one cell, without the form's
 /// separators, and does not take VoiceOver's press, so the fold is a plain
 /// button here that says whether it is open.
-private struct AdvancedRowsToggle: View {
+struct AdvancedRowsToggle: View {
     @Binding var shown: Bool
+    /// What the fold is called: `Advanced` on a descriptor section, `More
+    /// options` on the MCP server form (M74 §4.2).
+    var title: ProductStringKey = .settingsAdvancedTitle
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -157,7 +160,7 @@ private struct AdvancedRowsToggle: View {
                     .rotationEffect(.degrees(shown ? 90 : 0))
                     .accessibilityHidden(true)
 
-                Text(ProductStrings[.settingsAdvancedTitle])
+                Text(ProductStrings[title])
 
                 Spacer(minLength: 0)
             }
