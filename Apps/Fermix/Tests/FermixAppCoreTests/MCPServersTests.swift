@@ -34,8 +34,8 @@ struct MCPServersTests {
 
         let github = try Self.server("github", in: list)
         #expect(github.status == .needsSignIn)
-        #expect(github.primaryAction == nil, "no stage 1 row leads with sign_in")
-        #expect(github.actions == [.disable])
+        #expect(github.primaryAction == .signIn, "a server that asks for a sign-in leads with it")
+        #expect(github.actions == [.signIn, .disable])
         #expect(github.auth.mode == .auto)
         #expect(github.auth.state == .signedOut)
 
@@ -157,7 +157,8 @@ struct MCPServersTests {
         // Turning a server on and off is its switch, so neither is a verb.
         #expect(MCPServerProjection.verbs(try Self.server("linear", in: list), served: served) == [.check])
         #expect(MCPServerProjection.leadingVerb(try Self.server("linear", in: list), served: served) == nil)
-        #expect(MCPServerProjection.verbs(try Self.server("github", in: list), served: served).isEmpty)
+        #expect(MCPServerProjection.verbs(try Self.server("github", in: list), served: served) == [.signIn])
+        #expect(MCPServerProjection.leadingVerb(try Self.server("github", in: list), served: served) == .signIn)
         #expect(MCPServerProjection.verbs(try Self.server("notes", in: list), served: served).isEmpty)
         #expect(MCPServerProjection.leadingVerb(try Self.server("postgres", in: list), served: served) == .check)
     }
@@ -854,6 +855,115 @@ struct MCPServersTests {
         #expect(harness.gateway.calls.filter { $0 == .v2(.mcpServersList) }.count == 2)
     }
 
+    // MARK: - Sign-in
+
+    @Test("every golden of a server's sign-in decodes, its phases have sentences, and it ends naming the account")
+    func signInGoldensDecode() throws {
+        let start: ManagementAuthStart = try FakeDaemonGateway.fixtureResult(named: "auth_start_mcp", as: ManagementAuthStart.self)
+        #expect(start.job.kind == .auth)
+        #expect(start.job.phase == "awaiting_browser")
+        #expect(start.authorizeURL?.hasPrefix("https://mcp.linear.app/authorize") == true)
+
+        let out: ManagementRestartOnly = try FakeDaemonGateway.fixtureResult(named: "auth_logout_mcp", as: ManagementRestartOnly.self)
+        #expect(!out.restart.required, "a server's sign-out restarts nothing but the server")
+
+        let discovering: ManagementJob = try FakeDaemonGateway.fixtureResult(named: "job_get_auth_discovering", as: ManagementJob.self)
+        #expect(JobPhaseCopy.sentence(kind: .auth, phase: try #require(discovering.phase)) == ProductStrings[.jobPhaseDiscovering])
+        #expect(JobPhaseCopy.sentence(kind: .auth, phase: "registering") == ProductStrings[.jobPhaseRegistering])
+
+        let completed: ManagementJob = try FakeDaemonGateway.fixtureResult(named: "job_get_auth_completed", as: ManagementJob.self)
+        #expect(completed.status == .completed)
+        #expect(completed.result?.string("account_label") == "owner@example.com")
+
+        let signedIn = try Self.got("mcp_servers_get_signed_in")
+        #expect(signedIn.auth.mode == .auto && signedIn.auth.state == .signedIn)
+        #expect(signedIn.auth.accountLabel == "owner@example.com")
+        #expect(signedIn.auth.issuer == "https://mcp.linear.app")
+        #expect(signedIn.actions == [.signOut, .check, .disable])
+        #expect(signedIn.tools?.count == 2)
+
+        let expired = try Self.got("mcp_servers_get_expired")
+        #expect(expired.auth.state == .expired)
+        #expect(expired.statusSentence == "Your sign-in has expired. Sign in again.")
+        #expect(expired.primaryAction == .signIn)
+    }
+
+    @Test("a signed-in server names its account and signs out there; an expired one leads with Sign in")
+    func signInRoutesByAction() throws {
+        let served = try Self.served()
+        let signedIn = try Self.got("mcp_servers_get_signed_in")
+        let expired = try Self.got("mcp_servers_get_expired")
+
+        // Sign out sits on the Account row it acts on, never in the verb line.
+        #expect(MCPServerProjection.verbs(signedIn, served: served) == [.check])
+        #expect(MCPServerProjection.leadingVerb(signedIn, served: served) == nil)
+        #expect(MCPServerFact.facts(signedIn, served: served).contains(.account("owner@example.com", canSignOut: true)))
+
+        #expect(MCPServerProjection.verbs(expired, served: served) == [.signIn])
+        #expect(MCPServerProjection.leadingVerb(expired, served: served) == .signIn)
+        #expect(MCPServerFact.facts(expired, served: served).contains(.account("owner@example.com", canSignOut: false)))
+        #expect(MCPServerProjection.needsTheOwner(expired))
+
+        // Neither verb is drawn where the daemon's hello does not serve its method.
+        #expect(MCPServerProjection.verbs(expired, served: served.subtracting([.authStart])).isEmpty)
+        #expect(MCPServerFact.facts(signedIn, served: served.subtracting([.authLogout])).contains(
+            .account("owner@example.com", canSignOut: false)
+        ))
+    }
+
+    @Test("a server's sign-in runs auth.start under mcp:<name>, and its end reads the row with mcp.servers.get")
+    func signInReadsTheRowWhenItEnds() async throws {
+        let harness = try Self.harness()
+        await harness.model.refreshMCPServers()
+        harness.gateway.jobScript = [try FakeDaemonGateway.fixtureResult(named: "job_get_auth_completed", as: ManagementJob.self)]
+        harness.gateway.mcpServerGolden = "mcp_servers_get_signed_in"
+        let runner = harness.model.makeJobRunner()
+
+        #expect(await harness.model.startMCPSignIn(name: "linear", on: runner) == nil)
+        #expect(runner.authorizationURL != nil, "the wait holds the url the browser opens")
+        await runner.drainPendingWork()
+        let ended = try #require(runner.job)
+        #expect(ended.status == .completed)
+
+        await harness.model.mcpJobFinished(ended)
+
+        #expect(harness.gateway.signInProviders == ["mcp:linear"])
+        #expect(harness.gateway.mcpReads == ["linear"])
+        #expect(harness.model.mcpServer(named: "linear")?.auth.state == .signedIn)
+        #expect(harness.model.signingInProvider == nil)
+    }
+
+    @Test("a plugin's sign-in ending reads no MCP server")
+    func pluginSignInIsNotTheServers() async throws {
+        let harness = try Self.harness()
+        await harness.model.refreshMCPServers()
+        let runner = harness.model.makeJobRunner()
+
+        _ = await harness.model.startSignIn(provider: "plugin:google_calendar", on: runner)
+        await harness.model.mcpJobFinished(try FakeDaemonGateway.fixtureResult(named: "job_get_auth_completed", as: ManagementJob.self))
+
+        #expect(harness.gateway.mcpReads.isEmpty)
+    }
+
+    @Test("a refused sign-in is the daemon's sentence on the wait")
+    func signInRefusals() async throws {
+        let refusals = [
+            "invalid_params_auth_start_mcp_unknown": "There is no MCP server by that name.",
+            "invalid_params_auth_start_mcp_stdio": "This server runs on this Mac and has no sign-in.",
+            "invalid_params_auth_start_mcp_key": "This server signs in with a key, not a browser.",
+            "invalid_params_auth_start_mcp_none": "This server is set to need no sign-in."
+        ]
+        for (name, sentence) in refusals {
+            let harness = try Self.harness()
+            harness.gateway.v2Failures[.authStart] = try ManagementRefusal.published(name)
+            let runner = harness.model.makeJobRunner()
+
+            #expect(await harness.model.startMCPSignIn(name: "linear", on: runner) == sentence, "\(name)")
+            #expect(runner.failure == sentence, "\(name)")
+            #expect(harness.model.signingInProvider == nil, "\(name)")
+        }
+    }
+
     @Test("a server's sign-in and sign-out are auth.start and auth.logout under mcp:<name>")
     func signInUsesTheServersProvider() async throws {
         let harness = try Self.harness()
@@ -883,7 +993,7 @@ struct MCPServersTests {
         let golden = try await Self.fixtureList(FixtureMachine(daemonUp: true))
         #expect(golden.servers.map(\.name) == ["filesystem", "github", "linear", "notes", "postgres"])
 
-        let empty = try await Self.fixtureList(FixtureMachine(daemonUp: true, mcpServersStartEmpty: true))
+        let empty = try await Self.fixtureList(FixtureMachine(daemonUp: true, mcpServers: .empty))
         #expect(empty.servers.isEmpty)
     }
 
@@ -901,6 +1011,40 @@ struct MCPServersTests {
         #expect(added.server.status == .starting)
         #expect(added.jobId == "job:4Vb8nC")
         #expect(try await client.mcpServers().servers.map(\.name).contains("context7"))
+    }
+
+    @Test("the fixture home signs a server in through its golden sign-in, and out again")
+    func fixtureSignsIn() async throws {
+        let client = try await Self.fixtureClient(FixtureMachine(daemonUp: true))
+
+        let started = try await client.startAuth(provider: "mcp:github")
+        #expect(started.job.jobId == "job:7Lp2rW")
+        let other = try await client.startAuth(provider: "openai_codex")
+        #expect(other.job.jobId != started.job.jobId, "any other provider signs in as the providers' golden")
+
+        for _ in 0..<FixtureManagementTransport.browserReads {
+            #expect(try await client.job(id: started.job.jobId).status == .running)
+        }
+        #expect(try await client.job(id: started.job.jobId).status == .completed)
+        let signedIn = try await client.mcpServer(name: "github").server
+        #expect(signedIn.auth.state == .signedIn)
+        #expect(signedIn.actions.contains(.signOut))
+
+        _ = try await client.logOut(provider: "mcp:github")
+        let signedOut = try await client.mcpServer(name: "github").server
+        #expect(signedOut.auth.state == .signedOut)
+        #expect(signedOut.primaryAction == .signIn)
+    }
+
+    @Test("the fixture home opens on the golden server signed in, or expired")
+    func fixtureSignInStarts() async throws {
+        let signedIn = try await Self.fixtureClient(FixtureMachine(daemonUp: true, mcpServers: .signedIn))
+        let linear = try await signedIn.mcpServer(name: "linear").server
+        #expect(linear.auth.state == .signedIn)
+        #expect(linear.tools?.count == 2)
+
+        let expired = try await Self.fixtureClient(FixtureMachine(daemonUp: true, mcpServers: .expired))
+        #expect(try await expired.mcpServers().servers.first { $0.name == "linear" }?.auth.state == .expired)
     }
 
     @Test("an add and a removal on the fixture home move its list")
@@ -953,6 +1097,11 @@ struct MCPServersTests {
         result["capabilities"] = capabilities
 
         return try JSONDecoder().decode(ManagementHello.self, from: try JSONSerialization.data(withJSONObject: result))
+    }
+
+    /// One golden `mcp.servers.get` server.
+    private static func got(_ name: String) throws -> ManagementMCPServer {
+        try FakeDaemonGateway.fixtureResult(named: name, as: ManagementMCPServerRow.self).server
     }
 
     private static func list() throws -> ManagementMCPServerList {

@@ -276,17 +276,21 @@ extension SettingsModel {
         return nil
     }
 
-    /// A check or a server's own sign-in ended, so the rows it moved are read
-    /// back. A plugin's sign-in is the plugin detail's to follow.
+    /// A check or a server's own sign-in ended, so what it moved is read
+    /// back: the list after a check, and after a sign-in, however it ended,
+    /// the one server's row with `mcp.servers.get`. A plugin's sign-in is the
+    /// plugin detail's to follow.
     public func mcpJobFinished(_ job: ManagementJob) async {
         guard job.status.isTerminal else { return }
 
         switch job.kind {
         case .mcpCheck:
             await refreshMCPServers()
-        case .auth where signingInProvider?.hasPrefix(MCPSecretId.prefix) == true:
+        case .auth:
+            guard let server = MCPSecretId.server(signingIn: signingInProvider) else { return }
+
             await signInFinished()
-            await refreshMCPServers()
+            await readMCPServer(server)
         default:
             return
         }

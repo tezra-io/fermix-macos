@@ -741,6 +741,8 @@
 "job.phase.verifying" = "Verifying.";
 "job.phase.verifyingSignIn" = "Verifying the sign-in.";
 "job.phase.connecting" = "Connecting to the server.";
+"job.phase.discovering" = "Finding how the server signs in.";
+"job.phase.registering" = "Registering Fermix with the server.";
 "job.phase.listingTools" = "Reading the server’s tools.";
 "settings.install" = "Install";
 "settings.primarySection" = "Primary";
@@ -1009,7 +1011,6 @@
 "mcp.detail.toolsCount" = "%1$d of %2$d turned on";
 "mcp.detail.choose" = "Choose…";
 "mcp.account.signedOut" = "Not signed in";
-"mcp.account.expired" = "Sign-in expired";
 "mcp.action.signIn" = "Sign in";
 "mcp.action.signOut" = "Sign out";
 "mcp.action.check" = "Check again";

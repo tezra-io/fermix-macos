@@ -75,6 +75,11 @@ struct FixtureManagementTransport: ManagementTransport {
         guard let published = candidates(for: method) else {
             throw Defect.methodHasNoAnswer(method)
         }
+        if method == ManagementMethod.jobGet.rawValue,
+           let job = params["job_id"] as? String,
+           let moment = try signInMoment(job) {
+            return try Self.envelope(requestId: identifier, result: moment)
+        }
         // A text no golden draft reads is what the daemon refuses as one it
         // cannot read, in its own published words.
         if method == ManagementMethod.mcpServersDraft.rawValue,
@@ -104,7 +109,12 @@ struct FixtureManagementTransport: ManagementTransport {
     /// `mobile.pair.start` publishes the window opened and the refusal with the
     /// channel off, for the same request: a running phone channel answers the
     /// first, and a channel that is not running the second.
+    ///
+    /// `mcp.servers.get` publishes one server in three states for the same
+    /// request; the server it answers is the machine's, so the first golden
+    /// is the shape and the others are states a fixture start opens on.
     private func candidates(for method: String) -> [Record]? {
+        if method == ManagementMethod.mcpServersGet.rawValue { return records[method].map { Array($0.prefix(1)) } }
         guard method == ManagementMethod.mobilePairStart.rawValue else { return records[method] }
 
         let running = machine.phoneChannel.running
@@ -214,10 +224,10 @@ struct FixtureManagementTransport: ManagementTransport {
         let lines = String(decoding: data, as: UTF8.self)
             .split(separator: "\n", omittingEmptySubsequences: true)
 
-        let drafted = try draftTexts()
+        let requested = try requestSelectors()
         var grouped: [String: [Record]] = [:]
         for (index, line) in lines.enumerated() {
-            let record = try read(line: line, number: index + 1, drafted: drafted)
+            let record = try read(line: line, number: index + 1, requested: requested)
             grouped[record.method, default: []].append(record)
         }
 
@@ -232,20 +242,47 @@ struct FixtureManagementTransport: ManagementTransport {
     /// text is the golden request's of the same name: the request and its
     /// answer are published as one pair.
     static func draftTexts() throws -> [String: String] {
+        try goldenRequests(of: .mcpServersDraft).compactMapValues { params in
+            (params["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    /// The request params each golden of one method was asked with, by
+    /// golden name.
+    private static func goldenRequests(of method: ManagementMethod) throws -> [String: [String: Any]] {
         let data = try VendoredContracts.data(.management, "fixtures/requests.jsonl")
-        var texts: [String: String] = [:]
+        var requests: [String: [String: Any]] = [:]
         for line in String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true) {
             guard let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                  object["method"] as? String == ManagementMethod.mcpServersDraft.rawValue,
-                  let name = object["name"] as? String,
-                  let params = (object["frame"] as? [String: Any])?["params"] as? [String: Any],
-                  let text = params["text"] as? String
+                  object["method"] as? String == method.rawValue,
+                  let name = object["name"] as? String
             else { continue }
 
-            texts[name] = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            requests[name] = (object["frame"] as? [String: Any])?["params"] as? [String: Any] ?? [:]
         }
 
-        return texts
+        return requests
+    }
+
+    /// The selector of each golden whose answer does not name its request,
+    /// read off the golden request of the same name: a draft answers per
+    /// text, and a sign-in and a sign-out per family of provider, an MCP
+    /// server's or any other.
+    private static func requestSelectors() throws -> [String: [String: String]] {
+        var selectors = try draftTexts().mapValues { ["text": $0] }
+        for method in [ManagementMethod.authStart, .authLogout] {
+            for (name, params) in try goldenRequests(of: method) {
+                selectors[name] = ["family": signInFamily(params["provider"] as? String)]
+            }
+        }
+
+        return selectors
+    }
+
+    /// Which golden sign-in a provider is answered with: an MCP server's, or
+    /// every other provider's.
+    private static func signInFamily(_ provider: String?) -> String {
+        provider?.hasPrefix(MCPSecretId.prefix) == true ? "mcp" : "provider"
     }
 
     /// The voice engine this daemon runs.
@@ -345,7 +382,7 @@ struct FixtureManagementTransport: ManagementTransport {
         let state: String
     }
 
-    private static func read(line: Substring, number: Int, drafted: [String: String]) throws -> Record {
+    private static func read(line: Substring, number: Int, requested: [String: [String: String]]) throws -> Record {
         guard let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else {
             throw Defect.recordIsNotAnObject(line: number)
         }
@@ -360,7 +397,7 @@ struct FixtureManagementTransport: ManagementTransport {
         return Record(
             name: name,
             method: method,
-            selector: drafted[name].map { ["text": $0] } ?? selector(method: method, result: result),
+            selector: requested[name] ?? selector(method: method, result: result),
             moment: pairingMoment(method: method, result: result),
             taskVoice: taskVoice(method: method, result: result),
             placeSearch: placeSearch(method: method, result: result),
@@ -489,6 +526,11 @@ struct FixtureManagementTransport: ManagementTransport {
             selectable["text"] = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return selectable
         }
+        if method == ManagementMethod.authStart.rawValue || method == ManagementMethod.authLogout.rawValue {
+            var selectable = params
+            selectable["family"] = signInFamily(params["provider"] as? String)
+            return selectable
+        }
         guard method == ManagementMethod.settingsApply.rawValue,
               let values = params["values"] as? [String: Any],
               let first = values.keys.sorted().first
@@ -547,6 +589,8 @@ struct FixtureManagementTransport: ManagementTransport {
             return true
         case .secretSet:
             return storesMCPValue(method: method, params: params)
+        case .authStart, .authLogout:
+            return signInFamily(params["provider"] as? String) == "mcp"
         default:
             return false
         }
@@ -555,8 +599,7 @@ struct FixtureManagementTransport: ManagementTransport {
     /// One MCP answer over its golden: the list as this run's writes left
     /// it, and each write's golden answer about the server the write named.
     private func mcpAnswer(_ method: String, _ golden: [String: Any], params: [String: Any]) throws -> [String: Any] {
-        let published = try goldenResult(.mcpServersList)?["servers"] as? [[String: Any]] ?? []
-        machine.withMCPServers { $0.seed(published) }
+        try seedServers()
         let name = params["name"] as? String ?? ""
         let written = golden["server"] as? [String: Any] ?? [:]
         var answer = golden
@@ -566,6 +609,12 @@ struct FixtureManagementTransport: ManagementTransport {
             answer["servers"] = machine.withMCPServers { $0.list }
         case .mcpServersGet:
             answer["server"] = try rowWithTools(name, golden: written)
+        case .authStart:
+            machine.withMCPServers { $0.signingIn = MCPSecretId.server(signingIn: params["provider"] as? String) }
+        case .authLogout:
+            if let server = MCPSecretId.server(signingIn: params["provider"] as? String), let out = try signedOut() {
+                _ = keep(Self.signed(row(server, else: [:]), as: out))
+            }
         case .mcpServersDraft:
             for draft in golden["drafts"] as? [[String: Any]] ?? [] {
                 guard let id = draft["draft_id"] as? String else { continue }
@@ -647,11 +696,88 @@ struct FixtureManagementTransport: ManagementTransport {
     }
 
     private func described(_ name: String) throws -> [[String: Any]] {
-        guard let published = try goldenResult(.mcpServersGet)?["server"] as? [String: Any],
-              published["name"] as? String == name
-        else { return [] }
+        machine.withMCPServers { $0.tools(of: name) }
+    }
 
-        return machine.withMCPServers { $0.tools(published["tools"] as? [[String: Any]] ?? [], of: name) }
+    /// The machine's servers, taken from the golden list the first time, with
+    /// the golden `mcp.servers.get` row its start names in place of the
+    /// server of that name: the published one, signed in or expired.
+    private func seedServers() throws {
+        let published = try goldenResult(.mcpServersList)?["servers"] as? [[String: Any]] ?? []
+        let start = machine.withMCPServers { $0.start }
+        let server = try golden(Self.describedServer(start), of: .mcpServersGet)?["server"] as? [String: Any]
+        machine.withMCPServers { $0.seed(published, server: server) }
+    }
+
+    /// The golden `mcp.servers.get` each start reads its described server from.
+    private static func describedServer(_ start: FixtureMCPStart?) -> String {
+        switch start {
+        case .signedIn: return "mcp_servers_get_signed_in"
+        case .expired: return "mcp_servers_get_expired"
+        case .empty, nil: return "mcp_servers_get"
+        }
+    }
+
+    /// One golden result by name.
+    private func golden(_ name: String, of method: ManagementMethod) throws -> [String: Any]? {
+        guard let record = records[method.rawValue]?.first(where: { $0.name == name }) else { return nil }
+
+        return try JSONSerialization.jsonObject(with: record.result) as? [String: Any]
+    }
+
+    // MARK: - A server's sign-in (M74)
+
+    /// How many reads of a server's sign-in it waits in the browser: five
+    /// seconds at the published poll interval, which is time to look at the
+    /// wait before it signs in.
+    static let browserReads = 10
+
+    /// What `job.get` answers for the sign-in an MCP server's `auth.start`
+    /// golden started: that start's own view of the job, waiting in the
+    /// browser, for a while, and then its completed golden, which signs the
+    /// server in. Nil for every other job.
+    private func signInMoment(_ job: String) throws -> Data? {
+        guard let start = records[ManagementMethod.authStart.rawValue]?.first(where: { $0.selector["family"] == "mcp" }),
+              var waiting = try JSONSerialization.jsonObject(with: start.result) as? [String: Any],
+              waiting["job_id"] as? String == job
+        else { return nil }
+
+        guard machine.withMCPServers({ $0.read(job: job) }) > Self.browserReads else {
+            waiting["authorize_url"] = nil
+            waiting["expires_in_ms"] = nil
+            return try JSONSerialization.data(withJSONObject: waiting)
+        }
+
+        let ended = records[ManagementMethod.jobGet.rawValue]?.first { record in
+            record.selector["job_id"] == job
+                && (try? JSONSerialization.jsonObject(with: record.result) as? [String: Any])?["status"] as? String == "completed"
+        }
+        guard let ended else { return nil }
+
+        try seedServers()
+        let server = machine.withMCPServers { $0.signingIn }
+        if let server, let signedIn = try golden("mcp_servers_get_signed_in", of: .mcpServersGet)?["server"] as? [String: Any] {
+            _ = keep(Self.signed(row(server, else: [:]), as: signedIn))
+            machine.withMCPServers { $0.signingIn = nil }
+        }
+        return ended.result
+    }
+
+    /// The golden row of a server that waits for a sign-in it does not have.
+    private func signedOut() throws -> [String: Any]? {
+        let servers = try goldenResult(.mcpServersList)?["servers"] as? [[String: Any]] ?? []
+
+        return servers.first { (($0["auth"] as? [String: Any])?["state"] as? String) == "signed_out" }
+    }
+
+    /// A row signed in or out as a golden row of that state is: its status,
+    /// and its sign-in.
+    private static func signed(_ row: [String: Any], as golden: [String: Any]) -> [String: Any] {
+        guard !row.isEmpty else { return row }
+
+        var signed = moved(row, as: golden)
+        signed["auth"] = golden["auth"]
+        return signed
     }
 
     /// A row the way a golden write left its server: on or off, and the

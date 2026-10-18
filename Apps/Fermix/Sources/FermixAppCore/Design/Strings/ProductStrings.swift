@@ -777,6 +777,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case jobPhaseVerifying = "job.phase.verifying"
     case jobPhaseVerifyingSignIn = "job.phase.verifyingSignIn"
     case jobPhaseConnecting = "job.phase.connecting"
+    case jobPhaseDiscovering = "job.phase.discovering"
+    case jobPhaseRegistering = "job.phase.registering"
     case jobPhaseListingTools = "job.phase.listingTools"
     case settingsInstall = "settings.install"
 
@@ -1091,7 +1093,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case mcpDetailToolsCount = "mcp.detail.toolsCount"
     case mcpDetailChoose = "mcp.detail.choose"
     case mcpAccountSignedOut = "mcp.account.signedOut"
-    case mcpAccountExpired = "mcp.account.expired"
     case mcpActionSignIn = "mcp.action.signIn"
     case mcpActionSignOut = "mcp.action.signOut"
     case mcpActionCheck = "mcp.action.check"

@@ -49,7 +49,9 @@ public enum MCPServerFact: Equatable, Sendable {
 
     /// Who a remote server's sign-in belongs to, or how it is reached without
     /// one. A server that takes nothing has no Account row, and neither has an
-    /// automatic one the server never asked to sign in.
+    /// automatic one the server never asked to sign in. An expired grant still
+    /// names its account: that it expired is the daemon's sentence on the row,
+    /// with the Sign in it leads with.
     static func account(_ auth: ManagementMCPAuth) -> String? {
         switch auth.mode {
         case .none, .unrecognized: return nil
@@ -58,9 +60,8 @@ public enum MCPServerFact: Equatable, Sendable {
         }
 
         switch auth.state {
-        case .signedIn: return auth.accountLabel ?? auth.issuer.flatMap { URL(string: $0)?.host }
+        case .signedIn, .expired: return auth.accountLabel ?? auth.issuer.flatMap { URL(string: $0)?.host }
         case .signedOut: return ProductStrings[.mcpAccountSignedOut]
-        case .expired: return ProductStrings[.mcpAccountExpired]
         case .notNeeded, .unrecognized: return nil
         }
     }

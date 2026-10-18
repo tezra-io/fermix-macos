@@ -176,9 +176,14 @@ extension FakeDaemonGateway {
 
     // MARK: - Authentication
 
+    /// The golden sign-in of the provider's family: an MCP server's, or any
+    /// other provider's.
     func startAuth(provider: String) async throws -> ManagementAuthStart {
         signInProviders.append(provider)
-        let started: ManagementAuthStart = try answer(.authStart, "auth_start")
+        let started: ManagementAuthStart = try answer(
+            .authStart,
+            provider.hasPrefix(MCPSecretId.prefix) ? "auth_start_mcp" : "auth_start"
+        )
         if let authStartGate { await authStartGate() }
         // The job's finish is what promotes, and this double's job is already
         // complete by the time the runner polls it.
@@ -197,7 +202,7 @@ extension FakeDaemonGateway {
     func logOut(provider: String) async throws -> ManagementRestartOnly {
         signOutProviders.append(provider)
 
-        return try answer(.authLogout, "auth_logout")
+        return try answer(.authLogout, provider.hasPrefix(MCPSecretId.prefix) ? "auth_logout_mcp" : "auth_logout")
     }
 
     // MARK: - Plugins
@@ -392,7 +397,7 @@ extension FakeDaemonGateway {
     func mcpServer(name: String) async throws -> ManagementMCPServerRow {
         mcpReads.append(name)
 
-        return try answer(.mcpServersGet, "mcp_servers_get")
+        return try answer(.mcpServersGet, mcpServerGolden)
     }
 
     /// The golden draft of the text asked for, by the golden request that

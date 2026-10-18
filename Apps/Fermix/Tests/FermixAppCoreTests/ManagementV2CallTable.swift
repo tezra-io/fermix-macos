@@ -122,6 +122,9 @@ enum ManagementV2Calls {
         "auth_start": { _ = try await $0.startAuth(provider: "openai_codex") },
         "auth_import_start": { _ = try await $0.startAuthImport(source: .claudeCode) },
         "auth_logout": { _ = try await $0.logOut(provider: "xai") },
+        // An MCP server's own sign-in and sign-out, under its mcp: provider.
+        "auth_start_mcp": { _ = try await $0.startAuth(provider: "mcp:linear") },
+        "auth_logout_mcp": { _ = try await $0.logOut(provider: "mcp:linear") },
         "plugins_list": { _ = try await $0.plugins() },
         "plugins_install_start": { _ = try await $0.startPluginInstall(name: "notion") },
         "plugins_check_start": { _ = try await $0.startPluginCheck(name: "gmail") },

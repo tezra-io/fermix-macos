@@ -527,4 +527,12 @@ public enum MCPSecretId {
         precondition(!server.isEmpty, "an MCP sign-in names its server")
         return prefix + server
     }
+
+    /// The server a sign-in provider names, where it names one.
+    public static func server(signingIn provider: String?) -> String? {
+        guard let provider, provider.hasPrefix(prefix), !provider.contains("/") else { return nil }
+
+        let server = String(provider.dropFirst(prefix.count))
+        return server.isEmpty ? nil : server
+    }
 }
