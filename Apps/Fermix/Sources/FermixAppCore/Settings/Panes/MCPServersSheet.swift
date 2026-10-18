@@ -66,8 +66,11 @@ enum MCPServerSheetMetrics {
     static let labelWidth: Double = 104
     /// The name column of a variable or header row.
     static let entryNameWidth: Double = 136
-    /// The name column of the pasted servers' page.
-    static let pastedNameWidth: Double = 150
+    /// How far a pasted server's lines sit in, under its name beside the box.
+    static let pastedIndent: Double = 20
+    /// The pasted servers' list at its tallest, the page's one scroll: the
+    /// tools page's height, which keeps the sheet inside the default window.
+    static let pastedListHeight: Double = toolsListHeight
     /// The most lines the URL or the command field grows to for a paste.
     static let pasteLines = 4
     /// How long typing in the URL or the command field rests before the

@@ -586,6 +586,48 @@ struct MCPServersTests {
         ))
     }
 
+    /// A tick on this page adds and runs what the paste held, so the page
+    /// shows every server's whole command line or address, the program the
+    /// daemon found, and its consent line, before anything is added (D5).
+    @Test("the pasted servers' page shows the whole of what each tick adds")
+    func pastedPageShowsWhatRuns() throws {
+        let several = try ManagementFixtures.load(.success, from: .management)
+            .filter { try $0.string("method") == ManagementMethod.mcpServersDraft.rawValue }
+            .map { try Self.drafts($0.name) }
+            .filter { $0.drafts.count > 1 }
+        #expect(several.count == 2, "the pasted mcpServers map and the Codex block")
+
+        for drafts in several {
+            for item in MCPPastedItem.items(drafts) {
+                let draft = item.draft
+                let lines = item.lines(taken: false)
+                switch draft.transport {
+                case .http:
+                    #expect(lines.contains(.target(try #require(draft.url))), "\(draft.name)")
+                case .stdio, .unrecognized:
+                    #expect(lines.contains(.target(try #require(draft.commandLine))), "\(draft.name)")
+                    let sentence = try #require(draft.commandSentence)
+                    #expect(lines.contains(.runs(sentence, resolved: draft.resolvedCommand != nil)), "\(draft.name)")
+                }
+                #expect(lines.contains(.consent(draft.consentSentence)), "\(draft.name)")
+                #expect(!lines.contains(.taken))
+                #expect(item.lines(taken: true).last == .taken)
+            }
+        }
+    }
+
+    /// The lines are drawn whole: nothing on the page cuts one short, and a
+    /// long list scrolls inside the page rather than shortening a line.
+    @Test("nothing on the pasted servers' page is cut short")
+    func pastedPageTruncatesNothing() throws {
+        let page = try #require(try SourceTree.swiftFiles(matching: "Settings/Panes/MCPServersPasted.swift").first?.text)
+
+        #expect(!page.contains(".lineLimit("), "a line on the page is limited")
+        #expect(!page.contains(".truncationMode("), "a line on the page is truncated")
+        #expect(!page.contains(".summary"), "the one-line summary stands in for what runs")
+        #expect(page.contains("ScrollView"), "a long list scrolls in the page")
+    }
+
     @Test("a refused paste marks the field it was pasted into, and leaves every other mark")
     func refusedPasteMarksItsField() async throws {
         let harness = try Self.harness()
