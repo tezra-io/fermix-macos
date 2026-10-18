@@ -332,7 +332,9 @@ struct MCPServerDetailPage: View {
 
     // MARK: - What is running, and the foot
 
-    private var warning: String? { refusal ?? runner.failure ?? runner.browserFailure }
+    private var warning: String? {
+        refusal ?? MCPServerProjection.jobFailure(runner.failure, of: runner.job, on: server) ?? runner.browserFailure
+    }
 
     /// A check's progress and anything that went wrong; a sign-in draws both
     /// itself, under the verb that started it.

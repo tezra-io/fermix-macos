@@ -287,6 +287,40 @@ struct MCPServersTests {
         #expect(tools.first { $0.name == "list_users" }?.displayTitle == "list_users")
     }
 
+    /// The daemon fails a check with the row's own sentence, so a server that
+    /// waits for a sign-in said "Sign in to finish connecting." under its name
+    /// and again under its buttons.
+    @Test("a check that fails with what the row already says draws no second sentence")
+    func checkFailureTheRowAlreadySays() throws {
+        let list = try Self.list()
+        let github = try Self.server("github", in: list)
+        #expect(github.status == .needsSignIn)
+        let echoed = github.statusSentence
+
+        #expect(MCPServerProjection.jobFailure(echoed, of: try Self.failedJob("mcp_check", echoed), on: github) == nil)
+
+        // The row's last error is the row saying it too.
+        let postgres = try Self.server("postgres", in: list)
+        let lastError = try #require(postgres.lastError)
+        #expect(MCPServerProjection.jobFailure(lastError, of: try Self.failedJob("mcp_check", lastError), on: postgres) == nil)
+    }
+
+    @Test("a check that fails with another sentence, or another job's failure, is drawn")
+    func otherFailuresAreDrawn() throws {
+        let github = try Self.server("github", in: try Self.list())
+        let other = "The server closed the connection before it listed its tools."
+
+        #expect(MCPServerProjection.jobFailure(other, of: try Self.failedJob("mcp_check", other), on: github) == other)
+        // A sign-in's failure is the sign-in wait's to say, whatever the row says.
+        let signIn = github.statusSentence
+        #expect(MCPServerProjection.jobFailure(signIn, of: try Self.failedJob("auth", signIn), on: github) == signIn)
+        #expect(MCPServerProjection.jobFailure(nil, of: try Self.failedJob("mcp_check", other), on: github) == nil)
+
+        let detail = try #require(try SourceTree.swiftFiles(matching: "Settings/Panes/MCPServersDetail.swift").first?.text)
+        #expect(detail.contains("MCPServerProjection.jobFailure(runner.failure, of: runner.job, on: server)"))
+        #expect(!detail.contains("refusal ?? runner.failure"), "the detail draws the runner's failure unfiltered")
+    }
+
     // MARK: - The one sheet's pages
 
     @Test("every page goes back where Escape and the chevron say, and an add turns by its outcome")
@@ -1414,6 +1448,21 @@ struct MCPServersTests {
         let servers = try #require(result["servers"] as? [[String: Any]])
 
         return try #require(servers.first { $0["name"] as? String == name })
+    }
+
+    /// The golden finished check, failed as `kind` with this sentence.
+    private static func failedJob(_ kind: String, _ sentence: String) throws -> ManagementJob {
+        let fixture = try #require(
+            try ManagementFixtures.load(.success, from: .management).first { $0.name == "job_get_mcp_check_completed" }
+        )
+        var job = try #require(try fixture.object("response")["result"] as? [String: Any])
+        job["kind"] = kind
+        job["status"] = "failed"
+        job["phase"] = "connecting"
+        job["result"] = NSNull()
+        job["failure"] = ["code": "unavailable", "sentence": sentence]
+
+        return try JSONDecoder().decode(ManagementJob.self, from: try JSONSerialization.data(withJSONObject: job))
     }
 
     private static func rowJSON(_ name: String) throws -> [String: Any] {

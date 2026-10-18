@@ -89,6 +89,19 @@ public enum MCPServerProjection {
             || !keyStored(server)
     }
 
+    /// What a finished job's failure adds under a server's buttons: nothing
+    /// where a check failed with what the row already says, its status
+    /// sentence or its last error. The daemon fails a check with the row's
+    /// own sentence, so a server waiting for a sign-in said "Sign in to finish
+    /// connecting." under its name and again under its buttons. A different
+    /// sentence is drawn, and so is any other job's failure: a sign-in's is
+    /// the sign-in wait's to say.
+    public static func jobFailure(_ failure: String?, of job: ManagementJob?, on server: ManagementMCPServer?) -> String? {
+        guard let failure, job?.kind == .mcpCheck, let server else { return failure }
+
+        return failure == server.statusSentence || failure == server.lastError ? nil : failure
+    }
+
     /// The page's one search rule: the name and the line under it.
     public static func matches(_ server: ManagementMCPServer, query: String) -> Bool {
         IntegrationSearch.matches(query, title: server.name, summary: server.statusSentence)
