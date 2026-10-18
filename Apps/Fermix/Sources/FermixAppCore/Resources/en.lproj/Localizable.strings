@@ -742,6 +742,8 @@
 "job.phase.sidecarDownloading" = "Downloading the helper.";
 "job.phase.verifying" = "Verifying.";
 "job.phase.verifyingSignIn" = "Verifying the sign-in.";
+"job.phase.connecting" = "Connecting to the server.";
+"job.phase.listingTools" = "Reading the server’s tools.";
 "settings.install" = "Install";
 "settings.primarySection" = "Primary";
 "settings.primaryFooterFormat" = "Every conversation uses %@. Other connected providers stand in if it fails.";

@@ -133,6 +133,7 @@ public enum ManagementJobKind: ManagementVocabulary, Hashable {
     case browserInstall
     case imessageGrant
     case imessagePolicyConfirm
+    case mcpCheck
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -148,7 +149,8 @@ public enum ManagementJobKind: ManagementVocabulary, Hashable {
         "computer_use_grant": .computerUseGrant,
         "browser_install": .browserInstall,
         "imessage_grant": .imessageGrant,
-        "imessage_policy_confirm": .imessagePolicyConfirm
+        "imessage_policy_confirm": .imessagePolicyConfirm,
+        "mcp_check": .mcpCheck
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
     public var unrecognizedValue: String? {

@@ -44,10 +44,10 @@ extension ManagementVocabulary {
 /// Every published management method.
 ///
 /// The eleven the engine serves today have a minimum protocol version of 1; the
-/// thirty-one M34 §7.3 adds, the seven the phone channel added and the three
-/// the iMessage channel added have a minimum of 2. The minimum is read from the contract
-/// (`ManagementContract.minimumVersion(for:)`), never restated here: one fact,
-/// in the checksum-pinned artifact.
+/// thirty-one M34 §7.3 adds, the seven the phone channel added, the three the
+/// iMessage channel added and the nine of MCP servers have a minimum of 2. The
+/// minimum is read from the contract (`ManagementContract.minimumVersion(for:)`),
+/// never restated here: one fact, in the checksum-pinned artifact.
 public enum ManagementMethod: String, CaseIterable, Sendable {
     case hello = "hello"
     case overviewGet = "overview.get"
@@ -107,6 +107,17 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case imessagePermissionsGet = "imessage.permissions.get"
     case imessageGrantStart = "imessage.grant.start"
     case imessagePolicyConfirm = "imessage.policy.confirm"
+    // MCP servers the owner adds (engine 47ab208c, 2026-10-17): a row per
+    // server, its writes, and the check that connects it.
+    case mcpServersList = "mcp.servers.list"
+    case mcpServersGet = "mcp.servers.get"
+    case mcpServersAdd = "mcp.servers.add"
+    case mcpServersUpdate = "mcp.servers.update"
+    case mcpServersRemove = "mcp.servers.remove"
+    case mcpServersEnable = "mcp.servers.enable"
+    case mcpServersDisable = "mcp.servers.disable"
+    case mcpServersToolSet = "mcp.servers.tool.set"
+    case mcpServersCheckStart = "mcp.servers.check.start"
 
     /// The method name in a form the request-id pattern accepts.
     public var identifierSlug: String { rawValue.replacingOccurrences(of: ".", with: "-") }

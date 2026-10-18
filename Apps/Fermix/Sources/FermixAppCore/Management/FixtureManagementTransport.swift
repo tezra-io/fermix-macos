@@ -401,7 +401,7 @@ struct FixtureManagementTransport: ManagementTransport {
 
     /// The request params a record answers for, read from the answer itself.
     ///
-    /// Five methods publish more than one golden, and each result names the
+    /// Six methods publish more than one golden, and each result names the
     /// request it answers under its own key: `settings.get` answers per section
     /// (`id` is the section), and `secret.set` and `secret.clear` answer per
     /// secret (`id` is the secret). Reading it off the answer keeps the selector
@@ -421,6 +421,12 @@ struct FixtureManagementTransport: ManagementTransport {
         if method == ManagementMethod.jobGet.rawValue {
             guard let job = object?["job_id"] as? String else { return [:] }
             return ["job_id": job]
+        }
+        // `mcp.servers.add` answers per transport: its answer's row names it,
+        // and so does the request.
+        if method == ManagementMethod.mcpServersAdd.rawValue {
+            guard let transport = (object?["server"] as? [String: Any])?["transport"] as? String else { return [:] }
+            return ["transport": transport]
         }
         guard let identifier = object?["id"] as? String else { return [:] }
 

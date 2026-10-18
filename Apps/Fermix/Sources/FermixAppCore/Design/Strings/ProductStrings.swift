@@ -765,7 +765,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsJobCancel = "settings.job.cancel"
     case settingsJobTimedOut = "settings.job.timedOut"
 
-    /// The ten job phases the contract publishes, in the app's own words. The
+    /// The job phases the contract publishes, in the app's own words. The
     /// wire value is an atom, so the sentence is the app's (M34 §7.3).
     case jobPhaseAwaitingBrowser = "job.phase.awaitingBrowser"
     case jobPhaseAwaitingSignIn = "job.phase.awaitingSignIn"
@@ -779,6 +779,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case jobPhaseSidecarDownloading = "job.phase.sidecarDownloading"
     case jobPhaseVerifying = "job.phase.verifying"
     case jobPhaseVerifyingSignIn = "job.phase.verifyingSignIn"
+    case jobPhaseConnecting = "job.phase.connecting"
+    case jobPhaseListingTools = "job.phase.listingTools"
     case settingsInstall = "settings.install"
 
     // Settings: the hand-built sections

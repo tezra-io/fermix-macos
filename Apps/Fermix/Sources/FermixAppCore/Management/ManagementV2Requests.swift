@@ -128,3 +128,15 @@ struct ManagementCapabilityInstallParams: Encodable {
 struct ManagementIMessageGrantParams: Encodable {
     let service: ManagementIMessageGrantService
 }
+
+// MARK: - MCP servers
+
+struct ManagementMCPServerNameParams: Encodable {
+    let name: String
+}
+
+struct ManagementMCPToolParams: Encodable {
+    let name: String
+    let tool: String
+    let enabled: Bool
+}

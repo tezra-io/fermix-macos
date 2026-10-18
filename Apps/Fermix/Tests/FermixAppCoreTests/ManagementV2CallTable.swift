@@ -177,7 +177,38 @@ enum ManagementV2Calls {
         "mobile_devices_list": { _ = try await $0.mobileDevices() },
         "mobile_devices_revoke": {
             _ = try await $0.revokeMobileDevice(id: "3f4a1a55-69a0-4f8a-9132-17d6ac728f84")
-        }
+        },
+
+        "mcp_servers_list": { _ = try await $0.mcpServers() },
+        "mcp_servers_get": { _ = try await $0.mcpServer(name: "linear") },
+        // An add sends its transport's fields and nothing else: no empty list
+        // and no null for a field the form left blank.
+        "mcp_servers_add": {
+            _ = try await $0.addMCPServer(.local(name: "fetch", commandLine: "uvx mcp-server-fetch"))
+        },
+        "mcp_servers_add_remote_key": {
+            _ = try await $0.addMCPServer(
+                .remote(
+                    name: "context7",
+                    url: "https://mcp.context7.com/mcp",
+                    auth: .header,
+                    keyHeader: "CONTEXT7_API_KEY"
+                )
+            )
+        },
+        // An update sends the fields that changed and no others.
+        "mcp_servers_update": {
+            var change = ManagementMCPServerChange(name: "filesystem")
+            change.commandLine = "npx -y @modelcontextprotocol/server-filesystem /Users/owner/Documents"
+            _ = try await $0.updateMCPServer(change)
+        },
+        "mcp_servers_remove": { _ = try await $0.removeMCPServer(name: "notes") },
+        "mcp_servers_enable": { _ = try await $0.enableMCPServer(name: "notes") },
+        "mcp_servers_disable": { _ = try await $0.disableMCPServer(name: "linear") },
+        "mcp_servers_tool_set": {
+            _ = try await $0.setMCPTool(name: "linear", tool: "update_project", enabled: true)
+        },
+        "mcp_servers_check_start": { _ = try await $0.startMCPCheck(name: "linear") }
     ]
 
 }

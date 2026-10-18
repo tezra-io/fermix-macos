@@ -371,6 +371,67 @@ extension FakeDaemonGateway {
         return try answer(.mobileDevicesRevoke, "mobile_devices_revoke")
     }
 
+    // MARK: - MCP servers
+
+    /// The methods the scripted `hello` lists, as the gateway reads them.
+    func servedMethods() async throws -> Set<ManagementMethod> {
+        guard let hello else { throw Defect.notScripted("hello") }
+
+        return Set(hello.capabilities.methods.compactMap(ManagementMethod.init(rawValue:)))
+    }
+
+    func mcpServers() async throws -> ManagementMCPServerList {
+        let published: ManagementMCPServerList = try answer(.mcpServersList, "mcp_servers_list")
+
+        return mcpServersResult ?? published
+    }
+
+    func mcpServer(name: String) async throws -> ManagementMCPServerRow {
+        mcpReads.append(name)
+
+        return try answer(.mcpServersGet, "mcp_servers_get")
+    }
+
+    /// The golden add of the transport asked for: a local server that starts
+    /// a check, or a remote one waiting for its key.
+    func addMCPServer(_ spec: ManagementMCPServerSpec) async throws -> ManagementMCPServerAdded {
+        mcpSpecs.append(spec)
+        let published: ManagementMCPServerAdded = try answer(
+            .mcpServersAdd,
+            spec.transport == .http ? "mcp_servers_add_remote_key" : "mcp_servers_add"
+        )
+
+        return mcpAddedResult ?? published
+    }
+
+    func updateMCPServer(_ change: ManagementMCPServerChange) async throws -> ManagementMCPServerRow {
+        mcpChanges.append(change)
+
+        return try answer(.mcpServersUpdate, "mcp_servers_update")
+    }
+
+    func removeMCPServer(name: String) async throws -> ManagementMCPServerRemoved {
+        try answer(.mcpServersRemove, "mcp_servers_remove")
+    }
+
+    func enableMCPServer(name: String) async throws -> ManagementMCPServerRow {
+        try answer(.mcpServersEnable, "mcp_servers_enable")
+    }
+
+    func disableMCPServer(name: String) async throws -> ManagementMCPServerRow {
+        try answer(.mcpServersDisable, "mcp_servers_disable")
+    }
+
+    func setMCPTool(name: String, tool: String, enabled: Bool) async throws -> ManagementMCPServerRow {
+        mcpToolWrites.append(MCPToolWrite(server: name, tool: tool, enabled: enabled))
+
+        return try answer(.mcpServersToolSet, "mcp_servers_tool_set")
+    }
+
+    func startMCPCheck(name: String) async throws -> ManagementJob {
+        try answer(.mcpServersCheckStart, "mcp_servers_check_start")
+    }
+
     // MARK: - One answer
 
     /// Record the call, apply the version gate, then decode the named fixture.
@@ -452,6 +513,13 @@ struct PairingDecision: Equatable {
 struct SettingsWrite: Equatable {
     let section: String
     let values: [String: ManagementSettingValue]
+}
+
+/// One `mcp.servers.tool.set`, as the surface sent it.
+struct MCPToolWrite: Equatable {
+    let server: String
+    let tool: String
+    let enabled: Bool
 }
 
 /// One `secret.set` payload. Recorded so a test can prove a blank is never sent

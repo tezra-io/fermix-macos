@@ -287,7 +287,9 @@ public enum JobPhaseCopy {
         Step(.capabilityInstall, "verifying"): .jobPhaseVerifying,
         Step(.meetingsSignin, "awaiting_signin"): .jobPhaseAwaitingSignIn,
         Step(.browserInstall, "sidecar_downloading"): .jobPhaseSidecarDownloading,
-        Step(.browserInstall, "downloading"): .jobPhaseDownloading
+        Step(.browserInstall, "downloading"): .jobPhaseDownloading,
+        Step(.mcpCheck, "connecting"): .jobPhaseConnecting,
+        Step(.mcpCheck, "listing"): .jobPhaseListingTools
     ]
 
     public static func sentence(kind: ManagementJobKind, phase: String) -> String? {

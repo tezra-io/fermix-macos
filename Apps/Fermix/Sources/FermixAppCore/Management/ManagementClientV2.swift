@@ -411,6 +411,71 @@ extension ManagementClient {
         )
     }
 
+    // MARK: - MCP servers
+
+    public func mcpServers() async throws -> ManagementMCPServerList {
+        try await send(.mcpServersList, params: ManagementEmptyParams(), as: ManagementMCPServerList.self)
+    }
+
+    /// One server's row with its tools, which only this method carries.
+    public func mcpServer(name: String) async throws -> ManagementMCPServerRow {
+        try await mcpServerVerb(.mcpServersGet, name: name)
+    }
+
+    public func addMCPServer(_ spec: ManagementMCPServerSpec) async throws -> ManagementMCPServerAdded {
+        _ = try requireText(spec.name, field: "name")
+
+        return try await send(.mcpServersAdd, params: spec, as: ManagementMCPServerAdded.self)
+    }
+
+    /// Changes the fields named. A change that names none is refused here
+    /// rather than sent, because a write with nothing to write is a caller
+    /// defect.
+    public func updateMCPServer(_ change: ManagementMCPServerChange) async throws -> ManagementMCPServerRow {
+        _ = try requireText(change.name, field: "name")
+        guard !change.isEmpty else {
+            throw ManagementError.invalidParameter(.empty(field: "changes"))
+        }
+
+        return try await send(.mcpServersUpdate, params: change, as: ManagementMCPServerRow.self)
+    }
+
+    public func removeMCPServer(name: String) async throws -> ManagementMCPServerRemoved {
+        try await send(
+            .mcpServersRemove,
+            params: ManagementMCPServerNameParams(name: try requireText(name, field: "name")),
+            as: ManagementMCPServerRemoved.self
+        )
+    }
+
+    public func enableMCPServer(name: String) async throws -> ManagementMCPServerRow {
+        try await mcpServerVerb(.mcpServersEnable, name: name)
+    }
+
+    public func disableMCPServer(name: String) async throws -> ManagementMCPServerRow {
+        try await mcpServerVerb(.mcpServersDisable, name: name)
+    }
+
+    public func setMCPTool(name: String, tool: String, enabled: Bool) async throws -> ManagementMCPServerRow {
+        try await send(
+            .mcpServersToolSet,
+            params: ManagementMCPToolParams(
+                name: try requireText(name, field: "name"),
+                tool: try requireText(tool, field: "tool"),
+                enabled: enabled
+            ),
+            as: ManagementMCPServerRow.self
+        )
+    }
+
+    public func startMCPCheck(name: String) async throws -> ManagementJob {
+        try await send(
+            .mcpServersCheckStart,
+            params: ManagementMCPServerNameParams(name: try requireText(name, field: "name")),
+            as: ManagementJob.self
+        )
+    }
+
     // MARK: - The two plugin shapes
 
     private func pluginJob(
@@ -432,6 +497,17 @@ extension ManagementClient {
             method,
             params: ManagementPluginNameParams(name: try requireText(name, field: "name")),
             as: ManagementPluginRow.self
+        )
+    }
+
+    private func mcpServerVerb(
+        _ method: ManagementMethod,
+        name: String
+    ) async throws -> ManagementMCPServerRow {
+        try await send(
+            method,
+            params: ManagementMCPServerNameParams(name: try requireText(name, field: "name")),
+            as: ManagementMCPServerRow.self
         )
     }
 }

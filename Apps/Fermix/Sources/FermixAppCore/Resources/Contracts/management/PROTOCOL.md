@@ -198,8 +198,8 @@ daemon onto anything else.
 | `settings.get` | `section` | One section's rows. Exactly one section per call, which is what keeps every result inside the published depth budget. Minimum version `2`. |
 | `settings.apply` | `section`, `values` | Applies the changed keys of one section and answers with what landed, the restart state, a readiness summary, and the changes the operator did not type. Minimum version `2`. |
 | `settings.reload` | none | Re-reads the settings file, pushes it into the running configuration, and re-records the baseline. The one action behind `Reload settings from disk`. Minimum version `2`. |
-| `secret.set` | `id`, `value` | Stores one secret and answers with its presence, never its value. Minimum version `2`. |
-| `secret.clear` | `id` | Forgets one secret: the keyring item, the reference that reads it, and the value in force. Minimum version `2`. |
+| `secret.set` | `id`, `value` | Stores one secret and answers with its presence, never its value, and the environment variable that overrides it, if any. Minimum version `2`. |
+| `secret.clear` | `id` | Forgets one secret: the keyring item, the reference that reads it, and the value in force. Answers with the environment variable still in use, if any. Minimum version `2`. |
 | `setup.detect` | `targets` | One row per target asked for: whether this Mac already has it, and a short detail where there is one. The harness target also reports vendor installation, version and authentication status, with guidance. The `meetbot` target reports whether both halves of the meeting notetaker are installed, its detail carries the state of the notetaker's Google sign-in as a sentence, and `signed_in` carries the same state as a boolean, null while the notetaker is absent. Never a credential value. Minimum version `2`. |
 | `providers.set_primary` | `provider` | Makes one configured provider the primary and answers with the restart state and any change the operator did not type. Minimum version `2`. |
 | `providers.models.list` | `provider`, `live`, `query`, `cursor`, `limit` | One page of models, from the catalog this build ships or from the provider's own live listing, with the cursor for the next page. Minimum version `2`. |
@@ -235,6 +235,15 @@ daemon onto anything else.
 | `imessage.permissions.get` | none | The Fermix Messages helper's non-prompting state: whether it is installed, its version, Full Disk Access, the Messages database, Automation, whether Messages runs and is signed in, the user session, the confirmed recipient policy, whether that policy is exactly the saved settings, and when it was read. Minimum version `2`. |
 | `imessage.grant.start` | `service` (`automation` or `full_disk_access`) | Asks for one grant: `automation` raises the one system prompt, `full_disk_access` registers the helper, opens the Full Disk Access pane and reveals the helper for drag-in. A job that completes with the permissions view. Minimum version `2`. |
 | `imessage.policy.confirm` | none | Asks the helper to confirm the saved recipients; when they differ from the ones it holds, the helper shows its own dialog naming every handle. A job that completes with the permissions view plus `outcome`. Minimum version `2`. |
+| `mcp.servers.list` | none | Every MCP server the owner added, imported or wrote by hand in `config.toml`, as rows without their tools, plus `limits` (`max_servers`) and `can_add`. Minimum version `2`. |
+| `mcp.servers.get` | `name` | One server's row with its `tools`, at most 256, in the server's order. Minimum version `2`. |
+| `mcp.servers.add` | `name`, `transport`, `command_line` or `url`, `cwd`, `env_names`, `auth`, `key_header`, `header_names`, `oauth_client_id` | Writes one server and answers `{server, job_id}`: its row, and the `mcp_check` it started, or a null `job_id` where the server waits for a value and so did not start. Minimum version `2`. |
+| `mcp.servers.update` | `name` and any field `add` takes | Changes the fields given and answers `{server}`. The name and transport cannot change, and a value the server no longer declares is deleted. Minimum version `2`. |
+| `mcp.servers.remove` | `name` | Removes one server, every value it declares and its live status, and answers `{name, removed: true}`. Minimum version `2`. |
+| `mcp.servers.enable` | `name` | Turns one server on and answers `{server}`. Minimum version `2`. |
+| `mcp.servers.disable` | `name` | Turns one server off and answers `{server}`. Minimum version `2`. |
+| `mcp.servers.tool.set` | `name`, `tool`, `enabled` (boolean) | Switches one tool on or off for the agent and answers `{server}`. The server's program keeps running. Minimum version `2`. |
+| `mcp.servers.check.start` | `name` | Connects one server and lists its tools once. A job, kind `mcp_check`, whose result carries `tool_count` and `latency_ms`. Minimum version `2`. |
 
 Notes that the shapes alone do not carry:
 
@@ -251,7 +260,7 @@ Notes that the shapes alone do not carry:
   `plugin_workspaces_discover` 60000 ms, `plugin_workspace_select` 60000 ms,
   `capability_install` 900000 ms, `meetings_signin` 660000 ms,
   `computer_use_grant` 120000 ms, `browser_install` 900000 ms, `imessage_grant`
-  120000 ms, `imessage_policy_confirm` 180000 ms. At most 4 jobs run at once, at most one per
+  120000 ms, `imessage_policy_confirm` 180000 ms, `mcp_check` 75000 ms. At most 4 jobs run at once, at most one per
   kind and name (`busy` beyond either), and at most 16 finished jobs are
   retained, none older than 600000 ms. A `job_id` this daemon does not retain
   answers `unknown_job`.
@@ -263,7 +272,7 @@ Notes that the shapes alone do not carry:
   `capability_install`: `sidecar_downloading`, `downloading`,
   `verifying`; `meetings_signin`: `awaiting_signin`; `computer_use_grant`: none;
   `browser_install`: `sidecar_downloading`, `downloading`; `imessage_grant`: none;
-  `imessage_policy_confirm`: none.
+  `imessage_policy_confirm`: none; `mcp_check`: `connecting`, `listing`.
   `status` is the state a client switches on. A terminal job clears its phase
   unless it `failed` or `timed_out`, where the step it stopped in is part of the
   diagnosis. A run that reports a phase outside its vocabulary fails the job:
@@ -630,10 +639,20 @@ Notes that the shapes alone do not carry:
   sits at that key's own path, never "the keyring holds an item": a key stored
   without its reference is never read back, so calling it present would describe
   a credential the runtime cannot use.
-- **`id` names one of five families.** A bare registry key (`openai_api_key`,
+- **A stored value is not always the value in use.** For the provider API
+  keys, the WhatsApp, Discord and Slack channel secrets and the APNs key, a
+  nonblank environment variable of the key's own name (`ANTHROPIC_API_KEY`,
+  `DISCORD_BOT_TOKEN`, …) in the daemon's environment overrides the stored value
+  at every start. `secret.set` and `secret.clear` name that variable in
+  `environment_override` (null when the stored value is the one in use, and
+  null for every other family), so storing a value the daemon will not use
+  still succeeds and says so. The field is optional: an older daemon omits it,
+  which a client renders as no override reported.
+- **`id` names one of six families.** A bare registry key (`openai_api_key`,
   `telegram_bot_token`, …), `plugin:<name>` for a plugin's own token,
   `oauth_client:<provider>` for a sign-in client's secret,
-  `anthropic_setup_token`, and `env:<NAME>` for a sandbox environment variable.
+  `anthropic_setup_token`, `env:<NAME>` for a sandbox environment variable, and
+  `mcp:<name>/…` for a value an MCP server declares.
   The first three take the same keychain-first write.
   The fourth is a different mechanism and is documented as such: a
   `claude setup-token` value is a long-lived subscription credential, so it is
@@ -660,6 +679,20 @@ Notes that the shapes alone do not carry:
   started with. Neither ever asks for a restart. Where no OS secret store
   exists, `secret.set` answers `secret_store_failed` with reason `unavailable`.
   `present` is "the settings file points this name at a stored value".
+- **`mcp:<name>/env/<NAME>`, `mcp:<name>/header/<Header-Name>` and
+  `mcp:<name>/client_secret` store the values an MCP server declares**: a local
+  server's `env_names`, a remote server's headers (`header_names` and its
+  `key_header`), and the secret of its `oauth_client_id`. The family is open,
+  like `env:`: an id is accepted only when the server exists and declares that
+  name, and the server's block in `config.toml` is the reference, so storing
+  writes nothing else and `present` is "the store reads the value back". The
+  value is one line of 1 to 8,192 bytes; an `Authorization` key is sent as
+  `Bearer <value>`, so a pasted `Bearer …` is stored as what follows it.
+  Storing the last value a server was missing starts it, storing a new one
+  restarts it, and clearing one it runs with stops it. Both answer the shape
+  `env:` answers, with `environment_override` null. A server whose name was
+  written by hand outside the name rule holds no values, and the refusal says to
+  add it again under a lowercase name.
 - **A plugin row is one shape for two halves.** An installed plugin and a
   catalog entry that has never been fetched publish the same fields, so a client
   decodes one record rather than two. `installed` is what separates them.
@@ -709,6 +742,75 @@ Notes that the shapes alone do not carry:
   history and the meeting notetaker are settings sections with their own panes
   and their own switches, so they never appear as plugin rows even where the
   catalog carries an entry for their helper.
+- **An MCP server row is the daemon's, like a plugin row.** One row shape
+  serves every operator MCP server, whether the owner added it here, imported
+  it, or wrote its `[mcp.servers.<name>]` block by hand (`origin` null). Every
+  field is present on every row, null where the transport has none, except
+  `tools`, which only `mcp.servers.get` carries: 32 servers of 256 described
+  tools would pass the result bound, so the list carries `tool_count` and
+  `tools_on` alone. `consent_sentence` always says where the code runs and what
+  leaves this Mac: a local server runs on this Mac as a separate program with
+  the owner's access, a remote one on the host its URL names.
+- **The status is derived in one order, and the row switches on actions.** `off`
+  (turned off), `failed` for a server that names nothing to start (a local one
+  without its command, a remote one without its URL, which only a hand edit
+  writes; its sentence says what to add, and it offers only `disable`),
+  `needs_secret` (a declared value is not stored, so the server does not start;
+  the sentence names what it waits for), `needs_sign_in` (an `auto` server the
+  server itself asked to sign in), `starting` (connecting, or no status yet for
+  a server that runs), `connected`, `retrying` (the last connection failed and
+  the daemon is starting it again), `failed` (it stopped trying). The first that
+  holds wins. The status is published for logs and support; a client draws
+  `status_sentence` and switches on `primary_action` and `actions`, which are
+  `check`, `enable`, `disable`, `sign_in` and `sign_out`. `check` is offered
+  while a server is `connected`, `retrying` or `failed`, and a `failed` server
+  leads with it; an `off` server leads with `enable`. No row carries `sign_in`
+  or `sign_out` yet: until the sign-in for MCP servers is published, an `auto`
+  server's `auth.state` is `signed_out` only where the server asked to sign in,
+  which stays `needs_sign_in`, and `not_needed` otherwise. `last_error` is the
+  daemon's sentence for the failure while a server is `retrying` or `failed`,
+  and null otherwise.
+- **`server_info` and the tools are what the server last said.** Both come from
+  the server's last connection, so a server that is off or starting again still
+  shows them; `server_info` is null before a server first connects. A tool's
+  `read_only` and `destructive` are the server's own `readOnlyHint` and
+  `destructiveHint` as it declared them, an absent hint being false; they inform
+  the owner and decide nothing. This is not the MCP specification's default,
+  which takes a tool that declares nothing as destructive, and a tool declared
+  read-only is never destructive. `enabled` is false for a tool the owner hid
+  from the agent, and `tools_on` counts the rest. Only a tool whose name is at
+  most 128 bytes is described, so a tool with a longer name is counted in
+  `tool_count`, not listed in `tools`, and counted as on in `tools_on`.
+- **A form writes a server as fields, and a refusal names the field.**
+  `command_line` is one line, split as a shell splits one simple command: blanks
+  separate words, quotes and `\` keep what they cover, and a line that needs a
+  shell (a pipe, a redirection, a list, `$`, a leading `NAME=value`) is refused
+  rather than run as something else. The one expansion is a shell's `~`: an
+  unquoted `~` that starts a word, alone or before a `/`, is the home folder, in
+  `command_line` and in `cwd`, and the server is written with the absolute path
+  that runs, which the row's `location` shows; a quoted `~` stays as it is, and
+  `~name` is refused. A local server takes `command_line`, `cwd` and
+  `env_names`; a remote one `url`, `auth` (`auto`, the default, `header` or
+  `none`), `key_header`, `header_names` and `oauth_client_id`; the other
+  transport's fields are refused. `header_names` are the headers besides the
+  key's own, which `key_header` names and the row reports as `auth.key_header`.
+  A URL is `https`, or `http` only to this Mac. On an update a null clears a
+  nullable field (`cwd`, `key_header`, `oauth_client_id`) and a list replaces
+  the one it names. Every refusal is `invalid_params` with the daemon's
+  `sentence` and the `field` a form marks, named as the form names it. Values
+  never ride these methods: they follow through `secret.set mcp:<name>/…`, and
+  the server starts once the last one is stored. Every write applies to the one
+  server it names, with no restart, and refuses with `external_change` while the
+  settings file was changed outside Fermix.
+- **A check connects, then lists once.** `mcp.servers.check.start` waits for a
+  server that is starting, starts again one that is not running or has failed,
+  then asks it for its tools; `tool_count` is what it listed and `latency_ms`
+  how long that took. Its wait for a connection outlasts a first start's own
+  60 s, so a server that downloads its package on first run ends the job with
+  how that start ended. A server the daemon does not run (off, naming nothing to
+  start, or waiting for a value) is refused with its own row's sentence, and a
+  connection that fails ends the job with that sentence. After an add or an
+  update, `mcp.servers.get` reads the row as it connects.
 - **A sign-in client appears only where a plugin needs one.** `oauth_clients` is
   derived from the providers the published rows name, so a client row for a
   family this Mac has no plugin for is never drawn. `client_id` is the public

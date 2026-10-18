@@ -164,6 +164,15 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var pairingDecisions: [PairingDecision] = []
     var cancelledPairings: [String] = []
     var revokedDevices: [String] = []
+    /// The MCP list, where a case needs one the golden cannot express.
+    var mcpServersResult: ManagementMCPServerList?
+    /// The add's answer, where a case needs one the goldens do not publish.
+    var mcpAddedResult: ManagementMCPServerAdded?
+    /// What the surfaces asked of the MCP servers, in order.
+    var mcpSpecs: [ManagementMCPServerSpec] = []
+    var mcpChanges: [ManagementMCPServerChange] = []
+    var mcpReads: [String] = []
+    var mcpToolWrites: [MCPToolWrite] = []
 
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take
