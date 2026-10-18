@@ -122,6 +122,35 @@ extension SettingsModel {
         }
     }
 
+    /// Whether a row on the list is still moving by itself: starting, or
+    /// retrying after it failed. Nothing the owner does is needed for it to
+    /// settle, so nothing they do will read it again either.
+    public var mcpServersMoving: Bool {
+        mcpServers.value?.servers.contains { $0.status.movesByItself } ?? false
+    }
+
+    /// Reads the list again while a row on it is still moving by itself, at
+    /// `MCPServersFollow`'s cadence, until no row is or the caller's task
+    /// ends, which is the list leaving the screen. An import starts no check
+    /// job, and neither does a daemon that restarted or a value just stored,
+    /// so without this a row read as starting kept saying so after it had
+    /// connected.
+    public func followMovingMCPServers() async {
+        var follow = MCPServersFollow()
+
+        while mcpServersMoving {
+            do {
+                try await sleeper.sleep(seconds: follow.wait)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+
+            follow.slept()
+            await rereadMovingMCPServers()
+        }
+    }
+
     /// One server, by name, as the daemon last published it.
     public func mcpServer(named name: String) -> ManagementMCPServer? {
         precondition(!name.isEmpty, "an MCP server is looked up by name")
@@ -318,6 +347,26 @@ extension SettingsModel {
         }
     }
 
+    /// One read of a follow. The tools of a row whose count it moved are
+    /// read again where they were read, which is what an open tools page
+    /// draws; an open detail draws the row itself. A read the follow loses
+    /// keeps the list as it stood, and the next one reads again.
+    private func rereadMovingMCPServers() async {
+        let before = mcpServers.value?.servers ?? []
+
+        do {
+            let list = try await gateway.mcpServers()
+            publish(.loaded(list), to: \.mcpServers)
+            for server in list.servers where mcpTools[server.name]?.value != nil {
+                guard before.first(where: { $0.name == server.name })?.toolCount != server.toolCount else { continue }
+
+                await readMCPServer(server.name)
+            }
+        } catch {
+            noteRead(error, "mcp.servers.list")
+        }
+    }
+
     // MARK: - One write
 
     /// Stores each value, one `secret.set` per value, in the form's order,
@@ -369,5 +418,24 @@ extension SettingsModel {
         var servers = list.servers
         servers[index] = server
         publish(.loaded(ManagementMCPServerList(servers: servers, limits: list.limits, canAdd: list.canAdd)), to: \.mcpServers)
+    }
+}
+
+/// One follow of the MCP servers list while a row on it moves by itself
+/// (`SettingsModel.followMovingMCPServers`): a read every 2 s for the first
+/// minute, so a server that connects is drawn as it does, then one every
+/// 10 s for as long as one is still trying.
+struct MCPServersFollow: Equatable {
+    static let quickSeconds: TimeInterval = 2
+    static let quickWindow: TimeInterval = 60
+    static let slowSeconds: TimeInterval = 10
+
+    /// The time this follow has spent waiting so far.
+    private(set) var waited: TimeInterval = 0
+
+    var wait: TimeInterval { waited < Self.quickWindow ? Self.quickSeconds : Self.slowSeconds }
+
+    mutating func slept() {
+        waited += wait
     }
 }

@@ -390,6 +390,7 @@ extension FakeDaemonGateway {
 
     func mcpServers() async throws -> ManagementMCPServerList {
         let published: ManagementMCPServerList = try answer(.mcpServersList, "mcp_servers_list")
+        guard mcpServersScript.isEmpty else { return mcpServersScript.removeFirst() }
 
         return mcpServersResult ?? published
     }

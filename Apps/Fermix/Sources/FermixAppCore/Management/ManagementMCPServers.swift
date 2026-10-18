@@ -25,7 +25,9 @@ public enum ManagementMCPTransport: ManagementVocabulary, Hashable {
 
 /// Where a server stands (`x-mcp-server-vocabulary.statuses`). Published for
 /// logs and support: the app draws `status_sentence` and switches on the
-/// action ids, never on this.
+/// action ids. The one thing it reads this for is its own bookkeeping, whether
+/// a row is still moving by itself and the list is worth reading again
+/// (`movesByItself`), and it never draws anything from it.
 public enum ManagementMCPStatus: ManagementVocabulary, Hashable {
     case off
     case needsSecret
@@ -49,6 +51,19 @@ public enum ManagementMCPStatus: ManagementVocabulary, Hashable {
     public var unrecognizedValue: String? {
         if case .unrecognized(let value) = self { return value }
         return nil
+    }
+}
+
+extension ManagementMCPStatus {
+    /// Whether a server in this status moves on without anybody asking: one
+    /// starting, and one the daemon retries after a failure. Every other
+    /// status waits for the owner, a write or a restart, each of which reads
+    /// the list itself. A status this build does not know is not followed.
+    public var movesByItself: Bool {
+        switch self {
+        case .starting, .retrying: return true
+        case .off, .needsSecret, .needsSignIn, .connected, .failed, .unrecognized: return false
+        }
     }
 }
 

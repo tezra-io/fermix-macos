@@ -409,6 +409,14 @@ struct IntegrationsPane: View {
             await model.refreshPlugins()
             await model.refreshMCPServers()
         }
+        // One follower for the list and the server sheet over it: a row that
+        // is starting or retrying moves with nothing pressed, so the list is
+        // read again until it settles or leaves the screen.
+        .task(id: followsMCPServers) {
+            guard followsMCPServers else { return }
+
+            await model.followMovingMCPServers()
+        }
         // Here rather than on the server sheet, so a check the sheet started
         // reads the list back when it ends after the sheet has closed, as the
         // checks of servers added from one paste do.
@@ -437,6 +445,12 @@ struct IntegrationsPane: View {
 
     private var counts: [IntegrationFilter: Int] {
         IntegrationRowProjection.counts(rows: rows, features: features.count, servers: servers.count)
+    }
+
+    /// Whether the MCP servers list is on screen, on its pill or under the
+    /// server sheet this pane presents, with a row on it still moving.
+    private var followsMCPServers: Bool {
+        (filter == .mcps || serverSheet != nil) && model.mcpServersMoving
     }
 
     /// The servers the owner added, as the daemon last published them, in

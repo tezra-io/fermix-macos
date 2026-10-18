@@ -74,12 +74,13 @@ enum SettingsFixture {
         opener: RecordingExternalOpener = RecordingExternalOpener(),
         settingsOpener: RecordingSystemSettingsOpener = RecordingSystemSettingsOpener(),
         microphone: StubMicrophoneAuthorization = StubMicrophoneAuthorization(),
-        loginItems: FakeLoginItemService = FakeLoginItemService()
+        loginItems: FakeLoginItemService = FakeLoginItemService(),
+        sleeper: any Sleeping = NoWaitSleeper()
     ) -> SettingsModel {
         SettingsModel(
             gateway: gateway,
             store: store ?? FakeSettingsPaneStore(),
-            sleeper: NoWaitSleeper(),
+            sleeper: sleeper,
             opener: opener,
             permissions: PermissionLedger(
                 gateway: gateway,

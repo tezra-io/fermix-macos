@@ -1183,6 +1183,143 @@ struct MCPServersTests {
         #expect(list.servers.first?.env == [ManagementMCPSecretName(name: "TOKEN", present: true)])
     }
 
+    // MARK: - Following a row that moves by itself
+
+    @Test("a status moves by itself while it is starting or retrying, and no other")
+    func statusesThatMove() {
+        let moving: [ManagementMCPStatus] = [.starting, .retrying]
+        let settled: [ManagementMCPStatus] = [.off, .needsSecret, .needsSignIn, .connected, .failed, .unrecognized("paused")]
+
+        #expect(moving.allSatisfy { $0.movesByItself })
+        #expect(settled.allSatisfy { !$0.movesByItself })
+    }
+
+    /// The defect: an import starts no check job, so nothing read the list
+    /// again and the row said Starting. after the daemon had connected it.
+    @Test("an imported server that starts and then connects is drawn connected with nothing pressed")
+    func importedRowIsFollowed() async throws {
+        let sleeper = LimitedSleeper(allowing: 10)
+        let (model, gateway) = try Self.following(sleeper)
+        let starting = try Self.importedRowJSON("fetch")
+        var connected = starting
+        connected["status"] = "connected"
+        connected["status_sentence"] = "Connected. 5 tools."
+        connected["tool_count"] = 5
+        connected["tools_on"] = 5
+        gateway.mcpServersScript = [
+            try Self.listing([]),
+            try Self.listing([starting]),
+            try Self.listing([starting]),
+            try Self.listing([connected])
+        ]
+
+        await model.refreshMCPServers()
+        _ = await model.importMCPServers([ManagementMCPImportPick(source: .claudeCode, name: "fetch")])
+        #expect(model.mcpServer(named: "fetch")?.statusSentence == "Starting.")
+        #expect(model.mcpServersMoving)
+
+        await model.followMovingMCPServers()
+
+        #expect(model.mcpServer(named: "fetch")?.statusSentence == "Connected. 5 tools.")
+        #expect(!model.mcpServersMoving)
+        #expect(sleeper.slept == [2, 2], "read 2 s apart, and not again once it settled")
+        #expect(Self.listReads(gateway) == 4)
+    }
+
+    @Test("a row still moving is read 2 s apart for a minute, then 10 s apart")
+    func followCadence() async throws {
+        let sleeper = LimitedSleeper(allowing: 33)
+        let (model, gateway) = try Self.following(sleeper)
+        gateway.mcpServersResult = try Self.listing([try Self.importedRowJSON("fetch")])
+        await model.refreshMCPServers()
+
+        await model.followMovingMCPServers()
+
+        #expect(sleeper.slept == Array(repeating: 2, count: 30) + Array(repeating: 10, count: 3))
+        #expect(Self.listReads(gateway) == 1 + 33)
+    }
+
+    /// The pane runs the follow as a task, so the list leaving the screen is
+    /// the task being cancelled: the sleep it is in ends, or the next one is
+    /// never taken.
+    @Test("the follow ends when the list leaves the screen")
+    func followEndsWithTheView() async throws {
+        let (model, gateway) = try Self.following(RecordingSleeper())
+        gateway.mcpServersResult = try Self.listing([try Self.importedRowJSON("fetch")])
+        await model.refreshMCPServers()
+
+        let follow = Task { await model.followMovingMCPServers() }
+        let deadline = ContinuousClock.now + .seconds(30)
+        while Self.listReads(gateway) < 4, ContinuousClock.now < deadline { await Task.yield() }
+        follow.cancel()
+        await follow.value
+        let reads = Self.listReads(gateway)
+
+        #expect(reads >= 4, "the moving row was read again while the list was up")
+        #expect(model.mcpServersMoving, "it left while the row was still starting")
+        await Task.yield()
+        #expect(Self.listReads(gateway) == reads, "a read after the list left the screen")
+    }
+
+    @Test("a list with every row settled is not read again")
+    func settledListIsNotFollowed() async throws {
+        let sleeper = LimitedSleeper(allowing: 10)
+        let (model, gateway) = try Self.following(sleeper)
+        await model.refreshMCPServers()
+        #expect(!model.mcpServersMoving, "the golden list is settled")
+
+        await model.followMovingMCPServers()
+
+        #expect(sleeper.slept.isEmpty)
+        #expect(Self.listReads(gateway) == 1)
+    }
+
+    /// An open detail draws the row from the list, so it follows the read by
+    /// itself; an open tools page holds the tools `mcp.servers.get` read, and
+    /// those are read again only when the row's tool count moved.
+    @Test("tools already read are read again only when a follow moves their count")
+    func followRereadsMovedTools() async throws {
+        let sleeper = LimitedSleeper(allowing: 10)
+        let (model, gateway) = try Self.following(sleeper)
+        var retrying = try Self.rowJSON("linear")
+        retrying["status"] = "retrying"
+        retrying["status_sentence"] = "Trying again."
+        var reconnected = try Self.rowJSON("linear")
+        reconnected["tool_count"] = 24
+        var restarting = try Self.rowJSON("filesystem")
+        restarting["status"] = "starting"
+        restarting["tool_count"] = 0
+        gateway.mcpServersScript = [
+            try Self.listing([retrying, restarting]),
+            try Self.listing([retrying, restarting]),
+            try Self.listing([reconnected, try Self.rowJSON("filesystem")])
+        ]
+        await model.refreshMCPServers()
+        await model.readMCPServer("linear")
+        #expect(gateway.mcpReads == ["linear"])
+
+        await model.followMovingMCPServers()
+
+        #expect(gateway.mcpReads == ["linear", "linear"], "one read for the count that moved, none for an unread page")
+        #expect(sleeper.slept == [2, 2])
+    }
+
+    /// One owner: the Integrations pane runs the follow, on the MCP servers
+    /// pill or under the server sheet it presents, for as long as a row moves.
+    @Test("the pane follows the list while it or the server sheet is up and a row moves")
+    func paneOwnsTheFollow() throws {
+        let callers = try SourceTree.swiftFiles(under: "", excluding: false)
+            .filter { $0.text.contains("followMovingMCPServers()") }
+            .map { String($0.path.dropFirst(SourceTree.root.path.count + 1)) }
+            .sorted()
+        #expect(callers == ["Settings/Panes/IntegrationsPane.swift", "Settings/SettingsMCPServers.swift"])
+
+        let pane = try #require(try SourceTree.swiftFiles(matching: "Settings/Panes/IntegrationsPane.swift").first?.text)
+        #expect(pane.contains(".task(id: followsMCPServers) {"))
+        #expect(pane.contains("await model.followMovingMCPServers()"))
+        #expect(pane.contains("(filter == .mcps || serverSheet != nil) && model.mcpServersMoving"))
+    }
+
     // MARK: - Fixtures
 
     private static func harness() throws -> SettingsHarness {
@@ -1248,6 +1385,37 @@ struct MCPServersTests {
     }
 
     /// One golden row as JSON, to change a field a case is about.
+    /// A settings model whose follow waits on this sleeper, over the fixture
+    /// daemon.
+    private static func following(_ sleeper: any Sleeping) throws -> (SettingsModel, FakeDaemonGateway) {
+        let gateway = try SettingsFixture.gateway()
+        gateway.hello = try FakeDaemonGateway.fixtureResult(named: "hello", as: ManagementHello.self)
+
+        return (SettingsFixture.model(gateway: gateway, sleeper: sleeper), gateway)
+    }
+
+    /// The golden list's limits over these rows.
+    private static func listing(_ rows: [[String: Any]]) throws -> ManagementMCPServerList {
+        let golden = try list()
+
+        return ManagementMCPServerList(servers: try rows.map(decode), limits: golden.limits, canAdd: golden.canAdd)
+    }
+
+    private static func listReads(_ gateway: FakeDaemonGateway) -> Int {
+        gateway.calls.filter { $0 == .v2(.mcpServersList) }.count
+    }
+
+    /// One row the golden import answers with, as published.
+    private static func importedRowJSON(_ name: String) throws -> [String: Any] {
+        let fixture = try #require(
+            try ManagementFixtures.load(.success, from: .management).first { $0.name == "mcp_servers_import" }
+        )
+        let result = try #require(try fixture.object("response")["result"] as? [String: Any])
+        let servers = try #require(result["servers"] as? [[String: Any]])
+
+        return try #require(servers.first { $0["name"] as? String == name })
+    }
+
     private static func rowJSON(_ name: String) throws -> [String: Any] {
         let fixture = try #require(
             try ManagementFixtures.load(.success, from: .management).first { $0.name == "mcp_servers_list" }

@@ -166,6 +166,9 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var revokedDevices: [String] = []
     /// The MCP list, where a case needs one the golden cannot express.
     var mcpServersResult: ManagementMCPServerList?
+    /// The MCP lists the next reads answer, one each in order, ahead of
+    /// `mcpServersResult`: a daemon whose rows move between reads.
+    var mcpServersScript: [ManagementMCPServerList] = []
     /// The add's answer, where a case needs one the goldens do not publish.
     var mcpAddedResult: ManagementMCPServerAdded?
     /// What the surfaces asked of the MCP servers, in order.
