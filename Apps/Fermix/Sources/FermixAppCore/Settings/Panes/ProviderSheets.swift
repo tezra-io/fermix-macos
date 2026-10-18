@@ -226,30 +226,33 @@ struct SignInSheet: View {
         .disabled(starting)
     }
 
-    @ViewBuilder
+    /// The pair every browser sign-in waits with. A cancel on its way holds
+    /// both, as the plugin's wait does: the run is ending, so its page is not
+    /// worth opening again.
     private var runningActions: some View {
-        Button(ProductStrings[.settingsSheetCancel], action: cancel)
-            .keyboardShortcut(.cancelAction)
-            .disabled(cancelling)
-
-        if !importing {
-            Button(ProductStrings[.providerSignInReopen], action: reopen)
-                .keyboardShortcut(.defaultAction)
-                .disabled(runner.authorizationURL == nil)
-                .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.providerSignInReopen], label))
-        }
+        SignInWaitActions(
+            label: label,
+            cancelTakesEscape: true,
+            canReopen: runner.authorizationURL != nil,
+            cancel: cancel,
+            reopen: importing ? nil : reopen
+        )
+        .disabled(cancelling)
     }
 
     @ViewBuilder
     private var terminalActions: some View {
-        Button(ProductStrings[.providerSignInRetry], action: retry)
+        SignInRetryAction(label: label, retry: retry)
         Button(ProductStrings[.settingsSheetDone], action: dismiss)
+            .buttonStyle(SecondaryButtonStyle(.row))
             .keyboardShortcut(.cancelAction)
     }
 
     /// OpenAI's notice, in OpenAI's words: the plan is in use, and where to
     /// manage it. Its title is the first thing VoiceOver reads and `Got it` is
-    /// the default action. Manage usage leaves the sheet where it is.
+    /// the default action. Manage usage leaves the sheet where it is. The same
+    /// monochrome capsules as the wait it follows, so the sheet does not turn
+    /// blue at its last step.
     @ViewBuilder
     private var planNotice: some View {
         Text(ProductStrings[.providerChatGPTNoticeTitle])
@@ -274,10 +277,10 @@ struct SignInSheet: View {
             Spacer(minLength: 0)
 
             Button(ProductStrings[.providerChatGPTManageUsage]) { usageRefusal = manageUsage?() }
+                .buttonStyle(SecondaryButtonStyle(.row))
                 .accessibilityHint(ProductStrings[.providerChatGPTManageUsageHint])
 
-            Button(ProductStrings[.providerChatGPTNoticeDone], action: dismiss)
-                .keyboardShortcut(.defaultAction)
+            PrimaryAction(ProductStrings[.providerChatGPTNoticeDone], size: .row, action: dismiss)
         }
     }
 

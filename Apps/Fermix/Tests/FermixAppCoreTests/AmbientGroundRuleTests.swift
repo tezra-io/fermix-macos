@@ -176,6 +176,66 @@ struct AmbientGroundRuleTests {
         #expect(!text.contains("RoundedRectangle("), "a drawn button has a shape of its own again")
     }
 
+    /// Every browser sign-in waits in the app's monochrome capsules. A system
+    /// button there is the accent: the default one filled with it, and the
+    /// others take the root tint as their label colour. Both waits draw their
+    /// pair from one view, so a third wait takes the capsules by using it.
+    ///
+    /// Each region is a wait's own actions: every system button in it states
+    /// the secondary capsule, and none is the default action, which is
+    /// `PrimaryAction`'s alone.
+    @Test("no sign-in wait draws the accent-blue system buttons")
+    func signInWaitsAreMonochrome() throws {
+        let regions = [
+            (file: "Settings/Panes/SignInWaitActions.swift", member: "struct SignInWaitActions: View"),
+            (file: "Settings/Panes/SignInWaitActions.swift", member: "struct SignInRetryAction: View"),
+            (file: "Settings/Panes/IntegrationSheets.swift", member: "struct IntegrationSignInWait: View"),
+            (file: "Settings/Panes/ProviderSheets.swift", member: "private var runningActions: some View"),
+            (file: "Settings/Panes/ProviderSheets.swift", member: "private var terminalActions: some View")
+        ]
+
+        for region in regions {
+            let text = try #require(try SourceTree.swiftFiles(matching: region.file).first?.text, "\(region.file)")
+            let body = try #require(Self.body(of: region.member, in: text), "\(region.member) is not in \(region.file)")
+            let place = "\(region.file), \(region.member)"
+
+            #expect(
+                occurrences(of: "Button(", in: body) == occurrences(of: ".buttonStyle(SecondaryButtonStyle(.row))", in: body),
+                "\(place) draws a system button in the accent"
+            )
+            #expect(!body.contains(".keyboardShortcut(.defaultAction)"), "\(place) draws the accent-filled default button")
+            #expect(!body.contains("borderedProminent"), "\(place) draws the accent-filled prominent button")
+        }
+
+        for wait in ["Settings/Panes/IntegrationSheets.swift", "Settings/Panes/ProviderSheets.swift"] {
+            let text = try #require(try SourceTree.swiftFiles(matching: wait).first?.text)
+
+            #expect(occurrences(of: "SignInWaitActions(", in: text) == 1, "\(wait) draws its own wait buttons")
+            #expect(occurrences(of: "SignInRetryAction(", in: text) == 1, "\(wait) draws its own retry button")
+        }
+    }
+
+    /// The braced body that follows a declaration, or nil where the file has
+    /// none.
+    private static func body(of declaration: String, in text: String) -> String? {
+        guard let start = text.range(of: declaration),
+            let open = text[start.upperBound...].firstIndex(of: "{")
+        else { return nil }
+
+        var depth = 0
+        var index = open
+        while index < text.endIndex {
+            if text[index] == "{" { depth += 1 }
+            if text[index] == "}" {
+                depth -= 1
+                if depth == 0 { return String(text[open...index]) }
+            }
+            index = text.index(after: index)
+        }
+
+        return nil
+    }
+
     private func occurrences(of needle: String, in text: String) -> Int {
         text.components(separatedBy: needle).count - 1
     }
