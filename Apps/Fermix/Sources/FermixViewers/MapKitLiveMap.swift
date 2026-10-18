@@ -25,8 +25,16 @@ import MapKit
 /// smoothly, from exactly the picture's framing, as MapKit fits it; putting
 /// the place away moves the map back to exactly its area, smoothly, before
 /// the picture of it takes its place.
+///
+/// The map stands in a plain view of its own, and that view is what the
+/// chat lays out. Apple's callout asks for layout about twice a second, and
+/// in the transcript's scroll view each ask lays the hosted view out again,
+/// unchanged; MapKit answers that by drawing its pins and the callout a pixel
+/// off for a frame, every frame while it slides the map to fit a callout,
+/// so they shake. The view between them keeps the chat's layout off the map.
 @MainActor
 final class LivePlaceMap: NSObject, PlaceLiveMap, MKMapViewDelegate {
+    private let stand: NSView
     private let map: PlaceMapView
     private let area: MKMapRect
     private let faces: [Int: NSView]
@@ -45,7 +53,7 @@ final class LivePlaceMap: NSObject, PlaceLiveMap, MKMapViewDelegate {
     /// and says nothing to the core.
     private var puttingAway = false
 
-    var view: NSView { map }
+    var view: NSView { stand }
 
     init(
         area: MKMapRect,
@@ -54,7 +62,10 @@ final class LivePlaceMap: NSObject, PlaceLiveMap, MKMapViewDelegate {
         pins: [PlaceMapPin],
         clicked: @escaping @MainActor (Int?) -> Void
     ) {
-        map = PlaceMapView(frame: NSRect(origin: .zero, size: size))
+        stand = NSView(frame: NSRect(origin: .zero, size: size))
+        map = PlaceMapView(frame: stand.bounds)
+        map.autoresizingMask = [.width, .height]
+        stand.addSubview(map)
         self.area = area
         faces = Dictionary(uniqueKeysWithValues: pins.map { ($0.number, $0.face) })
         self.clicked = clicked
