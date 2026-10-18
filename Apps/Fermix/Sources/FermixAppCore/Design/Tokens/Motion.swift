@@ -7,6 +7,9 @@ public enum MotionRole: String, CaseIterable, Sendable {
     case stepCrossfade
     case mascotEntrance
     case riseIn
+    /// The chat's thinking orb (`ThinkingOrb`): one breath out and in, while
+    /// its light turns once every two breaths.
+    case thinkingOrb
 
     /// Whether SwiftUI drives this role.
     ///
@@ -158,12 +161,14 @@ public enum MotionTable {
             return MotionSpec(curve: .timingCurve(0.34, 1.4, 0.64, 1), duration: 0.7, redlineMilliseconds: 700)
         case .riseIn:
             return MotionSpec(curve: .timingCurve(0.32, 0.72, 0, 1), duration: 0.48, redlineMilliseconds: 480)
+        case .thinkingOrb:
+            return MotionSpec(curve: .easeInOut, duration: 1.2, repeatsForever: true, autoreverses: true, redlineMilliseconds: 2400)
         }
     }
 
     public static func kind(_ role: MotionRole) -> MotionKind {
         switch role {
-        case .glyphPulse:
+        case .glyphPulse, .thinkingOrb:
             return .loop
         case .windowEnter, .mascotEntrance, .riseIn:
             return .entrance

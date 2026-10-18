@@ -241,41 +241,39 @@ struct ChatSurfaceTests {
         #expect(!ChatSpeaker.isUser(nil))
     }
 
-    @Test("the tool line says what is running, what ran, and a phase it has no word for as the tool alone")
-    func toolLine() {
+    /// A turn is thinking until text starts arriving and again while a tool
+    /// it called runs, and quiet while it writes; no tool is ever named.
+    @Test("a turn is thinking until it writes and while a tool runs, read off its own fields alone")
+    func turnStatus() {
         let tool = { (phase: CompanionToolPhase) in
             CompanionToolEvent(turnId: "turn-1", tool: "web_search", phase: phase, detail: nil)
         }
+        let turn = { (text: String, tool: CompanionToolEvent?) in
+            ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: text, tool: tool))
+        }
 
-        #expect(ChatToolLine.sentence(tool(.start)) == "Using web_search")
-        #expect(ChatToolLine.sentence(tool(.stop)) == "Used web_search")
-        #expect(ChatToolLine.sentence(tool(.unrecognized("paused"))) == "web_search")
-    }
-
-    /// A turn is thinking until either a tool is named or text starts
-    /// arriving; a named tool stays shown even once text follows it; and a
-    /// turn with text and no tool is quiet, drawing nothing beneath it.
-    @Test("a turn is thinking, then a named tool, then quiet, read off its own fields alone")
-    func turnStatus() {
-        let tool = CompanionToolEvent(turnId: "turn-1", tool: "web_search", phase: .start, detail: nil)
-
-        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "", tool: nil)) == .thinking)
-        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "", tool: tool)) == .tool(tool))
-        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "So far", tool: nil)) == .quiet)
-        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "So far", tool: tool)) == .tool(tool))
+        #expect(turn("", nil) == .thinking)
+        #expect(turn("", tool(.start)) == .thinking)
+        #expect(turn("", tool(.stop)) == .thinking)
+        #expect(turn("So far", nil) == .quiet)
+        #expect(turn("So far", tool(.start)) == .thinking)
+        #expect(turn("So far", tool(.stop)) == .quiet)
+        #expect(turn("So far", tool(.unrecognized("paused"))) == .quiet)
     }
 
     /// The engine's provider-lifecycle `tool_event` (carried today as a tool
-    /// named "unknown") is never matched by name: it reads as any other named
-    /// tool, because the thinking state is read off the turn having no tool at
-    /// all rather than off what a tool happens to be called.
-    @Test("a tool named unknown is drawn as any other named tool, never as thinking")
-    func noSpecialCaseForUnknown() {
-        let tool = CompanionToolEvent(turnId: "turn-1", tool: "unknown", phase: .start, detail: nil)
-        let turn = CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "", tool: tool)
+    /// named "unknown") is never matched by name: it reads as any other tool,
+    /// and nothing the chat draws names a tool.
+    @Test("a tool named unknown reads as any other tool, and no copy names a tool")
+    func noToolNamed() throws {
+        let unknown = CompanionToolEvent(turnId: "turn-1", tool: "unknown", phase: .start, detail: nil)
+        let search = CompanionToolEvent(turnId: "turn-1", tool: "web_search", phase: .start, detail: nil)
 
-        #expect(ChatTurnStatus(turn) == .tool(tool))
-        #expect(ChatTurnStatus(turn) != .thinking)
+        #expect(
+            ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "So far", tool: unknown))
+                == ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "So far", tool: search))
+        )
+        #expect(!ProductStringKey.allCases.map(\.rawValue).contains { $0.hasPrefix("chat.tool.") })
     }
 
     /// The links are live: the surface hands them to the content link opener,

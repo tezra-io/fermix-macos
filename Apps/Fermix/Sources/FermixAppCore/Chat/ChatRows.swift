@@ -237,10 +237,9 @@ struct ChatReplyPartView: View, Equatable {
     }
 }
 
-/// The turn answering now: its text so far, and under it one quiet line for
-/// whichever of thinking or the latest tool call applies (`ChatTurnStatus`).
-/// Its text is read as it arrives (`ReplyDraft`), so each piece reads only
-/// the block still being written.
+/// The turn answering now: its text so far, and under it the thinking line
+/// while it thinks (`ChatTurnStatus`). Its text is read as it arrives
+/// (`ReplyDraft`), so each piece reads only the block still being written.
 private struct ChatTurnRow: View {
     let turn: CompanionTurn
 
@@ -257,32 +256,21 @@ private struct ChatTurnRow: View {
                 )
             }
 
-            switch ChatTurnStatus(turn) {
-            case .thinking:
-                ChatQuietLine(text: ProductStrings[.chatThinking], showsMark: true)
-            case .tool(let tool):
-                ChatQuietLine(text: ChatToolLine.sentence(tool), showsMark: tool.phase == .start)
-            case .quiet:
-                EmptyView()
+            if ChatTurnStatus(turn) == .thinking {
+                ChatThinkingLine()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// One quiet line under a turn's draft: the activity mark while it is
-/// running, beside the sentence that says what.
-private struct ChatQuietLine: View {
-    let text: String
-    let showsMark: Bool
-
+/// One quiet line under a turn's draft: the thinking orb beside the word.
+private struct ChatThinkingLine: View {
     var body: some View {
         HStack(spacing: Spacing.xs) {
-            if showsMark {
-                ActivityMark().accessibilityHidden(true)
-            }
+            ThinkingOrb().accessibilityHidden(true)
 
-            Text(text)
+            Text(ProductStrings[.chatThinking])
                 .fermixType(Typography.style(.calloutSmall))
                 .foregroundStyle(Palette.faint.color)
         }

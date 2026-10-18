@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import FermixAppCore
@@ -26,6 +27,29 @@ struct DesignMotionTests {
         #expect(MotionTable.spec(.mascotEntrance).curve == .timingCurve(0.34, 1.4, 0.64, 1))
         #expect(MotionTable.spec(.riseIn).redlineMilliseconds == 480)
         #expect(MotionTable.spec(.riseIn).curve == .timingCurve(0.32, 0.72, 0, 1))
+    }
+
+    /// One breath out and in is the spec's two half-cycles; Reduce Motion
+    /// stops it at a full breath with its light where it starts, never at the
+    /// faint end, so the orb is still plainly there.
+    @Test("the thinking orb breathes over 2400ms and rests at a full breath")
+    func thinkingOrb() {
+        let spec = MotionTable.spec(.thinkingOrb)
+        let breath = { (seconds: Double) in
+            ThinkingOrb.Pose(at: Date(timeIntervalSinceReferenceDate: seconds), motion: Motion(reduceMotion: false)).breath
+        }
+
+        #expect(spec.redlineMilliseconds == 2400)
+        #expect(spec.repeatsForever && spec.autoreverses)
+        #expect(MotionTable.kind(.thinkingOrb) == .loop)
+        #expect(abs(breath(0)) < 1e-9)
+        #expect(abs(breath(1.2) - 1) < 1e-9)
+        #expect(abs(breath(2.4)) < 1e-9)
+
+        let resting = ThinkingOrb.Pose(at: Date(timeIntervalSinceReferenceDate: 1.7), motion: Motion(reduceMotion: true))
+        #expect(resting == ThinkingOrb.Pose(at: .distantFuture, motion: Motion(reduceMotion: true)))
+        #expect(resting.breath == 1)
+        #expect(resting.turn == .zero)
     }
 
     /// The success bloom died with the Ready mascot, so its binding is gone

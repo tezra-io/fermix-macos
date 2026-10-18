@@ -392,8 +392,6 @@
 "chat.approve" = "Approve";
 "chat.deny" = "Deny";
 "chat.thinking" = "Thinking";
-"chat.tool.runningFormat" = "Using %@";
-"chat.tool.finishedFormat" = "Used %@";
 "chat.search.prompt" = "Search the conversation";
 "chat.search.searching" = "Searching";
 "chat.search.noMatches" = "No messages match";
