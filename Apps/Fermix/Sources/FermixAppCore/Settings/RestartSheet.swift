@@ -57,18 +57,19 @@ struct RestartSheet: View {
                 Button(ProductStrings[.settingsRestartWhenIdle]) {
                     Task { await take(.whenIdle) }
                 }
+                .buttonStyle(SecondaryButtonStyle(.row))
                 .disabled(model.restartProgress == .waitingForIdle)
 
                 Button(ProductStrings[.settingsRestartCancel]) {
                     model.cancelRestartWait()
                     dismiss()
                 }
+                .buttonStyle(SecondaryButtonStyle(.row))
                 .keyboardShortcut(.cancelAction)
 
-                Button(ProductStrings[.settingsRestartNow]) {
+                PrimaryAction(ProductStrings[.settingsRestartNow], size: .row) {
                     Task { await take(.now) }
                 }
-                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(WindowMetrics.contentPadding)

@@ -106,11 +106,17 @@ struct ContainerRuleTests {
     ///
     /// Derived from the sheet declarations rather than a list, so a sheet added
     /// later joins the rule.
+    ///
+    /// The default action is `PrimaryAction`, the only default a sheet draws
+    /// (the sheet ground rule). The pair is held where both sit in one block:
+    /// a span that leaves the block Cancel is in has crossed to another step
+    /// of the sheet, with buttons of its own.
     @Test("every sheet titles at the headline rung with Cancel beside the default")
     func sheetsTitleAndOrderTheirButtons() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
             .filter { $0.text.contains("Sheet: View") }
         var checked = 0
+        var paired = 0
 
         #expect(!files.isEmpty, "the scan found no sheets at all")
         for file in files {
@@ -124,23 +130,35 @@ struct ContainerRuleTests {
                 )
 
                 guard let cancel = body.range(of: ".keyboardShortcut(.cancelAction)"),
-                      let action = body.range(of: ".keyboardShortcut(.defaultAction)"),
-                      cancel.lowerBound < action.lowerBound
+                      let action = body[cancel.upperBound...].range(of: "PrimaryAction("),
+                      Self.staysInOneBlock(body[cancel.upperBound..<action.lowerBound])
                 else { continue }
 
-                // Exactly one `Button(` between the two shortcuts: the default
-                // action's own, since a shortcut is written after the button it
-                // is on. A third button in that span is one standing between
-                // Cancel and the action it cancels.
-                let between = body[cancel.upperBound..<action.lowerBound]
+                // No `Button(` between Cancel's shortcut and the default: a
+                // button in that span is one standing between Cancel and the
+                // action it cancels.
+                paired += 1
                 #expect(
-                    between.components(separatedBy: "Button(").count == 2,
+                    !body[cancel.upperBound..<action.lowerBound].contains("Button("),
                     "\(declaration) puts a button between Cancel and the default action"
                 )
             }
         }
 
         #expect(checked >= 8, "only \(checked) sheets were scanned")
+        #expect(paired >= 4, "only \(paired) sheets were checked for the Cancel and default pair")
+    }
+
+    /// Whether a span of source stays inside the block it starts in.
+    private static func staysInOneBlock(_ span: Substring) -> Bool {
+        var depth = 0
+        for character in span {
+            if character == "{" { depth += 1 }
+            if character == "}" { depth -= 1 }
+            if depth < 0 { return false }
+        }
+
+        return true
     }
 
     /// A popup never raises a second popup (owner directive of 2026-09-20: "I

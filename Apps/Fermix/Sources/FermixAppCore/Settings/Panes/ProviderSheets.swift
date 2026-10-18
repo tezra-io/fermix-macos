@@ -59,10 +59,10 @@ struct AddKeySheet: View {
                 Spacer(minLength: 0)
 
                 Button(ProductStrings[.settingsSheetCancel], action: dismiss)
+                    .buttonStyle(SecondaryButtonStyle(.row))
                     .keyboardShortcut(.cancelAction)
 
-                Button(ProductStrings[.providerVerifyAndSave], action: store)
-                    .keyboardShortcut(.defaultAction)
+                PrimaryAction(ProductStrings[.providerVerifyAndSave], size: .row, action: store)
                     .disabled(value.isEmpty || storing)
             }
         }

@@ -534,8 +534,7 @@ struct ChannelSheet: View {
                 // One button. Every field commits as it is edited, so a
                 // `Cancel` beside it would promise an undo the sheet cannot
                 // give: leaving is the whole of finishing.
-                Button(ProductStrings[.settingsSheetDone], action: dismiss)
-                    .keyboardShortcut(.defaultAction)
+                PrimaryAction(ProductStrings[.settingsSheetDone], size: .row, action: dismiss)
             }
         }
         .padding(WindowMetrics.contentPadding)

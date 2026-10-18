@@ -50,12 +50,12 @@ struct IntegrationConsentSheet: View {
                 Spacer(minLength: 0)
 
                 Button(ProductStrings[.settingsSheetCancel], action: dismiss)
+                    .buttonStyle(SecondaryButtonStyle(.row))
                     .keyboardShortcut(.cancelAction)
 
-                Button(ProductStrings[.integrationInstall]) {
+                PrimaryAction(ProductStrings[.integrationInstall], size: .row) {
                     Task { await model.startPluginInstall(name: row.name, on: runner) }
                 }
-                .keyboardShortcut(.defaultAction)
                 .disabled(runner.isRunning)
             }
         }
@@ -1152,10 +1152,10 @@ struct OAuthClientEditor: View {
             Spacer(minLength: 0)
 
             Button(ProductStrings[.settingsSheetCancel], action: close)
+                .buttonStyle(SecondaryButtonStyle(.row))
                 .keyboardShortcut(.cancelAction)
 
-            Button(ProductStrings[.settingsSheetDone], action: store)
-                .keyboardShortcut(.defaultAction)
+            PrimaryAction(ProductStrings[.settingsSheetDone], size: .row, action: store)
                 .disabled(
                     draft.identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || regionMissing
@@ -1337,15 +1337,16 @@ struct WorkspacePage: View {
                 Button(ProductStrings[.integrationWorkspaceFind]) {
                     Task { await model.startWorkspaceDiscovery(name: name, on: runner) }
                 }
+                .buttonStyle(SecondaryButtonStyle(.row))
                 .disabled(runner.isRunning)
 
                 Spacer(minLength: 0)
 
                 Button(ProductStrings[.settingsSheetCancel], action: back)
+                    .buttonStyle(SecondaryButtonStyle(.row))
                     .keyboardShortcut(.cancelAction)
 
-                Button(ProductStrings[.integrationWorkspaceUse], action: select)
-                    .keyboardShortcut(.defaultAction)
+                PrimaryAction(ProductStrings[.integrationWorkspaceUse], size: .row, action: select)
                     .disabled(profile.isEmpty || chosen.isEmpty || runner.isRunning)
             }
         }
