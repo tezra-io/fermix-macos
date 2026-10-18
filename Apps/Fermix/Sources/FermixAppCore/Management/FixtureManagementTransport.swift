@@ -585,7 +585,7 @@ struct FixtureManagementTransport: ManagementTransport {
 
         switch known {
         case .mcpServersList, .mcpServersGet, .mcpServersDraft, .mcpServersAdd, .mcpServersUpdate,
-             .mcpServersRemove, .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet:
+             .mcpServersRemove, .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet, .mcpServersImport:
             return true
         case .secretSet:
             return storesMCPValue(method: method, params: params)
@@ -646,6 +646,8 @@ struct FixtureManagementTransport: ManagementTransport {
         case .mcpServersRemove:
             machine.withMCPServers { $0.remove(name) }
             answer["name"] = name
+        case .mcpServersImport:
+            answer = try imported(golden, picks: params["servers"] as? [[String: Any]] ?? [])
         case .secretSet:
             let id = params["id"] as? String ?? ""
             machine.withMCPServers { servers in Self.storedValue(id).map { servers.markStored($0.name, of: $0.server) } }
@@ -826,12 +828,52 @@ struct FixtureManagementTransport: ManagementTransport {
         return server
     }
 
-    /// The golden add of a server that waits for nothing and starts a check.
-    private func startedAdd() throws -> [String: Any]? {
-        guard let record = records[ManagementMethod.mcpServersAdd.rawValue]?.first(where: { $0.selector["transport"] == "stdio" })
+    /// `mcp.servers.import` for the servers picked: the golden import's row or
+    /// refusal where it publishes one for that server, and otherwise the
+    /// golden add of the server's transport under the name and at the place
+    /// the golden scan offered it, as the add path the import goes through
+    /// writes it. Every server added joins the machine's list.
+    private func imported(_ golden: [String: Any], picks: [[String: Any]]) throws -> [String: Any] {
+        let rows = golden["servers"] as? [[String: Any]] ?? []
+        let refusals = golden["refused"] as? [[String: Any]] ?? []
+        let candidates = try goldenResult(.mcpServersImportScan)?["candidates"] as? [[String: Any]] ?? []
+        var servers: [[String: Any]] = []
+        var refused: [[String: Any]] = []
+
+        for pick in picks {
+            let source = pick["source"] as? String ?? ""
+            let name = pick["name"] as? String ?? ""
+            let origin = "imported:\(source)"
+            if let row = rows.first(where: { $0["name"] as? String == name && $0["origin"] as? String == origin }) {
+                servers.append(keep(row))
+            } else if let refusal = refusals.first(where: { $0["name"] as? String == name && $0["source"] as? String == source }) {
+                refused.append(refusal)
+            } else if let candidate = candidates.first(where: { $0["name"] as? String == name && $0["source"] as? String == source }),
+                      let written = try addGolden(transport: candidate["transport"] as? String ?? "")?["server"] as? [String: Any] {
+                var row = Self.added(written, params: [
+                    "name": name,
+                    "command_line": candidate["command_line"] ?? NSNull(),
+                    "url": candidate["url"] ?? NSNull()
+                ].compactMapValues { $0 is NSNull ? nil : $0 })
+                row["origin"] = origin
+                servers.append(keep(row))
+            }
+        }
+
+        return ["servers": servers, "refused": refused]
+    }
+
+    /// The golden add of one transport.
+    private func addGolden(transport: String) throws -> [String: Any]? {
+        guard let record = records[ManagementMethod.mcpServersAdd.rawValue]?.first(where: { $0.selector["transport"] == transport })
         else { return nil }
 
         return try JSONSerialization.jsonObject(with: record.result) as? [String: Any]
+    }
+
+    /// The golden add of a server that waits for nothing and starts a check.
+    private func startedAdd() throws -> [String: Any]? {
+        try addGolden(transport: "stdio")
     }
 
     /// A row with the values a paste held stored: each name it declares, and

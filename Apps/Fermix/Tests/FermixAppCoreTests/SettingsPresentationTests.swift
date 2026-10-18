@@ -546,7 +546,8 @@ struct SettingsSourceGateTests {
         "Settings/Panes/ComputerPane.swift": "the installed-app picker, inside a sheet",
         "Settings/Panes/IntegrationsPane.swift": "the plugins page's flat list, which is that pane's only scroll",
         "Settings/Panes/MCPServersTools.swift": "an MCP server's tools, a page of its sheet that owns the sheet's one scroll",
-        "Settings/Panes/MCPServersPasted.swift": "the servers one paste held, a page of the MCP sheet that owns its one scroll"
+        "Settings/Panes/MCPServersCandidates.swift":
+            "the servers a paste or another app's settings hold, a page of the MCP sheet that owns its one scroll"
     ]
 
     /// Decision D4: no pane draws a scroll indicator, and a pane form is the

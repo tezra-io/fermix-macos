@@ -232,7 +232,17 @@ enum ManagementV2Calls {
         "mcp_servers_tool_set": {
             _ = try await $0.setMCPTool(name: "linear", tool: "update_project", enabled: true)
         },
-        "mcp_servers_check_start": { _ = try await $0.startMCPCheck(name: "linear") }
+        "mcp_servers_check_start": { _ = try await $0.startMCPCheck(name: "linear") },
+        // An import reads the other apps when asked, then imports the picked
+        // servers in one call, each by its app and its name.
+        "mcp_servers_import_scan": { _ = try await $0.scanMCPImports() },
+        "mcp_servers_import": {
+            _ = try await $0.importMCPServers([
+                ManagementMCPImportPick(source: .claudeDesktop, name: "github"),
+                ManagementMCPImportPick(source: .codex, name: "fetch"),
+                ManagementMCPImportPick(source: .claudeCode, name: "linear")
+            ])
+        }
     ]
 
 }

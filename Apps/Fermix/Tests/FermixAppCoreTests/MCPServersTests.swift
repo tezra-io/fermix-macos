@@ -617,16 +617,24 @@ struct MCPServersTests {
         }
     }
 
-    /// The lines are drawn whole: nothing on the page cuts one short, and a
-    /// long list scrolls inside the page rather than shortening a line.
-    @Test("nothing on the pasted servers' page is cut short")
+    /// The lines are drawn whole: nothing on the pasted servers' page, the
+    /// import page or the row and list they share cuts one short, and a long
+    /// list scrolls inside the page rather than shortening a line.
+    @Test("nothing on the pasted servers' page or the import page is cut short")
     func pastedPageTruncatesNothing() throws {
-        let page = try #require(try SourceTree.swiftFiles(matching: "Settings/Panes/MCPServersPasted.swift").first?.text)
+        for path in ["MCPServersPasted.swift", "MCPServersImport.swift", "MCPServersCandidates.swift"] {
+            let page = try #require(try SourceTree.swiftFiles(matching: "Settings/Panes/\(path)").first?.text)
 
-        #expect(!page.contains(".lineLimit("), "a line on the page is limited")
-        #expect(!page.contains(".truncationMode("), "a line on the page is truncated")
-        #expect(!page.contains(".summary"), "the one-line summary stands in for what runs")
-        #expect(page.contains("ScrollView"), "a long list scrolls in the page")
+            #expect(!page.contains(".lineLimit("), "a line in \(path) is limited")
+            #expect(!page.contains(".truncationMode("), "a line in \(path) is truncated")
+            #expect(!page.contains(".summary"), "a one-line summary stands in for what runs in \(path)")
+        }
+        let shared = try #require(try SourceTree.swiftFiles(matching: "Settings/Panes/MCPServersCandidates.swift").first?.text)
+        #expect(shared.contains("ScrollView"), "a long list scrolls in the page")
+        for path in ["MCPServersPasted.swift", "MCPServersImport.swift"] {
+            let page = try #require(try SourceTree.swiftFiles(matching: "Settings/Panes/\(path)").first?.text)
+            #expect(page.contains("MCPCandidateRow(") && page.contains("MCPCandidateScroll {"), "\(path) draws its own rows")
+        }
     }
 
     @Test("a refused paste marks the field it was pasted into, and leaves every other mark")
@@ -853,6 +861,118 @@ struct MCPServersTests {
 
         #expect(await harness.model.removeMCPServer(name: "notes") == nil)
         #expect(harness.gateway.calls.filter { $0 == .v2(.mcpServersList) }.count == 2)
+    }
+
+    // MARK: - Import
+
+    @Test("the scan and the import decode, with every candidate, skip and refusal")
+    func importGoldensDecode() throws {
+        let scan = try Self.scan()
+        #expect(scan.candidates.map(\.name) == ["github", "filesystem", "linear", "brave-search", "memory", "fetch"])
+        #expect(scan.candidates.map(\.source) == [.claudeDesktop, .claudeDesktop, .claudeCode, .cursor, .vscode, .codex])
+        #expect(scan.candidates.filter(\.conflict).map(\.name) == ["linear"])
+        #expect(scan.candidates.first?.secretNames == ["Authorization"], "names, never a value")
+        #expect(scan.skipped.map(\.name) == ["notes", nil])
+        #expect(ManagementMCPImportSource(wireValue: "zed") == .unrecognized("zed"))
+
+        let imported: ManagementMCPImported = try FakeDaemonGateway.fixtureResult(named: "mcp_servers_import", as: ManagementMCPImported.self)
+        #expect(imported.servers.map(\.origin) == ["imported:claude_desktop", "imported:codex"])
+        #expect(imported.refused == [ManagementMCPImportRefused(
+            source: .claudeCode,
+            name: "linear",
+            sentence: "An MCP server by this name is already here. Choose another."
+        )])
+    }
+
+    @Test("the import page groups by app, unticks a name taken here, and keeps each skip in its group")
+    func importGroups() throws {
+        let scan = try Self.scan()
+        let groups = MCPImportGroup.groups(scan)
+
+        #expect(groups.map(\.label) == ["Claude Desktop", "Claude Code", "Cursor", "VS Code", "Codex", "Windsurf"])
+        #expect(groups[0].candidates.map(\.name) == ["github", "filesystem"])
+        #expect(groups[2].skipped.map(\.name) == ["notes"], "a server Cursor holds that could not be offered")
+        #expect(groups[5].candidates.isEmpty && groups[5].skipped.first?.name == nil, "a file that could not be read")
+        #expect(MCPImportGroup.initiallyTicked(scan) == Set(scan.candidates.filter { $0.name != "linear" }.map(\.pick)))
+
+        let linear = try #require(scan.candidates.first { $0.name == "linear" })
+        #expect(linear.lines(taken: true, refused: nil).last == .taken)
+        #expect(linear.lines(taken: false, refused: "No.").last == .refused("No."))
+    }
+
+    /// The import adds and runs what other apps hold, so each candidate shows
+    /// the whole of what a tick adds, exactly as the pasted servers' page does.
+    @Test("the import page shows every candidate's whole command line or address, its program and its consent line")
+    func importShowsWhatRuns() throws {
+        for candidate in try Self.scan().candidates {
+            let lines = candidate.lines(taken: false, refused: nil)
+            switch candidate.transport {
+            case .http:
+                #expect(lines.contains(.target(try #require(candidate.url))), "\(candidate.name)")
+            case .stdio, .unrecognized:
+                #expect(lines.contains(.target(try #require(candidate.commandLine))), "\(candidate.name)")
+                let sentence = try #require(candidate.commandSentence)
+                #expect(lines.contains(.runs(sentence, resolved: candidate.resolvedCommand != nil)), "\(candidate.name)")
+            }
+            #expect(lines.contains(.consent(candidate.consentSentence)), "\(candidate.name)")
+        }
+    }
+
+    @Test("the import is offered only where the daemon's hello lists it")
+    func importFollowsHello() async throws {
+        let harness = try Self.harness()
+        await harness.model.refreshMCPServers()
+        #expect(harness.model.serves(.mcpServersImportScan) && harness.model.serves(.mcpServersImport))
+
+        let older = try SettingsFixture.gateway()
+        older.hello = try Self.hello(without: [.mcpServersImportScan, .mcpServersImport])
+        let olderHarness = try SettingsHarness(gateway: older)
+        await olderHarness.model.refreshMCPServers()
+        #expect(!olderHarness.model.serves(.mcpServersImportScan))
+        #expect(!older.calls.contains(.v2(.mcpServersImportScan)), "nothing is read before it is asked for")
+    }
+
+    @Test("the ticked servers are imported in one call, and the list is read again")
+    func importIsOneCall() async throws {
+        let harness = try Self.harness()
+        await harness.model.refreshMCPServers()
+        let picks = MCPImportGroup.initiallyTicked(try Self.scan()).sorted { $0.name < $1.name }
+
+        let answer = await harness.model.importMCPServers(picks)
+
+        #expect((try? answer.get())?.refused.map(\.name) == ["linear"])
+        #expect(harness.gateway.mcpImports == [picks])
+        #expect(harness.gateway.calls.filter { $0 == .v2(.mcpServersImport) }.count == 1)
+        #expect(harness.gateway.calls.filter { $0 == .v2(.mcpServersList) }.count == 2)
+    }
+
+    @Test("a refused import is the daemon's sentence")
+    func importRefusal() async throws {
+        let harness = try Self.harness()
+        harness.gateway.v2Failures[.mcpServersImport] = try ManagementRefusal.published("invalid_params_mcp_servers_import_servers")
+
+        let answer = await harness.model.importMCPServers([ManagementMCPImportPick(source: .codex, name: "fetch")])
+
+        #expect(answer == .failure(MCPRefusal(sentence: "This is a list of at most 32 servers, each with its source and name.", field: nil)))
+    }
+
+    @Test("the fixture home scans as the golden does and imports each server picked")
+    func fixtureImports() async throws {
+        let client = try await Self.fixtureClient(FixtureMachine(daemonUp: true))
+
+        let scan = try await client.scanMCPImports()
+        #expect(scan == (try Self.scan()))
+
+        let imported = try await client.importMCPServers([
+            ManagementMCPImportPick(source: .claudeDesktop, name: "github"),
+            ManagementMCPImportPick(source: .vscode, name: "memory"),
+            ManagementMCPImportPick(source: .claudeCode, name: "linear")
+        ])
+        #expect(imported.servers.map(\.name) == ["github", "memory"])
+        #expect(imported.servers.last?.origin == "imported:vscode")
+        #expect(imported.servers.last?.location == "npx -y @modelcontextprotocol/server-memory")
+        #expect(imported.refused.map(\.name) == ["linear"])
+        #expect(try await client.mcpServers().servers.map(\.name).contains("memory"))
     }
 
     // MARK: - Sign-in
@@ -1097,6 +1217,10 @@ struct MCPServersTests {
         result["capabilities"] = capabilities
 
         return try JSONDecoder().decode(ManagementHello.self, from: try JSONSerialization.data(withJSONObject: result))
+    }
+
+    private static func scan() throws -> ManagementMCPImportScan {
+        try FakeDaemonGateway.fixtureResult(named: "mcp_servers_import_scan", as: ManagementMCPImportScan.self)
     }
 
     /// One golden `mcp.servers.get` server.

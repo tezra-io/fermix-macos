@@ -12,6 +12,8 @@ public enum MCPServerPage: Equatable, Sendable {
     case edit(String)
     /// The servers one paste held, listed to add together.
     case pasted(ManagementMCPDrafts)
+    /// The servers other apps' settings hold, read when it opens.
+    case importing
 
     /// Where the back control and Escape go. Nil closes the sheet: the add
     /// form and a server's detail are where it opens.
@@ -19,7 +21,7 @@ public enum MCPServerPage: Equatable, Sendable {
         switch self {
         case .add, .detail: return nil
         case .tools(let name), .edit(let name): return .detail(name)
-        case .pasted: return .add
+        case .pasted, .importing: return .add
         }
     }
 
@@ -47,6 +49,7 @@ struct MCPSheetTarget: Identifiable, Equatable {
     var id: String {
         switch page {
         case .add, .pasted: return "add"
+        case .importing: return "import"
         case .detail(let name), .tools(let name), .edit(let name): return "server:\(name)"
         }
     }
@@ -154,6 +157,8 @@ struct MCPServerSheet: View {
             MCPServerToolsPage(name: name, model: model, back: { page = .detail(name) })
         case .pasted(let drafts):
             MCPPastedServersPage(drafts: drafts, model: model, runner: runner, back: { page = .add }, done: dismiss)
+        case .importing:
+            MCPImportPage(model: model, back: { page = .add }, done: dismiss)
         }
     }
 

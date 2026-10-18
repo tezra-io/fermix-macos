@@ -450,6 +450,16 @@ struct IntegrationsPane: View {
         return { serverSheet = MCPSheetTarget(.add) }
     }
 
+    /// The import from another app, where the daemon serves it and one more
+    /// server fits.
+    private var importServers: (() -> Void)? {
+        guard model.serves(.mcpServersImportScan), model.serves(.mcpServersImport),
+              model.mcpServers.value?.canAdd == true
+        else { return nil }
+
+        return { serverSheet = MCPSheetTarget(.importing) }
+    }
+
     /// The page's lead: a one-line subtitle, then the pill row with the search
     /// field at its trailing edge. The title is the toolbar's.
     ///
@@ -469,7 +479,7 @@ struct IntegrationsPane: View {
                 Spacer(minLength: Spacing.s)
 
                 if filter == .mcps, let addServer {
-                    MCPAddServerAction(add: addServer)
+                    MCPAddServerAction(add: addServer, importFromApps: importServers)
                 }
             }
             .frame(minHeight: HitTarget.rowAction)
@@ -589,7 +599,7 @@ struct IntegrationsPane: View {
             EmptyView()
         case .loaded(let list):
             if list.servers.isEmpty {
-                MCPServersEmptyState(add: addServer)
+                MCPServersEmptyState(add: addServer, importFromApps: importServers)
                     .listRowSeparator(.hidden)
                     .id(Self.noResultsRow)
             } else if visibleServers.isEmpty && visible.isEmpty {

@@ -136,22 +136,40 @@ struct MCPServerTile: View {
 }
 
 /// `Add server`, the header action the pill carries while the daemon says one
-/// more fits (M74 §4.1). Importing from another app joins it as a pull-down
-/// once the daemon publishes the import.
+/// more fits (M74 §4.1). Where the daemon serves the import, it is the pull-
+/// down with a primary action macOS draws: a click adds, and the arrow offers
+/// adding and importing from another app.
 struct MCPAddServerAction: View {
     let add: () -> Void
+    /// Where the daemon's `hello` lists `mcp.servers.import.scan`.
+    let importFromApps: (() -> Void)?
 
     var body: some View {
-        Button(ProductStrings[.integrationsMCPAdd], action: add)
-            .buttonStyle(SecondaryButtonStyle(.row))
+        if let importFromApps {
+            Menu {
+                Button(ProductStrings[.integrationsMCPAddMenuAdd], action: add)
+                Button(ProductStrings[.integrationsMCPAddMenuImport], action: importFromApps)
+            } label: {
+                Text(ProductStrings[.integrationsMCPAdd])
+            } primaryAction: {
+                add()
+            }
             .fixedSize()
+            .accessibilityLabel(ProductStrings[.integrationsMCPAdd])
+        } else {
+            Button(ProductStrings[.integrationsMCPAdd], action: add)
+                .buttonStyle(SecondaryButtonStyle(.row))
+                .fixedSize()
+        }
     }
 }
 
-/// No server added yet: one line, and the way to add one beneath it.
+/// No server added yet: one line, and the ways to add one beneath it.
 struct MCPServersEmptyState: View {
     /// Where the daemon serves the add and one fits.
     let add: (() -> Void)?
+    /// Where the daemon serves the import.
+    let importFromApps: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s) {
@@ -160,9 +178,15 @@ struct MCPServersEmptyState: View {
                 .foregroundStyle(Palette.secondary.color)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if let add {
-                MCPAddServerAction(add: add)
+            HStack(spacing: Spacing.xs) {
+                if let add {
+                    Button(ProductStrings[.integrationsMCPAdd], action: add)
+                }
+                if let importFromApps {
+                    Button(ProductStrings[.integrationsMCPAddMenuImport], action: importFromApps)
+                }
             }
+            .buttonStyle(SecondaryButtonStyle(.row))
         }
         .padding(.horizontal, Spacing.xs)
         .padding(.vertical, Spacing.s)

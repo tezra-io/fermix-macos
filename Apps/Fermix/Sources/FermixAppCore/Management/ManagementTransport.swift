@@ -41,8 +41,9 @@ public struct DefaultManagementTimeoutPolicy: ManagementTimeoutPolicy {
     /// `settings.apply` at 15 s and `secret.set` at 20 s inside the daemon;
     /// this is that budget plus the round trip, so the client never gives up on
     /// a write the daemon is still allowed to be finishing. An MCP server
-    /// write persists the file and applies it the same way (M74 §5); its
-    /// reads and its check, which is a job, answer at once.
+    /// write, an import among them, persists the file and applies it the same
+    /// way (M74 §5); its reads, its scan and its check, which is a job,
+    /// answer at once.
     public static let write: Duration = .seconds(20)
 
     public init() {}
@@ -53,7 +54,7 @@ public struct DefaultManagementTimeoutPolicy: ManagementTimeoutPolicy {
             return Self.lifecycleCommit
         case .settingsApply, .secretSet,
              .mcpServersAdd, .mcpServersUpdate, .mcpServersRemove,
-             .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet:
+             .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet, .mcpServersImport:
             return Self.write
         default:
             return Self.standard

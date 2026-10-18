@@ -300,7 +300,7 @@ struct ProductStringsTests {
     /// rots into a rubber stamp.
     @Test("a product name is exempt as a phrase and its generic half is not")
     func properPhrasesDoNotExemptTheirWords() {
-        #expect(ProductCopyRules.properPhrases == ["Claude Code", "Google Meet", "Setup Assistant", "Full Disk Access"])
+        #expect(ProductCopyRules.properPhrases == ["Claude Code", "VS Code", "Google Meet", "Setup Assistant", "Full Disk Access"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Use Claude Code sign-in").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "The Google Meet account is signed in").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "Run the Setup Assistant to register it").isEmpty)

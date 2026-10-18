@@ -112,6 +112,8 @@ public protocol DaemonQuerying: Sendable {
     func disableMCPServer(name: String) async throws -> ManagementMCPServerRow
     func setMCPTool(name: String, tool: String, enabled: Bool) async throws -> ManagementMCPServerRow
     func startMCPCheck(name: String) async throws -> ManagementJob
+    func scanMCPImports() async throws -> ManagementMCPImportScan
+    func importMCPServers(_ picks: [ManagementMCPImportPick]) async throws -> ManagementMCPImported
 }
 
 /// The production gateway: one negotiated client, shared by every surface.

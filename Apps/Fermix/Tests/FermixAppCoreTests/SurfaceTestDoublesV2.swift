@@ -456,6 +456,16 @@ extension FakeDaemonGateway {
         try answer(.mcpServersCheckStart, "mcp_servers_check_start")
     }
 
+    func scanMCPImports() async throws -> ManagementMCPImportScan {
+        try answer(.mcpServersImportScan, "mcp_servers_import_scan")
+    }
+
+    func importMCPServers(_ picks: [ManagementMCPImportPick]) async throws -> ManagementMCPImported {
+        mcpImports.append(picks)
+
+        return try answer(.mcpServersImport, "mcp_servers_import")
+    }
+
     // MARK: - One answer
 
     /// Record the call, apply the version gate, then decode the named fixture.

@@ -115,6 +115,32 @@ public enum ManagementMCPAuthState: ManagementVocabulary, Hashable {
     }
 }
 
+/// The apps whose settings `mcp.servers.import.scan` reads, on an explicit
+/// ask only (`mcpImportSource`). The daemon names each in `source_label`.
+public enum ManagementMCPImportSource: ManagementVocabulary, Hashable {
+    case claudeDesktop
+    case claudeCode
+    case cursor
+    case vscode
+    case windsurf
+    case codex
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = [
+        "claude_desktop": .claudeDesktop,
+        "claude_code": .claudeCode,
+        "cursor": .cursor,
+        "vscode": .vscode,
+        "windsurf": .windsurf,
+        "codex": .codex
+    ]
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+}
+
 // MARK: - The row
 
 /// A named value a server declares: an environment variable or a header.
@@ -341,6 +367,82 @@ public struct ManagementMCPDraft: Decodable, Equatable, Sendable {
 /// `mcp.servers.draft`: one draft or more, in the paste's order.
 public struct ManagementMCPDrafts: Decodable, Equatable, Sendable {
     public let drafts: [ManagementMCPDraft]
+}
+
+// MARK: - Import
+
+/// One server another app's settings on this Mac hold, as a draft of it
+/// would read. Never a value: `secret_names` names the ones it declares.
+public struct ManagementMCPImportCandidate: Decodable, Equatable, Sendable {
+    public let source: ManagementMCPImportSource
+    /// The daemon's name for the app, which heads the group it is listed in.
+    public let sourceLabel: String
+    public let name: String
+    public let transport: ManagementMCPTransport
+    public let summary: String
+    public let commandLine: String?
+    public let url: String?
+    public let consentSentence: String
+    public let resolvedCommand: String?
+    public let commandSentence: String?
+    public let secretNames: [String]
+    /// The name, or its tools' names, is taken here.
+    public let conflict: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case source, name, transport, summary, url, conflict
+        case sourceLabel = "source_label"
+        case commandLine = "command_line"
+        case consentSentence = "consent_sentence"
+        case resolvedCommand = "resolved_command"
+        case commandSentence = "command_sentence"
+        case secretNames = "secret_names"
+    }
+}
+
+/// What a scan could not offer, in the daemon's words: a settings file it
+/// could not read (`name` null), or one server it could not add as written.
+public struct ManagementMCPImportSkipped: Decodable, Equatable, Sendable {
+    public let source: ManagementMCPImportSource
+    public let sourceLabel: String
+    public let name: String?
+    public let sentence: String
+
+    private enum CodingKeys: String, CodingKey {
+        case source, name, sentence
+        case sourceLabel = "source_label"
+    }
+}
+
+/// `mcp.servers.import.scan`.
+public struct ManagementMCPImportScan: Decodable, Equatable, Sendable {
+    public let candidates: [ManagementMCPImportCandidate]
+    public let skipped: [ManagementMCPImportSkipped]
+}
+
+/// One server to import, by the app it was found in and the name the scan
+/// offered it under.
+public struct ManagementMCPImportPick: Codable, Equatable, Hashable, Sendable {
+    public let source: ManagementMCPImportSource
+    public let name: String
+
+    public init(source: ManagementMCPImportSource, name: String) {
+        self.source = source
+        self.name = name
+    }
+}
+
+/// One server an import did not add, with the daemon's sentence.
+public struct ManagementMCPImportRefused: Decodable, Equatable, Sendable {
+    public let source: ManagementMCPImportSource
+    public let name: String
+    public let sentence: String
+}
+
+/// `mcp.servers.import`: the new rows, and every server not added.
+public struct ManagementMCPImported: Decodable, Equatable, Sendable {
+    public let servers: [ManagementMCPServer]
+    public let refused: [ManagementMCPImportRefused]
 }
 
 // MARK: - Writes

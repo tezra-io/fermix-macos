@@ -93,13 +93,13 @@ struct ManagementClientRequestTests {
         let policy = DefaultManagementTimeoutPolicy()
         let writes: [ManagementMethod] = [
             .settingsApply, .secretSet, .mcpServersAdd, .mcpServersUpdate, .mcpServersRemove,
-            .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet
+            .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet, .mcpServersImport
         ]
 
         for method in writes {
             #expect(policy.timeout(for: method) == DefaultManagementTimeoutPolicy.write, "\(method.rawValue)")
         }
-        for method in [ManagementMethod.mcpServersList, .mcpServersGet, .mcpServersDraft, .mcpServersCheckStart] {
+        for method in [ManagementMethod.mcpServersList, .mcpServersGet, .mcpServersDraft, .mcpServersCheckStart, .mcpServersImportScan] {
             #expect(policy.timeout(for: method) == DefaultManagementTimeoutPolicy.standard, "\(method.rawValue)")
         }
     }
@@ -144,7 +144,7 @@ struct ManagementClientResultTests {
         #expect(hello.protocolRange.currentVersion == 2)
         #expect(hello.protocolRange.minimum == 1)
         #expect(hello.protocolRange.maximum == 2)
-        #expect(hello.capabilities.methods.count == 63)
+        #expect(hello.capabilities.methods.count == 65)
         #expect(hello.engine.engineId == "fermix-core")
         #expect(hello.engine.productVersion == "0.9.0")
         #expect(hello.engine.distributionIdentity == "macos_app")
@@ -354,7 +354,7 @@ struct ManagementClientErrorTests {
     @Test("every published error code surfaces as a typed failure")
     func errorFixturesSurfaceTyped() async throws {
         let fixtures = try ManagementFixtures.load(.errors)
-        #expect(fixtures.count == 31)
+        #expect(fixtures.count == 32)
 
         for fixture in fixtures {
             let envelope = try fixture.object("response")

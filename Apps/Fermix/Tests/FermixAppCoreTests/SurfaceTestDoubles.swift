@@ -176,6 +176,8 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// the same one signed in or expired.
     var mcpServerGolden = "mcp_servers_get"
     var mcpDraftTexts: [String] = []
+    /// What each `mcp.servers.import` picked, in order.
+    var mcpImports: [[ManagementMCPImportPick]] = []
     var mcpToolWrites: [MCPToolWrite] = []
     /// The providers each `auth.start` and `auth.logout` named, in order.
     var signInProviders: [String] = []

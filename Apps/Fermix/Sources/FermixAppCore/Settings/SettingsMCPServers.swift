@@ -158,7 +158,29 @@ extension SettingsModel {
         }
     }
 
+    /// Reads the other apps' settings on this Mac, which the daemon does only
+    /// when asked, and never writes.
+    public func scanMCPImports() async -> Result<ManagementMCPImportScan, MCPRefusal> {
+        do {
+            return .success(try await gateway.scanMCPImports())
+        } catch {
+            noteReconcile(error)
+            return .failure(MCPRefusal(sentence: ManagementMessage.sentence(for: error), field: nil))
+        }
+    }
+
     // MARK: - Writes
+
+    /// Imports the servers picked, in one call, then reads the list again:
+    /// the new rows are the daemon's, in its order. A server the import did
+    /// not add is in the answer, with its sentence.
+    public func importMCPServers(_ picks: [ManagementMCPImportPick]) async -> Result<ManagementMCPImported, MCPRefusal> {
+        precondition(!picks.isEmpty, "an import names its servers")
+
+        let answer = await serverWrite { try await self.gateway.importMCPServers(picks) }
+        if case .success = answer { await refreshMCPServers() }
+        return answer
+    }
 
     /// Adds one server, stores each value typed for it, then follows the check
     /// that connects it: the one the add started, or, where the server waited

@@ -1,20 +1,5 @@
 import SwiftUI
 
-/// One line a pasted server's row draws under its name. Every one is drawn
-/// whole, wrapped and never cut short: a tick adds what these say (D5).
-public enum MCPPastedLine: Equatable, Sendable {
-    /// The command line that will run on this Mac, or the address that will
-    /// be reached, as the daemon reads it.
-    case target(String)
-    /// `Runs <program>`, or the sentence for a program this Mac does not
-    /// have, as the add form draws it under the command.
-    case runs(String, resolved: Bool)
-    /// Where the code runs and what leaves this Mac, in the daemon's words.
-    case consent(String)
-    /// The name is taken here, so the server is not added.
-    case taken
-}
-
 /// One server of a paste that held several, as its page lists it. Addressed
 /// by its place in the paste: one paste may name two servers alike.
 public struct MCPPastedItem: Identifiable, Equatable, Sendable {
@@ -26,24 +11,16 @@ public struct MCPPastedItem: Identifiable, Equatable, Sendable {
     /// Whether the paste carried a value for it, which its add stores.
     public var carriesValues: Bool { draft.draftId != nil }
 
-    /// What the row draws under the name: the whole of what will run or be
-    /// reached, the program it runs where the daemon knows it, and the consent
-    /// line, so ticking never adds anything the page did not show.
-    public func lines(taken: Bool) -> [MCPPastedLine] {
-        var lines: [MCPPastedLine] = []
-        switch draft.transport {
-        case .http:
-            lines.append(.target(draft.url ?? ""))
-        case .stdio, .unrecognized:
-            lines.append(.target(draft.commandLine ?? ""))
-            if let sentence = draft.commandSentence {
-                lines.append(.runs(sentence, resolved: draft.resolvedCommand != nil))
-            }
-        }
-        lines.append(.consent(draft.consentSentence))
-        if taken { lines.append(.taken) }
-
-        return lines
+    /// What the row draws under the name, whole (`MCPCandidateLine`).
+    public func lines(taken: Bool) -> [MCPCandidateLine] {
+        MCPCandidateLine.lines(
+            transport: draft.transport,
+            url: draft.url,
+            commandLine: draft.commandLine,
+            commandSentence: draft.commandSentence,
+            resolved: draft.resolvedCommand != nil,
+            consent: draft.consentSentence
+        ) + (taken ? [.taken] : [])
     }
 
     public static func items(_ drafts: ManagementMCPDrafts) -> [MCPPastedItem] {
@@ -101,23 +78,17 @@ struct MCPPastedServersPage: View {
         VStack(alignment: .leading, spacing: Spacing.m) {
             IntegrationPageHeader(title: ProductStrings[.mcpPastedTitle], parent: ProductStrings[.mcpAddTitle], back: back)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: Spacing.m) {
-                    ForEach(items) { item in
-                        row(item)
-                    }
+            MCPCandidateScroll {
+                ForEach(items) { item in
+                    let taken = item.draft.conflict || added.contains(item.index)
+                    MCPCandidateRow(
+                        name: item.draft.name,
+                        isOn: tick(item),
+                        disabled: taken || adding,
+                        lines: item.lines(taken: taken)
+                    )
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // The page's one scroll, as on every list the settings draw: no
-            // indicator, the soft edge says the list runs on (decision D4).
-            // As tall as the servers are, up to what keeps the sheet inside
-            // the default window.
-            .scrollIndicators(.never)
-            .scrollBounceBehavior(.basedOnSize)
-            .paneScrollEdges()
-            .frame(maxHeight: MCPServerSheetMetrics.pastedListHeight)
-            .fixedSize(horizontal: false, vertical: true)
 
             if items.contains(where: \.carriesValues) {
                 MCPFormNote(text: ProductStrings[.mcpPastedKeysFooter])
@@ -136,40 +107,6 @@ struct MCPPastedServersPage: View {
                 PrimaryAction(String(format: ProductStrings[.mcpPastedAdd], ticked.count), size: .row, action: commit)
                     .disabled(ticked.isEmpty || adding)
             }
-        }
-    }
-
-    private func row(_ item: MCPPastedItem) -> some View {
-        let taken = item.draft.conflict || added.contains(item.index)
-
-        return VStack(alignment: .leading, spacing: Spacing.xxs) {
-            Toggle(item.draft.name, isOn: tick(item))
-                .toggleStyle(.checkbox)
-                .disabled(taken || adding)
-
-            VStack(alignment: .leading, spacing: Spacing.xxs) {
-                ForEach(Array(item.lines(taken: taken).enumerated()), id: \.offset) { _, line in
-                    lineView(line)
-                }
-            }
-            .padding(.leading, MCPServerSheetMetrics.pastedIndent)
-        }
-    }
-
-    @ViewBuilder
-    private func lineView(_ line: MCPPastedLine) -> some View {
-        switch line {
-        case .target(let target):
-            Text(target)
-                .foregroundStyle(Palette.ink.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-        case .runs(let sentence, let resolved):
-            MCPFormNote(text: sentence, failed: !resolved)
-        case .consent(let consent):
-            MCPFormNote(text: consent)
-        case .taken:
-            MCPFormNote(text: ProductStrings[.mcpPastedTaken])
         }
     }
 

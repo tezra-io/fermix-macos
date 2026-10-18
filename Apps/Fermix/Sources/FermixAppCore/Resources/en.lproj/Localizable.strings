@@ -966,6 +966,8 @@
 "integration.token.label" = "Token";
 "integrations.mcp.fromPlugins" = "From plugins";
 "integrations.mcp.add" = "Add server";
+"integrations.mcp.addMenu.add" = "Add server…";
+"integrations.mcp.addMenu.import" = "Import from another app…";
 "integrations.mcp.empty" = "No MCP servers yet. Add one by its URL or by the command that starts it.";
 "mcp.add.title" = "Add an MCP server";
 "mcp.add.remote" = "Remote";
@@ -973,9 +975,13 @@
 "mcp.add.whereItRuns" = "Where it runs";
 "mcp.add.pasteHint" = "Paste a configuration from a README to fill this in.";
 "mcp.pasted.title" = "Pasted servers";
-"mcp.pasted.taken" = "Already added";
-"mcp.pasted.keysFooter" = "Keys in the paste are stored in your keychain.";
+"mcp.candidate.taken" = "Already added";
+"mcp.pasted.keysFooter" = "Keys in the paste are stored in your Keychain.";
 "mcp.pasted.add" = "Add %d";
+"mcp.import.title" = "Import from another app";
+"mcp.import.keysFooter" = "Keys in their settings are copied into your Keychain.";
+"mcp.import.do" = "Import %d";
+"mcp.import.none" = "No MCP servers found in Claude, Cursor, VS Code, Windsurf or Codex.";
 "mcp.field.url" = "URL";
 "mcp.field.command" = "Command";
 "mcp.field.name" = "Name";

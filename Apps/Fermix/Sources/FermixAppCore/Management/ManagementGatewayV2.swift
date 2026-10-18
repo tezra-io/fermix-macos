@@ -282,4 +282,12 @@ extension ManagementGateway {
     public func startMCPCheck(name: String) async throws -> ManagementJob {
         try await negotiated().startMCPCheck(name: name)
     }
+
+    public func scanMCPImports() async throws -> ManagementMCPImportScan {
+        try await negotiated().scanMCPImports()
+    }
+
+    public func importMCPServers(_ picks: [ManagementMCPImportPick]) async throws -> ManagementMCPImported {
+        try await negotiated().importMCPServers(picks)
+    }
 }

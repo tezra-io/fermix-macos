@@ -477,6 +477,21 @@ extension ManagementClient {
         )
     }
 
+    /// Reads the other apps' settings on this Mac, now and only now.
+    public func scanMCPImports() async throws -> ManagementMCPImportScan {
+        try await send(.mcpServersImportScan, params: ManagementEmptyParams(), as: ManagementMCPImportScan.self)
+    }
+
+    /// Adds the servers picked, in one call. An empty pick is refused here
+    /// rather than sent, because an import of nothing is a caller defect.
+    public func importMCPServers(_ picks: [ManagementMCPImportPick]) async throws -> ManagementMCPImported {
+        guard !picks.isEmpty else {
+            throw ManagementError.invalidParameter(.empty(field: "servers"))
+        }
+
+        return try await send(.mcpServersImport, params: ManagementMCPImportParams(servers: picks), as: ManagementMCPImported.self)
+    }
+
     public func startMCPCheck(name: String) async throws -> ManagementJob {
         try await send(
             .mcpServersCheckStart,

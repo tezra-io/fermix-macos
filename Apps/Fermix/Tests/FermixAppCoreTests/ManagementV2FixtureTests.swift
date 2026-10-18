@@ -110,10 +110,11 @@ struct ManagementV2FixtureTests {
             ("mcp transport", Array(ManagementMCPTransport.publishedValues.keys)),
             ("mcp action", Array(ManagementMCPAction.publishedValues.keys)),
             ("mcp auth mode", Array(ManagementMCPAuthMode.publishedValues.keys)),
-            ("mcp auth state", Array(ManagementMCPAuthState.publishedValues.keys))
+            ("mcp auth state", Array(ManagementMCPAuthState.publishedValues.keys)),
+            ("mcp import source", Array(ManagementMCPImportSource.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 34)
+        #expect(modelled.count == 35)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),
@@ -239,7 +240,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 124, "every success record was decoded")
+        #expect(seen.count == 126, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -336,7 +337,7 @@ struct ManagementV2FixtureTests {
             carried += 1
         }
 
-        #expect(carried == 10, "the contract publishes a detail sentence on ten records")
+        #expect(carried == 11, "the contract publishes a detail sentence on eleven records")
     }
 
     /// An MCP server form's refusal names the input it is about in the
