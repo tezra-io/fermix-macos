@@ -61,13 +61,48 @@ struct FixtureLaunchRequestTests {
         }
     }
 
+    /// The sheet ground is a fixture launch's alone, and like the start it is
+    /// refused rather than defaulted whenever it was asked for and cannot be
+    /// honoured: the standard glass drawn after another was named would look
+    /// like the capture the operator asked for.
+    @Test("the sheet ground is named by a fixture launch, or standard")
+    func sheetGround() throws {
+        #expect(try FixtureLaunchRequest.sheetGround(["/path/Fermix"]) == .standard)
+        #expect(try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--fixture"]) == .frame)
+        #expect(
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--fixture", "--sheet-ground", "liquid"]) == .liquid
+        )
+        #expect(
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--sheet-ground", "frame", "--fixture"]) == .frame
+        )
+
+        #expect(throws: FixtureLaunchRequest.Refusal.sheetGroundWithoutFlag) {
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--sheet-ground", "liquid"])
+        }
+        #expect(throws: FixtureLaunchRequest.Refusal.sheetGroundWithoutValue) {
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--fixture", "--sheet-ground"])
+        }
+        #expect(throws: FixtureLaunchRequest.Refusal.sheetGroundWithoutValue) {
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--fixture", "--sheet-ground", "--fixture-start"])
+        }
+        #expect(throws: FixtureLaunchRequest.Refusal.unknownSheetGround("glass")) {
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--fixture", "--sheet-ground", "glass"])
+        }
+        #expect(throws: FixtureLaunchRequest.Refusal.flagRepeated("--sheet-ground")) {
+            try FixtureLaunchRequest.sheetGround([
+                "/path/Fermix", "--fixture", "--sheet-ground", "frame", "--sheet-ground", "liquid"
+            ])
+        }
+    }
+
     /// The release refusal has to say why, not just that. A developer handed
     /// "unrecognised argument" goes looking for a typo.
     @Test("every refusal carries a sentence that names what was inspected")
     func refusalsSpeak() {
         let refusals: [FixtureLaunchRequest.Refusal] = [
             .startWithoutFlag, .startWithoutValue, .flagRepeated("--fixture"),
-            .notAvailableInThisBuild, .unknownStart("wat")
+            .notAvailableInThisBuild, .unknownStart("wat"),
+            .sheetGroundWithoutFlag, .sheetGroundWithoutValue, .unknownSheetGround("glass")
         ]
 
         for refusal in refusals {
@@ -77,6 +112,10 @@ struct FixtureLaunchRequestTests {
         #expect(FixtureLaunchRequest.Refusal.unknownStart("wat").sentence.contains("wat"))
         #expect(FixtureLaunchRequest.Refusal.flagRepeated("--fixture-start")
             .sentence.hasPrefix("--fixture-start"))
+        // The refusal names the recipes there are, so the typo is fixed from
+        // the sentence alone.
+        let unknown = FixtureLaunchRequest.Refusal.unknownSheetGround("glass").sentence
+        #expect(unknown.contains("glass") && unknown.contains("frame") && unknown.contains("liquid"))
     }
 }
 
@@ -340,6 +379,20 @@ struct FixtureConfigurationTests {
             #expect(environment.realtimeLines is FixtureRealtimeTransport)
             #expect(environment.voiceAudio is FixtureAudioEngine)
         }
+    }
+
+    /// The sheet ground a fixture launch named reaches the environment the
+    /// graph is built over, and a launch that named none has the standard one.
+    @MainActor
+    @Test("the fixture environment carries the sheet ground its launch named")
+    func fixtureSheetGround() throws {
+        for recipe in SheetGroundRecipe.allCases {
+            let launch = FixtureLaunch(start: .settings(.integrations), sheetGround: recipe)
+            let environment = try AppEnvironment.fixture(launch, mascot: StillMascot(), viewers: FakeBrowserViewers(), mediaReader: FakeMediaReader())
+
+            #expect(environment.sheetGround == recipe)
+        }
+        #expect(FixtureLaunch(start: .surface(.home)).sheetGround == .standard)
     }
 
     /// The pane is looked at beside a conversation, on the fixture's own two

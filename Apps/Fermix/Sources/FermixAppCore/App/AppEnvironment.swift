@@ -42,6 +42,9 @@ struct AppEnvironment {
     /// reason: its implementation links the Rive runtime, which only the GUI
     /// executable may load.
     let mascot: any MascotRendering
+    /// Which glass the sheets wear: the standard recipe, on every
+    /// configuration but a fixture launch that names the other.
+    let sheetGround: SheetGroundRecipe
     /// The browser pane's engine, behind the same kind of seam: its
     /// implementation links WebKit, which the agent must never load. A factory,
     /// because the engine is built over the website profile on the first tab.
@@ -158,6 +161,7 @@ extension AppEnvironment {
             opener: WorkspaceExternalOpener(),
             updater: updater,
             mascot: mascot,
+            sheetGround: .standard,
             makeBrowser: browser,
             viewers: viewers,
             mediaReader: mediaReader,

@@ -398,14 +398,17 @@ enum FixturePresentation: Equatable {
     case channelsWithPhone(PhoneSheetIntent)
 }
 
-/// One fixture launch: where it lands, and the machine it lands on.
+/// One fixture launch: where it lands, the machine it lands on, and the glass
+/// its sheets wear.
 struct FixtureLaunch {
     let start: FixtureStart
     let home: FixtureHome
+    let sheetGround: SheetGroundRecipe
 
-    init(start: FixtureStart) {
+    init(start: FixtureStart, sheetGround: SheetGroundRecipe = .standard) {
         self.start = start
         self.home = FixtureHome.forStart(start)
+        self.sheetGround = sheetGround
     }
 
     /// What this launch opens.
@@ -803,6 +806,7 @@ extension AppEnvironment {
             opener: FixtureExternalOpener(),
             updater: UnwiredUpdater(),
             mascot: mascot,
+            sheetGround: launch.sheetGround,
             // Fake pages, so the pane is looked at with no web engine and no
             // network behind it.
             makeBrowser: { _ in FixtureBrowserEngine() },

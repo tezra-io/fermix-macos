@@ -382,12 +382,15 @@ struct IntegrationsPane: View {
         .navigationTitle(SettingsPane.integrations.title)
         .sheet(item: $consenting) { row in
             IntegrationConsentSheet(row: row, model: model, runner: work) { consentClosed(row) }
+                .sheetGround()
         }
         .sheet(item: $detail) { row in
             IntegrationDetailSheet(name: row.name, model: model, runner: work) { detail = nil }
+                .sheetGround()
         }
         .sheet(item: $client) { target in
             OAuthClientSheet(provider: target.provider, model: model) { client = nil }
+                .sheetGround()
         }
         .sheet(item: $serverSheet) { target in
             MCPServerSheet(
@@ -400,6 +403,7 @@ struct IntegrationsPane: View {
                 },
                 dismiss: { serverSheet = nil }
             )
+            .sheetGround()
         }
         .task {
             await model.refreshPlugins()

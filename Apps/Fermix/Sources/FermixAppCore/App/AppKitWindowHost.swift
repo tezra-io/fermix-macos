@@ -26,6 +26,9 @@ struct AppSurfaces {
     /// The mascot renderer the executable handed in, carried by every window's
     /// root so the companion and Ready draw the one animation.
     let mascot: any MascotRendering
+    /// Which glass every sheet wears, carried by every window's root so a
+    /// sheet inherits it from the view that presents it.
+    let sheetGround: SheetGroundRecipe
     /// The browser pane's owner, whose pane sits beside the primary window's
     /// body.
     let browser: BrowserCoordinator
@@ -78,7 +81,9 @@ struct AppSurfaces {
     /// drag give it. What lets the content take that size is the split view's
     /// own floor, in `MainWindowView`.
     private func hosting<Content: View>(_ root: Content) -> NSHostingView<ProductTinted<some View>> {
-        let root = root.environment(\.mascot, mascot)
+        let root = root
+            .environment(\.mascot, mascot)
+            .environment(\.sheetGroundRecipe, sheetGround)
         let view = NSHostingView(rootView: ProductTinted(content: root))
         view.sizingOptions = []
 

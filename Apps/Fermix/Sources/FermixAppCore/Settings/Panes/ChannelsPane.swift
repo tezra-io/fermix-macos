@@ -279,6 +279,7 @@ struct ChannelsPane: View {
         }
         .sheet(item: $editing) { row in
             ChannelSheet(row: row, model: model) { editing = nil }
+                .sheetGround()
         }
         // The one Phone sheet, in place of the generic channel sheet. It is up
         // for as long as the model says, which is what lets the last setup
@@ -289,6 +290,7 @@ struct ChannelsPane: View {
                 settings: model,
                 title: ChannelRowProjection.title(of: PhoneChannel.name, titledBy: model.sections(for: .channels))
             )
+            .sheetGround()
         }
         // The probe never prompts. It is read once the daemon has said the
         // channel exists, and again on every return to the app, which is when

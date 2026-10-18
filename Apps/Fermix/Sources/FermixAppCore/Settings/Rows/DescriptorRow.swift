@@ -182,6 +182,7 @@ struct DescriptorRow: View {
             ) {
                 choosingTimeZone = false
             }
+            .sheetGround()
         }
     }
 

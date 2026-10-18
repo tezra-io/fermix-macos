@@ -350,3 +350,137 @@ struct RailRuleTests {
         text.components(separatedBy: needle).count - 1
     }
 }
+
+/// Every popup wears the app's glass (owner, 2026-10-16), as build gates: one
+/// modifier owns a sheet's ground, and the content of every sheet the app
+/// presents wears it at its root.
+@Suite("Sheet ground rule")
+struct SheetGroundRuleTests {
+    /// The case set is every sheet the tree presents, so a sheet added later
+    /// either wears the ground or fails here. Checked at the root: a ground
+    /// worn by something inside the content leaves the system's panel round it.
+    @Test("every sheet's content wears the sheet ground at its root")
+    func everySheetWearsTheGround() throws {
+        var presented = 0
+
+        for file in try SourceTree.swiftFiles(under: "", excluding: false) {
+            for content in try Self.sheetContents(in: file.text) {
+                presented += 1
+                guard let content else {
+                    Issue.record("\(file.path) presents a sheet with no trailing content closure")
+                    continue
+                }
+
+                #expect(
+                    content.hasSuffix(".sheetGround()"),
+                    "\(file.path) presents a sheet whose root does not wear the ground: \(content.suffix(120))"
+                )
+            }
+        }
+
+        // A scan that finds nothing passes every assertion it makes.
+        #expect(presented >= 15, "only \(presented) sheets were scanned")
+    }
+
+    /// The scan itself, on the cases it has to tell apart: it is the gate, so
+    /// a scan that stopped seeing a bare sheet would pass a tree full of them.
+    @Test("the scan sees a sheet without the ground, and only sheets")
+    func scanTellsTheCasesApart() throws {
+        let source = """
+            .sheet(item: $row) { row in
+                RowSheet(row: row) { dismiss() }
+                    .sheetGround()
+            }
+            .sheet(isPresented: $shown) { BareSheet() }
+            .sheet(isPresented: $nested) {
+                Outer { Inner().sheetGround() }
+            }
+            .sheet(isPresented: $labelled, content: { LabelledSheet() })
+            // .sheet(isPresented: $commented) { Commented() }
+            present(.sheet(.detail(row)))
+            """
+        let contents = try Self.sheetContents(in: source)
+
+        #expect(contents.count == 4)
+        #expect(contents[0]?.hasSuffix(".sheetGround()") == true)
+        #expect(contents[1] == "BareSheet()")
+        #expect(contents[2]?.hasSuffix(".sheetGround()") == false)
+        #expect(contents[3] == nil)
+    }
+
+    /// One owner: the presentation background is set in one place, and the
+    /// frame recipe is the frame's own glass rather than a copy of it. Liquid
+    /// Glass stays out of the frame (owner, 2026-09-25), so the sheet ground is
+    /// the one place it is drawn.
+    @Test("one modifier owns a sheet's ground, and the frame recipe is the default")
+    func oneOwner() throws {
+        let files = try SourceTree.swiftFiles(under: "", excluding: false)
+        let owner = "Design/Materials/SheetGround.swift"
+
+        #expect(Self.paths(of: files.filter { $0.text.contains(".presentationBackground") }) == [owner])
+        #expect(Self.paths(of: files.filter { $0.text.contains("NSGlassEffectView(") }) == [owner])
+
+        let text = try #require(try SourceTree.swiftFiles(matching: owner).first?.text)
+        #expect(text.contains("case .frame: FrameGlass()"))
+        #expect(
+            text.contains("LiquidGlassMaterial()\n        } else {\n            FrameGlass()\n        }"),
+            "the liquid recipe has no macOS 15 form"
+        )
+        #expect(SheetGroundRecipe.standard == .frame)
+        #expect(SheetGroundRecipe.allCases == [.frame, .liquid])
+    }
+
+    /// The content of every sheet a file presents: the trailing closure after
+    /// the presentation's arguments, trimmed. A presentation with no trailing
+    /// closure answers nil, which fails the gate rather than escaping it.
+    ///
+    /// A presentation is found by the two labels every SwiftUI sheet opens
+    /// with, so an enum case named `sheet` is not one, and whole-line comments
+    /// are blanked first, so prose that names a sheet is not one either.
+    static func sheetContents(in source: String) throws -> [String?] {
+        let code = source
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") ? "" : String($0) }
+            .joined(separator: "\n")
+        let presentation = try NSRegularExpression(pattern: #"\.sheet\(\s*(?:isPresented|item)\s*:"#)
+
+        return presentation.matches(in: code, range: NSRange(code.startIndex..., in: code)).map { match in
+            guard let found = Range(match.range, in: code),
+                let open = code[found].lastIndex(of: "("),
+                let close = closing(from: open, in: code, opens: "(", closes: ")")
+            else { return nil }
+
+            let rest = code[code.index(after: close)...]
+            guard let brace = rest.firstIndex(where: { !$0.isWhitespace }), code[brace] == "{",
+                let end = closing(from: brace, in: code, opens: "{", closes: "}")
+            else { return nil }
+
+            return code[code.index(after: brace)..<end].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    /// Where the bracket opened at `start` closes.
+    private static func closing(
+        from start: String.Index,
+        in code: String,
+        opens: Character,
+        closes: Character
+    ) -> String.Index? {
+        var depth = 0
+        var index = start
+        while index < code.endIndex {
+            if code[index] == opens { depth += 1 }
+            if code[index] == closes {
+                depth -= 1
+                if depth == 0 { return index }
+            }
+            index = code.index(after: index)
+        }
+
+        return nil
+    }
+
+    private static func paths(of files: [SourceTree.File]) -> [String] {
+        files.map { String($0.path.dropFirst(SourceTree.root.path.count + 1)) }.sorted()
+    }
+}

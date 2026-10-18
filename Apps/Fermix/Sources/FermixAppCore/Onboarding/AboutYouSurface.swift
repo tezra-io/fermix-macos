@@ -54,6 +54,7 @@ struct AboutYouSurface: View {
         .padding(.top, Spacing.xs)
         .sheet(isPresented: $choosingTimezone) {
             TimeZoneSheet(selection: $model.answers.timezone) { choosingTimezone = false }
+                .sheetGround()
         }
     }
 

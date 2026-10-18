@@ -29,6 +29,7 @@ struct ComputerPane: View {
         }
         .sheet(item: $picking) { request in
             InstalledAppsSheet(request: request, model: model) { picking = nil }
+                .sheetGround()
         }
         // Through the model, so a refusal from the helper's probe records the
         // N-1 window here exactly as it does on Permissions.

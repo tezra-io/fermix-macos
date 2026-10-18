@@ -82,11 +82,13 @@ struct MainWindowView: View {
                     restart: restart,
                     refusal: model.restartRefusal
                 ) { model.restartSheetShown = false }
+                .sheetGround()
             }
             // The one sheet of commands (M34 §15.2). Home's Attention row, a
             // Doctor remediation and the Help menu all open this one.
             .sheet(item: $model.instructionsShown) { instructions in
                 CoexistenceInstructionsSheet(instructions: instructions) { model.instructionsShown = nil }
+                    .sheetGround()
             }
             .lifecycleStatus(of: model)
     }

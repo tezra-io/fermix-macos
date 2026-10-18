@@ -40,6 +40,9 @@ final class AppComposition {
     /// The mascot renderer the executable handed in, carried to every window's
     /// root (`AppSurfaces`).
     let mascot: any MascotRendering
+    /// Which glass every sheet wears, carried to every window's root
+    /// (`AppSurfaces`).
+    let sheetGround: SheetGroundRecipe
     /// The update transaction and the seam every update surface reads
     /// (M34 §6, R2 and R3).
     let updates: UpdateCoordinator
@@ -166,6 +169,7 @@ final class AppComposition {
         gate = ServiceMutationGate()
         updater = environment.updater
         mascot = environment.mascot
+        sheetGround = environment.sheetGround
 
         let management = Self.buildManagement(environment: environment, services: services)
         gateway = management.gateway
@@ -269,6 +273,7 @@ final class AppComposition {
             openRecovery: { [coordinator] in coordinator.enterRecovery() },
             restart: { [coordinator] in coordinator.restartDaemon() },
             mascot: mascot,
+            sheetGround: sheetGround,
             browser: browser,
             links: links,
             chatMedia: chatMedia,

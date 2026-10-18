@@ -530,8 +530,13 @@ struct ContainerRuleTests {
     /// the shared background behind that capsule as well as behind the status
     /// sentence, so the same modifier covers both and the inventory stays at
     /// five expressions over four files.
+    ///
+    /// The sheet ground adds a fifth file (owner, 2026-10-16): the Liquid Glass
+    /// recipe, one of the two the owner chooses a sheet's glass from. The floor
+    /// has no Liquid Glass, so there the recipe draws the frame's glass.
     static let macOS26Sites: [String: [String]] = [
         "App/AppKitWindowHost.swift": ["window.titlebarAppearsTransparent = Self.titlebarIsClear("],
+        "Design/Materials/SheetGround.swift": ["NSGlassEffectView("],
         "Design/Components/SurfaceToolbar.swift": [
             "ToolbarSpacer(",
             ".sharedBackgroundVisibility("

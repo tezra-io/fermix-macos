@@ -807,19 +807,24 @@ struct IntegrationSignInWait: View {
         }
     }
 
+    /// The app's two monochrome capsules rather than the system's buttons,
+    /// whose default one filled with the accent: a primary action is the
+    /// icon's ink, and the blue is kept for switches, selection, focus and
+    /// progress (owner, 2026-09-20).
     @ViewBuilder
     private var actions: some View {
         if block == .waiting {
             // No Escape of its own: the page answers that key once, and while
             // this is waiting its answer is this button's.
             Button(ProductStrings[.settingsSheetCancel], action: cancel)
+                .buttonStyle(SecondaryButtonStyle(.row))
 
-            Button(ProductStrings[.providerSignInReopen], action: reopen)
-                .keyboardShortcut(.defaultAction)
+            PrimaryAction(ProductStrings[.providerSignInReopen], size: .row, action: reopen)
                 .disabled(runner.authorizationURL == nil)
                 .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.providerSignInReopen], label))
         } else {
             Button(ProductStrings[.providerSignInRetry], action: retry)
+                .buttonStyle(SecondaryButtonStyle(.row))
                 .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.providerSignInRetry], label))
         }
     }

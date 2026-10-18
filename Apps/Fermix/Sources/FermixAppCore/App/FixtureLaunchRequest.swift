@@ -14,6 +14,10 @@ import Foundation
 public enum FixtureLaunchRequest {
     public static let flag = "--fixture"
     public static let startFlag = "--fixture-start"
+    /// Which glass the sheets wear on this launch (`SheetGroundRecipe`). A
+    /// fixture launch's alone: it is how the two recipes are captured side by
+    /// side, and no other launch can name one.
+    public static let sheetGroundFlag = "--sheet-ground"
     /// Where a launch that names no surface lands.
     public static let defaultStart = "home"
 
@@ -27,6 +31,9 @@ public enum FixtureLaunchRequest {
         /// Present in a build that has no fixture configuration compiled in.
         case notAvailableInThisBuild
         case unknownStart(String)
+        case sheetGroundWithoutFlag
+        case sheetGroundWithoutValue
+        case unknownSheetGround(String)
 
         public var sentence: String {
             switch self {
@@ -43,7 +50,17 @@ public enum FixtureLaunchRequest {
                     """
             case .unknownStart(let name):
                 return "no surface is called \"\(name)\""
+            case .sheetGroundWithoutFlag:
+                return "\(FixtureLaunchRequest.sheetGroundFlag) needs \(FixtureLaunchRequest.flag)"
+            case .sheetGroundWithoutValue:
+                return "\(FixtureLaunchRequest.sheetGroundFlag) needs one of \(Self.sheetGroundNames)"
+            case .unknownSheetGround(let name):
+                return "no sheet ground is called \"\(name)\", only \(Self.sheetGroundNames)"
             }
+        }
+
+        private static var sheetGroundNames: String {
+            SheetGroundRecipe.allCases.map(\.rawValue).joined(separator: ", ")
         }
     }
 
@@ -73,5 +90,29 @@ public enum FixtureLaunchRequest {
         }
 
         return arguments[value]
+    }
+
+    /// The sheet ground this launch names, or the standard one where it names
+    /// none.
+    ///
+    /// Refused without `--fixture`, with no value, repeated or naming a recipe
+    /// this build does not have, for the reason `parse` refuses its own: a
+    /// launch that drew the standard glass after being asked for another would
+    /// report the argument as having worked.
+    public static func sheetGround(_ arguments: [String]) throws -> SheetGroundRecipe {
+        let named = arguments.filter { $0 == sheetGroundFlag }
+        guard named.count <= 1 else { throw Refusal.flagRepeated(sheetGroundFlag) }
+        guard let index = arguments.firstIndex(of: sheetGroundFlag) else { return .standard }
+        guard arguments.contains(flag) else { throw Refusal.sheetGroundWithoutFlag }
+
+        let value = arguments.index(after: index)
+        guard value < arguments.endIndex, !arguments[value].hasPrefix("-") else {
+            throw Refusal.sheetGroundWithoutValue
+        }
+        guard let recipe = SheetGroundRecipe(rawValue: arguments[value]) else {
+            throw Refusal.unknownSheetGround(arguments[value])
+        }
+
+        return recipe
     }
 }

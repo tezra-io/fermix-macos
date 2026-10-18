@@ -44,8 +44,9 @@ struct ConnectAISurface: View {
                     Task { await model.refreshReadiness() }
                 }
             )
+            .sheetGround()
         }
-        .sheet(isPresented: signInSheetShown) { signInSheet }
+        .sheet(isPresented: signInSheetShown) { signInSheet.sheetGround() }
         // The flight ends when the job does, which is where the row's status
         // word goes back to the daemon's and the gate reads again. The sheet
         // can outlive it: a failed sign-in keeps its sentence, and a completed
