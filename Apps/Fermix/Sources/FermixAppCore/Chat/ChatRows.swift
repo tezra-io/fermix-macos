@@ -257,25 +257,10 @@ private struct ChatTurnRow: View {
             }
 
             if ChatTurnStatus(turn) == .thinking {
-                ChatThinkingLine()
+                ThinkingLine(word: ProductStrings[.chatThinking])
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// One quiet line under a turn's draft: the thinking orb beside the word.
-private struct ChatThinkingLine: View {
-    var body: some View {
-        HStack(spacing: Spacing.xs) {
-            ThinkingOrb().accessibilityHidden(true)
-
-            Text(ProductStrings[.chatThinking])
-                .fermixType(Typography.style(.calloutSmall))
-                .foregroundStyle(Palette.faint.color)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.updatesFrequently)
     }
 }
 
