@@ -644,6 +644,16 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// finish: ...".
     case browserHostReasonTaskDownloadRefused = "browserHost.reason.taskDownloadRefused"
 
+    // The native host wire's own refusal messages (M76 §4.4): each stands as
+    // a host error's message, sent to the daemon over native_host.sock, which
+    // records a delivery's failure in them. Never drawn in this app's own UI.
+    /// `not_authorized` while the person has turned notifications off.
+    case nativeHostRefusalTurnedOff = "nativeHost.refusal.turnedOff"
+    /// `not_authorized` while nobody has been asked yet.
+    case nativeHostRefusalNotAsked = "nativeHost.refusal.notAsked"
+    /// `host_unavailable` for a request already on the wire as the app quits.
+    case nativeHostReasonAppQuitting = "nativeHost.reason.appQuitting"
+
     // Pet
     case petCallBegin = "pet.callBegin"
     case petCallEnd = "pet.callEnd"
@@ -942,6 +952,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case permissionScreenRecordingTitle = "permission.screenRecording.title"
     case permissionInputControlTitle = "permission.inputControl.title"
     case permissionBackgroundServiceTitle = "permission.backgroundService.title"
+    /// The app's own notification grant (M76 §4.8). The engine's refusal
+    /// sentence names it as "Settings > Permissions > Notifications > Grant…",
+    /// so this title and `permissionActionGrant` are held to those words.
+    case permissionNotificationsTitle = "permission.notifications.title"
     /// The iMessage helper's three rights (M54 §10.2).
     case permissionMessagesDataTitle = "permission.messagesData.title"
     case permissionMessagesAutomationTitle = "permission.messagesAutomation.title"

@@ -77,6 +77,14 @@ final class AppComposition {
     /// dispatches every request onto `browser`. Connects once, at launch, and
     /// stays connected for the life of the process (plan §4.10).
     let browserHost: BrowserHostClient
+    /// Fermix's notifications on this Mac: the grant, the one prompt, the
+    /// posts and the person's answers to them (M76 §4.4). The native host
+    /// wire and the Permissions row are its two readers.
+    let notifications: MacNotifications
+    /// The daemon's fifth wire: attaches as this Mac's native host and answers
+    /// every request onto `notifications`. Connects once, at launch, beside
+    /// the browser host, and stays connected for the life of the process.
+    let nativeHost: NativeHostClient
     /// The one place a content link is opened: the pane or the person's own
     /// browser, by their preference. Sign-in and the installer never use it.
     let links: ContentLinkOpener
@@ -141,6 +149,16 @@ final class AppComposition {
             configuration: configuration,
             browser: browser
         )
+        notifications = MacNotifications(
+            center: environment.notificationCenter,
+            bundleIdentifier: configuration.bundleIdentifier
+        )
+        nativeHost = Self.buildNativeHost(
+            environment: environment,
+            store: store,
+            configuration: configuration,
+            notifications: notifications
+        )
         links = ContentLinkOpener(
             preference: environment.linkPreference,
             browser: browser,
@@ -171,7 +189,7 @@ final class AppComposition {
         mascot = environment.mascot
         sheetGround = environment.sheetGround
 
-        let management = Self.buildManagement(environment: environment, services: services)
+        let management = Self.buildManagement(environment: environment, services: services, notifications: notifications)
         gateway = management.gateway
         settings = management.settings
         // Entering settings grows the window (decision D3), which the window
@@ -190,7 +208,7 @@ final class AppComposition {
             model: model,
             windows: windows,
             voice: voice,
-            browser: browser,
+            hostQuitting: HostQuitHolds([browser, nativeHost]),
             settings: settings,
             presentation: settingsPresentation
         )
@@ -235,7 +253,7 @@ final class AppComposition {
 
     /// The edges that only exist once both ends do — the coordinator's two
     /// callbacks into surfaces it created, and the window host's view of the
-    /// whole graph — plus the two first reads. Everything else points one way.
+    /// whole graph — plus the first reads. Everything else points one way.
     private func finishAssembly() {
         // The updater starts once, with the transaction bound as its delegate.
         // A bundle whose declared policy is wrong runs none at all, and the
@@ -246,6 +264,15 @@ final class AppComposition {
         // before the person ever opens it, so this asks for the connection
         // once, here, rather than waiting for a surface to ask as chat does.
         browserHost.connect()
+        // The native host wire is always-on for the same reason: a reminder
+        // due on this Mac rings whether or not a window was ever opened.
+        nativeHost.connect()
+        // The grant, read once now, so the Permissions row never opens on a
+        // guess before anything else has asked.
+        Task { [notifications] in await notifications.refresh() }
+        // A click on one of Fermix's notifications is the person asking for
+        // the app, and the coordinator owns which window that puts up.
+        notifications.onOpened = { [coordinator] in coordinator.bringForward() }
         // A staged update replaces the bundle on any exit of this process, so
         // the quit path finishes the stop first (M34 §6, R3). The closure is a
         // backwards edge for the same reason the two below are: the update
@@ -419,6 +446,24 @@ final class AppComposition {
         )
     }
 
+    /// The native host wire: the daemon's fifth socket, attached over this
+    /// Mac's notifications. Its deadlines are run-loop timers, because the
+    /// quit's bound has to fire while AppKit holds the termination.
+    private static func buildNativeHost(
+        environment: AppEnvironment,
+        store: BootstrapStore,
+        configuration: ProductConfiguration,
+        notifications: MacNotifications
+    ) -> NativeHostClient {
+        NativeHostClient(
+            lines: MainActorLineDelivery(wrapping: environment.nativeHostLines),
+            socketPath: { try store.nativeHostSocketPath() },
+            hostVersion: configuration.marketingVersion,
+            notifications: notifications,
+            deadlines: RunLoopDeadlineScheduler()
+        )
+    }
+
     /// The chat session, built once over its own socket, before the player,
     /// the pane and the chat's media, which hold phone-side files by its
     /// grants. Nothing connects it until a surface first asks.
@@ -441,7 +486,8 @@ final class AppComposition {
     /// second is nothing but a reader of the first.
     private static func buildManagement(
         environment: AppEnvironment,
-        services: ServiceController
+        services: ServiceController,
+        notifications: MacNotifications
     ) -> (gateway: ManagementGateway, settings: SettingsModel) {
         // One gateway for every surface: `hello` is negotiated once, and the
         // window it reports is what refuses a call the daemon cannot serve.
@@ -458,7 +504,8 @@ final class AppComposition {
             permissions: PermissionLedger(
                 gateway: gateway,
                 services: services,
-                microphone: environment.microphone
+                microphone: environment.microphone,
+                notifications: notifications
             )
         )
 
@@ -480,7 +527,7 @@ final class AppComposition {
         model: AppModel,
         windows: WindowCoordinator,
         voice: VoiceCoordinator,
-        browser: BrowserCoordinator,
+        hostQuitting: any HostQuitting,
         settings: SettingsModel,
         presentation: SettingsPresentation
     ) -> (lifecycle: LifecycleCoordinator, coordinator: AppCoordinator) {
@@ -510,7 +557,7 @@ final class AppComposition {
                 ),
                 gate: gate,
                 store: store,
-                hostQuitting: browser,
+                hostQuitting: hostQuitting,
                 settings: settings,
                 presentation: presentation
             )
@@ -625,7 +672,7 @@ final class AppComposition {
         updates: any UpdateReconciling,
         gate: ServiceMutationGate,
         store: BootstrapStore,
-        hostQuitting: any BrowserHostQuitting,
+        hostQuitting: any HostQuitting,
         settings: SettingsModel,
         presentation: SettingsPresentation
     ) -> AppCoordinator {

@@ -1,14 +1,19 @@
 import AVFoundation
+import Combine
 import Foundation
 
 /// A right the product needs, and the identity that holds it (M34 §5.9).
 ///
 /// The principal is on the row because one consent never implies another: the
-/// microphone is the GUI's, screen capture and input control belong to the
-/// separate signed helper, the background item is the agent's, and the three
-/// iMessage rights belong to Fermix Messages (M54 §10.2).
+/// microphone and notifications are the GUI's, screen capture and input
+/// control belong to the separate signed helper, the background item is the
+/// agent's, and the three iMessage rights belong to Fermix Messages
+/// (M54 §10.2).
 public enum PermissionRight: String, CaseIterable, Sendable {
     case microphone
+    /// Showing notifications, which is how a reminder or a timer Fermix sets
+    /// rings on this Mac (M76 §4.8).
+    case notifications
     case screenRecording
     case inputControl
     case backgroundService
@@ -23,6 +28,7 @@ public enum PermissionRight: String, CaseIterable, Sendable {
     public var titleKey: ProductStringKey {
         switch self {
         case .microphone: return .permissionMicrophoneTitle
+        case .notifications: return .permissionNotificationsTitle
         case .screenRecording: return .permissionScreenRecordingTitle
         case .inputControl: return .permissionInputControlTitle
         case .backgroundService: return .permissionBackgroundServiceTitle
@@ -34,7 +40,7 @@ public enum PermissionRight: String, CaseIterable, Sendable {
 
     public var principalKey: ProductStringKey {
         switch self {
-        case .microphone: return .permissionPrincipalApp
+        case .microphone, .notifications: return .permissionPrincipalApp
         case .screenRecording, .inputControl: return .permissionPrincipalComputerUse
         case .backgroundService: return .permissionPrincipalAgent
         case .messagesData, .messagesAutomation, .messagesRecipients: return .permissionPrincipalMessages
@@ -56,8 +62,15 @@ public enum PermissionRight: String, CaseIterable, Sendable {
     /// Whether the daemon is what answers for this right. The computer-use
     /// helper's two come from `computer_use.permissions.get` and the iMessage
     /// helper's three from `imessage.permissions.get`, both protocol v2; the
-    /// other two this process reads for itself.
-    public var readByDaemon: Bool { self != .microphone && self != .backgroundService }
+    /// other three this process reads for itself, and the notification grant
+    /// is what this process tells the engine (`capabilities`), never the
+    /// other way round.
+    public var readByDaemon: Bool {
+        switch self {
+        case .microphone, .notifications, .backgroundService: return false
+        case .screenRecording, .inputControl, .messagesData, .messagesAutomation, .messagesRecipients: return true
+        }
+    }
 
     /// Whether this is one of the iMessage helper's rights, which a Mac that
     /// has never used the channel does not see.
@@ -98,6 +111,9 @@ public enum PermissionState: Equatable, Sendable {
 public enum PermissionAction: Equatable, Sendable {
     /// Raises the system dialog for the GUI's own microphone right.
     case requestMicrophone
+    /// Raises the system prompt for the GUI's own notification grant: the
+    /// same call the engine's `notifications.authorize` makes.
+    case requestNotifications
     /// Runs the daemon's grant job, which raises the helper's dialogs.
     case grantComputerUse
     /// Runs `imessage.grant.start` for one service: the Automation prompt, or
@@ -296,6 +312,7 @@ public final class PermissionLedger: ObservableObject {
     private let gateway: any DaemonQuerying
     private let services: ServiceController
     private let microphone: any MicrophoneAuthorizationReading
+    private let notifications: MacNotifications
     private let settingsOpener: any SystemSettingsOpening
     private let log = AppLog.logger(.app)
     /// The background item's registration as macOS last answered. Held rather
@@ -305,20 +322,29 @@ public final class PermissionLedger: ObservableObject {
     /// both. It is read again, off the main thread, on every `refresh()`, which
     /// is what the Permissions pane that draws the row runs as it opens.
     private var agentRegistration: ServiceRegistrationStatus
+    /// The notification grant is read by its owner, on every return to the
+    /// app among other moments, and this redraws the row on each change: a
+    /// person coming back from System Settings sees the row they left there.
+    private var notificationGrant: AnyCancellable?
 
     public init(
         gateway: any DaemonQuerying,
         services: ServiceController,
         microphone: any MicrophoneAuthorizationReading,
+        notifications: MacNotifications,
         settingsOpener: any SystemSettingsOpening = WorkspaceSystemSettingsOpener()
     ) {
         self.gateway = gateway
         self.services = services
         self.microphone = microphone
+        self.notifications = notifications
         self.settingsOpener = settingsOpener
         // Once, before the first draw, so the row never opens on a guess.
         self.agentRegistration = services.status(.agent)
         self.rows = project()
+        notificationGrant = notifications.grantChanged.sink { [weak self] _ in
+            self?.publishRows()
+        }
     }
 
     /// Re-reads every right but the iMessage helper's, which `refreshIMessage()`
@@ -338,6 +364,7 @@ public final class PermissionLedger: ObservableObject {
         }
 
         agentRegistration = await services.registrations().agent
+        await notifications.refresh()
         publishRows()
     }
 
@@ -379,6 +406,14 @@ public final class PermissionLedger: ObservableObject {
     public func requestMicrophone() async {
         _ = await microphone.requestMicrophone()
         publishRows()
+    }
+
+    /// Raises the notification prompt where nobody has been asked yet. The
+    /// one call behind the row's Grant… and the engine's
+    /// `notifications.authorize`, so the prompt names Fermix and is raised
+    /// once, whichever asked; the row redraws from the grant it publishes.
+    public func requestNotifications() async {
+        _ = await notifications.authorize()
     }
 
     /// Opens the pane a row deep-links to, and answers whether it opened. A
@@ -446,6 +481,11 @@ public final class PermissionLedger: ObservableObject {
                 action: microphoneAction
             ),
             PermissionRowModel(
+                right: .notifications,
+                state: notificationsState,
+                action: notificationsAction
+            ),
+            PermissionRowModel(
                 right: .screenRecording,
                 state: helperState(\.screenCapture),
                 action: helperAction(\.screenCapture, pane: Self.screenRecordingPane)
@@ -468,6 +508,27 @@ public final class PermissionLedger: ObservableObject {
         case .granted: return nil
         case .unknown: return .requestMicrophone
         case .notGranted, .requiresApproval: return .openSystemSettings(Self.microphonePane)
+        }
+    }
+
+    /// Not asked yet reads as the microphone's does. Until the framework has
+    /// first answered, the row offers nothing: Grant… on a grant that may
+    /// already be held would be a guess.
+    private var notificationsState: PermissionState {
+        switch notifications.grant {
+        case .granted?: return .granted
+        case .notGranted?: return .notGranted
+        case .notAsked?, nil: return .unknown
+        }
+    }
+
+    /// A grant that was refused is changed where macOS keeps it, under
+    /// Fermix in System Settings' Notifications; one never asked is asked.
+    private var notificationsAction: PermissionAction? {
+        switch notifications.grant {
+        case .granted?, nil: return nil
+        case .notAsked?: return .requestNotifications
+        case .notGranted?: return .openSystemSettings(Self.notificationsPane(for: notifications.bundleIdentifier))
         }
     }
 
@@ -502,6 +563,12 @@ public final class PermissionLedger: ObservableObject {
     public static let microphonePane = "com.apple.preference.security?Privacy_Microphone"
     public static let screenRecordingPane = "com.apple.preference.security?Privacy_ScreenCapture"
     public static let accessibilityPane = "com.apple.preference.security?Privacy_Accessibility"
+    /// Notifications' own page for one app, named by the identity that holds
+    /// the grant, so the dev bundle opens its own page and not the installed
+    /// app's.
+    public static func notificationsPane(for bundleIdentifier: String) -> String {
+        "com.apple.Notifications-Settings.extension?id=\(bundleIdentifier)"
+    }
     /// The iMessage rows' two, read from outside the ledger's actor by the
     /// projection that builds those rows.
     public nonisolated static let fullDiskAccessPane = "com.apple.preference.security?Privacy_AllFiles"

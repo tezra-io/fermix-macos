@@ -13,6 +13,8 @@ public enum AppLog {
         case voice
         case companion
         case browserHost
+        case nativeHost
+        case notifications
         case service
         case lifecycle
         case agent

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -1404,7 +1405,8 @@ struct SettingsPanesTests {
         let ledger = PermissionLedger(
             gateway: gateway,
             services: ServiceController(loginItems: FakeLoginItemService()),
-            microphone: StubMicrophoneAuthorization(state: .notGranted)
+            microphone: StubMicrophoneAuthorization(state: .notGranted),
+            notifications: SettingsFixture.notifications()
         )
 
         #expect(ledger.rows.count == PermissionRight.allCases.count)
@@ -1469,7 +1471,8 @@ struct SettingsPanesTests {
         let ledger = PermissionLedger(
             gateway: try SettingsFixture.gateway(),
             services: ServiceController(loginItems: loginItems),
-            microphone: StubMicrophoneAuthorization()
+            microphone: StubMicrophoneAuthorization(),
+            notifications: SettingsFixture.notifications()
         )
 
         #expect(ledger.row(.backgroundService)?.state == .requiresApproval)
@@ -1483,7 +1486,8 @@ struct SettingsPanesTests {
         let ledger = PermissionLedger(
             gateway: try SettingsFixture.gateway(),
             services: ServiceController(loginItems: FakeLoginItemService()),
-            microphone: StubMicrophoneAuthorization()
+            microphone: StubMicrophoneAuthorization(),
+            notifications: SettingsFixture.notifications()
         )
 
         for row in ledger.rows {
@@ -1492,6 +1496,109 @@ struct SettingsPanesTests {
             #expect(!row.stateWord.isEmpty, "\(row.id)")
             #expect(row.accessibilityValue.contains(row.stateWord), "\(row.id)")
         }
+    }
+
+    // MARK: - Notifications (M76 §4.8)
+
+    /// The app's own grant, read by the app: Fermix's, never the daemon's,
+    /// and drawn against an N-1 daemon too.
+    @Test("the Notifications row is Fermix's own right, read by the app")
+    func notificationsRowIsTheApps() throws {
+        let ledger = try Self.notificationsLedger(FakeNotificationCenter())
+        let row = try #require(ledger.row(.notifications))
+
+        #expect(row.title == "Notifications")
+        #expect(row.principal == ProductStrings[.permissionPrincipalApp])
+        #expect(!PermissionRight.notifications.readByDaemon)
+        #expect(PermissionVisibility.rights(ledger.rows, requiresNewerEngine: true, showsMessages: false).contains { $0.right == .notifications })
+    }
+
+    /// Until the framework has first answered, the row offers nothing: a
+    /// Grant… on a grant that may already be held would be a guess.
+    @Test("the Notifications row offers the one act that clears each grant, and nothing before the first read")
+    func notificationsRowStates() async throws {
+        let center = FakeNotificationCenter(status: .notAsked)
+        let ledger = try Self.notificationsLedger(center)
+
+        let unread = try #require(ledger.row(.notifications))
+        #expect(unread.state == .unknown)
+        #expect(unread.action == nil)
+
+        await ledger.refresh()
+        let notAsked = try #require(ledger.row(.notifications))
+        #expect(notAsked.state == .unknown)
+        #expect(notAsked.stateWord == "Not asked yet")
+        #expect(notAsked.action == .requestNotifications)
+
+        center.status = .notGranted
+        await ledger.refresh()
+        let refused = try #require(ledger.row(.notifications))
+        #expect(refused.stateWord == "Not granted")
+        #expect(refused.action == .openSystemSettings("com.apple.Notifications-Settings.extension?id=io.tezra.FermixPet.test"))
+
+        center.status = .granted
+        await ledger.refresh()
+        let granted = try #require(ledger.row(.notifications))
+        #expect(granted.stateWord == "Granted")
+        #expect(granted.action == nil)
+        #expect(center.promptsRaised == 0, "reading the row never prompts")
+    }
+
+    @Test("Grant… raises the one prompt and the row redraws from its answer")
+    func notificationsGrantRaisesThePrompt() async throws {
+        let center = FakeNotificationCenter(status: .notAsked, promptAnswer: .granted)
+        let ledger = try Self.notificationsLedger(center)
+        await ledger.refresh()
+
+        await ledger.requestNotifications()
+
+        #expect(center.promptsRaised == 1)
+        #expect(ledger.row(.notifications)?.state == .granted)
+        #expect(ledger.row(.notifications)?.action == nil)
+    }
+
+    /// A person who turns notifications off in System Settings comes back to
+    /// the row they left there, with nothing pressed.
+    @Test("the Notifications row redraws when a return to the app finds the grant changed")
+    func notificationsRowFollowsTheReturn() async throws {
+        let center = FakeNotificationCenter(status: .granted)
+        let activations = NotificationCenter()
+        let ledger = try Self.notificationsLedger(
+            center,
+            notifications: MacNotifications(center: center, bundleIdentifier: "io.tezra.FermixPet.test", activations: activations)
+        )
+        await ledger.refresh()
+
+        center.status = .notGranted
+        activations.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+
+        #expect(await yieldUntil { ledger.row(.notifications)?.state == .notGranted })
+    }
+
+    /// The engine's refusal for a grant asked from away tells the person
+    /// where to find it in these words, so the window has to say them.
+    @Test("the way to the Notifications grant reads as the engine's refusal names it")
+    func notificationsPathMatchesTheEnginesSentence() {
+        let path = [
+            ProductStrings[.sidebarSettings],
+            SettingsPane.permissions.title,
+            ProductStrings[.permissionNotificationsTitle],
+            ProductStrings[.permissionActionGrant]
+        ].joined(separator: " > ")
+
+        #expect(path == "Settings > Permissions > Notifications > Grant…")
+    }
+
+    private static func notificationsLedger(
+        _ center: FakeNotificationCenter,
+        notifications: MacNotifications? = nil
+    ) throws -> PermissionLedger {
+        PermissionLedger(
+            gateway: try SettingsFixture.gateway(),
+            services: ServiceController(loginItems: FakeLoginItemService()),
+            microphone: StubMicrophoneAuthorization(),
+            notifications: notifications ?? SettingsFixture.notifications(center)
+        )
     }
 
     // MARK: - Restart

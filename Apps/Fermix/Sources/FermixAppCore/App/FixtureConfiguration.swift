@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import UserNotifications
 
 /// The app's second declared configuration: the whole graph, over the wire
 /// contract's own golden answers, on a throwaway Fermix home.
@@ -688,6 +689,37 @@ struct FixtureMicrophone: MicrophoneAuthorizationReading {
     func requestMicrophone() async -> PermissionState { .granted }
 }
 
+/// Notifications, granted, and nothing ever shown: reading never prompts here,
+/// asking raises no system prompt, and a post goes nowhere, so a fixture run
+/// neither reads nor changes the grants this Mac holds for the bundle.
+@MainActor
+final class FixtureNotificationCenter: UserNotificationCentering {
+    var responses: ((NotificationResponse) -> Void)?
+
+    func grant() async -> NotificationGrant { .granted }
+    func requestAlertsWithSound() async throws -> Bool { true }
+    func categories() async -> Set<UNNotificationCategory> { [] }
+    func setCategories(_ categories: Set<UNNotificationCategory>) {}
+    func add(_ request: UNNotificationRequest) async throws {}
+}
+
+/// The native host wire, unserved: no daemon to attach to, so every connect
+/// answers as an engine that predates the wire would, as the browser host's
+/// fixture socket does.
+final class FixtureNativeHostTransport: LineSocketTransport, @unchecked Sendable {
+    var onMessage: ((NativeHostInbound) -> Void)?
+    var onFailure: ((LineSocketFailure<NativeHostDecodeFailure>) -> Void)?
+
+    func connect(path: String, completion: @escaping (Result<Void, LineSocketConnectFailure>) -> Void) {
+        completion(.failure(.system(errno: ENOENT)))
+    }
+
+    func send(_ line: Data) {}
+    func sendDroppable(_ line: Data) {}
+    func sendDroppable(producing line: @escaping @Sendable () -> Data) {}
+    func close() {}
+}
+
 /// The liveness probes, reading the machine rather than a fixed answer. Every
 /// path but the daemon's own socket is there: the throwaway home is real, and
 /// the socket is the one thing a lifecycle transaction takes away.
@@ -800,6 +832,7 @@ extension AppEnvironment {
             // fixture run from claiming the agent plist changed.
             plists: AbsentAgentPlistDigest(),
             microphone: FixtureMicrophone(),
+            notificationCenter: FixtureNotificationCenter(),
             settingsPanes: FixturePaneStore(),
             sidebarVisibility: FixtureSidebarStore(),
             linkPreference: FixtureLinkPreferenceStore(),
@@ -827,6 +860,7 @@ extension AppEnvironment {
             identities: FixtureDaemonIdentity(),
             companionLines: FixtureCompanionTransport(timeline: launch.companionTimeline),
             browserHostLines: FixtureBrowserHostTransport(),
+            nativeHostLines: FixtureNativeHostTransport(),
             // A scripted daemon on the voice socket and a silent engine under
             // the call, so a call begun from any surface reaches neither the
             // realtime socket nor the microphone: the claim at the top of this

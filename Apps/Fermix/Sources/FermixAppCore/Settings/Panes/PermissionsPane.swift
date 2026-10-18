@@ -119,6 +119,7 @@ struct PermissionRow: View {
     private func title(of action: PermissionAction) -> String {
         switch action {
         case .requestMicrophone: return ProductStrings[.permissionActionGrant]
+        case .requestNotifications: return ProductStrings[.permissionActionGrant]
         case .grantComputerUse: return ProductStrings[.permissionActionGrant]
         case .grantIMessage: return ProductStrings[.permissionActionGrant]
         case .confirmIMessageRecipients: return ProductStrings[.permissionActionConfirm]
@@ -127,13 +128,15 @@ struct PermissionRow: View {
         }
     }
 
-    /// Every branch is an explicit request the operator made. The microphone is
-    /// the GUI's own right; each helper's rights are the daemon's grant jobs;
-    /// the rest are deep links into System Settings.
+    /// Every branch is an explicit request the operator made. The microphone and
+    /// notifications are the GUI's own rights; each helper's rights are the
+    /// daemon's grant jobs; the rest are deep links into System Settings.
     private func perform(_ action: PermissionAction) {
         switch action {
         case .requestMicrophone:
             Task { await requestMicrophone() }
+        case .requestNotifications:
+            Task { await permissions.requestNotifications() }
         case .grantComputerUse:
             Task { await model.startComputerUseGrant(on: grant) }
         case .grantIMessage(let service):

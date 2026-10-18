@@ -529,6 +529,12 @@
 "browserHost.reason.personCancelled" = "Cancelled from the browser pane";
 "browserHost.reason.taskDownloadRefused" = "the Fermix app’s browser does not save a task’s files";
 
+/* The native host wire's own refusal messages: sent to the daemon over
+   native_host.sock as a host error's message, never shown in this app. */
+"nativeHost.refusal.turnedOff" = "Notifications are turned off for Fermix in System Settings";
+"nativeHost.refusal.notAsked" = "Notifications have not been allowed for Fermix on this Mac yet";
+"nativeHost.reason.appQuitting" = "the app is quitting";
+
 /* MARK: Pet */
 "pet.callBegin" = "Begin voice call";
 "pet.callEnd" = "End voice call";
@@ -874,6 +880,7 @@
 "permission.screenRecording.title" = "Screen recording";
 "permission.inputControl.title" = "Accessibility";
 "permission.backgroundService.title" = "Background service";
+"permission.notifications.title" = "Notifications";
 "permission.messagesData.title" = "Messages data";
 "permission.messagesAutomation.title" = "Messages automation";
 "permission.messagesRecipients.title" = "Who Fermix may message";

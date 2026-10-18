@@ -29,9 +29,6 @@ import Foundation
 /// `BrowserDownloads` carries it to its end.
 @MainActor
 public final class BrowserCoordinator {
-    /// How long a quit waits for the daemon's answer to `host_stopping`.
-    public static let quitBound: TimeInterval = 2
-
     public let model: BrowserModel
 
     private let makeEngine: BrowserEngineMaking
@@ -824,7 +821,7 @@ public final class BrowserCoordinator {
     }
 }
 
-extension BrowserCoordinator: BrowserHostQuitting {
+extension BrowserCoordinator: HostQuitting {
     /// Reports the app terminating while it still may, then releases every
     /// task tab and, attached, sends `host_stopping` and holds the quit until
     /// the answer or the bound, whichever comes first (BROWSER-7).

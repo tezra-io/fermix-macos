@@ -381,6 +381,20 @@ struct FixtureConfigurationTests {
         }
     }
 
+    /// A fixture launch neither reads nor changes the notification grant this
+    /// Mac holds for the bundle, and attaches to no daemon's native host
+    /// socket, whichever surface it starts on.
+    @MainActor
+    @Test("the fixture environment hands the native host an unserved socket and a scripted center")
+    func fixtureNativeHostSeams() throws {
+        for start in [FixtureStart.surface(.home), .settings(.permissions)] {
+            let environment = try AppEnvironment.fixture(FixtureLaunch(start: start), mascot: StillMascot(), viewers: FakeBrowserViewers(), mediaReader: FakeMediaReader())
+
+            #expect(environment.nativeHostLines is FixtureNativeHostTransport)
+            #expect(environment.notificationCenter is FixtureNotificationCenter)
+        }
+    }
+
     /// The sheet ground a fixture launch named reaches the environment the
     /// graph is built over, and a launch that named none has the standard one.
     @MainActor

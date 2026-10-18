@@ -5,8 +5,8 @@ import Foundation
 /// The graph in `AppComposition` is one shape with one wiring; this is the
 /// boundary that shape stands on — the account's directories, the management,
 /// companion and realtime sockets, `SMAppService`, the microphone and the
-/// speaker, user defaults, the browser, the liveness probes, and the clock the
-/// waits sleep on. Naming the boundary once
+/// speaker, the notification center, user defaults, the browser, the liveness
+/// probes, and the clock the waits sleep on. Naming the boundary once
 /// is what lets a second configuration exist without a second graph, and what
 /// keeps a surface from reaching past the graph to read the machine directly.
 ///
@@ -29,6 +29,9 @@ struct AppEnvironment {
     let loginItems: any LoginItemService
     let plists: any AgentPlistDigesting
     let microphone: any MicrophoneAuthorizationReading
+    /// This bundle's notification center, which answers for the grants this
+    /// Mac holds for the running bundle.
+    let notificationCenter: any UserNotificationCentering
     let settingsPanes: any SettingsPaneStoring
     let sidebarVisibility: any SidebarVisibilityStoring
     /// Where a clicked link opens: the pane or the person's own browser.
@@ -75,6 +78,8 @@ struct AppEnvironment {
     let companionLines: CompanionSocketClient.LineSocket
     /// The browser host wire's own line socket, the same way.
     let browserHostLines: BrowserHostClient.LineSocket
+    /// The native host wire's own line socket, the same way.
+    let nativeHostLines: NativeHostClient.LineSocket
     /// The voice wire's line socket, the same way. One socket for the one
     /// voice session.
     let realtimeLines: RealtimeSocketClient.LineSocket
@@ -155,6 +160,7 @@ extension AppEnvironment {
             loginItems: loginItems,
             plists: plists,
             microphone: SystemMicrophoneAuthorization(),
+            notificationCenter: SystemUserNotificationCenter(),
             settingsPanes: UserDefaultsSettingsPaneStore(),
             sidebarVisibility: UserDefaultsSidebarStore(),
             linkPreference: UserDefaultsLinkPreferenceStore(),
@@ -176,6 +182,7 @@ extension AppEnvironment {
             identities: ManagementDaemonIdentityProbe(),
             companionLines: CompanionSocketClient.lineSocket(),
             browserHostLines: BrowserHostClient.lineSocket(),
+            nativeHostLines: NativeHostClient.lineSocket(),
             realtimeLines: RealtimeSocketClient.lineSocket(),
             voiceAudio: AudioController(),
             activationPlan: plan,

@@ -65,7 +65,7 @@ enum EngineReconcilerFixture {
 /// Every seam is a double: the gateway is the fixture daemon, the store is in
 /// memory, the sleeper consumes its wait instantly, the browser records rather
 /// than opens, System Settings records the panes it was asked for, and the
-/// microphone is scripted.
+/// microphone and the notification center are scripted.
 @MainActor
 enum SettingsFixture {
     static func model(
@@ -74,6 +74,7 @@ enum SettingsFixture {
         opener: RecordingExternalOpener = RecordingExternalOpener(),
         settingsOpener: RecordingSystemSettingsOpener = RecordingSystemSettingsOpener(),
         microphone: StubMicrophoneAuthorization = StubMicrophoneAuthorization(),
+        notifications: MacNotifications? = nil,
         loginItems: FakeLoginItemService = FakeLoginItemService(),
         sleeper: any Sleeping = NoWaitSleeper()
     ) -> SettingsModel {
@@ -86,8 +87,19 @@ enum SettingsFixture {
                 gateway: gateway,
                 services: ServiceController(loginItems: loginItems),
                 microphone: microphone,
+                notifications: notifications ?? Self.notifications(),
                 settingsOpener: settingsOpener
             )
+        )
+    }
+
+    /// Notifications over a scripted center that has not been asked, and a
+    /// private activation center, so nothing outside a case reads the grant.
+    static func notifications(_ center: FakeNotificationCenter? = nil) -> MacNotifications {
+        MacNotifications(
+            center: center ?? FakeNotificationCenter(),
+            bundleIdentifier: "io.tezra.FermixPet.test",
+            activations: NotificationCenter()
         )
     }
 

@@ -31,16 +31,3 @@ public protocol BrowserHostLink: BrowserHostStopping, BrowserTaskCancelling {
     /// is answered rather than left to time out.
     func downloadRefused(_ download: UUID, tab: BrowserTab.ID, filename: String, reason: String)
 }
-
-/// The host's part of a quit, as the app coordinator asks for it.
-@MainActor
-public protocol BrowserHostQuitting: AnyObject {
-    /// Starts the host's part of a quit. `done` runs once: at once where there
-    /// is no daemon to tell, and otherwise when the daemon answers
-    /// `host_stopping` or the bound elapses, whichever comes first.
-    ///
-    /// Called from the run loop, never from inside a main-actor task: AppKit
-    /// spins a nested run loop while a termination is held, and main-actor work
-    /// queued behind the block that entered it never runs (plan §4.8).
-    func stopHost(done: @escaping @MainActor () -> Void)
-}

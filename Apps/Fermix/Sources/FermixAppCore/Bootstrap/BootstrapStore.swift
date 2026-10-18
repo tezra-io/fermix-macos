@@ -106,6 +106,12 @@ public struct BootstrapStore {
         BootstrapRecord(fermixHome: try resolvedHome()).browserHostSocketURL.path
     }
 
+    /// The native host socket for this account's home, named on the record
+    /// for the same reason.
+    public func nativeHostSocketPath() throws -> String {
+        BootstrapRecord(fermixHome: try resolvedHome()).nativeHostSocketURL.path
+    }
+
     /// The engine's workspace directory for this account's home, the root an
     /// upload path must fall under.
     public func workspaceDirectoryURL() throws -> URL {
