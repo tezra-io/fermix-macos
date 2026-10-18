@@ -422,6 +422,15 @@ extension ManagementClient {
         try await mcpServerVerb(.mcpServersGet, name: name)
     }
 
+    /// Reads what was typed or pasted into the add form, and writes nothing.
+    public func draftMCPServer(text: String) async throws -> ManagementMCPDrafts {
+        try await send(
+            .mcpServersDraft,
+            params: ManagementMCPDraftParams(text: try requireText(text, field: "text")),
+            as: ManagementMCPDrafts.self
+        )
+    }
+
     public func addMCPServer(_ spec: ManagementMCPServerSpec) async throws -> ManagementMCPServerAdded {
         _ = try requireText(spec.name, field: "name")
 

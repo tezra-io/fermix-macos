@@ -14,12 +14,17 @@ public enum MCPFormField: Hashable, Sendable {
     case clientID
     case clientSecret
     case workingFolder
+    /// What was pasted or typed into the URL or the command field: the
+    /// daemon's `text` when it reads it, and the `draft_id` that holds what
+    /// it carried.
+    case paste
 
     /// The input a refusal's `details.field` names, which the daemon spells
     /// as the form's own parameter. `tool` is a switch on the tools page
     /// rather than an input of the form, so it names none here.
     public init?(wire field: String) {
         switch field {
+        case "text", "draft_id": self = .paste
         case "transport": self = .place
         case "url": self = .url
         case "command_line": self = .command
@@ -136,6 +141,20 @@ extension SettingsModel {
         } catch {
             publish(.failure(error), to: \.mcpTools[name])
             noteRead(error, "mcp.servers.get")
+        }
+    }
+
+    /// What was typed or pasted into the add form, read by the daemon, which
+    /// writes nothing. A refusal names the paste field.
+    public func draftMCPServer(text: String) async -> Result<ManagementMCPDrafts, MCPRefusal> {
+        precondition(!text.isEmpty, "a draft reads some text")
+
+        do {
+            return .success(try await gateway.draftMCPServer(text: text))
+        } catch {
+            noteReconcile(error)
+            let field = ManagementMessage.details(of: error)?.field.flatMap(MCPFormField.init(wire:))
+            return .failure(MCPRefusal(sentence: ManagementMessage.sentence(for: error), field: field))
         }
     }
 
@@ -257,12 +276,20 @@ extension SettingsModel {
         return nil
     }
 
-    /// A check or a sign-in ended, so the rows it moved are read back.
+    /// A check or a server's own sign-in ended, so the rows it moved are read
+    /// back. A plugin's sign-in is the plugin detail's to follow.
     public func mcpJobFinished(_ job: ManagementJob) async {
-        guard job.status.isTerminal, job.kind == .mcpCheck || job.kind == .auth else { return }
+        guard job.status.isTerminal else { return }
 
-        if job.kind == .auth { await signInFinished() }
-        await refreshMCPServers()
+        switch job.kind {
+        case .mcpCheck:
+            await refreshMCPServers()
+        case .auth where signingInProvider?.hasPrefix(MCPSecretId.prefix) == true:
+            await signInFinished()
+            await refreshMCPServers()
+        default:
+            return
+        }
     }
 
     // MARK: - One write

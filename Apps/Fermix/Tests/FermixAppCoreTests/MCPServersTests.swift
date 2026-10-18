@@ -289,11 +289,12 @@ struct MCPServersTests {
     // MARK: - The one sheet's pages
 
     @Test("every page goes back where Escape and the chevron say, and an add turns by its outcome")
-    func pageRouting() {
+    func pageRouting() throws {
         #expect(MCPServerPage.add.back == nil)
         #expect(MCPServerPage.detail("linear").back == nil)
         #expect(MCPServerPage.tools("linear").back == .detail("linear"))
         #expect(MCPServerPage.edit("linear").back == .detail("linear"))
+        #expect(MCPServerPage.pasted(try Self.drafts("mcp_servers_draft_pasted_config")).back == .add)
 
         let refusal = MCPRefusal(sentence: "A quotation mark is not closed.", field: .command)
         #expect(MCPServerPage.after(.refused(refusal)) == nil)
@@ -314,6 +315,8 @@ struct MCPServersTests {
             #expect(MCPFormField(wire: wire) == field, "\(wire)")
         }
         #expect(MCPFormField(wire: "tool") == nil, "a tool is a switch on its own page")
+        #expect(MCPFormField(wire: "text") == .paste)
+        #expect(MCPFormField(wire: "draft_id") == .paste)
 
         var form = MCPServerForm()
         form.refuse(MCPRefusal(sentence: "A server named linear is already added.", field: .name))
@@ -432,6 +435,204 @@ struct MCPServersTests {
         #expect(remote.auth == .auto)
         #expect(remote.keyHeader == nil, "a key header means nothing to an automatic sign-in")
         #expect(remote.url == nil)
+    }
+
+    // MARK: - Paste
+
+    @Test("every draft the goldens publish decodes, each with its own draft id")
+    func draftsDecode() throws {
+        let names = try ManagementFixtures.load(.success, from: .management)
+            .filter { try $0.string("method") == ManagementMethod.mcpServersDraft.rawValue }
+            .map(\.name)
+        #expect(names.count == 7)
+        for name in names {
+            let drafts = try Self.drafts(name)
+            #expect(!drafts.drafts.isEmpty, "\(name) answers no draft")
+        }
+
+        let url = try #require(try Self.drafts("mcp_servers_draft_url").drafts.first)
+        #expect(url.name == "linear" && url.transport == .http && url.auth == .auto)
+        #expect(url.draftId == nil, "a URL carries no value")
+        #expect(url.summary == "Remote, mcp.linear.app")
+
+        let command = try #require(try Self.drafts("mcp_servers_draft_command").drafts.first)
+        #expect(command.commandLine == "npx -y @modelcontextprotocol/server-filesystem /Users/owner/Documents", "a typed ~ comes back as the home folder")
+        #expect(command.commandSentence == "Runs /opt/homebrew/bin/npx")
+
+        let missing = try #require(try Self.drafts("mcp_servers_draft_command_not_found").drafts.first)
+        #expect(missing.resolvedCommand == nil)
+        #expect(missing.commandSentence == "Fermix could not find uvx on this Mac. Install uv or use the full path.")
+
+        let pasted = try Self.drafts("mcp_servers_draft_pasted_config").drafts
+        #expect(pasted.map(\.name) == ["sentry", "brave-search"])
+        #expect(pasted.map(\.draftId) == [nil, "draft:7Qm2Xk9pLw4Rt8Vn"], "each draft names its own values")
+        #expect(pasted[1].env == [ManagementMCPSecretName(name: "BRAVE_API_KEY", present: true)])
+
+        let claude = try #require(try Self.drafts("mcp_servers_draft_claude_add").drafts.first)
+        #expect(claude.auth == .header)
+        #expect(claude.keyHeader == "CONTEXT7_API_KEY")
+        #expect(claude.headers == [ManagementMCPSecretName(name: "CONTEXT7_API_KEY", present: true)], "the key's header is among the headers")
+        #expect(claude.draftId == "draft:Lr5Vb9Xq2Mn6Hs3T")
+
+        let codex = try Self.drafts("mcp_servers_draft_codex").drafts
+        #expect(codex.map(\.name) == ["context7", "figma"], "a Codex block's servers come by name")
+        #expect(codex[1].headers == [
+            ManagementMCPSecretName(name: "Authorization", present: false),
+            ManagementMCPSecretName(name: "X-Figma-Region", present: true)
+        ])
+    }
+
+    @Test("a pasted claude mcp add line fills a remote form, its key stored and not asked for again")
+    func pasteFillsARemoteForm() throws {
+        var form = MCPServerForm()
+        form.url = Self.claudeAdd
+        let answer = try Self.drafts("mcp_servers_draft_claude_add")
+
+        #expect(form.apply(answer, sent: form.target, pasted: true) == .filled)
+        #expect(form.place == .remote)
+        #expect(form.url == "https://mcp.context7.com/mcp")
+        #expect(form.name == "context7")
+        #expect(form.signIn == .apiKey)
+        #expect(form.keyHeader == "CONTEXT7_API_KEY")
+        #expect(form.key.showsStored)
+        #expect(form.headers.isEmpty, "the key's header is the key's own field")
+        #expect(form.consentLine == "Runs on mcp.context7.com. What you ask its tools is sent there.")
+        #expect(form.spec == .remote(
+            name: "context7",
+            url: "https://mcp.context7.com/mcp",
+            auth: .header,
+            keyHeader: "CONTEXT7_API_KEY",
+            draftId: "draft:Lr5Vb9Xq2Mn6Hs3T"
+        ))
+        #expect(form.secrets.isEmpty, "a value the paste carried rides its draft id, never secret.set")
+    }
+
+    @Test("a pasted command fills a local form as the daemon reads it, with the line under it")
+    func pasteFillsALocalForm() throws {
+        var form = MCPServerForm()
+        form.url = "npx -y @modelcontextprotocol/server-filesystem ~/Documents"
+        let answer = try Self.drafts("mcp_servers_draft_command")
+
+        _ = form.apply(answer, sent: form.target, pasted: true)
+
+        #expect(form.place == .local, "a command pasted into the URL field turns the form to On this Mac")
+        #expect(form.url.isEmpty)
+        #expect(form.commandLine == "npx -y @modelcontextprotocol/server-filesystem /Users/owner/Documents")
+        #expect(form.name == "filesystem")
+        #expect(form.commandSentence == "Runs /opt/homebrew/bin/npx")
+        #expect(form.commandResolved)
+        #expect(form.draftId == nil)
+
+        form.commandLine += " /Users/owner/Desktop"
+        #expect(form.commandSentence == nil, "the line is the daemon's word on the text it read, not on this one")
+    }
+
+    @Test("typed text is only read: the lines under it and a name, never where it runs or what the owner chose")
+    func typingIsOnlyRead() throws {
+        var form = MCPServerForm()
+        form.place = .local
+        form.commandLine = "uvx some-missing-tool"
+        form.name = "mine"
+        form.nameEdited = true
+        form.variables = [MCPFormEntry(name: "TOKEN", value: "t")]
+
+        _ = form.apply(try Self.drafts("mcp_servers_draft_command_not_found"), sent: form.target, pasted: false)
+        #expect(form.name == "mine")
+        #expect(form.commandSentence == "Fermix could not find uvx on this Mac. Install uv or use the full path.")
+        #expect(!form.commandResolved)
+        #expect(form.variables.map(\.name) == ["TOKEN"])
+
+        var remote = MCPServerForm()
+        remote.url = "uvx mcp-server-fetch"
+        _ = remote.apply(try Self.drafts("mcp_servers_draft_command_uvx"), sent: remote.target, pasted: false)
+        #expect(remote.place == .remote, "typing in the URL field never turns the form around")
+        #expect(remote.name.isEmpty)
+        #expect(remote.consentLine == nil)
+
+        var named = MCPServerForm()
+        named.url = "https://mcp.linear.app/mcp"
+        named.signIn = .none
+        _ = named.apply(try Self.drafts("mcp_servers_draft_url"), sent: named.target, pasted: false)
+        #expect(named.name == "linear", "a name the owner has not typed is the daemon's")
+        #expect(named.signIn == .none)
+    }
+
+    @Test("a paste of several servers turns to their page, each added with its own draft id")
+    func severalServers() throws {
+        var form = MCPServerForm()
+        let codex = try Self.drafts("mcp_servers_draft_codex")
+        form.commandLine = "[mcp_servers.figma]"
+        form.place = .local
+
+        #expect(form.apply(codex, sent: form.target, pasted: true) == .several(codex))
+        #expect(form.apply(codex, sent: form.target, pasted: false) == .filled, "typing never turns the page")
+
+        let items = MCPPastedItem.items(codex)
+        #expect(items.map(\.draft.name) == ["context7", "figma"])
+        #expect(MCPPastedItem.initiallyTicked(items) == [0, 1])
+        #expect(ManagementMCPServerSpec.pasted(codex.drafts[0]) == .local(
+            name: "context7",
+            commandLine: "npx -y @upstash/context7-mcp",
+            envNames: ["CONTEXT7_API_KEY"],
+            draftId: "draft:Wd1Ky7Pc4Fg8Ja2E"
+        ))
+        #expect(ManagementMCPServerSpec.pasted(codex.drafts[1]) == .remote(
+            name: "figma",
+            url: "https://mcp.figma.com/mcp",
+            auth: .header,
+            keyHeader: "Authorization",
+            headerNames: ["X-Figma-Region"],
+            draftId: "draft:Zt6Nq3Re9Hb2Mv5U"
+        ))
+    }
+
+    @Test("a refused paste marks the field it was pasted into, and leaves every other mark")
+    func refusedPasteMarksItsField() async throws {
+        let harness = try Self.harness()
+        await harness.model.refreshMCPServers()
+
+        let answer = await harness.model.draftMCPServer(text: "not a server")
+        let refusal = MCPRefusal(
+            sentence: "Paste a server's address, the command that starts it, or the settings a README or another app gives for it.",
+            field: .paste
+        )
+        #expect(answer == .failure(refusal))
+
+        var form = MCPServerForm()
+        form.errors = [.name: ProductStrings[.mcpFieldNameMissing]]
+        form.mark(refusal)
+        #expect(form.errors == [.name: ProductStrings[.mcpFieldNameMissing], .url: refusal.sentence])
+
+        form.place = .local
+        form.refuse(MCPRefusal(sentence: "This paste has expired. Paste it again.", field: .paste))
+        #expect(form.errors == [.command: "This paste has expired. Paste it again."])
+    }
+
+    @Test("an add whose paste expired is refused under the paste field")
+    func expiredPaste() async throws {
+        let harness = try Self.harness()
+        await harness.model.refreshMCPServers()
+        harness.gateway.v2Failures[.mcpServersAdd] = try ManagementRefusal.published("invalid_params_mcp_servers_add_draft_id")
+        let spec = ManagementMCPServerSpec.pasted(try #require(try Self.drafts("mcp_servers_draft_claude_add").drafts.first))
+
+        let outcome = await harness.model.addMCPServer(spec, values: [], on: harness.model.makeJobRunner())
+
+        #expect(outcome == .refused(MCPRefusal(sentence: "This paste has expired. Paste it again.", field: .paste)))
+        #expect(harness.gateway.mcpSpecs.map(\.draftId) == ["draft:Lr5Vb9Xq2Mn6Hs3T"])
+    }
+
+    @Test("the paste is offered only where the daemon's hello lists mcp.servers.draft")
+    func pasteFollowsHello() async throws {
+        let harness = try Self.harness()
+        await harness.model.refreshMCPServers()
+        #expect(harness.model.serves(.mcpServersDraft))
+
+        let older = try SettingsFixture.gateway()
+        older.hello = try Self.hello(without: [.mcpServersDraft])
+        let olderHarness = try SettingsHarness(gateway: older)
+        await olderHarness.model.refreshMCPServers()
+        #expect(olderHarness.model.serves(.mcpServersList))
+        #expect(!olderHarness.model.serves(.mcpServersDraft))
     }
 
     // MARK: - The model
@@ -644,6 +845,22 @@ struct MCPServersTests {
         #expect(empty.servers.isEmpty)
     }
 
+    @Test("the fixture home reads a golden paste, refuses any other, and an add stores what the paste held")
+    func fixtureReadsPastes() async throws {
+        let client = try await Self.fixtureClient(FixtureMachine(daemonUp: true))
+
+        let pasted = try await client.draftMCPServer(text: Self.claudeAdd)
+        #expect(pasted.drafts.first?.draftId == "draft:Lr5Vb9Xq2Mn6Hs3T")
+        await #expect(throws: ManagementError.self) { _ = try await client.draftMCPServer(text: "not a server") }
+
+        let added = try await client.addMCPServer(.pasted(try #require(pasted.drafts.first)))
+        #expect(added.server.name == "context7")
+        #expect(added.server.auth.state == .signedIn, "the key the paste held is stored with the add")
+        #expect(added.server.status == .starting)
+        #expect(added.jobId == "job:4Vb8nC")
+        #expect(try await client.mcpServers().servers.map(\.name).contains("context7"))
+    }
+
     @Test("an add and a removal on the fixture home move its list")
     func fixtureWritesMoveTheList() async throws {
         let machine = FixtureMachine(daemonUp: true)
@@ -673,6 +890,27 @@ struct MCPServersTests {
         let hello = try FakeDaemonGateway.fixtureResult(named: "hello", as: ManagementHello.self)
 
         return Set(hello.capabilities.methods.compactMap(ManagementMethod.init(rawValue:)))
+    }
+
+    /// The `claude mcp add` line the contract's golden reads.
+    private static let claudeAdd =
+        #"claude mcp add --transport http context7 https://mcp.context7.com/mcp --header "CONTEXT7_API_KEY: ctx7sk-4f1e9a2b""#
+
+    private static func drafts(_ name: String) throws -> ManagementMCPDrafts {
+        try FakeDaemonGateway.fixtureResult(named: name, as: ManagementMCPDrafts.self)
+    }
+
+    /// The golden hello, less some of its methods: an engine a step behind.
+    private static func hello(without methods: Set<ManagementMethod>) throws -> ManagementHello {
+        let fixture = try #require(try ManagementFixtures.load(.success, from: .management).first { $0.name == "hello" })
+        var result = try #require(try fixture.object("response")["result"] as? [String: Any])
+        var capabilities = try #require(result["capabilities"] as? [String: Any])
+        let listed = try #require(capabilities["methods"] as? [String])
+        capabilities["methods"] = listed.filter { !methods.map(\.rawValue).contains($0) }
+        capabilities["minimum_versions"] = nil
+        result["capabilities"] = capabilities
+
+        return try JSONDecoder().decode(ManagementHello.self, from: try JSONSerialization.data(withJSONObject: result))
     }
 
     private static func list() throws -> ManagementMCPServerList {

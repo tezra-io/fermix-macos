@@ -239,7 +239,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 111, "every success record was decoded")
+        #expect(seen.count == 118, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -336,7 +336,7 @@ struct ManagementV2FixtureTests {
             carried += 1
         }
 
-        #expect(carried == 4, "the contract publishes a detail sentence on four records")
+        #expect(carried == 6, "the contract publishes a detail sentence on six records")
     }
 
     /// An MCP server form's refusal names the input it is about in the

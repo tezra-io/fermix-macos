@@ -45,7 +45,7 @@ extension ManagementVocabulary {
 ///
 /// The eleven the engine serves today have a minimum protocol version of 1; the
 /// thirty-one M34 §7.3 adds, the seven the phone channel added, the three the
-/// iMessage channel added and the nine of MCP servers have a minimum of 2. The
+/// iMessage channel added and the ten of MCP servers have a minimum of 2. The
 /// minimum is read from the contract (`ManagementContract.minimumVersion(for:)`),
 /// never restated here: one fact, in the checksum-pinned artifact.
 public enum ManagementMethod: String, CaseIterable, Sendable {
@@ -111,6 +111,7 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     // server, its writes, and the check that connects it.
     case mcpServersList = "mcp.servers.list"
     case mcpServersGet = "mcp.servers.get"
+    case mcpServersDraft = "mcp.servers.draft"
     case mcpServersAdd = "mcp.servers.add"
     case mcpServersUpdate = "mcp.servers.update"
     case mcpServersRemove = "mcp.servers.remove"

@@ -251,6 +251,10 @@ extension ManagementGateway {
         try await negotiated().mcpServer(name: name)
     }
 
+    public func draftMCPServer(text: String) async throws -> ManagementMCPDrafts {
+        try await negotiated().draftMCPServer(text: text)
+    }
+
     public func addMCPServer(_ spec: ManagementMCPServerSpec) async throws -> ManagementMCPServerAdded {
         try await negotiated().addMCPServer(spec)
     }

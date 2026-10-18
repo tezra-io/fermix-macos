@@ -181,6 +181,15 @@ enum ManagementV2Calls {
 
         "mcp_servers_list": { _ = try await $0.mcpServers() },
         "mcp_servers_get": { _ = try await $0.mcpServer(name: "linear") },
+        // A paste in each shape the draft reads: a URL, command lines, a
+        // pasted mcpServers map, a claude mcp add line and a Codex block.
+        "mcp_servers_draft_url": { _ = try await $0.draftMCPServer(text: "https://mcp.linear.app/mcp") },
+        "mcp_servers_draft_command": { _ = try await $0.draftMCPServer(text: "npx -y @modelcontextprotocol/server-filesystem ~/Documents") },
+        "mcp_servers_draft_command_uvx": { _ = try await $0.draftMCPServer(text: "uvx mcp-server-fetch") },
+        "mcp_servers_draft_command_not_found": { _ = try await $0.draftMCPServer(text: "uvx some-missing-tool") },
+        "mcp_servers_draft_pasted_config": { _ = try await $0.draftMCPServer(text: "{\"mcpServers\": {\"sentry\": {\"type\": \"http\", \"url\": \"https://mcp.sentry.dev/mcp\"}, \"brave-search\": {\"command\": \"npx\", \"args\": [\"-y\", \"@brave/brave-search-mcp-server\"], \"env\": {\"BRAVE_API_KEY\": \"BSAk3v9Qx2LmT8wZ\"}}}}") },
+        "mcp_servers_draft_claude_add": { _ = try await $0.draftMCPServer(text: "claude mcp add --transport http context7 https://mcp.context7.com/mcp --header \"CONTEXT7_API_KEY: ctx7sk-4f1e9a2b\"") },
+        "mcp_servers_draft_codex": { _ = try await $0.draftMCPServer(text: "[mcp_servers.figma]\nurl = \"https://mcp.figma.com/mcp\"\nbearer_token_env_var = \"FIGMA_OAUTH_TOKEN\"\nhttp_headers = { \"X-Figma-Region\" = \"us-east-1\" }\n\n[mcp_servers.context7]\ncommand = \"npx\"\nargs = [\"-y\", \"@upstash/context7-mcp\"]\nenv = { \"CONTEXT7_API_KEY\" = \"ctx7sk-4f1e9a2b\" }\n") },
         // An add sends its transport's fields and nothing else: no empty list
         // and no null for a field the form left blank.
         "mcp_servers_add": {
@@ -193,6 +202,18 @@ enum ManagementV2Calls {
                     url: "https://mcp.context7.com/mcp",
                     auth: .header,
                     keyHeader: "CONTEXT7_API_KEY"
+                )
+            )
+        },
+        // A pasted server's add carries its own draft's id, which holds the
+        // value the paste carried, and never the value.
+        "mcp_servers_add_draft": {
+            _ = try await $0.addMCPServer(
+                .local(
+                    name: "brave-search",
+                    commandLine: "npx -y @brave/brave-search-mcp-server",
+                    envNames: ["BRAVE_API_KEY"],
+                    draftId: "draft:7Qm2Xk9pLw4Rt8Vn"
                 )
             )
         },

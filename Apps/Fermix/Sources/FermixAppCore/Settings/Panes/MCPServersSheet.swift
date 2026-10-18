@@ -10,6 +10,8 @@ public enum MCPServerPage: Equatable, Sendable {
     case detail(String)
     case tools(String)
     case edit(String)
+    /// The servers one paste held, listed to add together.
+    case pasted(ManagementMCPDrafts)
 
     /// Where the back control and Escape go. Nil closes the sheet: the add
     /// form and a server's detail are where it opens.
@@ -17,6 +19,7 @@ public enum MCPServerPage: Equatable, Sendable {
         switch self {
         case .add, .detail: return nil
         case .tools(let name), .edit(let name): return .detail(name)
+        case .pasted: return .add
         }
     }
 
@@ -43,7 +46,7 @@ struct MCPSheetTarget: Identifiable, Equatable {
 
     var id: String {
         switch page {
-        case .add: return "add"
+        case .add, .pasted: return "add"
         case .detail(let name), .tools(let name), .edit(let name): return "server:\(name)"
         }
     }
@@ -63,6 +66,13 @@ enum MCPServerSheetMetrics {
     static let labelWidth: Double = 104
     /// The name column of a variable or header row.
     static let entryNameWidth: Double = 136
+    /// The name column of the pasted servers' page.
+    static let pastedNameWidth: Double = 150
+    /// The most lines the URL or the command field grows to for a paste.
+    static let pasteLines = 4
+    /// How long typing in the URL or the command field rests before the
+    /// daemon is asked what it reads.
+    static let draftPause: Duration = .milliseconds(400)
 }
 
 /// The MCP server sheet (M74 §4.2 to §4.6): one sheet, 520 points wide, sized
@@ -101,11 +111,6 @@ struct MCPServerSheet: View {
             // opened on (M74 §5). Pages with a Cancel of their own answer it
             // there first.
             .onExitCommand(perform: escape)
-            .onChange(of: runner.job, initial: true) { _, job in
-                guard let job, job.status.isTerminal else { return }
-
-                Task { await model.mcpJobFinished(job) }
-            }
     }
 
     @ViewBuilder
@@ -144,6 +149,8 @@ struct MCPServerSheet: View {
             )
         case .tools(let name):
             MCPServerToolsPage(name: name, model: model, back: { page = .detail(name) })
+        case .pasted(let drafts):
+            MCPPastedServersPage(drafts: drafts, model: model, runner: runner, back: { page = .add }, done: dismiss)
         }
     }
 

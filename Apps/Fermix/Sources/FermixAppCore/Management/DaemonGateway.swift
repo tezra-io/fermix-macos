@@ -104,6 +104,7 @@ public protocol DaemonQuerying: Sendable {
     func servedMethods() async throws -> Set<ManagementMethod>
     func mcpServers() async throws -> ManagementMCPServerList
     func mcpServer(name: String) async throws -> ManagementMCPServerRow
+    func draftMCPServer(text: String) async throws -> ManagementMCPDrafts
     func addMCPServer(_ spec: ManagementMCPServerSpec) async throws -> ManagementMCPServerAdded
     func updateMCPServer(_ change: ManagementMCPServerChange) async throws -> ManagementMCPServerRow
     func removeMCPServer(name: String) async throws -> ManagementMCPServerRemoved

@@ -395,6 +395,22 @@ extension FakeDaemonGateway {
         return try answer(.mcpServersGet, "mcp_servers_get")
     }
 
+    /// The golden draft of the text asked for, by the golden request that
+    /// asks it, or the daemon's published refusal of a text it cannot read.
+    func draftMCPServer(text: String) async throws -> ManagementMCPDrafts {
+        mcpDraftTexts.append(text)
+        record(.v2(.mcpServersDraft))
+        if let failure = v2Failures[.mcpServersDraft] { throw failure }
+        try checkNegotiation(for: .mcpServersDraft)
+
+        let read = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let name = try FixtureManagementTransport.draftTexts().first(where: { $0.value == read })?.key else {
+            throw try ManagementRefusal.published("invalid_params_mcp_servers_draft_text")
+        }
+
+        return try FakeDaemonGateway.fixtureResult(named: name, as: ManagementMCPDrafts.self)
+    }
+
     /// The golden add of the transport asked for: a local server that starts
     /// a check, or a remote one waiting for its key.
     func addMCPServer(_ spec: ManagementMCPServerSpec) async throws -> ManagementMCPServerAdded {

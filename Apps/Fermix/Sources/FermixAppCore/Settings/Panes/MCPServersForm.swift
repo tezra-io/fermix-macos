@@ -70,12 +70,26 @@ public struct MCPFormEntry: Identifiable, Equatable, Sendable {
     public var showsStored: Bool { stored && !replacing }
 }
 
+/// The daemon's reading of the text the URL or the command field held: the
+/// lines the form draws for it while the field still holds that text.
+public struct MCPDraftReading: Equatable, Sendable {
+    /// The field's text, as it was read.
+    public let text: String
+    public let consent: String
+    /// `Runs <program>`, or the sentence for a program this Mac does not
+    /// have. Nil while the daemon does not know the program yet.
+    public let commandSentence: String?
+    public let resolved: Bool
+}
+
 /// The add and edit form, as a value (M74 §4.2, §4.6).
 ///
 /// The rules live here rather than in the view, so they are proven without a
-/// window: what an add sends, what an edit changes, which values go to the
-/// Keychain and under which id, and where a refusal is drawn. Names travel on
-/// the `mcp.servers.*` methods; every value travels alone in `secret.set`.
+/// window: what a draft fills in, what an add sends, what an edit changes,
+/// which values go to the Keychain and under which id, and where a refusal is
+/// drawn. Names travel on the `mcp.servers.*` methods; a value travels alone
+/// in `secret.set`, or stays with the daemon under the draft id of the paste
+/// that carried it.
 public struct MCPServerForm: Equatable, Sendable {
     /// The two headers a key is usually sent in, which the `Header` combo box
     /// offers. `Authorization` carries it as `Bearer <key>`.
@@ -85,6 +99,8 @@ public struct MCPServerForm: Equatable, Sendable {
     public var url = ""
     public var commandLine = ""
     public var name = ""
+    /// The owner typed the name, so a draft no longer fills it.
+    public var nameEdited = false
     /// Fixed once the server exists, because the agent knows its tools by it.
     public var nameFixed = false
     public var signIn: MCPSignInChoice = .automatic
@@ -99,6 +115,10 @@ public struct MCPServerForm: Equatable, Sendable {
     /// Where the code runs and what leaves this Mac, in the daemon's words:
     /// the server's own line on an edit.
     public var consent: String?
+    /// The last draft of the URL or the command field.
+    public var reading: MCPDraftReading?
+    /// The paste whose values the add stores for the names it declares.
+    public var draftId: String?
     public var errors: [MCPFormField: String] = [:]
     /// A refusal that named no input on this form.
     public var refusal: String?
@@ -125,6 +145,108 @@ public struct MCPServerForm: Equatable, Sendable {
         workingFolder = server.cwd ?? ""
         consent = server.consentSentence
         moreOptions = !headers.isEmpty || !clientID.isEmpty || !workingFolder.isEmpty
+    }
+
+    // MARK: - Drafts
+
+    /// What a draft answer did to the form.
+    public enum DraftOutcome: Equatable, Sendable {
+        case filled
+        /// A paste held several servers, which a page of their own lists.
+        case several(ManagementMCPDrafts)
+    }
+
+    /// The input a paste lands in, which is where its refusal is drawn: the
+    /// URL or the command field, whichever the place shows.
+    public var pasteField: MCPFormField { place == .remote ? .url : .command }
+
+    /// The line under the command, while the field holds the text it was
+    /// read for.
+    public var commandSentence: String? {
+        guard place == .local, let reading, reading.text == target else { return nil }
+
+        return reading.commandSentence
+    }
+
+    /// Whether the line under the command names the program it runs, rather
+    /// than one this Mac does not have.
+    public var commandResolved: Bool { reading?.resolved ?? false }
+
+    /// The consent line: the daemon's reading of what the field holds now,
+    /// or the server's own on an edit.
+    public var consentLine: String? {
+        guard let reading, reading.text == target else { return consent }
+
+        return reading.consent
+    }
+
+    /// Fills the form from the daemon's reading of `sent`, the text the URL
+    /// or the command field held.
+    ///
+    /// Typed text is only read: the line under the command, the consent line
+    /// and a name the owner has not typed. A paste on an add fills the form:
+    /// where the server runs, the field as the daemon reads it, and where the
+    /// paste carried more than an address, its sign-in, the names it declares
+    /// and, as stored, the values it carried, held under the draft's own id.
+    /// A paste of several servers turns to the page that lists them.
+    public mutating func apply(_ answer: ManagementMCPDrafts, sent: String, pasted: Bool) -> DraftOutcome {
+        let filling = pasted && !nameFixed
+        guard answer.drafts.count == 1, let draft = answer.drafts.first else {
+            return filling ? .several(answer) : .filled
+        }
+
+        errors[.url] = nil
+        errors[.command] = nil
+        if filling { fill(from: draft) }
+        guard MCPServerPlace(draft.transport) == place, filling || target == sent else { return .filled }
+
+        if !nameEdited, !nameFixed { name = draft.name }
+        reading = MCPDraftReading(
+            text: target,
+            consent: draft.consentSentence,
+            commandSentence: draft.commandSentence,
+            resolved: draft.resolvedCommand != nil
+        )
+        return .filled
+    }
+
+    /// Puts a refusal of what was pasted or typed under the input it names,
+    /// leaving every other mark where it was.
+    public mutating func mark(_ refusal: MCPRefusal) {
+        guard let field = refusal.field else {
+            self.refusal = refusal.sentence
+            return
+        }
+
+        errors[field == .paste ? pasteField : field] = refusal.sentence
+    }
+
+    private mutating func fill(from draft: ManagementMCPDraft) {
+        place = MCPServerPlace(draft.transport)
+        url = draft.url ?? ""
+        commandLine = draft.commandLine ?? ""
+        guard Self.carriesMoreThanAnAddress(draft) else { return }
+
+        draftId = draft.draftId
+        signIn = MCPSignInChoice(draft.auth)
+        let key = draft.headers.first { $0.name == draft.keyHeader }
+        if let key {
+            keyHeader = key.name
+            self.key = MCPFormEntry(name: key.name, stored: key.present)
+        }
+        headers = draft.headers.filter { $0 != key }.map { MCPFormEntry(name: $0.name, stored: $0.present) }
+        variables = draft.env.map { MCPFormEntry(name: $0.name, stored: $0.present) }
+        workingFolder = draft.cwd ?? ""
+        clientID = draft.oauthClientId ?? ""
+        moreOptions = !headers.isEmpty || !clientID.isEmpty || !workingFolder.isEmpty
+    }
+
+    /// Whether a paste said more about its server than where it is: a value,
+    /// a name it declares, a sign-in, a folder or a client. A pasted address
+    /// alone leaves what the owner chose on the form as it was.
+    private static func carriesMoreThanAnAddress(_ draft: ManagementMCPDraft) -> Bool {
+        draft.draftId != nil || !draft.env.isEmpty || !draft.headers.isEmpty || draft.cwd != nil
+            || draft.keyHeader != nil || draft.oauthClientId != nil || draft.auth == .header
     }
 
     // MARK: - What a click sends
@@ -155,14 +277,16 @@ public struct MCPServerForm: Equatable, Sendable {
                 auth: signIn.mode,
                 keyHeader: sentKeyHeader,
                 headerNames: Self.names(headers),
-                oauthClientId: sentClientID
+                oauthClientId: sentClientID,
+                draftId: draftId
             )
         case .local:
             return .local(
                 name: trimmed(name),
                 commandLine: target,
                 cwd: folder.isEmpty ? nil : folder,
-                envNames: Self.names(variables)
+                envNames: Self.names(variables),
+                draftId: draftId
             )
         }
     }
@@ -217,23 +341,19 @@ public struct MCPServerForm: Equatable, Sendable {
         }
     }
 
-    /// Puts the daemon's refusal under the input it named, or at the foot of
-    /// the form where it named none on it.
+    /// Puts the daemon's refusal of a write under the input it named, or at
+    /// the foot of the form where it named none on it, in place of every
+    /// earlier mark.
     public mutating func refuse(_ refusal: MCPRefusal) {
         errors = [:]
         self.refusal = nil
-        guard let field = refusal.field else {
-            self.refusal = refusal.sentence
-            return
-        }
-
-        errors[field] = refusal.sentence
+        mark(refusal)
     }
 
     // MARK: - The inputs as they are sent
 
-    /// The URL or the command, whichever the place shows.
-    private var target: String { trimmed(place == .remote ? url : commandLine) }
+    /// The URL or the command, whichever the place shows, as it is sent.
+    public var target: String { trimmed(place == .remote ? url : commandLine) }
 
     private var folder: String { trimmed(workingFolder) }
 
@@ -273,8 +393,10 @@ public struct MCPServerForm: Equatable, Sendable {
 ///
 /// The deciding control comes first and reveals the rest; More options is
 /// closed until asked for; every refusal is the daemon's sentence under the
-/// field it names. The page owns no scroll: what does not fit is shortened,
-/// not scrolled.
+/// field it names. Where the daemon reads pastes, the URL and the command
+/// field take a whole configuration, and what is typed there is read as the
+/// owner pauses. The page owns no scroll: what does not fit is shortened, not
+/// scrolled.
 struct MCPServerFormPage: View {
     enum Mode: Equatable {
         case add
@@ -290,6 +412,10 @@ struct MCPServerFormPage: View {
     let cancel: () -> Void
 
     @State private var saving = false
+    @State private var drafting: Task<Void, Never>?
+
+    /// Whether the daemon reads what is typed or pasted (`mcp.servers.draft`).
+    private var reads: Bool { model.serves(.mcpServersDraft) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.m) {
@@ -308,6 +434,9 @@ struct MCPServerFormPage: View {
                     .labelsHidden()
                     .fixedSize()
 
+                    if reads {
+                        MCPFormNote(text: ProductStrings[.mcpAddPasteHint])
+                    }
                     if let error = form.errors[.place] {
                         MCPFormNote(text: error, failed: true)
                     }
@@ -337,7 +466,7 @@ struct MCPServerFormPage: View {
                 .rowActions()
             }
 
-            if let consent = form.consent {
+            if let consent = form.consentLine {
                 MCPFormNote(text: consent)
             }
             if let refusal = form.refusal {
@@ -346,6 +475,12 @@ struct MCPServerFormPage: View {
 
             buttons
         }
+        .onChange(of: form.url) { old, new in changed(.remote, from: old, to: new) }
+        .onChange(of: form.commandLine) { old, new in changed(.local, from: old, to: new) }
+        // An edit reads the command it opens on, so the line under it is the
+        // daemon's word on it now.
+        .onAppear { if mode != .add { read(pasted: false, pause: .zero) } }
+        .onDisappear { drafting?.cancel() }
     }
 
     @ViewBuilder
@@ -365,10 +500,7 @@ struct MCPServerFormPage: View {
     @ViewBuilder
     private var remoteRows: some View {
         MCPFormRow(label: .mcpFieldURL, error: form.errors[.url]) {
-            TextField(ProductStrings[.mcpFieldURL], text: $form.url, prompt: MCPFormPrompt.none)
-                .settingsTextField()
-                .labelsHidden()
-                .accessibilityLabel(ProductStrings[.mcpFieldURL])
+            MCPPasteField(label: .mcpFieldURL, text: $form.url)
         }
 
         nameRow
@@ -442,10 +574,11 @@ struct MCPServerFormPage: View {
     @ViewBuilder
     private var localRows: some View {
         MCPFormRow(label: .mcpFieldCommand, error: form.errors[.command]) {
-            TextField(ProductStrings[.mcpFieldCommand], text: $form.commandLine, prompt: MCPFormPrompt.none)
-                .settingsTextField()
-                .labelsHidden()
-                .accessibilityLabel(ProductStrings[.mcpFieldCommand])
+            MCPPasteField(label: .mcpFieldCommand, text: $form.commandLine)
+        }
+
+        if let sentence = form.commandSentence, form.errors[.command] == nil {
+            MCPFormFooter(text: sentence, failed: !form.commandResolved)
         }
 
         nameRow
@@ -485,7 +618,7 @@ struct MCPServerFormPage: View {
                 Text(form.name)
                     .foregroundStyle(Palette.secondary.color)
             } else {
-                TextField(ProductStrings[.mcpFieldName], text: $form.name, prompt: MCPFormPrompt.none)
+                TextField(ProductStrings[.mcpFieldName], text: typedName, prompt: MCPFormPrompt.none)
                     .settingsTextField()
                     .labelsHidden()
                     .accessibilityLabel(ProductStrings[.mcpFieldName])
@@ -494,6 +627,18 @@ struct MCPServerFormPage: View {
         if !form.nameFixed {
             MCPFormFooter(text: ProductStrings[.mcpFieldNameFooter])
         }
+    }
+
+    /// The name, marked as the owner's own once they type in it, so a draft
+    /// no longer fills it.
+    private var typedName: Binding<String> {
+        Binding(
+            get: { form.name },
+            set: { typed in
+                form.name = typed
+                form.nameEdited = true
+            }
+        )
     }
 
     private var buttons: some View {
@@ -514,6 +659,49 @@ struct MCPServerFormPage: View {
     }
 
     // MARK: - Actions
+
+    /// The URL or the command field changed. A change of more than one
+    /// character at once is a paste, read at once and filling the form; typing
+    /// is read once the owner pauses. A change a draft itself wrote, or one to
+    /// the field the place does not show, is not read.
+    private func changed(_ field: MCPServerPlace, from old: String, to new: String) {
+        guard reads, field == form.place,
+              new.trimmingCharacters(in: .whitespacesAndNewlines) != form.reading?.text
+        else { return }
+
+        let pasted = mode == .add && new.count > old.count + 1
+        read(pasted: pasted, pause: pasted ? .zero : MCPServerSheetMetrics.draftPause)
+    }
+
+    /// Asks the daemon about what the field holds, and drops an answer for a
+    /// text that has changed since.
+    private func read(pasted: Bool, pause: Duration) {
+        drafting?.cancel()
+        let sent = form.target
+        guard reads, !sent.isEmpty else {
+            form.reading = nil
+            return
+        }
+
+        drafting = Task {
+            try? await Task.sleep(for: pause)
+            guard !Task.isCancelled else { return }
+
+            let answer = await model.draftMCPServer(text: sent)
+            guard !Task.isCancelled, sent == form.target else { return }
+
+            switch answer {
+            case .success(let drafts):
+                guard case .several(let all) = form.apply(drafts, sent: sent, pasted: pasted) else { return }
+
+                form.url = ""
+                form.commandLine = ""
+                turn(.pasted(all))
+            case .failure(let refusal):
+                form.mark(refusal)
+            }
+        }
+    }
 
     private func submit() {
         form.refusal = nil
@@ -573,6 +761,23 @@ struct MCPServerFormPage: View {
 /// beside it and repeating it inside the box says nothing new.
 enum MCPFormPrompt {
     static var none: Text { Text(verbatim: "") }
+}
+
+/// The URL or the command field, which also takes a whole pasted
+/// configuration. It grows to the lines a paste holds, so a Codex block or a
+/// JSON snippet keeps its line breaks, and returns to one line once the
+/// daemon's reading of it fills the form.
+struct MCPPasteField: View {
+    let label: ProductStringKey
+    @Binding var text: String
+
+    var body: some View {
+        TextField(ProductStrings[label], text: $text, prompt: MCPFormPrompt.none, axis: .vertical)
+            .lineLimit(1...MCPServerSheetMetrics.pasteLines)
+            .settingsTextField()
+            .labelsHidden()
+            .accessibilityLabel(ProductStrings[label])
+    }
 }
 
 /// One labelled row of the form, with the daemon's refusal for that input

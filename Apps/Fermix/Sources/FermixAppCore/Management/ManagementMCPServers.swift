@@ -291,6 +291,58 @@ public struct ManagementMCPServerRemoved: Decodable, Equatable, Sendable {
     public let removed: Bool
 }
 
+// MARK: - Drafts
+
+/// One server a paste describes, as the add form takes it (`mcpServerDraft`).
+/// Nothing is written: a draft is what the form fills from, and the values
+/// the paste carried stay with the daemon under the draft's own id.
+public struct ManagementMCPDraft: Decodable, Equatable, Sendable {
+    public let name: String
+    public let transport: ManagementMCPTransport
+    public let url: String?
+    /// The words that will run, a typed `~` written out as the home folder.
+    public let commandLine: String?
+    public let resolvedCommand: String?
+    /// The line under the command: `Runs <program>`, or the sentence a row
+    /// says of a program this Mac does not have. Null where the program is
+    /// not known yet, and for a remote server.
+    public let commandSentence: String?
+    public let cwd: String?
+    /// Every value the server declares; `present` where the paste carried it.
+    public let env: [ManagementMCPSecretName]
+    /// Every header the server declares, the key's own among them.
+    public let headers: [ManagementMCPSecretName]
+    public let auth: ManagementMCPAuthMode
+    /// Which of `headers` carries the key.
+    public let keyHeader: String?
+    public let oauthClientId: String?
+    public let consentSentence: String
+    /// The draft in one line: `Remote, <host>`, or the program and its package.
+    public let summary: String
+    /// An MCP server here already has the name, or one that gives its tools
+    /// the same names.
+    public let conflict: Bool
+    /// The values this draft carried, held by the daemon for an add. Null
+    /// where it carried none.
+    public let draftId: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case name, transport, url, cwd, env, headers, auth, summary, conflict
+        case commandLine = "command_line"
+        case resolvedCommand = "resolved_command"
+        case commandSentence = "command_sentence"
+        case keyHeader = "key_header"
+        case oauthClientId = "oauth_client_id"
+        case consentSentence = "consent_sentence"
+        case draftId = "draft_id"
+    }
+}
+
+/// `mcp.servers.draft`: one draft or more, in the paste's order.
+public struct ManagementMCPDrafts: Decodable, Equatable, Sendable {
+    public let drafts: [ManagementMCPDraft]
+}
+
 // MARK: - Writes
 
 /// What `mcp.servers.add` takes: the name, the transport, and that
@@ -298,7 +350,8 @@ public struct ManagementMCPServerRemoved: Decodable, Equatable, Sendable {
 /// sent as no list.
 ///
 /// Values never ride here: each one follows in its own `secret.set` under
-/// the `mcp:` family, once the server that declares its name exists.
+/// the `mcp:` family, once the server that declares its name exists, or
+/// stays with the daemon under the `draft_id` of the paste that carried it.
 public struct ManagementMCPServerSpec: Encodable, Equatable, Sendable {
     public let name: String
     public let transport: ManagementMCPTransport
@@ -310,13 +363,16 @@ public struct ManagementMCPServerSpec: Encodable, Equatable, Sendable {
     public let keyHeader: String?
     public let headerNames: [String]?
     public let oauthClientId: String?
+    /// The paste whose values the add stores for the names it declares.
+    public let draftId: String?
 
     /// A server on this Mac.
     public static func local(
         name: String,
         commandLine: String,
         cwd: String? = nil,
-        envNames: [String] = []
+        envNames: [String] = [],
+        draftId: String? = nil
     ) -> Self {
         Self(
             name: name,
@@ -328,7 +384,8 @@ public struct ManagementMCPServerSpec: Encodable, Equatable, Sendable {
             auth: nil,
             keyHeader: nil,
             headerNames: nil,
-            oauthClientId: nil
+            oauthClientId: nil,
+            draftId: draftId
         )
     }
 
@@ -340,7 +397,8 @@ public struct ManagementMCPServerSpec: Encodable, Equatable, Sendable {
         auth: ManagementMCPAuthMode,
         keyHeader: String? = nil,
         headerNames: [String] = [],
-        oauthClientId: String? = nil
+        oauthClientId: String? = nil,
+        draftId: String? = nil
     ) -> Self {
         Self(
             name: name,
@@ -352,8 +410,35 @@ public struct ManagementMCPServerSpec: Encodable, Equatable, Sendable {
             auth: auth,
             keyHeader: keyHeader,
             headerNames: headerNames.isEmpty ? nil : headerNames,
-            oauthClientId: oauthClientId
+            oauthClientId: oauthClientId,
+            draftId: draftId
         )
+    }
+
+    /// The add one pasted server makes as the paste gave it, its values held
+    /// under its own draft id. The key's header is its own field, apart from
+    /// the server's other headers.
+    public static func pasted(_ draft: ManagementMCPDraft) -> Self {
+        switch draft.transport {
+        case .http:
+            return .remote(
+                name: draft.name,
+                url: draft.url ?? "",
+                auth: draft.auth,
+                keyHeader: draft.keyHeader,
+                headerNames: draft.headers.map(\.name).filter { $0 != draft.keyHeader },
+                oauthClientId: draft.oauthClientId,
+                draftId: draft.draftId
+            )
+        case .stdio, .unrecognized:
+            return .local(
+                name: draft.name,
+                commandLine: draft.commandLine ?? "",
+                cwd: draft.cwd,
+                envNames: draft.env.map(\.name),
+                draftId: draft.draftId
+            )
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -363,6 +448,7 @@ public struct ManagementMCPServerSpec: Encodable, Equatable, Sendable {
         case keyHeader = "key_header"
         case headerNames = "header_names"
         case oauthClientId = "oauth_client_id"
+        case draftId = "draft_id"
     }
 }
 

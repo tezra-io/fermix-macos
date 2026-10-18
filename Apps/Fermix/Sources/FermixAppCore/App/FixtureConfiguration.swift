@@ -198,6 +198,8 @@ struct FixtureMCPServers {
     private var rows: [String: [String: Any]]?
     /// The tools a switch turned on or off, by server and tool.
     private var switched: [String: [String: Bool]] = [:]
+    /// The names each paste's draft id holds a value for, until an add uses it.
+    private var held: [String: Set<String>] = [:]
 
     init(startsEmpty: Bool) {
         self.startsEmpty = startsEmpty
@@ -235,14 +237,30 @@ struct FixtureMCPServers {
     /// A value stored for one name a server declares, which its row then
     /// reports as present.
     mutating func markStored(_ name: String, of server: String) {
-        guard var row = rows?[server] else { return }
+        guard let row = rows?[server] else { return }
 
+        rows?[server] = Self.marked(row, stored: name)
+    }
+
+    /// A row whose declared name has its value stored.
+    static func marked(_ row: [String: Any], stored name: String) -> [String: Any] {
+        var server = row
         for field in ["env", "headers"] {
-            row[field] = (row[field] as? [[String: Any]])?.map { entry in
+            server[field] = (row[field] as? [[String: Any]])?.map { entry in
                 entry["name"] as? String == name ? entry.merging(["present": true]) { $1 } : entry
             }
         }
-        rows?[server] = row
+
+        return server
+    }
+
+    mutating func hold(_ draftId: String, names: Set<String>) {
+        held[draftId] = names
+    }
+
+    /// The names a draft id held, which an add uses once.
+    mutating func release(_ draftId: String) -> Set<String> {
+        held.removeValue(forKey: draftId) ?? []
     }
 
     mutating func switchTool(_ tool: String, of server: String, on: Bool) {

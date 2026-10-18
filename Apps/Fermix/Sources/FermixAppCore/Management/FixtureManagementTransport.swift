@@ -75,6 +75,12 @@ struct FixtureManagementTransport: ManagementTransport {
         guard let published = candidates(for: method) else {
             throw Defect.methodHasNoAnswer(method)
         }
+        // A text no golden draft reads is what the daemon refuses as one it
+        // cannot read, in its own published words.
+        if method == ManagementMethod.mcpServersDraft.rawValue,
+           !published.contains(where: { $0.answers(Self.selectable(method: method, params: params)) }) {
+            return try Self.refusal(requestId: identifier, named: Self.unreadablePaste)
+        }
 
         let result = try Self.resolve(
             published,
@@ -208,13 +214,38 @@ struct FixtureManagementTransport: ManagementTransport {
         let lines = String(decoding: data, as: UTF8.self)
             .split(separator: "\n", omittingEmptySubsequences: true)
 
+        let drafted = try draftTexts()
         var grouped: [String: [Record]] = [:]
         for (index, line) in lines.enumerated() {
-            let record = try read(line: line, number: index + 1)
+            let record = try read(line: line, number: index + 1, drafted: drafted)
             grouped[record.method, default: []].append(record)
         }
 
         return atPlaceSearch(atVoiceEngine(atPhoneMoment(grouped, declared: phoneMoment)))
+    }
+
+    /// The text each `mcp.servers.draft` golden answers, by golden name, as
+    /// the add form sends it: without the blank lines around it.
+    ///
+    /// A draft does not repeat the text it read, and a paste of a whole
+    /// configuration could not be read back off its drafts anyway, so the
+    /// text is the golden request's of the same name: the request and its
+    /// answer are published as one pair.
+    static func draftTexts() throws -> [String: String] {
+        let data = try VendoredContracts.data(.management, "fixtures/requests.jsonl")
+        var texts: [String: String] = [:]
+        for line in String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  object["method"] as? String == ManagementMethod.mcpServersDraft.rawValue,
+                  let name = object["name"] as? String,
+                  let params = (object["frame"] as? [String: Any])?["params"] as? [String: Any],
+                  let text = params["text"] as? String
+            else { continue }
+
+            texts[name] = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return texts
     }
 
     /// The voice engine this daemon runs.
@@ -314,7 +345,7 @@ struct FixtureManagementTransport: ManagementTransport {
         let state: String
     }
 
-    private static func read(line: Substring, number: Int) throws -> Record {
+    private static func read(line: Substring, number: Int, drafted: [String: String]) throws -> Record {
         guard let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else {
             throw Defect.recordIsNotAnObject(line: number)
         }
@@ -329,7 +360,7 @@ struct FixtureManagementTransport: ManagementTransport {
         return Record(
             name: name,
             method: method,
-            selector: selector(method: method, result: result),
+            selector: drafted[name].map { ["text": $0] } ?? selector(method: method, result: result),
             moment: pairingMoment(method: method, result: result),
             taskVoice: taskVoice(method: method, result: result),
             placeSearch: placeSearch(method: method, result: result),
@@ -444,12 +475,18 @@ struct FixtureManagementTransport: ManagementTransport {
 
     /// The request params as a record's selector reads them: `settings.apply`
     /// names the first key it changes under `applied`, the way its answer does,
-    /// and a value an MCP server declares is stored as the one the contract
-    /// publishes a golden for, whichever server and name it is.
+    /// a value an MCP server declares is stored as the one the contract
+    /// publishes a golden for, whichever server and name it is, and a paste is
+    /// read without the blank lines around it.
     private static func selectable(method: String, params: [String: Any]) -> [String: Any] {
         if storesMCPValue(method: method, params: params) {
             var selectable = params
             selectable["id"] = publishedMCPValue
+            return selectable
+        }
+        if method == ManagementMethod.mcpServersDraft.rawValue, let text = params["text"] as? String {
+            var selectable = params
+            selectable["text"] = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return selectable
         }
         guard method == ManagementMethod.settingsApply.rawValue,
@@ -505,8 +542,8 @@ struct FixtureManagementTransport: ManagementTransport {
         guard let known = ManagementMethod(rawValue: method) else { return false }
 
         switch known {
-        case .mcpServersList, .mcpServersGet, .mcpServersAdd, .mcpServersUpdate, .mcpServersRemove,
-             .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet:
+        case .mcpServersList, .mcpServersGet, .mcpServersDraft, .mcpServersAdd, .mcpServersUpdate,
+             .mcpServersRemove, .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet:
             return true
         case .secretSet:
             return storesMCPValue(method: method, params: params)
@@ -529,8 +566,25 @@ struct FixtureManagementTransport: ManagementTransport {
             answer["servers"] = machine.withMCPServers { $0.list }
         case .mcpServersGet:
             answer["server"] = try rowWithTools(name, golden: written)
+        case .mcpServersDraft:
+            for draft in golden["drafts"] as? [[String: Any]] ?? [] {
+                guard let id = draft["draft_id"] as? String else { continue }
+
+                machine.withMCPServers { $0.hold(id, names: Self.carried(draft)) }
+            }
         case .mcpServersAdd:
-            answer["server"] = keep(Self.added(written, params: params))
+            var row = Self.added(written, params: params)
+            if let id = params["draft_id"] as? String {
+                let held = machine.withMCPServers { $0.release(id) }
+                row = Self.storing(held, in: row)
+                // With every value it declares, the server starts at once, as
+                // the golden add of a server that waits for nothing says.
+                if let started = try startedAdd(), !Self.waits(row) {
+                    row = Self.moved(row, as: started["server"] as? [String: Any] ?? [:])
+                    answer["job_id"] = started["job_id"]
+                }
+            }
+            answer["server"] = keep(row)
         case .mcpServersUpdate:
             answer["server"] = keep(Self.updated(Self.moved(row(name, else: written), as: written), params: params))
         case .mcpServersEnable, .mcpServersDisable:
@@ -646,6 +700,42 @@ struct FixtureManagementTransport: ManagementTransport {
         return server
     }
 
+    /// The golden add of a server that waits for nothing and starts a check.
+    private func startedAdd() throws -> [String: Any]? {
+        guard let record = records[ManagementMethod.mcpServersAdd.rawValue]?.first(where: { $0.selector["transport"] == "stdio" })
+        else { return nil }
+
+        return try JSONSerialization.jsonObject(with: record.result) as? [String: Any]
+    }
+
+    /// A row with the values a paste held stored: each name it declares, and
+    /// the key its sign-in sends.
+    private static func storing(_ held: Set<String>, in row: [String: Any]) -> [String: Any] {
+        var server = held.reduce(row) { FixtureMCPServers.marked($0, stored: $1) }
+        if var auth = server["auth"] as? [String: Any], let key = auth["key_header"] as? String, held.contains(key) {
+            auth["state"] = "signed_in"
+            server["auth"] = auth
+        }
+
+        return server
+    }
+
+    /// Whether a row still waits for a value it declares.
+    private static func waits(_ row: [String: Any]) -> Bool {
+        let names = (row["env"] as? [[String: Any]] ?? []) + (row["headers"] as? [[String: Any]] ?? [])
+        let auth = row["auth"] as? [String: Any] ?? [:]
+        let keyMissing = auth["mode"] as? String == "header" && auth["state"] as? String != "signed_in"
+
+        return keyMissing || names.contains { $0["present"] as? Bool != true }
+    }
+
+    /// The names a draft carried a value for.
+    private static func carried(_ draft: [String: Any]) -> Set<String> {
+        let names = (draft["env"] as? [[String: Any]] ?? []) + (draft["headers"] as? [[String: Any]] ?? [])
+
+        return Set(names.filter { $0["present"] as? Bool == true }.compactMap { $0["name"] as? String })
+    }
+
     /// Declared names, each stored where it already was and waiting otherwise.
     private static func declared(_ names: [String], keeping old: Any?) -> [[String: Any]] {
         let stored = Set(((old as? [[String: Any]]) ?? []).filter { $0["present"] as? Bool == true }.compactMap { $0["name"] as? String })
@@ -659,6 +749,22 @@ struct FixtureManagementTransport: ManagementTransport {
         guard path.count == 3 else { return nil }
 
         return (path[0], path[2])
+    }
+
+    /// The golden refusal of a paste the daemon cannot read.
+    private static let unreadablePaste = "invalid_params_mcp_servers_draft_text"
+
+    /// `{"request_id": <the id asked under>, "error": <a golden refusal>}`.
+    private static func refusal(requestId: String, named name: String) throws -> Data {
+        let data = try VendoredContracts.data(.management, "fixtures/errors.jsonl")
+        let records = try String(decoding: data, as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .compactMap { try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        guard let response = records.first(where: { $0["name"] as? String == name })?["response"] as? [String: Any],
+              let error = response["error"]
+        else { throw Defect.methodHasNoAnswer(name) }
+
+        return try JSONSerialization.data(withJSONObject: ["request_id": requestId, "error": error])
     }
 
     /// `{"request_id": <the id asked under>, "result": <the golden result>}`.

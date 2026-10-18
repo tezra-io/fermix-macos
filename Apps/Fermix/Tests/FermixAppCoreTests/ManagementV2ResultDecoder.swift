@@ -73,6 +73,8 @@ enum ManagementV2ResultDecoder {
             try read(ManagementMobileDeviceRevoked.self, payload, identifier, method)
         case .mcpServersList:
             try read(ManagementMCPServerList.self, payload, identifier, method)
+        case .mcpServersDraft:
+            try read(ManagementMCPDrafts.self, payload, identifier, method)
         case .mcpServersGet, .mcpServersUpdate, .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet:
             try read(ManagementMCPServerRow.self, payload, identifier, method)
         case .mcpServersAdd:

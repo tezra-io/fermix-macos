@@ -135,6 +135,12 @@ struct ManagementMCPServerNameParams: Encodable {
     let name: String
 }
 
+struct ManagementMCPDraftParams: Encodable {
+    /// What was typed or pasted. It may carry a value a README put in it,
+    /// which the daemon holds under a draft id and never returns.
+    let text: String
+}
+
 struct ManagementMCPToolParams: Encodable {
     let name: String
     let tool: String

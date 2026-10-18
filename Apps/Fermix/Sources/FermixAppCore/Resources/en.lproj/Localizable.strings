@@ -971,6 +971,11 @@
 "mcp.add.remote" = "Remote";
 "mcp.add.local" = "On this Mac";
 "mcp.add.whereItRuns" = "Where it runs";
+"mcp.add.pasteHint" = "Paste a configuration from a README to fill this in.";
+"mcp.pasted.title" = "Pasted servers";
+"mcp.pasted.taken" = "Already added";
+"mcp.pasted.keysFooter" = "Keys in the paste are stored in your keychain.";
+"mcp.pasted.add" = "Add %d";
 "mcp.field.url" = "URL";
 "mcp.field.command" = "Command";
 "mcp.field.name" = "Name";

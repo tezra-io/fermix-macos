@@ -405,6 +405,14 @@ struct IntegrationsPane: View {
             await model.refreshPlugins()
             await model.refreshMCPServers()
         }
+        // Here rather than on the server sheet, so a check the sheet started
+        // reads the list back when it ends after the sheet has closed, as the
+        // checks of servers added from one paste do.
+        .onChange(of: work.job) { _, job in
+            guard let job, job.status.isTerminal else { return }
+
+            Task { await model.mcpJobFinished(job) }
+        }
     }
 
     private var rows: [IntegrationRowModel] {

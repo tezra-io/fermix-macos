@@ -649,12 +649,13 @@ struct FixtureConfigurationTests {
 
     /// The params one method is asked with.
     ///
-    /// Six methods are keyed on their params, because the contract publishes
+    /// Seven methods are keyed on their params, because the contract publishes
     /// more than one golden for each: `settings.get` answers per section,
     /// `settings.apply` per key it changes, `job.get` per job, `secret.set` and
-    /// `secret.clear` per secret, and `mcp.servers.add` per transport, so
-    /// asking any of them with none would be asking for something the
-    /// contract does not publish. Every other method answers one shape.
+    /// `secret.clear` per secret, `mcp.servers.add` per transport and
+    /// `mcp.servers.draft` per text, so asking any of them with none would be
+    /// asking for something the contract does not publish. Every other method
+    /// answers one shape.
     static func params(for method: ManagementMethod) -> [String: Any] {
         switch method {
         case .settingsGet: return ["section": "realtime"]
@@ -662,6 +663,7 @@ struct FixtureConfigurationTests {
         case .jobGet: return ["job_id": "job:2Kd9mQ"]
         case .secretSet, .secretClear: return ["id": "openai_api_key"]
         case .mcpServersAdd: return ["transport": "stdio"]
+        case .mcpServersDraft: return ["text": "uvx mcp-server-fetch"]
         default: return [:]
         }
     }

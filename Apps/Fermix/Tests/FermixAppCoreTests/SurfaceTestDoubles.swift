@@ -172,6 +172,7 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var mcpSpecs: [ManagementMCPServerSpec] = []
     var mcpChanges: [ManagementMCPServerChange] = []
     var mcpReads: [String] = []
+    var mcpDraftTexts: [String] = []
     var mcpToolWrites: [MCPToolWrite] = []
     /// The providers each `auth.start` and `auth.logout` named, in order.
     var signInProviders: [String] = []
