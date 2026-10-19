@@ -186,6 +186,7 @@ struct TimeZoneSheet: View {
             })) { choice in
                 Text(choice.title).tag(choice.id)
             }
+            .sheetList()
             .frame(maxHeight: .infinity)
 
             HStack(spacing: Spacing.s) {

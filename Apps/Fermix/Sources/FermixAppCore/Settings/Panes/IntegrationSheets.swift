@@ -197,8 +197,9 @@ enum IntegrationDetailEscape: Equatable, Sendable {
 ///
 /// It presents nothing. The workspace, the sign-in client and a second-door
 /// token are pages of this sheet (`IntegrationDetailPage`), and the sign-in
-/// wait is a block on the detail page. One size for every page, so turning one
-/// does not move the sheet.
+/// wait is a block on the detail page. Each page is as tall as it needs, so a
+/// short detail is no mostly empty card (owner, 2026-10-18, over the one size
+/// it had kept so turning a page never moved the sheet).
 struct IntegrationDetailSheet: View {
     let name: String
     @ObservedObject var model: SettingsModel
@@ -213,10 +214,14 @@ struct IntegrationDetailSheet: View {
     @State private var startingSignIn = false
     @State private var cancellingSignIn = false
 
+    /// As tall as its page needs, up to the picker's height, past which the
+    /// detail's rows scroll; the workspace page, a list, takes the picker's
+    /// whole height.
     var body: some View {
         pageView
             .padding(WindowMetrics.contentPadding)
-            .frame(width: SheetMetrics.pickerSize.width, height: SheetMetrics.pickerSize.height)
+            .frame(width: SheetMetrics.pickerSize.width, height: page == .workspace ? SheetMetrics.pickerSize.height : nil)
+            .frame(maxHeight: SheetMetrics.pickerSize.height)
             // On the sheet rather than on a page, so a job that ends while
             // another page is up is still read back.
             .onChange(of: runner.job, initial: true) { _, job in
@@ -297,7 +302,7 @@ struct IntegrationDetailSheet: View {
     /// The pages are what keep this short, so for the plugins the catalogue
     /// ships it does not scroll at all. It is here for the manifest nobody has
     /// written yet: a plugin that publishes a dozen settings would otherwise
-    /// run under the buttons of a sheet whose size is fixed. The scroll runs to
+    /// grow the sheet past the picker's height. The scroll runs to
     /// the sheet's own edges and pads its rows back in, because a scroll view
     /// clips at its bounds and a field flush against them loses its focus ring.
     private func rows(_ row: IntegrationRowModel) -> some View {
@@ -365,8 +370,7 @@ struct IntegrationDetailSheet: View {
     private func footer(done: @escaping () -> Void) -> some View {
         HStack(spacing: Spacing.s) {
             Spacer(minLength: 0)
-            Button(ProductStrings[.settingsSheetDone], action: done)
-                .keyboardShortcut(signInBlock == .waiting ? nil : .defaultAction)
+            PrimaryAction(ProductStrings[.settingsSheetDone], size: .row, isDefault: signInBlock != .waiting, action: done)
                 .disabled(signInBlock == .waiting)
                 .background { escapeKey }
         }
@@ -1381,6 +1385,7 @@ struct WorkspacePage: View {
             List(row.workspaces, id: \.id, selection: $chosen) { workspace in
                 Text(workspace.label).tag(workspace.id)
             }
+            .sheetList()
             .frame(maxHeight: .infinity)
         }
     }

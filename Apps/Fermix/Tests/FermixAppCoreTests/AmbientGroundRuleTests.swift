@@ -471,13 +471,53 @@ struct SheetGroundRuleTests {
 
         #expect(sheets >= 15, "only \(sheets) sheets were scanned")
         #expect(Set(drawn.map(\.name)).count >= 15, "only \(drawn.count) views were followed from the sheets")
-        for view in drawn {
+        // Any default key, written plainly or chosen by a condition, except
+        // the one the component that owns it carries.
+        let defaultKey = try NSRegularExpression(pattern: #"\.keyboardShortcut\([^\n]*\.defaultAction"#)
+        for view in drawn where view.name != "PrimaryAction" {
             #expect(
-                !view.text.contains(".keyboardShortcut(.defaultAction)"),
+                defaultKey.firstMatch(in: view.text, range: NSRange(view.text.startIndex..., in: view.text)) == nil,
                 "\(view.name), drawn in a sheet, makes a system button the accent-filled default"
             )
             #expect(!view.text.contains("borderedProminent"), "\(view.name), drawn in a sheet, is the prominent style")
         }
+    }
+
+    /// A list in a sheet is rounded like the grouped form sections beside it
+    /// rather than the square panel the system draws a bare list in, since a
+    /// shape inside a rounded card follows the card (Liquid Glass). Over the
+    /// same views the default-action rule follows.
+    @Test("every list a sheet draws is rounded like the sheet's sections")
+    func sheetListsAreRounded() throws {
+        let files = try SourceTree.swiftFiles(under: "", excluding: false)
+        let views = try Self.viewDeclarations(in: files)
+        let list = try NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])List\s*[({]"#)
+        var lists = 0
+
+        for file in files {
+            for content in try Self.sheetContents(in: file.text) {
+                guard let content else { continue }
+
+                for view in Self.drawn(by: content, presentedIn: file.text, views: views) {
+                    let built = list.numberOfMatches(in: view.text, range: NSRange(view.text.startIndex..., in: view.text))
+                    let rounded = view.text.components(separatedBy: ".sheetList()").count - 1
+                    lists += built
+                    #expect(built == rounded, "\(view.name), drawn in a sheet, builds \(built) lists and rounds \(rounded)")
+                }
+            }
+        }
+
+        #expect(lists >= 4, "only \(lists) lists were found in sheets")
+    }
+
+    /// A button in a sheet that names no style is the secondary capsule, not
+    /// the system button the window's tint turns blue: the sheet's one root
+    /// modifier states the row actions for everything inside it.
+    @Test("the sheet ground states the row actions for the whole sheet")
+    func sheetGroundStatesRowActions() throws {
+        let owner = try #require(try SourceTree.swiftFiles(matching: "Design/Materials/SheetGround.swift").first?.text)
+
+        #expect(owner.contains("content.rowActions()"))
     }
 
     /// Every view a sheet draws, by name with its text: the content itself,

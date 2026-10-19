@@ -47,6 +47,11 @@ extension View {
     /// laid over it edge to edge. Each recipe gives its own answer to Reduce
     /// Transparency and Increase Contrast: the frame's glass its plain fill,
     /// and Liquid Glass the system's.
+    ///
+    /// Being every sheet's root, it also states the row actions for the whole
+    /// sheet (`rowActions`), so a button in a sheet that names no style is the
+    /// secondary capsule rather than the system button the window's tint
+    /// turns blue (owner, 2026-10-18).
     func sheetGround() -> some View {
         modifier(SheetGround())
     }
@@ -56,7 +61,7 @@ private struct SheetGround: ViewModifier {
     @Environment(\.sheetGroundRecipe) private var recipe
 
     func body(content: Content) -> some View {
-        content.presentationBackground { ground }
+        content.rowActions().presentationBackground { ground }
     }
 
     @ViewBuilder

@@ -146,6 +146,7 @@ struct InstalledAppsSheet: View {
             List(matching, id: \.id) { app in
                 Toggle(app.name, isOn: binding(app))
             }
+            .sheetList()
             .frame(maxHeight: .infinity)
 
             Text(InstalledAppsSelection.summary(selected))

@@ -411,11 +411,19 @@ struct ModelListing: View {
         .task { await reload() }
     }
 
+    /// Each model is a row of the list, the whole row choosing it, rather than
+    /// a button standing in the row.
     private var list: some View {
         List(models, id: \.id) { entry in
-            Button(entry.label) { choose(entry.id) }
-                .accessibilityLabel(entry.label)
+            Button { choose(entry.id) } label: {
+                Text(entry.label)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(entry.label)
         }
+        .sheetList()
         .frame(maxHeight: .infinity)
         .overlay(alignment: .bottom) { more }
     }
