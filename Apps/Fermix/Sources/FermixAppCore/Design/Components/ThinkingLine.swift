@@ -13,9 +13,10 @@ enum ThinkingLineRecipe {
 
     /// A dot's diameter and the step from one dot to the next, in whole
     /// points, so on a display without Retina every dot falls on whole pixels
-    /// and stays crisp.
-    static let dotDiameter: Double = 2
-    static let dotStep: Double = 3
+    /// and stays crisp: beside the word, as tall as a capital, and in the
+    /// chat's newest button, as tall as its arrow.
+    static let lineDots = (diameter: 2.0, step: 3.0)
+    static let buttonDots = (diameter: 3.0, step: 4.0)
     /// The cell read round from its top left, down the right column and up
     /// the left, which is the way the gap walks.
     static let cells: [(column: Int, row: Int)] = [(0, 0), (1, 0), (1, 1), (1, 2), (0, 2), (0, 1)]
@@ -52,7 +53,7 @@ struct ThinkingLine: View {
 
         TimelineView(schedule) { context in
             HStack(alignment: .firstTextBaseline, spacing: Spacing.xxs) {
-                dots(Self.strengths(at: context.date, motion: motion))
+                Self.cell(Self.strengths(at: context.date, motion: motion), dots: ThinkingLineRecipe.lineDots)
                     .alignmentGuide(.firstTextBaseline) { $0[.bottom] }
 
                 Text(word)
@@ -65,17 +66,19 @@ struct ThinkingLine: View {
         .accessibilityAddTraits(.updatesFrequently)
     }
 
-    private func dots(_ strengths: [Double]) -> some View {
+    /// The cell in dots of this size, each as strong as `strengths` says, in
+    /// the cell's order.
+    static func cell(_ strengths: [Double], dots: (diameter: Double, step: Double)) -> some View {
         let recipe = ThinkingLineRecipe.self
-        let size = CGSize(width: recipe.dotDiameter, height: recipe.dotDiameter)
+        let size = CGSize(width: dots.diameter, height: dots.diameter)
 
         return Canvas { graphics, _ in
             for (cell, strength) in zip(recipe.cells, strengths) {
-                let corner = CGPoint(x: Double(cell.column) * recipe.dotStep, y: Double(cell.row) * recipe.dotStep)
+                let corner = CGPoint(x: Double(cell.column) * dots.step, y: Double(cell.row) * dots.step)
                 graphics.fill(Path(ellipseIn: CGRect(origin: corner, size: size)), with: .color(recipe.ink.color.opacity(strength)))
             }
         }
-        .frame(width: recipe.dotStep + recipe.dotDiameter, height: 2 * recipe.dotStep + recipe.dotDiameter)
+        .frame(width: dots.step + dots.diameter, height: 2 * dots.step + dots.diameter)
     }
 
     private static func wordStyle(band: Double?) -> AnyShapeStyle {
@@ -118,5 +121,24 @@ struct ThinkingLine: View {
         let path = ThinkingLineRecipe.bandPath
         let progress = (date.timeIntervalSinceReferenceDate / spec.duration).truncatingRemainder(dividingBy: 1)
         return path.start + (path.end - path.start) * progress
+    }
+}
+
+/// The thinking line's cell on its own, on a timeline of its own: what the
+/// chat's newest button holds while a reply is being written. Under Reduce
+/// Motion every dot holds lit.
+struct ThinkingCell: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let motion = Motion(reduceMotion: reduceMotion)
+        let schedule = AnimationTimelineSchedule(
+            minimumInterval: 1 / ThinkingLineRecipe.framesPerSecond,
+            paused: motion.isSuppressed(.thinkingDots)
+        )
+
+        TimelineView(schedule) { context in
+            ThinkingLine.cell(ThinkingLine.strengths(at: context.date, motion: motion), dots: ThinkingLineRecipe.buttonDots)
+        }
     }
 }

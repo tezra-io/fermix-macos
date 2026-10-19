@@ -74,6 +74,14 @@ public enum ButtonRecipe {
         color: ThemedColor(uniform: .rgba(0, 0, 0, 0.28))
     )
 
+    /// Under a control that floats over the chat's rows (`Palette.floatingFill`),
+    /// enough to lift it off a white card on light.
+    public static let floatingShadow = GlassShadow(
+        cssBlur: 8,
+        yOffset: 2,
+        color: ThemedColor(uniform: .rgba(0, 0, 0, 0.14))
+    )
+
     public static let secondaryFill = Palette.buttonFill
     public static let secondaryBorder = Palette.buttonBorder
     public static let secondaryLabel = Palette.ink

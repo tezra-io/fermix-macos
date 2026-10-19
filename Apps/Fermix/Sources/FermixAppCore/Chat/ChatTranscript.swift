@@ -15,6 +15,9 @@ import SwiftUI
 /// - The session is told which held rows are on screen whenever that set
 ///   changes, so a row that may have changed while chat was disconnected is
 ///   read again as it comes into view (M66 §3.6).
+/// - A reader off the bottom edge is offered the way back to it, a round
+///   button over the transcript's foot, and a reply still being written
+///   keeps them there once they take it.
 ///
 /// A search hit is revealed the way scrolling up reads: page by page until its
 /// row is held, then scrolled to the middle with its matches marked.
@@ -40,6 +43,7 @@ struct ChatTranscript: View {
     /// A chosen hit whose row is not on screen yet.
     @State private var revealing: ChatReveal?
     @Environment(\.appearsActive) private var appearsActive
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -67,6 +71,9 @@ struct ChatTranscript: View {
             .defaultScrollAnchor(.bottom)
             .scrollIndicators(.never)
             .paneScrollEdges()
+            .overlay(alignment: .bottom) {
+                newest(proxy)
+            }
             .onScrollPhaseChange { _, phase in
                 readerScrolling = ChatFollow.isReadersOwn(phase)
             }
@@ -131,6 +138,27 @@ struct ChatTranscript: View {
         if sent { atBottom = true }
         guard ChatFollow.follows(atBottom: atBottom, sent: sent) else { return }
 
+        proxy.scrollTo(newest.id, anchor: .bottom)
+    }
+
+    /// The newest button, while the reader is off the bottom edge.
+    private func newest(_ proxy: ScrollViewProxy) -> some View {
+        ZStack {
+            if !atBottom {
+                ChatNewestButton(running: model.turn != nil) { showNewest(proxy) }
+                    .padding(.bottom, ChatMetrics.newestButtonGap)
+                    .transition(.opacity)
+            }
+        }
+        .animation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade), value: atBottom)
+    }
+
+    /// The reader asked for the newest line. They are on the bottom edge
+    /// again, so a reply still being written keeps them there as it grows.
+    private func showNewest(_ proxy: ScrollViewProxy) {
+        guard let newest = items.last else { return }
+
+        atBottom = true
         proxy.scrollTo(newest.id, anchor: .bottom)
     }
 
@@ -305,6 +333,64 @@ enum ChatPlace: Equatable {
             return nil
         }
     }
+}
+
+/// What the newest button holds: the thinking cell while a reply is being
+/// written, so a reader up the transcript still sees it coming, and the
+/// arrow otherwise, or under the pointer, where it says what a click does.
+enum ChatNewestFace: Equatable {
+    case thinking
+    case arrow
+
+    init(running: Bool, hovering: Bool) {
+        self = running && !hovering ? .thinking : .arrow
+    }
+}
+
+/// The way back to the newest line: a small round button over the
+/// transcript's foot, in the fill of what floats over the rows.
+private struct ChatNewestButton: View {
+    let running: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            switch ChatNewestFace(running: running, hovering: hovering) {
+            case .thinking: ThinkingCell()
+            case .arrow: Image(systemName: "arrow.down")
+            }
+        }
+        .buttonStyle(ChatNewestButtonStyle())
+        .onHover { hovering = $0 }
+        .help(ProductStrings[.chatShowNewest])
+        .accessibilityLabel(ProductStrings[.chatShowNewest])
+    }
+}
+
+private struct ChatNewestButtonStyle: ButtonStyle {
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .fermixType(Typography.style(.calloutSmall).weight(.semibold))
+            .foregroundStyle(ButtonRecipe.secondaryLabel.color)
+            .frame(width: ChatMetrics.newestButton, height: ChatMetrics.newestButton)
+            .background(Circle().fill((configuration.isPressed ? Palette.base300 : Palette.floatingFill).color))
+            .overlay(
+                Circle().strokeBorder(
+                    contrast == .increased
+                        ? Palette.hairline(.standard, increaseContrast: true).color
+                        : ButtonRecipe.secondaryBorder.color,
+                    lineWidth: Stroke.hairline
+                )
+            )
+            .contentShape(Circle())
+            .shadow(color: shadow.color.color, radius: shadow.radius, y: shadow.yOffset)
+    }
+
+    private var shadow: GlassShadow { ButtonRecipe.floatingShadow }
 }
 
 /// The top of the held rows while older ones exist. Reaching it reads them,

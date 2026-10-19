@@ -149,6 +149,17 @@ struct ChatSurfaceTests {
         #expect(!ChatFollow.isReadersOwn(.idle))
     }
 
+    /// The newest button shows a reply still being written as the thinking
+    /// cell, and turns to its arrow under the pointer, which is what a click
+    /// does; with nothing being written it is the arrow alone.
+    @Test("the newest button holds the thinking cell while a reply is written, and the arrow under the pointer or after")
+    func newestButtonFace() {
+        #expect(ChatNewestFace(running: true, hovering: false) == .thinking)
+        #expect(ChatNewestFace(running: true, hovering: true) == .arrow)
+        #expect(ChatNewestFace(running: false, hovering: false) == .arrow)
+        #expect(ChatNewestFace(running: false, hovering: true) == .arrow)
+    }
+
     private static func viewport(_ height: Double, width: Double = 720, content: Double = 2_000, atBottom: Bool) -> ChatViewport {
         ChatViewport(size: CGSize(width: width, height: height), contentHeight: content, atBottom: atBottom)
     }

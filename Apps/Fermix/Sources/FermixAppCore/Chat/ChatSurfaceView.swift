@@ -91,6 +91,10 @@ enum ChatMetrics {
     /// How long a tile waits on its preview before it shows the quiet
     /// progress mark: a preview made in less never shows one.
     static let tileProgressDelay: Duration = .milliseconds(300)
+    /// The newest button, the system's 28-point round control, and what it
+    /// keeps from the transcript's foot.
+    static let newestButton: Double = 28
+    static let newestButtonGap: Double = Spacing.s
     /// How long typing in the search field pauses before the daemon is asked,
     /// so a word being typed is one search rather than one per letter.
     static let searchPause: Duration = .milliseconds(300)

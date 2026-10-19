@@ -440,6 +440,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// The turn answering now, while it has no reply text yet and while a
     /// tool it called runs.
     case chatThinking = "chat.thinking"
+    /// The button that takes a reader up the transcript back to its foot.
+    case chatShowNewest = "chat.showNewest"
     case chatSearchPrompt = "chat.search.prompt"
     case chatSearchSearching = "chat.search.searching"
     case chatSearchNoMatches = "chat.search.noMatches"

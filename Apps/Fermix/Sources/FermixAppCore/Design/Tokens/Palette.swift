@@ -178,10 +178,12 @@ public enum Palette {
     public static let codeKeyword = ThemedColor(lightHex: "#8b3d8f", darkHex: "#d1a3d6")
     public static let codeString = ThemedColor(lightHex: "#2e6b45", darkHex: "#8fc7a0")
     public static let codeNumber = ThemedColor(lightHex: "#8a5300", darkHex: "#e0b07a")
-    /// Copy's own fill in a code block's corner, opaque so a long first line
-    /// under it never shows through, and a step lighter than the block on
-    /// dark, as a raised thing is (the dark elevation ladder).
-    public static let codeCopyFill = ThemedColor(lightHex: "#ffffff", darkHex: "#2b2b31")
+    /// The fill of a control that floats over the chat's rows, Copy in a code
+    /// block's corner and the newest button over the transcript's foot:
+    /// opaque so a line under it never shows through, and a step lighter
+    /// than the block on dark, as a raised thing is (the dark elevation
+    /// ladder).
+    public static let floatingFill = ThemedColor(lightHex: "#ffffff", darkHex: "#2b2b31")
     /// The fill behind a code span in a reply's words: a step stronger than
     /// `chipFill`, which a span's tight box needs to read at all.
     public static let codeSpanFill = ThemedColor(

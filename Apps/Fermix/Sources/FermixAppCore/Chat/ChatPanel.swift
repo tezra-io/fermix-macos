@@ -97,7 +97,7 @@ private struct ChatPanelCopyButton: View {
             .frame(minWidth: ChatMetrics.codeHeaderHeight, minHeight: ChatMetrics.codeHeaderHeight)
             .background(
                 RoundedRectangle(cornerRadius: Radius.iconTileSmall, style: .continuous)
-                    .fill(Palette.codeCopyFill.color)
+                    .fill(Palette.floatingFill.color)
             )
             .contentShape(Rectangle())
         }
