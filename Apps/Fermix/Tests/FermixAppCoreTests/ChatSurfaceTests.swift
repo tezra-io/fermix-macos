@@ -97,23 +97,60 @@ struct ChatSurfaceTests {
     /// changes no size, so it is never undone.
     @Test("the transcript keeps a reader on its bottom edge when the strip takes room")
     func transcriptKeepsTheBottomEdge() {
-        func viewport(_ height: Double, width: Double = 720, atBottom: Bool) -> ChatViewport {
-            ChatViewport(size: CGSize(width: width, height: height), atBottom: atBottom)
+        let reading = Self.viewport(480, atBottom: true)
+        func keeps(_ readerAtBottom: Bool, _ before: ChatViewport, _ now: ChatViewport) -> Bool {
+            ChatFollow.keepsBottom(readerAtBottom: readerAtBottom, readerScrolling: false, before: before, now: now)
         }
-        let reading = viewport(480, atBottom: true)
 
         // The strip arrives, or takes a line.
-        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(400, atBottom: false)))
-        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(464, atBottom: true)))
+        #expect(keeps(true, reading, Self.viewport(400, atBottom: false)))
+        #expect(keeps(true, reading, Self.viewport(464, atBottom: true)))
         // The column narrows beside the pane and the rows rewrap.
-        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: viewport(480, atBottom: true), now: viewport(480, width: 432, atBottom: false)))
+        #expect(keeps(true, Self.viewport(480, atBottom: true), Self.viewport(480, width: 432, atBottom: false)))
         // The pane opens over a run of sizes: past the first, the last reading
         // is already off the bottom edge, and the reader still is not.
-        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: viewport(480, width: 600, atBottom: false), now: viewport(480, width: 480, atBottom: false)))
+        #expect(keeps(true, Self.viewport(480, width: 600, atBottom: false), Self.viewport(480, width: 480, atBottom: false)))
         // A reader further up keeps their place.
-        #expect(!ChatFollow.keepsBottom(readerAtBottom: false, before: viewport(480, atBottom: false), now: viewport(400, atBottom: false)))
+        #expect(!keeps(false, Self.viewport(480, atBottom: false), Self.viewport(400, atBottom: false)))
         // The reader scrolled away from the bottom edge themselves.
-        #expect(!ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(480, atBottom: false)))
+        #expect(!keeps(true, reading, Self.viewport(480, atBottom: false)))
+    }
+
+    /// A reply streams in below a reader on the bottom edge, or its thinking
+    /// line gives way to text: the content grows under them after the scroll
+    /// to the reply was made, and they stay on the bottom edge. A reader
+    /// further up keeps their place, and one scrolling is never pulled back
+    /// while the rows coming into view are measured under their hand.
+    @Test("the transcript keeps a reader on its bottom edge as a reply grows under them")
+    func transcriptFollowsAGrowingReply() {
+        let reading = Self.viewport(480, content: 2_000, atBottom: true)
+        let grown = Self.viewport(480, content: 2_060, atBottom: false)
+
+        #expect(ChatFollow.keepsBottom(readerAtBottom: true, readerScrolling: false, before: reading, now: grown))
+        #expect(!ChatFollow.keepsBottom(readerAtBottom: false, readerScrolling: false, before: reading, now: grown))
+        #expect(!ChatFollow.keepsBottom(readerAtBottom: true, readerScrolling: true, before: reading, now: grown))
+        // Nothing grew: the reader moved off the edge themselves.
+        #expect(!ChatFollow.keepsBottom(
+            readerAtBottom: true,
+            readerScrolling: false,
+            before: reading,
+            now: Self.viewport(480, content: 2_000, atBottom: false)
+        ))
+    }
+
+    /// Only the reader's own hand on the transcript counts as their scrolling;
+    /// a scroll the transcript makes itself does not.
+    @Test("the reader's scrolling is a trackpad, wheel or scroller, never the transcript's own scroll")
+    func readersOwnScrolling() {
+        #expect(ChatFollow.isReadersOwn(.tracking))
+        #expect(ChatFollow.isReadersOwn(.interacting))
+        #expect(ChatFollow.isReadersOwn(.decelerating))
+        #expect(!ChatFollow.isReadersOwn(.animating))
+        #expect(!ChatFollow.isReadersOwn(.idle))
+    }
+
+    private static func viewport(_ height: Double, width: Double = 720, content: Double = 2_000, atBottom: Bool) -> ChatViewport {
+        ChatViewport(size: CGSize(width: width, height: height), contentHeight: content, atBottom: atBottom)
     }
 
     // MARK: - The draft

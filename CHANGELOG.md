@@ -19,6 +19,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 - Chat: while Fermix works on a reply, six small grey dots tick round beside Thinking as a soft light runs through the word, instead of naming the tool it is using, and they come back whenever Fermix goes back to work partway through a reply.
 - Every popup, in setup and in settings, wears the same glass as the window's frame, in light and dark, rather than a flat panel. Their buttons are the app's own black and white ones rather than blue, with the main one filled, including while a provider or an integration signs in.
 - A list in a popup, such as Choose a model, Choose apps or a time zone, has rounded corners like the rest of the popup, Choose a model shows the models as rows you click, and an integration's details are only as tall as what they show.
+- Chat: the conversation follows its newest line. Once you send a message, the chat moves down to it and keeps Thinking and then Fermix's reply in view as it is written, to its last line, instead of leaving them below the window for you to scroll to. Scroll up to read while a reply comes in and the chat leaves you where you are.
 
 ## 0.5.0 (2026-10-14)
 

@@ -32,6 +32,9 @@ struct ChatTranscript: View {
     /// Whether the reader is on the bottom edge. The transcript opens there,
     /// and it stays true until the reader scrolls away from it.
     @State private var atBottom = true
+    /// Whether the reader is moving the transcript themselves, by trackpad,
+    /// wheel or scroller, so nothing pulls it back under them meanwhile.
+    @State private var readerScrolling = false
     /// Where the reader was when older rows were asked for.
     @State private var place: ChatPlace?
     /// A chosen hit whose row is not on screen yet.
@@ -64,12 +67,16 @@ struct ChatTranscript: View {
             .defaultScrollAnchor(.bottom)
             .scrollIndicators(.never)
             .paneScrollEdges()
+            .onScrollPhaseChange { _, phase in
+                readerScrolling = ChatFollow.isReadersOwn(phase)
+            }
             .onScrollGeometryChange(for: ChatViewport.self, of: ChatViewport.init) { before, now in
-                // The layout moved under a reader on the bottom edge: the
-                // composer grew a line, or the column narrowed beside the
-                // browser pane and the rows rewrapped. They stay there, as
-                // they do when a row arrives.
-                if ChatFollow.keepsBottom(readerAtBottom: atBottom, before: before, now: now), let newest = items.last {
+                // The layout moved under a reader on the bottom edge: a reply
+                // grew or took the place of its thinking line, the composer
+                // grew a line, or the column narrowed beside the browser pane
+                // and the rows rewrapped. They stay there.
+                if ChatFollow.keepsBottom(readerAtBottom: atBottom, readerScrolling: readerScrolling, before: before, now: now),
+                   let newest = items.last {
                     proxy.scrollTo(newest.id, anchor: .bottom)
                     return
                 }
@@ -177,6 +184,7 @@ struct ChatTranscript: View {
         switch target.step(rows: model.rows, hasOlder: model.hasOlder) {
         case .scroll(let id):
             revealing = nil
+            atBottom = false
             proxy.scrollTo(id, anchor: .center)
         case .readOlder:
             session.pullOlder()
@@ -202,34 +210,50 @@ enum ChatFollow {
         sent || atBottom
     }
 
-    /// Whether a reader is put back on the bottom edge after the transcript's
-    /// own size changed. A scroll view keeps its top where it was, so when the
-    /// transcript grows shorter (the composer takes a line) or narrower (the
-    /// browser pane opens and its rows rewrap), the newest rows slide out of
-    /// view below.
-    /// Only a reader who was on the bottom edge, and only for a change of the
-    /// transcript's size, which the reader's own scrolling never makes; rows
-    /// arriving and pages landing change the content, and those are already
-    /// the follow and page rules' to answer.
+    /// Whether a reader is put back on the bottom edge after the transcript
+    /// changed under them. A scroll view keeps its top where it was, so when
+    /// its content grows taller (a reply streams in, or replaces its thinking
+    /// line) or the transcript grows shorter (the composer takes a line) or
+    /// narrower (the browser pane opens and its rows rewrap), the newest rows
+    /// slide out of view below.
+    ///
+    /// A row's arrival is followed when it lands, but a row is drawn after
+    /// that, often taller than the scroll to it assumed, and a reply keeps
+    /// growing after it, so only the change it makes to the content, read
+    /// once it is laid out, keeps the reader there.
+    ///
+    /// Only a reader who was on the bottom edge, and never while they are
+    /// scrolling themselves, when the rows coming into view are measured and
+    /// change the content's height under their hand. A search hit the
+    /// transcript scrolls to takes the reader off the bottom edge itself.
     ///
     /// Where the reader was is the transcript's own record of it rather than
     /// the reading before this one: the browser pane opens over a run of
     /// sizes, and after the first of them the previous reading is already off
     /// the bottom edge.
-    static func keepsBottom(readerAtBottom: Bool, before: ChatViewport, now: ChatViewport) -> Bool {
-        readerAtBottom && now.size != before.size
+    static func keepsBottom(readerAtBottom: Bool, readerScrolling: Bool, before: ChatViewport, now: ChatViewport) -> Bool {
+        readerAtBottom && !readerScrolling
+            && (now.size != before.size || now.contentHeight != before.contentHeight)
+    }
+
+    /// Whether the transcript is moving because the reader is moving it, by
+    /// trackpad, wheel or scroller, rather than by a scroll of its own.
+    static func isReadersOwn(_ phase: ScrollPhase) -> Bool {
+        phase == .tracking || phase == .interacting || phase == .decelerating
     }
 }
 
-/// The transcript's size and whether its reader is on the bottom edge, read
-/// together off one scroll geometry, so a change in one is never judged
-/// against a stale reading of the other.
+/// The transcript's size, its content's height and whether its reader is on
+/// the bottom edge, read together off one scroll geometry, so a change in one
+/// is never judged against a stale reading of another.
 struct ChatViewport: Equatable {
     let size: CGSize
+    let contentHeight: Double
     let atBottom: Bool
 
-    init(size: CGSize, atBottom: Bool) {
+    init(size: CGSize, contentHeight: Double, atBottom: Bool) {
         self.size = size
+        self.contentHeight = contentHeight
         self.atBottom = atBottom
     }
 
@@ -237,6 +261,7 @@ struct ChatViewport: Equatable {
     /// it still counts as there.
     init(_ geometry: ScrollGeometry) {
         size = geometry.containerSize
+        contentHeight = geometry.contentSize.height
         atBottom = geometry.visibleRect.maxY >= geometry.contentSize.height - Spacing.l
     }
 }
