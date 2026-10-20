@@ -16,13 +16,22 @@ name: ci
 # No secrets: signing and notarization live in release.yml.
 #
 # Actions are pinned to immutable commit SHAs per M34 section 7.
+#
+# Pull requests and main; a push to dev runs nothing. `gh workflow run ci.yml
+# --ref <branch>` runs it on any branch by hand.
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# A newer commit cancels a pull request's older run; main's runs queue.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   cask:

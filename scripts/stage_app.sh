@@ -3,7 +3,7 @@
 # Build Fermix and stage an UNSIGNED .app bundle.
 #
 # Shared by package_release.sh (which then signs, notarizes, and DMGs), by
-# .github/workflows/fermix-app.yml (which stages + adhoc-signs on every push, so
+# .github/workflows/fermix-app.yml (which stages + adhoc-signs on every PR, so
 # a build or bundle-layout regression is caught in ungated CI instead of only at
 # a gated signed release), and by dev_run.sh (a local ad-hoc bundle). No
 # credentials required.
