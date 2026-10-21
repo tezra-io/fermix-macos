@@ -56,6 +56,7 @@ struct ApplyingSurface: View {
                     isFinishingUpdate: model.settings.engineReconcile.isFinishingUpdate,
                     refusal: model.restartRefusal
                 ) { model.restartSheetPresented = false }
+                .sheetGround()
             }
     }
 

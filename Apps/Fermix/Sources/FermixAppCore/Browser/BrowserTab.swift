@@ -213,6 +213,10 @@ public final class BrowserTab: ObservableObject, Identifiable {
     /// for the person's answer before anything loads, so the page has nothing
     /// to report yet. The coordinator's to set, once; nil for every other tab.
     @Published public internal(set) var file: URL?
+    /// The name a file tab's file goes by where its path does not say it: a
+    /// phone-side file's, whose granted copy is named by its ref. The
+    /// coordinator's to set, with `file`; nil for every other tab.
+    @Published public internal(set) var fileName: String?
     /// What a file tab shows its file as, decided by the coordinator as the
     /// tab opens, which says which controls its file has; nil for every other
     /// tab.

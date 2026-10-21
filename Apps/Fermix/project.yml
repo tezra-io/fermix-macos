@@ -36,8 +36,8 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MACOSX_DEPLOYMENT_TARGET: "15.0"
-    MARKETING_VERSION: "0.5.0"
-    CURRENT_PROJECT_VERSION: "11"
+    MARKETING_VERSION: "0.6.0"
+    CURRENT_PROJECT_VERSION: "12"
     ENABLE_HARDENED_RUNTIME: YES
     DEAD_CODE_STRIPPING: YES
 
@@ -126,11 +126,11 @@ targets:
       base:
         PRODUCT_NAME: FermixBrowser
 
-  # The one place that imports AVKit, QuickLookUI and QuickLookThumbnailing,
-  # for the same reason again: FermixAgent links FermixAppCore and must never
-  # load a viewer it never shows. A static library linked into the GUI
-  # executable, like FermixBrowser. All three are the system's, so there is
-  # no package to pin.
+  # The one place that imports AVKit, QuickLookUI, QuickLookThumbnailing and
+  # MapKit, for the same reason again: FermixAgent links FermixAppCore and
+  # must never load a viewer it never shows. A static library linked into the
+  # GUI executable, like FermixBrowser. All four are the system's, so there
+  # is no package to pin.
   FermixViewers:
     type: library.static
     platform: macOS
@@ -142,6 +142,7 @@ targets:
       - sdk: AVKit.framework
       - sdk: QuickLookUI.framework
       - sdk: QuickLookThumbnailing.framework
+      - sdk: MapKit.framework
     settings:
       base:
         PRODUCT_NAME: FermixViewers

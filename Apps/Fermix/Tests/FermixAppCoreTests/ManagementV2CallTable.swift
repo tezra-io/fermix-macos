@@ -122,6 +122,9 @@ enum ManagementV2Calls {
         "auth_start": { _ = try await $0.startAuth(provider: "openai_codex") },
         "auth_import_start": { _ = try await $0.startAuthImport(source: .claudeCode) },
         "auth_logout": { _ = try await $0.logOut(provider: "xai") },
+        // An MCP server's own sign-in and sign-out, under its mcp: provider.
+        "auth_start_mcp": { _ = try await $0.startAuth(provider: "mcp:linear") },
+        "auth_logout_mcp": { _ = try await $0.logOut(provider: "mcp:linear") },
         "plugins_list": { _ = try await $0.plugins() },
         "plugins_install_start": { _ = try await $0.startPluginInstall(name: "notion") },
         "plugins_check_start": { _ = try await $0.startPluginCheck(name: "gmail") },
@@ -177,6 +180,68 @@ enum ManagementV2Calls {
         "mobile_devices_list": { _ = try await $0.mobileDevices() },
         "mobile_devices_revoke": {
             _ = try await $0.revokeMobileDevice(id: "3f4a1a55-69a0-4f8a-9132-17d6ac728f84")
+        },
+
+        "mcp_servers_list": { _ = try await $0.mcpServers() },
+        "mcp_servers_get": { _ = try await $0.mcpServer(name: "linear") },
+        // A paste in each shape the draft reads: a URL, command lines, a
+        // pasted mcpServers map, a claude mcp add line and a Codex block.
+        "mcp_servers_draft_url": { _ = try await $0.draftMCPServer(text: "https://mcp.linear.app/mcp") },
+        "mcp_servers_draft_command": { _ = try await $0.draftMCPServer(text: "npx -y @modelcontextprotocol/server-filesystem ~/Documents") },
+        "mcp_servers_draft_command_uvx": { _ = try await $0.draftMCPServer(text: "uvx mcp-server-fetch") },
+        "mcp_servers_draft_command_not_found": { _ = try await $0.draftMCPServer(text: "uvx some-missing-tool") },
+        "mcp_servers_draft_pasted_config": { _ = try await $0.draftMCPServer(text: "{\"mcpServers\": {\"sentry\": {\"type\": \"http\", \"url\": \"https://mcp.sentry.dev/mcp\"}, \"brave-search\": {\"command\": \"npx\", \"args\": [\"-y\", \"@brave/brave-search-mcp-server\"], \"env\": {\"BRAVE_API_KEY\": \"BSAk3v9Qx2LmT8wZ\"}}}}") },
+        "mcp_servers_draft_claude_add": { _ = try await $0.draftMCPServer(text: "claude mcp add --transport http context7 https://mcp.context7.com/mcp --header \"CONTEXT7_API_KEY: ctx7sk-4f1e9a2b\"") },
+        "mcp_servers_draft_codex": { _ = try await $0.draftMCPServer(text: "[mcp_servers.figma]\nurl = \"https://mcp.figma.com/mcp\"\nbearer_token_env_var = \"FIGMA_OAUTH_TOKEN\"\nhttp_headers = { \"X-Figma-Region\" = \"us-east-1\" }\n\n[mcp_servers.context7]\ncommand = \"npx\"\nargs = [\"-y\", \"@upstash/context7-mcp\"]\nenv = { \"CONTEXT7_API_KEY\" = \"ctx7sk-4f1e9a2b\" }\n") },
+        // An add sends its transport's fields and nothing else: no empty list
+        // and no null for a field the form left blank.
+        "mcp_servers_add": {
+            _ = try await $0.addMCPServer(.local(name: "fetch", commandLine: "uvx mcp-server-fetch"))
+        },
+        "mcp_servers_add_remote_key": {
+            _ = try await $0.addMCPServer(
+                .remote(
+                    name: "context7",
+                    url: "https://mcp.context7.com/mcp",
+                    auth: .header,
+                    keyHeader: "CONTEXT7_API_KEY"
+                )
+            )
+        },
+        // A pasted server's add carries its own draft's id, which holds the
+        // value the paste carried, and never the value.
+        "mcp_servers_add_draft": {
+            _ = try await $0.addMCPServer(
+                .local(
+                    name: "brave-search",
+                    commandLine: "npx -y @brave/brave-search-mcp-server",
+                    envNames: ["BRAVE_API_KEY"],
+                    draftId: "draft:7Qm2Xk9pLw4Rt8Vn"
+                )
+            )
+        },
+        // An update sends the fields that changed and no others.
+        "mcp_servers_update": {
+            var change = ManagementMCPServerChange(name: "filesystem")
+            change.commandLine = "npx -y @modelcontextprotocol/server-filesystem /Users/owner/Documents"
+            _ = try await $0.updateMCPServer(change)
+        },
+        "mcp_servers_remove": { _ = try await $0.removeMCPServer(name: "notes") },
+        "mcp_servers_enable": { _ = try await $0.enableMCPServer(name: "notes") },
+        "mcp_servers_disable": { _ = try await $0.disableMCPServer(name: "linear") },
+        "mcp_servers_tool_set": {
+            _ = try await $0.setMCPTool(name: "linear", tool: "update_project", enabled: true)
+        },
+        "mcp_servers_check_start": { _ = try await $0.startMCPCheck(name: "linear") },
+        // An import reads the other apps when asked, then imports the picked
+        // servers in one call, each by its app and its name.
+        "mcp_servers_import_scan": { _ = try await $0.scanMCPImports() },
+        "mcp_servers_import": {
+            _ = try await $0.importMCPServers([
+                ManagementMCPImportPick(source: .claudeDesktop, name: "github"),
+                ManagementMCPImportPick(source: .codex, name: "fetch"),
+                ManagementMCPImportPick(source: .claudeCode, name: "linear")
+            ])
         }
     ]
 

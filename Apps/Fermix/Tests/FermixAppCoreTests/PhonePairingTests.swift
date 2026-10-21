@@ -619,6 +619,132 @@ struct PhonePairingTests {
         listener["status"] = value
         status["listener"] = listener
     }
+
+    // MARK: - Reach from anywhere
+
+    @Test("the golden's rail decodes as published, and an engine older than the rail has none")
+    func remoteDecodes() throws {
+        let remote = try #require(try PairingGolden.status().remote)
+
+        #expect(remote.state == .ready)
+        #expect(remote.relay != nil)
+        #expect(remote.connected)
+        #expect(remote.endpointId?.count == 64)
+        #expect(remote.relayError == nil)
+        #expect(remote.failure == nil)
+        #expect(remote.refused == ManagementMobileRemoteRefusals(busy: 0, alpn: 0, bridgeUnreachable: 0))
+
+        let older = try PairingGolden.status { $0["remote"] = nil }
+        #expect(older.remote == nil)
+        #expect(PhoneRemoteLine.line(older.remote) == nil)
+    }
+
+    @Test("the line says where the rail stands, a start as progress, a failure as one, and nothing while it is off")
+    func remoteLines() throws {
+        let cases: [(String, [String: Any], PhoneRemoteLine?)] = [
+            ("off", Self.rail("off"), nil),
+            ("helper missing", Self.rail("helper_missing"), PhoneRemoteLine("Not available in this build yet.")),
+            ("dormant", Self.rail("dormant"), PhoneRemoteLine("Starts when you pair your first phone.")),
+            ("starting", Self.rail("starting"), PhoneRemoteLine("Starting…", .progress)),
+            ("ready", [:], PhoneRemoteLine("Connected to Fermix’s relays.")),
+            ("ready with no relay named", ["relay": NSNull()], PhoneRemoteLine("Connected to Fermix’s relays.")),
+            ("not connected", ["connected": false], PhoneRemoteLine("Not connected to Fermix’s relays right now.")),
+            (
+                "failed",
+                Self.rail("failed", failure: "fermix-iroh refused the key: wrong length"),
+                PhoneRemoteLine("fermix-iroh refused the key: wrong length", .failure)
+            ),
+            ("unknown", Self.rail("paused"), nil)
+        ]
+
+        for (name, fields, expected) in cases {
+            let status = try PairingGolden.status { Self.remote(&$0, fields) }
+
+            #expect(PhoneRemoteLine.line(status.remote) == expected, "\(name)")
+        }
+    }
+
+    /// The state alone decides the line: a build with no rail says so even
+    /// beside the relay, connection and endpoint a ready rail would carry, so
+    /// nothing a ready rail says reaches it.
+    @Test("a build with no rail says so, whatever else the status carries")
+    func missingHelperIsTheStateAlone() throws {
+        let missing = try #require(PhoneRemoteLine.line(try PairingGolden.status {
+            Self.remote(&$0, ["state": "helper_missing"])
+        }.remote))
+
+        #expect(missing == PhoneRemoteLine(ProductStrings[.phoneRemoteHelperMissing]))
+    }
+
+    /// The two switches the sheet names by key are the ones the golden phone
+    /// section publishes, so a row renamed in the engine fails here rather
+    /// than leaving the sheet a bare toggle with no line under it.
+    @Test("the phone section publishes both switches the sheet names")
+    func phoneSectionNamesBothSwitches() throws {
+        let section: ManagementSettingsSectionRows = try PairingGolden.decode("settings_get_channels_mobile") { _ in }
+
+        for key in [PhoneChannel.switchKey, PhoneChannel.remoteKey] {
+            let row = section.rows.first { $0.key == key }
+
+            #expect(row?.kind == .toggle, "\(key)")
+        }
+    }
+
+    /// Only the first refusal of a run and the answer that ends it are worth a
+    /// log line; the wait doubles with each refusal in a row up to its
+    /// ceiling; and the reads run out at the cap whatever they said.
+    @Test("a follow logs a run of refusals once, backs off through it, and stops at its cap")
+    func railFollow() {
+        var follow = PhoneRailFollow()
+        #expect(follow.wait == PhoneChannel.pollSeconds)
+        let quiet = follow.answered()
+        #expect(quiet == nil, "an answer that ends no run logs nothing")
+
+        let logged = [follow.refused(), follow.refused(), follow.refused()]
+        #expect(logged == [true, false, false], "only the first refusal of a run is logged")
+        #expect(follow.wait == 8)
+        let ended = follow.answered()
+        #expect(ended == 3, "the answer that ends a run says how long it was")
+        #expect(follow.wait == PhoneChannel.pollSeconds)
+
+        for _ in 0..<10 { _ = follow.refused() }
+        #expect(follow.wait == PhoneChannel.remoteBackoffSeconds)
+
+        while !follow.exhausted { _ = follow.answered() }
+        #expect(follow.reads == PhoneChannel.remotePolls)
+    }
+
+    /// The engine marks the phone channel's network rows, so the Phones step
+    /// folds them with no list of its own, and Reach from anywhere stays in the
+    /// open with the paragraph its (i) shows.
+    @Test("the phone section folds its port, address and announcement, and explains its reach switch")
+    func phoneSectionFoldsItsNetworkRows() throws {
+        let section: ManagementSettingsSectionRows = try PairingGolden.decode("settings_get_channels_mobile") { _ in }
+        let fold = DescriptorRowFold(section.rows, excluding: [PhoneChannel.switchKey])
+
+        #expect(fold.open.map(\.key) == [PhoneChannel.remoteKey])
+        #expect(fold.folded.map(\.key) == ["mobile_port", "mobile_bind", "mobile_advertise_mdns"])
+        #expect(fold.open.first?.explanation != nil)
+    }
+
+    /// A rail in a state that is not `ready` or `failed`, with every field
+    /// the state does not carry nulled, as the contract publishes it.
+    static func rail(_ state: String, failure: String? = nil) -> [String: Any] {
+        [
+            "state": state,
+            "endpoint_id": NSNull(),
+            "relay": NSNull(),
+            "connected": false,
+            "relay_error": NSNull(),
+            "failure": failure ?? NSNull()
+        ]
+    }
+
+    static func remote(_ status: inout [String: Any], _ fields: [String: Any]) {
+        var remote = status["remote"] as? [String: Any] ?? [:]
+        remote.merge(fields) { _, new in new }
+        status["remote"] = remote
+    }
 }
 
 /// Reads a drawn code back with Core Image's own detector, which is what

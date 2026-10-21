@@ -380,11 +380,11 @@ struct BrowserLocalFileTests {
 }
 
 /// The opening rule itself (M66 §3.5): pure, over what the file system says
-/// of a file, so the chat's tiles decide by it as the pane does.
+/// of a file (`FileFacts`), so the chat's tiles decide by it as the pane does.
 @Suite("Browser opening rule")
 struct BrowserOpeningRuleTests {
-    private static func kind(_ type: UTType, _ entry: BrowserLocalFile.Entry, readsAsText: Bool = false) -> BrowserFileKind? {
-        BrowserLocalFile.kind(of: type, as: entry, readsAsText: { readsAsText })
+    private static func kind(_ type: UTType, _ entry: FileFacts.Entry, readsAsText: Bool = false) -> BrowserFileKind? {
+        BrowserLocalFile.kind(of: FileFacts(type: type, entry: entry), readsAsText: { readsAsText })
     }
 
     @Test("a document family's package is a document, and every other folder and anything else on the disk is nothing")
@@ -401,35 +401,57 @@ struct BrowserOpeningRuleTests {
     @Test("the bytes are asked of only for a type the Mac does not know as content")
     func bytesAreAskedOnlyForUntypedFiles() throws {
         var asked = 0
-        let file = BrowserLocalFile.Entry.file(size: 10, isExecutable: false)
+        let file = FileFacts.Entry.file(size: 10, isExecutable: false)
         let untyped = try #require(UTType(filenameExtension: "fermixunknown"))
 
-        _ = BrowserLocalFile.kind(of: .plainText, as: file) { asked += 1; return true }
-        _ = BrowserLocalFile.kind(of: .mpeg4Movie, as: file) { asked += 1; return true }
+        _ = BrowserLocalFile.kind(of: FileFacts(type: .plainText, entry: file)) { asked += 1; return true }
+        _ = BrowserLocalFile.kind(of: FileFacts(type: .mpeg4Movie, entry: file)) { asked += 1; return true }
         #expect(asked == 0)
 
-        #expect(BrowserLocalFile.kind(of: untyped, as: file) { asked += 1; return true } == .text)
-        #expect(BrowserLocalFile.kind(of: untyped, as: file) { asked += 1; return false } == nil)
+        #expect(BrowserLocalFile.kind(of: FileFacts(type: untyped, entry: file)) { asked += 1; return true } == .text)
+        #expect(BrowserLocalFile.kind(of: FileFacts(type: untyped, entry: file)) { asked += 1; return false } == nil)
         #expect(asked == 2)
     }
 
     @Test("the executable bit keeps a file from the viewers and from its app, and not from WebKit")
     func executableBit() throws {
-        let running = BrowserLocalFile.Entry.file(size: 10, isExecutable: true)
+        let running = FileFacts.Entry.file(size: 10, isExecutable: true)
         let word = try #require(UTType(filenameExtension: "docx"))
 
         #expect(Self.kind(.mpeg4Movie, running) == nil)
         #expect(Self.kind(word, running) == nil)
         #expect(Self.kind(.png, running) == .image)
         #expect(Self.kind(.shellScript, running) == .text)
-        #expect(!BrowserLocalFile.mayGoToAnApp(word, as: running))
-        #expect(BrowserLocalFile.mayGoToAnApp(word, as: .file(size: 10, isExecutable: false)))
-        #expect(BrowserLocalFile.mayGoToAnApp(.rtfd, as: .folder), "a package's folder bit was read as an executable bit")
+        #expect(!BrowserLocalFile.mayGoToAnApp(FileFacts(type: word, entry: running)))
+        #expect(BrowserLocalFile.mayGoToAnApp(FileFacts(type: word, entry: .file(size: 10, isExecutable: false))))
+        #expect(BrowserLocalFile.mayGoToAnApp(FileFacts(type: .rtfd, entry: .folder)), "a package's folder bit was read as an executable bit")
+    }
+
+    /// One reading, for the pane and for a tile: a tile's facts are the
+    /// pane's facts with what the tile adds.
+    @MainActor
+    @Test("a file, an executable, a folder and a package are read once, and a tile reads them as the pane does")
+    func factsAreReadOnce() throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let notes = try place.write("notes.txt", in: place.home)
+        let tool = try place.write("tool", BrowserLocalFileTests.binary, in: place.home, executable: true)
+        let folder = try place.folder("reports", in: place.home)
+        let package = try place.folder("Report.pages", in: place.home)
+
+        #expect(FileFacts(of: notes)?.entry == .file(size: 5, isExecutable: false))
+        #expect(FileFacts(of: tool)?.entry == .file(size: BrowserLocalFileTests.binary.count, isExecutable: true))
+        #expect(FileFacts(of: folder)?.entry == .folder)
+        #expect(FileFacts(of: package)?.entry == .folder)
+        #expect(FileFacts(of: package)?.type.conforms(to: .package) == true)
+        for file in [notes, tool, folder, package] {
+            #expect(ChatFileFacts.read(file, home: place.home)?.disk == FileFacts(of: FilePlaceFixture.real(file)), "\(file.lastPathComponent)")
+        }
     }
 
     @Test("text and CSV are held to the cap, and nothing else is")
     func cap() throws {
-        let over = BrowserLocalFile.Entry.file(size: BrowserFileKind.textSizeCap + 1, isExecutable: false)
+        let over = FileFacts.Entry.file(size: BrowserFileKind.textSizeCap + 1, isExecutable: false)
         let csv = try #require(UTType(filenameExtension: "csv"))
 
         #expect(Self.kind(.plainText, over) == nil)

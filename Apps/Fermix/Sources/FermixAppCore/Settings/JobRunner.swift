@@ -274,6 +274,8 @@ public enum JobPhaseCopy {
     public static let published: [Step: ProductStringKey] = [
         Step(.providerProbe, "calling"): .jobPhaseCalling,
         Step(.auth, "binding"): .jobPhaseBinding,
+        Step(.auth, "discovering"): .jobPhaseDiscovering,
+        Step(.auth, "registering"): .jobPhaseRegistering,
         Step(.auth, "awaiting_browser"): .jobPhaseAwaitingBrowser,
         Step(.auth, "verifying"): .jobPhaseVerifyingSignIn,
         Step(.authImport, "reading_keychain"): .jobPhaseReadingKeychain,
@@ -287,7 +289,9 @@ public enum JobPhaseCopy {
         Step(.capabilityInstall, "verifying"): .jobPhaseVerifying,
         Step(.meetingsSignin, "awaiting_signin"): .jobPhaseAwaitingSignIn,
         Step(.browserInstall, "sidecar_downloading"): .jobPhaseSidecarDownloading,
-        Step(.browserInstall, "downloading"): .jobPhaseDownloading
+        Step(.browserInstall, "downloading"): .jobPhaseDownloading,
+        Step(.mcpCheck, "connecting"): .jobPhaseConnecting,
+        Step(.mcpCheck, "listing"): .jobPhaseListingTools
     ]
 
     public static func sentence(kind: ManagementJobKind, phase: String) -> String? {

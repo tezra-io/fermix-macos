@@ -171,6 +171,24 @@ public struct DescriptorRowModel: Identifiable, Equatable, Sendable {
 
 }
 
+/// A section's rows in the order a surface draws them (M62): the rows in the
+/// open, then the rows the engine marks advanced, folded under one disclosure
+/// that starts closed each time the section appears. A section with no
+/// advanced row has no disclosure. Which rows fold is the engine's mark, so no
+/// surface keeps a list of keys.
+struct DescriptorRowFold: Equatable {
+    static let startsOpen = false
+
+    let open: [ManagementSettingRow]
+    let folded: [ManagementSettingRow]
+
+    init(_ rows: [ManagementSettingRow], excluding: Set<String> = []) {
+        let drawn = rows.filter { !excluding.contains($0.key) }
+        open = drawn.filter { !$0.advanced }
+        folded = drawn.filter(\.advanced)
+    }
+}
+
 /// What a number counts and how it reads (M34 §5).
 ///
 /// The daemon owns both; this is the one place they become a rendering, so a

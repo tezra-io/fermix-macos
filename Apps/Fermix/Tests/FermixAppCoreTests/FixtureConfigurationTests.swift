@@ -61,13 +61,48 @@ struct FixtureLaunchRequestTests {
         }
     }
 
+    /// The sheet ground is a fixture launch's alone, and like the start it is
+    /// refused rather than defaulted whenever it was asked for and cannot be
+    /// honoured: the standard glass drawn after another was named would look
+    /// like the capture the operator asked for.
+    @Test("the sheet ground is named by a fixture launch, or standard")
+    func sheetGround() throws {
+        #expect(try FixtureLaunchRequest.sheetGround(["/path/Fermix"]) == .standard)
+        #expect(try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--fixture"]) == .frame)
+        #expect(
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--fixture", "--sheet-ground", "liquid"]) == .liquid
+        )
+        #expect(
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--sheet-ground", "frame", "--fixture"]) == .frame
+        )
+
+        #expect(throws: FixtureLaunchRequest.Refusal.sheetGroundWithoutFlag) {
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--sheet-ground", "liquid"])
+        }
+        #expect(throws: FixtureLaunchRequest.Refusal.sheetGroundWithoutValue) {
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--fixture", "--sheet-ground"])
+        }
+        #expect(throws: FixtureLaunchRequest.Refusal.sheetGroundWithoutValue) {
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--fixture", "--sheet-ground", "--fixture-start"])
+        }
+        #expect(throws: FixtureLaunchRequest.Refusal.unknownSheetGround("glass")) {
+            try FixtureLaunchRequest.sheetGround(["/path/Fermix", "--fixture", "--sheet-ground", "glass"])
+        }
+        #expect(throws: FixtureLaunchRequest.Refusal.flagRepeated("--sheet-ground")) {
+            try FixtureLaunchRequest.sheetGround([
+                "/path/Fermix", "--fixture", "--sheet-ground", "frame", "--sheet-ground", "liquid"
+            ])
+        }
+    }
+
     /// The release refusal has to say why, not just that. A developer handed
     /// "unrecognised argument" goes looking for a typo.
     @Test("every refusal carries a sentence that names what was inspected")
     func refusalsSpeak() {
         let refusals: [FixtureLaunchRequest.Refusal] = [
             .startWithoutFlag, .startWithoutValue, .flagRepeated("--fixture"),
-            .notAvailableInThisBuild, .unknownStart("wat")
+            .notAvailableInThisBuild, .unknownStart("wat"),
+            .sheetGroundWithoutFlag, .sheetGroundWithoutValue, .unknownSheetGround("glass")
         ]
 
         for refusal in refusals {
@@ -77,6 +112,10 @@ struct FixtureLaunchRequestTests {
         #expect(FixtureLaunchRequest.Refusal.unknownStart("wat").sentence.contains("wat"))
         #expect(FixtureLaunchRequest.Refusal.flagRepeated("--fixture-start")
             .sentence.hasPrefix("--fixture-start"))
+        // The refusal names the recipes there are, so the typo is fixed from
+        // the sentence alone.
+        let unknown = FixtureLaunchRequest.Refusal.unknownSheetGround("glass").sentence
+        #expect(unknown.contains("glass") && unknown.contains("frame") && unknown.contains("liquid"))
     }
 }
 
@@ -111,6 +150,7 @@ struct FixtureConfigurationTests {
         }
         #expect(FixtureStart(name: "restart-sheet") == .restartSheet)
         #expect(FixtureStart(name: "chat-empty") == .emptyChat)
+        #expect(FixtureStart(name: "chat-replies") == .chatReplies)
         #expect(FixtureStart(name: "browser") == .browser)
         #expect(FixtureStart(name: "chat-call") == .chatCall)
         #expect(FixtureStart(name: "chat-call-failed") == .failedChatCall)
@@ -148,7 +188,7 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 6 + FixturePhoneStart.allCases.count)
+            + OnboardingStage.allCases.count + 7 + FixturePhoneStart.allCases.count + FixtureMCPStart.allCases.count)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -272,12 +312,16 @@ struct FixtureConfigurationTests {
         case .approvalStep:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.onboardingStage == .starting)
-        case .emptyChat, .browser, .chatCall, .failedChatCall:
+        case .emptyChat, .chatReplies, .browser, .chatCall, .failedChatCall:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.route == .chat)
         case .phone:
             #expect(harness.windows.presented == [.main])
             #expect(harness.settings.selectedPane == .channels)
+            #expect(harness.presentation.isShowing)
+        case .mcp:
+            #expect(harness.windows.presented == [.main])
+            #expect(harness.settings.selectedPane == .integrations)
             #expect(harness.presentation.isShowing)
         }
     }
@@ -293,6 +337,16 @@ struct FixtureConfigurationTests {
         #expect(FixtureLaunch(start: .surface(.chat)).companionTimeline == .full)
         #expect(FixtureLaunch(start: .surface(.home)).companionTimeline == .full)
         #expect(FixtureHome.forStart(.emptyChat) == .settled)
+    }
+
+    /// Replies drawn for what they hold (M72) are looked at on a timeline of
+    /// their own, which nothing else in the chat crowds.
+    @Test("chat-replies opens Chat on the replies timeline")
+    func repliesStartNamesItsTimeline() {
+        #expect(FixtureLaunch(start: .chatReplies).presentation == .route(.chat))
+        #expect(FixtureLaunch(start: .chatReplies).companionTimeline == .replies)
+        #expect(FixtureLaunch(start: .chatReplies).startSlug == "chat-replies")
+        #expect(FixtureHome.forStart(.chatReplies) == .settled)
     }
 
     /// A call is looked at beside a conversation, so both call starts hold the
@@ -327,6 +381,34 @@ struct FixtureConfigurationTests {
         }
     }
 
+    /// A fixture launch neither reads nor changes the notification grant this
+    /// Mac holds for the bundle, and attaches to no daemon's native host
+    /// socket, whichever surface it starts on.
+    @MainActor
+    @Test("the fixture environment hands the native host an unserved socket and a scripted center")
+    func fixtureNativeHostSeams() throws {
+        for start in [FixtureStart.surface(.home), .settings(.permissions)] {
+            let environment = try AppEnvironment.fixture(FixtureLaunch(start: start), mascot: StillMascot(), viewers: FakeBrowserViewers(), mediaReader: FakeMediaReader())
+
+            #expect(environment.nativeHostLines is FixtureNativeHostTransport)
+            #expect(environment.notificationCenter is FixtureNotificationCenter)
+        }
+    }
+
+    /// The sheet ground a fixture launch named reaches the environment the
+    /// graph is built over, and a launch that named none has the standard one.
+    @MainActor
+    @Test("the fixture environment carries the sheet ground its launch named")
+    func fixtureSheetGround() throws {
+        for recipe in SheetGroundRecipe.allCases {
+            let launch = FixtureLaunch(start: .settings(.integrations), sheetGround: recipe)
+            let environment = try AppEnvironment.fixture(launch, mascot: StillMascot(), viewers: FakeBrowserViewers(), mediaReader: FakeMediaReader())
+
+            #expect(environment.sheetGround == recipe)
+        }
+        #expect(FixtureLaunch(start: .surface(.home)).sheetGround == .standard)
+    }
+
     /// The pane is looked at beside a conversation, on the fixture's own two
     /// pages, and never over the network.
     @MainActor
@@ -340,8 +422,9 @@ struct FixtureConfigurationTests {
             makeEngine: { _ in FixtureBrowserEngine() },
             profile: WebsiteProfileRecord(location: BrowserProfileLocation().location),
             workspace: FixtureWorkspaceOpener(),
-            player: AppPlayer(engine: FakePlaybackEngine()),
+            player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts(), grants: FakeMediaGrants()),
             viewers: FakeBrowserViewers(),
+            grants: FakeMediaGrants(),
             home: { throw CocoaError(.fileNoSuchFile) },
             session: FakeSessionAvailability(),
             deadlines: ManualDeadlineScheduler(),
@@ -368,8 +451,9 @@ struct FixtureConfigurationTests {
             makeEngine: { _ in FixtureBrowserEngine() },
             profile: WebsiteProfileRecord(location: BrowserProfileLocation().location),
             workspace: FixtureWorkspaceOpener(),
-            player: AppPlayer(engine: FakePlaybackEngine()),
+            player: AppPlayer(engine: FakePlaybackEngine(), facts: FakeMediaFacts(), grants: FakeMediaGrants()),
             viewers: FakeBrowserViewers(),
+            grants: FakeMediaGrants(),
             home: { place.home },
             session: FakeSessionAvailability(),
             deadlines: ManualDeadlineScheduler(),
@@ -406,6 +490,128 @@ struct FixtureConfigurationTests {
         session.pullOlder()
         #expect(session.model.rows.map(\.serverSeq) == Array(1...20))
         #expect(!session.model.hasOlder)
+    }
+
+    /// The replies arrive as the contract's events like every fixture row,
+    /// the places reply with its block, in the order its text links them, as
+    /// the engine matches them (M72 §8.4): one place with every field, one
+    /// with no rating, one with no hours, and one with a long name.
+    @MainActor
+    @Test("the replies timeline holds a places reply with its block, then lists, a table and a quote")
+    func repliesTimelineArrives() throws {
+        let session = fixtureChat(.replies)
+        session.connect()
+
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...14))
+        #expect(!session.model.hasOlder)
+        #expect(session.model.turn == nil)
+
+        let reply = try #require(session.model.rows.first { $0.serverSeq == 2 })
+        guard case .places(let places)? = reply.blocks.first else {
+            Issue.record("the places reply arrived without its block")
+            return
+        }
+        #expect(reply.blocks.count == 1)
+        #expect(places.count == 4)
+        #expect(places.filter { $0.rating == nil }.count == 1)
+        #expect(places.filter { $0.openingHours == nil }.count == 1)
+        #expect(places.contains { $0.name.count > 40 })
+        #expect(places.contains { place in
+            place.canonicalURL != nil && place.sourceURL != nil && place.address != nil && place.rating?.count != nil
+                && place.priceRange != nil && place.categories != nil && place.openingHours != nil && place.distance != nil
+        })
+
+        let linked = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)).map(ChatPlaceLink.init) }
+        let named = places.map { place in
+            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(ChatPlaceLink.init) }
+        }
+        #expect(named.map { $0.first(where: linked.contains) } == linked.map(Optional.some))
+
+        for seq in [4, 6, 8, 12, 14] {
+            #expect(session.model.rows.first { $0.serverSeq == seq }?.blocks == [])
+        }
+    }
+
+    /// Then places Apple Maps found around a named town (M72 §14.1): each
+    /// with Apple's identifier and Apple's page for it, its kind and its
+    /// address, and none of what Apple does not give or the engine leaves
+    /// out for a named area, linked in the text by one of its two addresses.
+    @MainActor
+    @Test("the replies timeline then holds places Apple Maps found, each with its identifier and none of what Apple does not give")
+    func applePlacesArrive() throws {
+        let session = fixtureChat(.replies)
+        session.connect()
+
+        let reply = try #require(session.model.rows.first { $0.serverSeq == 10 })
+        guard case .places(let places)? = reply.blocks.first else {
+            Issue.record("the Apple places reply arrived without its block")
+            return
+        }
+        #expect(reply.blocks.count == 1)
+        #expect(places.count == 3)
+        for place in places {
+            let identifier = try #require(place.applePlaceID)
+            #expect(place.sourceURL == "https://maps.apple.com/place?place-id=" + identifier)
+            #expect(place.categories?.count == 1)
+            #expect(place.address != nil)
+            #expect(place.rating == nil && place.priceRange == nil && place.openingHours == nil && place.distance == nil)
+            #expect(ChatPlaceFacts(place).lines.count == 2)
+        }
+        #expect(Set(places.compactMap(\.applePlaceID)).count == 3)
+
+        let addresses = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)) }
+        let named = places.map { place in
+            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(ChatPlaceLink.init) }
+        }
+        let linked = addresses.map(ChatPlaceLink.init).filter { named.joined().contains($0) }
+        #expect(named.map { $0.first(where: linked.contains) } == linked.map(Optional.some))
+
+        let menu = try #require(addresses.first { !named.joined().contains(ChatPlaceLink($0)) })
+        #expect(ChatPlaceLinks(reply.blocks).covers(menu))
+    }
+
+    /// Then a reply that links four pages (M72): the engine's previews of
+    /// three of them, two with a picture the fixture daemon grants from a
+    /// sample photo, one whose page gave none, and the fourth left with no
+    /// preview, as a page the engine could not read is.
+    @MainActor
+    @Test("the replies timeline then holds a reply linking four pages, three of them previewed")
+    func linkedPagesArrive() throws {
+        let session = fixtureChat(.replies)
+        session.connect()
+
+        let reply = try #require(session.model.rows.first { $0.serverSeq == 12 })
+        let addresses = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).map { String($0.output.1) }
+        #expect(addresses.count == 4)
+        #expect(reply.linkPreviews.map(\.url) == Array(addresses.prefix(3)))
+
+        let pictures = reply.linkPreviews.compactMap(\.imageRef)
+        #expect(pictures.count == 2)
+        #expect(pictures.allSatisfy(CompanionProtocol.isMediaRef))
+        #expect(Set(pictures) == Set(FixtureRepliesScript.pictures.keys))
+    }
+
+    /// Last, code: a shell one-liner wider than any reply, which its block
+    /// wraps, and a short Python function, each fenced by a common tag its
+    /// block names by the language's own name. Code is the reply's own
+    /// markdown, so the row carries no block of the engine's.
+    @MainActor
+    @Test("the replies timeline ends with code, a long shell one-liner and a Python function fenced by common tags")
+    func codeArrives() throws {
+        let session = fixtureChat(.replies)
+        session.connect()
+
+        let reply = try #require(session.model.rows.last)
+        let code = ReplyFences.runs(reply.text).compactMap { run -> ReplyCode? in
+            guard case .code(let code, _) = run else { return nil }
+            return code
+        }
+
+        #expect(reply.serverSeq == 14)
+        #expect(code.compactMap(\.language).map(CodeLanguage.name(of:)) == ["Shell", "Python"])
+        #expect(code.first?.text.contains("\n") == false)
+        #expect((code.first?.text.count ?? 0) > 120)
+        #expect((code.last?.text.split(separator: "\n").count ?? 0) > 10)
     }
 
     @MainActor
@@ -510,18 +716,21 @@ struct FixtureConfigurationTests {
 
     /// The params one method is asked with.
     ///
-    /// Five methods are keyed on their params, because the contract publishes
+    /// Seven methods are keyed on their params, because the contract publishes
     /// more than one golden for each: `settings.get` answers per section,
-    /// `settings.apply` per key it changes, `job.get` per job, and `secret.set` and `secret.clear`
-    /// answer per secret, so asking any of them with none would be asking for
-    /// something the contract does not publish. Every other method answers one
-    /// shape.
+    /// `settings.apply` per key it changes, `job.get` per job, `secret.set` and
+    /// `secret.clear` per secret, `mcp.servers.add` per transport and
+    /// `mcp.servers.draft` per text, so asking any of them with none would be
+    /// asking for something the contract does not publish. Every other method
+    /// answers one shape.
     static func params(for method: ManagementMethod) -> [String: Any] {
         switch method {
         case .settingsGet: return ["section": "realtime"]
         case .settingsApply: return ["section": "realtime", "values": ["realtime_enabled": true]]
         case .jobGet: return ["job_id": "job:2Kd9mQ"]
         case .secretSet, .secretClear: return ["id": "openai_api_key"]
+        case .mcpServersAdd: return ["transport": "stdio"]
+        case .mcpServersDraft: return ["text": "uvx mcp-server-fetch"]
         default: return [:]
         }
     }
@@ -602,6 +811,19 @@ struct FixtureConfigurationTests {
         #expect(overview.realtime.engine == "openai_realtime")
         #expect(voice.rows.contains { $0.key == "realtime_reasoning_effort" })
         #expect(!voice.rows.contains { $0.key == "realtime_backend" })
+    }
+
+    /// The web search section publishes one golden per place search backend
+    /// for the same request. The home is the Mac app's engine at its build's
+    /// default, so it answers the one with Apple Maps in force, which needs
+    /// no key and so publishes no Brave key row.
+    @Test("the web search section answers with Apple Maps in force")
+    func webSearchSectionSearchesAppleMaps() async throws {
+        let client = try await negotiatedClient()
+        let search = try await client.settings(section: "web_search")
+
+        #expect(search.rows.first { $0.key == "place_search_backend" }?.value == .text("apple_maps"))
+        #expect(!search.rows.contains { $0.key == "brave_api_key" })
     }
 
     /// A section this home does not publish is loud, not empty: a pane

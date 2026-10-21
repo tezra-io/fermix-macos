@@ -58,6 +58,52 @@ struct ManagementClientRequestTests {
         #expect(transport.capturedFrames.isEmpty)
     }
 
+    /// An update that names no field is a write with nothing to write, so it
+    /// never reaches the socket, and a field cleared on an update goes out as
+    /// null rather than being dropped.
+    @Test("an MCP update sends the fields it changed, a cleared one as null, and never nothing")
+    func mcpUpdatesSendWhatChanged() async throws {
+        let transport = EchoingFixtureTransport(
+            envelopes: try ManagementFixtures.successEnvelopesByMethod()
+        )
+        let client = try ManagementTestClient.make(transport: transport)
+        _ = try await client.hello()
+
+        await #expect(throws: ManagementError.invalidParameter(.empty(field: "changes"))) {
+            _ = try await client.updateMCPServer(ManagementMCPServerChange(name: "notes"))
+        }
+        #expect(transport.capturedFrames.count == 1, "only hello was sent")
+
+        var change = ManagementMCPServerChange(name: "notes")
+        change.cwd = .clear
+        change.envNames = []
+        _ = try await client.updateMCPServer(change)
+
+        let params = try #require(transport.capturedFrames.last?["params"] as? [String: Any])
+        #expect(Set(params.keys) == ["name", "cwd", "env_names"])
+        #expect(params["cwd"] is NSNull)
+        #expect((params["env_names"] as? [String])?.isEmpty == true)
+    }
+
+    /// The writes that persist `config.toml` get the budget the daemon has
+    /// for them, and an MCP server's writes are such writes; its reads and its
+    /// check answer at once.
+    @Test("MCP server writes wait as long as a settings write, and its reads do not")
+    func mcpWritesTakeTheWriteTimeout() {
+        let policy = DefaultManagementTimeoutPolicy()
+        let writes: [ManagementMethod] = [
+            .settingsApply, .secretSet, .mcpServersAdd, .mcpServersUpdate, .mcpServersRemove,
+            .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet, .mcpServersImport
+        ]
+
+        for method in writes {
+            #expect(policy.timeout(for: method) == DefaultManagementTimeoutPolicy.write, "\(method.rawValue)")
+        }
+        for method in [ManagementMethod.mcpServersList, .mcpServersGet, .mcpServersDraft, .mcpServersCheckStart, .mcpServersImportScan] {
+            #expect(policy.timeout(for: method) == DefaultManagementTimeoutPolicy.standard, "\(method.rawValue)")
+        }
+    }
+
     @Test("the generated request id fits the published pattern")
     func generatedIdentifiersAreValid() {
         let generator = UUIDRequestIdentifierGenerator()
@@ -98,7 +144,7 @@ struct ManagementClientResultTests {
         #expect(hello.protocolRange.currentVersion == 2)
         #expect(hello.protocolRange.minimum == 1)
         #expect(hello.protocolRange.maximum == 2)
-        #expect(hello.capabilities.methods.count == 53)
+        #expect(hello.capabilities.methods.count == 65)
         #expect(hello.engine.engineId == "fermix-core")
         #expect(hello.engine.productVersion == "0.9.0")
         #expect(hello.engine.distributionIdentity == "macos_app")
@@ -308,7 +354,7 @@ struct ManagementClientErrorTests {
     @Test("every published error code surfaces as a typed failure")
     func errorFixturesSurfaceTyped() async throws {
         let fixtures = try ManagementFixtures.load(.errors)
-        #expect(fixtures.count == 24)
+        #expect(fixtures.count == 32)
 
         for fixture in fixtures {
             let envelope = try fixture.object("response")

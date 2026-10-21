@@ -168,6 +168,29 @@ public enum Palette {
     // 2026-09-03: the orb "feels like slop"), and the mascot is authored
     // artwork, so it needs no colour from this table.
 
+    // MARK: - Code
+
+    /// A reply's code block highlights in three muted tones on its fill
+    /// (`chipFill`), its comments in `faint` and the rest in `ink`: enough to
+    /// read as code, too quiet to compete with the words round it. None is
+    /// blue, which is the accent's and a link's. Each holds §9's 4.5:1 on the
+    /// fill over the ground in its appearance, and over a card.
+    public static let codeKeyword = ThemedColor(lightHex: "#8b3d8f", darkHex: "#d1a3d6")
+    public static let codeString = ThemedColor(lightHex: "#2e6b45", darkHex: "#8fc7a0")
+    public static let codeNumber = ThemedColor(lightHex: "#8a5300", darkHex: "#e0b07a")
+    /// The fill of a control that floats over the chat's rows, Copy in a code
+    /// block's corner and the newest button over the transcript's foot:
+    /// opaque so a line under it never shows through, and a step lighter
+    /// than the block on dark, as a raised thing is (the dark elevation
+    /// ladder).
+    public static let floatingFill = ThemedColor(lightHex: "#ffffff", darkHex: "#2b2b31")
+    /// The fill behind a code span in a reply's words: a step stronger than
+    /// `chipFill`, which a span's tight box needs to read at all.
+    public static let codeSpanFill = ThemedColor(
+        light: .rgba(0, 0, 0, 0.06),
+        dark: .rgba(255, 255, 255, 0.10)
+    )
+
     // MARK: - Hairlines
 
     /// The three hairline weights, and the one place Increase Contrast changes

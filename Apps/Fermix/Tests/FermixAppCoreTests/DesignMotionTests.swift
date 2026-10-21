@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import FermixAppCore
@@ -26,6 +27,52 @@ struct DesignMotionTests {
         #expect(MotionTable.spec(.mascotEntrance).curve == .timingCurve(0.34, 1.4, 0.64, 1))
         #expect(MotionTable.spec(.riseIn).redlineMilliseconds == 480)
         #expect(MotionTable.spec(.riseIn).curve == .timingCurve(0.32, 0.72, 0, 1))
+    }
+
+    /// The gap walks the cell once per 1200ms, a dot a step, and the band
+    /// crosses the word once per 2400ms; Reduce Motion holds every dot lit,
+    /// the loop's high value, and the word plain, whatever the time.
+    @Test("the thinking line's gap walks once per 1200ms and its band crosses once per 2400ms, both still under Reduce Motion")
+    func thinkingLine() {
+        let running = Motion(reduceMotion: false)
+        let reduced = Motion(reduceMotion: true)
+        let at = { (seconds: Double) in Date(timeIntervalSinceReferenceDate: seconds) }
+        let gap = { (seconds: Double) -> Int? in
+            let strengths = ThinkingLine.strengths(at: at(seconds), motion: running)
+            return strengths.firstIndex(of: strengths.min() ?? 0)
+        }
+        let band = { (seconds: Double) in ThinkingLine.band(at: at(seconds), motion: running) ?? .nan }
+
+        #expect(MotionTable.spec(.thinkingDots) == MotionSpec(curve: .linear, duration: 1.2, repeatsForever: true, redlineMilliseconds: 1200))
+        #expect(MotionTable.spec(.thinkingShimmer) == MotionSpec(curve: .linear, duration: 2.4, repeatsForever: true, redlineMilliseconds: 2400))
+        #expect(MotionTable.kind(.thinkingDots) == .loop && MotionTable.kind(.thinkingShimmer) == .loop)
+
+        #expect(ThinkingLine.strengths(at: at(0), motion: running).min() == ThinkingLineRecipe.gapAlpha)
+        #expect([0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2].map(gap) == [0, 1, 2, 3, 4, 5, 0])
+        #expect(abs(band(0) - ThinkingLineRecipe.bandPath.start) < 1e-9)
+        #expect(abs(band(1.2) - 0.5) < 1e-9)
+
+        for moment in [at(0.7), .distantFuture] {
+            #expect(ThinkingLine.strengths(at: moment, motion: reduced).allSatisfy { $0 == 1 })
+            #expect(ThinkingLine.band(at: moment, motion: reduced) == nil)
+        }
+    }
+
+    /// The gap steps only to a neighbouring dot, so it walks round the cell
+    /// rather than jumping, and the band starts and ends wholly off the word,
+    /// so the word rests plain between passes.
+    @Test("the thinking line's gap walks to a neighbour each step, and its band rests off the word")
+    func thinkingLineShape() {
+        let recipe = ThinkingLineRecipe.self
+        let cells = recipe.cells
+
+        for (index, cell) in cells.enumerated() {
+            let next = cells[(index + 1) % cells.count]
+            #expect(abs(next.column - cell.column) + abs(next.row - cell.row) == 1)
+        }
+        #expect(Set(cells.map { [$0.column, $0.row] }).count == cells.count)
+        #expect(recipe.bandPath.start + recipe.bandHalfWidth <= 0)
+        #expect(recipe.bandPath.end - recipe.bandHalfWidth >= 1)
     }
 
     /// The success bloom died with the Ready mascot, so its binding is gone

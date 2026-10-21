@@ -127,14 +127,16 @@ private struct PhoneLead: View {
     }
 }
 
-/// A line the daemon or the app adds under a lead, in the secondary colour.
+/// A line the daemon or the app adds under a lead or a row, in the secondary
+/// colour, or in the warning colour where it says something failed.
 private struct PhoneNote: View {
     let text: String
+    var failed = false
 
     var body: some View {
         Text(text)
             .fermixType(Typography.style(.calloutSmall))
-            .foregroundStyle(Palette.secondary.color)
+            .foregroundStyle((failed ? Palette.warning : Palette.secondary).color)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -172,10 +174,7 @@ private struct PhoneTurnOnStep: View {
             progress
 
             if let refusal = turnOn.refusal {
-                Text(refusal)
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.warning.color)
-                    .fixedSize(horizontal: false, vertical: true)
+                PhoneNote(text: refusal, failed: true)
             }
 
             PhoneButtons {
@@ -402,6 +401,7 @@ private struct PhonePhonesStep: View {
                     DescriptorRows(
                         model: settings,
                         section: PhoneChannel.section,
+                        specialised: remoteRow,
                         excluding: [PhoneChannel.switchKey]
                     )
                 }
@@ -446,6 +446,39 @@ private struct PhonePhonesStep: View {
     private var pairTitle: ProductStringKey {
         model.devices.value?.devices.isEmpty == false ? .phonePairAnother : .phonePair
     }
+
+    /// The one row drawn with more than the renderer gives it: Reach from
+    /// anywhere, with the rail's line under it.
+    private func remoteRow(_ row: ManagementSettingRow) -> AnyView? {
+        guard row.key == PhoneChannel.remoteKey else { return nil }
+
+        return AnyView(PhoneRemoteRow(model: model, settings: settings, row: row))
+    }
+}
+
+/// Reach from anywhere (M62): the daemon's switch as the one renderer draws
+/// it, and under it one line saying where the rail stands, a paragraph apart
+/// so it does not read as the end of the switch's own footer, and in the
+/// warning colour where the rail failed. The rail is read again whenever the
+/// daemon publishes the switch's value, which is once a write has landed, and
+/// followed while it can move by itself; only a start is announced as a line
+/// that changes on its own.
+private struct PhoneRemoteRow: View {
+    @ObservedObject var model: PhonePairingModel
+    @ObservedObject var settings: SettingsModel
+    let row: ManagementSettingRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            DescriptorRow(model: settings, section: PhoneChannel.section, row: row)
+
+            if let line = model.remoteLine {
+                PhoneNote(text: line.text, failed: line.kind == .failure)
+                    .accessibilityAddTraits(line.kind == .progress ? .updatesFrequently : [])
+            }
+        }
+        .task(id: row.value) { await model.followRemote() }
+    }
 }
 
 /// One paired phone: its name, its model and when it was last seen, and
@@ -483,10 +516,7 @@ private struct PhoneDeviceRow: View {
             }
 
             if let refusal = forgetting.refusals[device.deviceId] {
-                Text(refusal)
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.warning.color)
-                    .fixedSize(horizontal: false, vertical: true)
+                PhoneNote(text: refusal, failed: true)
             }
         }
     }

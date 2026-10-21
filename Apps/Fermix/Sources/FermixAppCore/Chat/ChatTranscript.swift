@@ -12,6 +12,12 @@ import SwiftUI
 ///   the reader where they were by the same rule.
 /// - The newest row on screen, in a window that is in front, is read, and the
 ///   session moves the read frontier the phone shares.
+/// - The session is told which held rows are on screen whenever that set
+///   changes, so a row that may have changed while chat was disconnected is
+///   read again as it comes into view (M66 §3.6).
+/// - A reader off the bottom edge is offered the way back to it, a round
+///   button over the transcript's foot, and a reply still being written
+///   keeps them there once they take it.
 ///
 /// A search hit is revealed the way scrolling up reads: page by page until its
 /// row is held, then scrolled to the middle with its matches marked.
@@ -24,14 +30,20 @@ struct ChatTranscript: View {
 
     /// The items on screen, as the scroll view last reported them.
     @State private var visible: Set<ChatItemID> = []
+    /// The held rows on screen, as the session was last told them.
+    @State private var rowsOnScreen = ChatRowsOnScreen()
     /// Whether the reader is on the bottom edge. The transcript opens there,
     /// and it stays true until the reader scrolls away from it.
     @State private var atBottom = true
+    /// Whether the reader is moving the transcript themselves, by trackpad,
+    /// wheel or scroller, so nothing pulls it back under them meanwhile.
+    @State private var readerScrolling = false
     /// Where the reader was when older rows were asked for.
     @State private var place: ChatPlace?
     /// A chosen hit whose row is not on screen yet.
     @State private var revealing: ChatReveal?
     @Environment(\.appearsActive) private var appearsActive
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -59,12 +71,19 @@ struct ChatTranscript: View {
             .defaultScrollAnchor(.bottom)
             .scrollIndicators(.never)
             .paneScrollEdges()
+            .overlay(alignment: .bottom) {
+                newest(proxy)
+            }
+            .onScrollPhaseChange { _, phase in
+                readerScrolling = ChatFollow.isReadersOwn(phase)
+            }
             .onScrollGeometryChange(for: ChatViewport.self, of: ChatViewport.init) { before, now in
-                // The layout moved under a reader on the bottom edge: the
-                // composer grew a line, or the column narrowed beside the
-                // browser pane and the rows rewrapped. They stay there, as
-                // they do when a row arrives.
-                if ChatFollow.keepsBottom(readerAtBottom: atBottom, before: before, now: now), let newest = items.last {
+                // The layout moved under a reader on the bottom edge: a reply
+                // grew or took the place of its thinking line, the composer
+                // grew a line, or the column narrowed beside the browser pane
+                // and the rows rewrapped. They stay there.
+                if ChatFollow.keepsBottom(readerAtBottom: atBottom, readerScrolling: readerScrolling, before: before, now: now),
+                   let newest = items.last {
                     proxy.scrollTo(newest.id, anchor: .bottom)
                     return
                 }
@@ -73,8 +92,13 @@ struct ChatTranscript: View {
             }
             .onScrollTargetVisibilityChange(idType: ChatItemID.self, threshold: 0.01) { ids in
                 visible = Set(ids)
+                reportRowsOnScreen()
                 readOlderAtTheTop()
                 markNewestSeen()
+            }
+            .onDisappear {
+                visible = []
+                reportRowsOnScreen()
             }
             .onChange(of: items.last) {
                 follow(proxy)
@@ -115,6 +139,34 @@ struct ChatTranscript: View {
         guard ChatFollow.follows(atBottom: atBottom, sent: sent) else { return }
 
         proxy.scrollTo(newest.id, anchor: .bottom)
+    }
+
+    /// The newest button, while the reader is off the bottom edge.
+    private func newest(_ proxy: ScrollViewProxy) -> some View {
+        ZStack {
+            if !atBottom {
+                ChatNewestButton(running: model.turn != nil) { showNewest(proxy) }
+                    .padding(.bottom, ChatMetrics.newestButtonGap)
+                    .transition(.opacity)
+            }
+        }
+        .animation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade), value: atBottom)
+    }
+
+    /// The reader asked for the newest line. They are on the bottom edge
+    /// again, so a reply still being written keeps them there as it grows.
+    private func showNewest(_ proxy: ScrollViewProxy) {
+        guard let newest = items.last else { return }
+
+        atBottom = true
+        proxy.scrollTo(newest.id, anchor: .bottom)
+    }
+
+    /// Tells the session the held rows on screen, only when they changed.
+    private func reportRowsOnScreen() {
+        guard let seqs = rowsOnScreen.update(visible) else { return }
+
+        session.rowsOnScreen(seqs)
     }
 
     private func readOlderAtTheTop() {
@@ -160,6 +212,7 @@ struct ChatTranscript: View {
         switch target.step(rows: model.rows, hasOlder: model.hasOlder) {
         case .scroll(let id):
             revealing = nil
+            atBottom = false
             proxy.scrollTo(id, anchor: .center)
         case .readOlder:
             session.pullOlder()
@@ -185,34 +238,50 @@ enum ChatFollow {
         sent || atBottom
     }
 
-    /// Whether a reader is put back on the bottom edge after the transcript's
-    /// own size changed. A scroll view keeps its top where it was, so when the
-    /// transcript grows shorter (the composer takes a line) or narrower (the
-    /// browser pane opens and its rows rewrap), the newest rows slide out of
-    /// view below.
-    /// Only a reader who was on the bottom edge, and only for a change of the
-    /// transcript's size, which the reader's own scrolling never makes; rows
-    /// arriving and pages landing change the content, and those are already
-    /// the follow and page rules' to answer.
+    /// Whether a reader is put back on the bottom edge after the transcript
+    /// changed under them. A scroll view keeps its top where it was, so when
+    /// its content grows taller (a reply streams in, or replaces its thinking
+    /// line) or the transcript grows shorter (the composer takes a line) or
+    /// narrower (the browser pane opens and its rows rewrap), the newest rows
+    /// slide out of view below.
+    ///
+    /// A row's arrival is followed when it lands, but a row is drawn after
+    /// that, often taller than the scroll to it assumed, and a reply keeps
+    /// growing after it, so only the change it makes to the content, read
+    /// once it is laid out, keeps the reader there.
+    ///
+    /// Only a reader who was on the bottom edge, and never while they are
+    /// scrolling themselves, when the rows coming into view are measured and
+    /// change the content's height under their hand. A search hit the
+    /// transcript scrolls to takes the reader off the bottom edge itself.
     ///
     /// Where the reader was is the transcript's own record of it rather than
     /// the reading before this one: the browser pane opens over a run of
     /// sizes, and after the first of them the previous reading is already off
     /// the bottom edge.
-    static func keepsBottom(readerAtBottom: Bool, before: ChatViewport, now: ChatViewport) -> Bool {
-        readerAtBottom && now.size != before.size
+    static func keepsBottom(readerAtBottom: Bool, readerScrolling: Bool, before: ChatViewport, now: ChatViewport) -> Bool {
+        readerAtBottom && !readerScrolling
+            && (now.size != before.size || now.contentHeight != before.contentHeight)
+    }
+
+    /// Whether the transcript is moving because the reader is moving it, by
+    /// trackpad, wheel or scroller, rather than by a scroll of its own.
+    static func isReadersOwn(_ phase: ScrollPhase) -> Bool {
+        phase == .tracking || phase == .interacting || phase == .decelerating
     }
 }
 
-/// The transcript's size and whether its reader is on the bottom edge, read
-/// together off one scroll geometry, so a change in one is never judged
-/// against a stale reading of the other.
+/// The transcript's size, its content's height and whether its reader is on
+/// the bottom edge, read together off one scroll geometry, so a change in one
+/// is never judged against a stale reading of another.
 struct ChatViewport: Equatable {
     let size: CGSize
+    let contentHeight: Double
     let atBottom: Bool
 
-    init(size: CGSize, atBottom: Bool) {
+    init(size: CGSize, contentHeight: Double, atBottom: Bool) {
         self.size = size
+        self.contentHeight = contentHeight
         self.atBottom = atBottom
     }
 
@@ -220,7 +289,29 @@ struct ChatViewport: Equatable {
     /// it still counts as there.
     init(_ geometry: ScrollGeometry) {
         size = geometry.containerSize
+        contentHeight = geometry.contentSize.height
         atBottom = geometry.visibleRect.maxY >= geometry.contentSize.height - Spacing.l
+    }
+}
+
+/// The held rows on screen, as the transcript last reported them to the
+/// session. Scrolling changes which items are visible far more often than it
+/// changes which rows are, so only a change of the rows is a report.
+struct ChatRowsOnScreen: Equatable {
+    private(set) var seqs: Set<Int> = []
+
+    /// The rows to report for the items now on screen, or nil when they are
+    /// the rows reported last.
+    mutating func update(_ visible: Set<ChatItemID>) -> Set<Int>? {
+        let rows = Set(visible.compactMap { id -> Int? in
+            guard case .row(let seq) = id else { return nil }
+
+            return seq
+        })
+        guard rows != seqs else { return nil }
+
+        seqs = rows
+        return rows
     }
 }
 
@@ -242,6 +333,64 @@ enum ChatPlace: Equatable {
             return nil
         }
     }
+}
+
+/// What the newest button holds: the thinking cell while a reply is being
+/// written, so a reader up the transcript still sees it coming, and the
+/// arrow otherwise, or under the pointer, where it says what a click does.
+enum ChatNewestFace: Equatable {
+    case thinking
+    case arrow
+
+    init(running: Bool, hovering: Bool) {
+        self = running && !hovering ? .thinking : .arrow
+    }
+}
+
+/// The way back to the newest line: a small round button over the
+/// transcript's foot, in the fill of what floats over the rows.
+private struct ChatNewestButton: View {
+    let running: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            switch ChatNewestFace(running: running, hovering: hovering) {
+            case .thinking: ThinkingCell()
+            case .arrow: Image(systemName: "arrow.down")
+            }
+        }
+        .buttonStyle(ChatNewestButtonStyle())
+        .onHover { hovering = $0 }
+        .help(ProductStrings[.chatShowNewest])
+        .accessibilityLabel(ProductStrings[.chatShowNewest])
+    }
+}
+
+private struct ChatNewestButtonStyle: ButtonStyle {
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .fermixType(Typography.style(.calloutSmall).weight(.semibold))
+            .foregroundStyle(ButtonRecipe.secondaryLabel.color)
+            .frame(width: ChatMetrics.newestButton, height: ChatMetrics.newestButton)
+            .background(Circle().fill((configuration.isPressed ? Palette.base300 : Palette.floatingFill).color))
+            .overlay(
+                Circle().strokeBorder(
+                    contrast == .increased
+                        ? Palette.hairline(.standard, increaseContrast: true).color
+                        : ButtonRecipe.secondaryBorder.color,
+                    lineWidth: Stroke.hairline
+                )
+            )
+            .contentShape(Circle())
+            .shadow(color: shadow.color.color, radius: shadow.radius, y: shadow.yOffset)
+    }
+
+    private var shadow: GlassShadow { ButtonRecipe.floatingShadow }
 }
 
 /// The top of the held rows while older ones exist. Reaching it reads them,

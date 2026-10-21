@@ -68,11 +68,33 @@ enum ChatMetrics {
     /// as tall as a sidebar row with room for both lines.
     static let cardHeight: Double = 52
     static let cardIconSize: Double = 28
+    /// A sound's player (M66 §3.4): its round play button, large, the
+    /// system's own 28-point control, and the glyph in it.
+    static let soundButton: Double = 28
+    static let soundGlyph: Double = 11
+    /// A play triangle's weight sits left of its own box, so it is drawn one
+    /// point right to sit in the middle of the circle to the eye.
+    static let soundPlayGlyphNudge: Double = 1
+    /// The waveform beside the button, as tall as its loudest bar, which is
+    /// also what a click or a drag on it lands in: thin rounded bars two
+    /// points wide two points apart, the quietest never under a short line,
+    /// and the resting bars, before the sound's levels are read, low and even.
+    static let soundWaveHeight: Double = 22
+    static let soundBarWidth: Double = 2
+    static let soundBarGap: Double = 2
+    static let soundBarMinimum: Double = 3
+    static let soundRestingLevel: Float = 0.15
+    /// As wide as a sound's player grows: a sound is a line, not a column.
+    static let soundMaxWidth: Double = 320
     /// How strongly a tile is drawn while the pointer holds it down.
     static let tilePressedStrength: Double = 0.7
     /// How long a tile waits on its preview before it shows the quiet
     /// progress mark: a preview made in less never shows one.
     static let tileProgressDelay: Duration = .milliseconds(300)
+    /// The newest button, the system's 28-point round control, and what it
+    /// keeps from the transcript's foot.
+    static let newestButton: Double = 28
+    static let newestButtonGap: Double = Spacing.s
     /// How long typing in the search field pauses before the daemon is asked,
     /// so a word being typed is one search rather than one per letter.
     static let searchPause: Duration = .milliseconds(300)
@@ -127,10 +149,12 @@ struct ChatSurfaceView: View {
     let settings: SettingsModel
     /// Where a link in a reply opens.
     let links: ContentLinkOpener
-    /// The chat's media: the Fermix home, each row's strip and the previews
-    /// made for its tiles. Built once by the composition, so a preview made
-    /// is still there when the person comes back to Chat (M66).
+    /// The chat's media: each row's strip and the previews made for its
+    /// tiles. Built once by the composition, so a preview made is still there
+    /// when the person comes back to Chat (M66).
     let media: ChatMedia
+    /// The app's one player, which a sound in a row plays on.
+    let player: AppPlayer
     /// The toolbar's commands: "Show browser" (plan §4.10) and the call.
     let router: any CommandPerforming
 
@@ -144,6 +168,12 @@ struct ChatSurfaceView: View {
     /// fitted to. It starts at the width a full column takes, the usual
     /// window's, so the first frame is fitted already.
     @State private var bodyWidth = ChatMetrics.columnWidth + 2 * ChatMetrics.columnGutter
+    /// The Fermix home as this visit read it, as the surface appeared, and
+    /// forgotten with the surface, so the next visit reads it again.
+    @State private var visit: ChatVisit?
+    /// The one place the chat shows on a reply's map, forgotten with the
+    /// surface as the visit is.
+    @StateObject private var places: ChatPlaceSelection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -154,6 +184,7 @@ struct ChatSurfaceView: View {
         settings: SettingsModel,
         links: ContentLinkOpener,
         media: ChatMedia,
+        player: AppPlayer,
         router: any CommandPerforming
     ) {
         self.session = session
@@ -164,18 +195,27 @@ struct ChatSurfaceView: View {
         self.settings = settings
         self.links = links
         self.media = media
+        self.player = player
         self.router = router
         _draft = State(initialValue: session.draft)
+        _places = StateObject(wrappedValue: ChatPlaceSelection(links: links))
     }
 
     var body: some View {
         let items = ChatTimeline.items(of: model)
 
         column(items)
-            // Every row reads its media and its strip's width from here: the
-            // transcript builds its rows with nothing of their own to pass
-            // them (M66 §3.2).
-            .environment(\.chatStrips, ChatStripContext(media: media, columnWidth: ChatMetrics.column(inBody: bodyWidth)))
+            // Every row reads its media, the player, the opener, the place
+            // shown, the home and its strip's width from here: the transcript
+            // builds its rows with nothing of their own to pass them (M66 §3.2).
+            .environment(\.chatRows, ChatRowContext(
+                media: media,
+                player: player,
+                links: links,
+                places: places,
+                visit: visit,
+                columnWidth: ChatMetrics.column(inBody: bodyWidth)
+            ))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onGeometryChange(for: Double.self) { proxy in
                 proxy.size.width
@@ -209,9 +249,11 @@ struct ChatSurfaceView: View {
             // The session connects the first time a surface asks and then stays
             // connected, so coming back to Chat asks nothing new.
             .task { session.connect() }
-            // The next visit reads the Fermix home again, as the browser
-            // reads it at each open.
-            .onDisappear { media.surfaceLeft() }
+            // The Fermix home is read as the surface appears, as the browser
+            // reads it at each open: on appearing rather than in a task,
+            // which starts a turn later and would draw the rows once without
+            // it.
+            .onAppear { visit = media.surfaceEntered() }
             // A link in a reply opens where the person's preference says,
             // through the one content link opener, never through SwiftUI's own
             // hop to the default browser.

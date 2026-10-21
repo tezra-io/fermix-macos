@@ -9,6 +9,16 @@ public struct ManagementSecretState: Decodable, Equatable, Sendable {
     public let id: String
     public let present: Bool
     public let restart: ManagementRestartState
+    /// The environment variable the daemon uses in place of the stored value,
+    /// where a nonblank one overrides it at every start. Null where the stored
+    /// value is the one in use, and absent from an older daemon, which
+    /// reported no override.
+    public let environmentOverride: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, present, restart
+        case environmentOverride = "environment_override"
+    }
 }
 
 /// What choosing a primary provider did, including the changes the operator did

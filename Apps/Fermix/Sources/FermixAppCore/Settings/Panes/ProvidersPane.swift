@@ -30,7 +30,7 @@ struct ProvidersPane: View {
                 providers
             }
         }
-        .sheet(item: $sheet) { sheetView($0) }
+        .sheet(item: $sheet) { sheetView($0).sheetGround() }
         .confirmationDialog(
             ProductStrings[.providerPrimaryConfirmTitle],
             isPresented: confirmationShown,

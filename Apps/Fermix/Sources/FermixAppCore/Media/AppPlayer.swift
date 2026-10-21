@@ -17,10 +17,14 @@ public enum AppPlayerPlace: Hashable, Sendable {
 public struct AppPlayerItem: Equatable, Sendable {
     public let url: URL
     public let place: AppPlayerPlace
+    /// The phone-side file `url` was granted for, whose grant the player
+    /// holds as long as it holds the item; nil for a file on this Mac.
+    public let ref: String?
 
-    public init(url: URL, place: AppPlayerPlace) {
+    public init(url: URL, place: AppPlayerPlace, ref: String? = nil) {
         self.url = url
         self.place = place
+        self.ref = ref
     }
 }
 
@@ -48,12 +52,6 @@ public protocol AppPlaybackEngine: AnyObject {
     func play()
     func pause()
     func seek(to seconds: Double)
-    /// Whether AVFoundation can play the file, asked of the file itself and
-    /// loaded asynchronously, never read from its name.
-    func isPlayable(_ url: URL) async -> Bool
-    /// The file's length in seconds, loaded asynchronously; nil where it has
-    /// none to read.
-    func length(of url: URL) async -> Double?
 }
 
 /// What the player tells its one owner.
@@ -67,6 +65,8 @@ public protocol AppPlaybackEvents: AnyObject {
     func playbackLengthRead(_ seconds: Double)
     /// The held item played to its end.
     func playbackEnded()
+    /// The held item can no longer play: its file could not be read.
+    func playbackFailed()
 }
 
 /// The app's one player (M66 §3.4): one `AVPlayer` for everything that plays,
@@ -77,8 +77,15 @@ public protocol AppPlaybackEvents: AnyObject {
 /// to its start and waits there, paused. A call coming up stops it, and
 /// nothing plays until the call is over; the window leaving Chat stops a
 /// sound in the chat; a media tab closing stops its own; and the main window
-/// closing stops whatever it holds, which the composition says. Nothing
-/// plays unless the person plays it: a media tab only cues its file.
+/// closing stops whatever it holds, which the composition says. An item that
+/// can no longer play, its file gone from under it, is let go. Nothing plays
+/// unless the person plays it: a media tab only cues its file.
+///
+/// A phone-side file, a voice note, plays from the file the engine grants
+/// for its ref when it is played (M66 decision 1). The player holds that
+/// grant for exactly as long as it holds the file, and lets it go with the
+/// file, at whichever of those ends comes first; a press that something else
+/// overtook while its grant was asked for plays nothing and keeps nothing.
 @MainActor
 public final class AppPlayer: ObservableObject {
     /// How far one press of an arrow key, or VoiceOver's increment, moves
@@ -99,13 +106,25 @@ public final class AppPlayer: ObservableObject {
     /// offered.
     @Published public private(set) var callIsUp = false
     public let progress = AppPlayerProgress()
+    /// What AVFoundation says of a file before it is held: whether it can
+    /// play at all, and how long it is. Nonisolated, as the answers are.
+    public nonisolated let facts: any MediaFacts
 
     private let engine: any AppPlaybackEngine
+    /// The engine's grants of phone-side files, which a voice note plays from.
+    private let grants: any MediaGranting
     /// The two facts outside the player that stop it, followed for its life.
     private var followed: Set<AnyCancellable> = []
+    /// The latest press of a phone-side file's play, while its grant is
+    /// asked for: which press, and for where. Another press, another item
+    /// held, or a stop of that place lets it go.
+    private var asking: (press: Int, place: AppPlayerPlace)?
+    private var presses = 0
 
-    public init(engine: any AppPlaybackEngine) {
+    public init(engine: any AppPlaybackEngine, facts: any MediaFacts, grants: any MediaGranting) {
         self.engine = engine
+        self.facts = facts
+        self.grants = grants
         engine.events = self
     }
 
@@ -140,9 +159,38 @@ public final class AppPlayer: ObservableObject {
         engine.play()
     }
 
+    /// Plays the phone-side file `ref` names for `place`: from where it is,
+    /// where the player already holds it, and otherwise from the start of
+    /// the file the engine grants for it, in place of whatever played. The
+    /// grant is kept while the player holds the file. What the engine
+    /// answered comes back, nil where nothing was asked, so a voice note whose
+    /// bytes are gone can say so.
+    public func play(ref: String, from place: AppPlayerPlace) async -> MediaGrantOutcome? {
+        guard !callIsUp else { return nil }
+        guard !holds(ref: ref, place) else {
+            engine.play()
+            return nil
+        }
+
+        presses += 1
+        let press = presses
+        asking = (press, place)
+        let outcome = await grants.hold(ref)
+        guard asking?.press == press, case .granted(let grant) = outcome else {
+            grants.release(ref)
+            return outcome
+        }
+
+        hold(grant.url, place, ref: ref)
+        engine.play()
+        return outcome
+    }
+
     /// A media tab's file, held paused so its tab shows its first frame and
     /// AVKit's controls, where nothing else is playing and no call is up.
-    /// Opening a tab plays nothing, and stops nothing either.
+    /// Opening a tab plays nothing, and stops nothing that plays; a voice
+    /// note pressed a moment before, whose file the engine has not granted
+    /// yet, is overtaken like any other press.
     public func cue(_ url: URL, for place: AppPlayerPlace) {
         guard !callIsUp, item == nil || !isPlaying else { return }
 
@@ -159,49 +207,71 @@ public final class AppPlayer: ObservableObject {
         guard !callIsUp else { return }
 
         if !holds(url, place) { hold(url, place) }
-        engine.seek(to: seconds)
-        progress.position = seconds
+        move(to: seconds)
     }
 
-    /// Lets go of whatever it holds.
+    /// Moves the phone-side file `ref` to `seconds`, where the player holds
+    /// it for `place`. One it does not hold has no file to move along until
+    /// it is played.
+    public func seek(ref: String, from place: AppPlayerPlace, to seconds: Double) {
+        guard !callIsUp, holds(ref: ref, place) else { return }
+
+        move(to: seconds)
+    }
+
+    /// Lets go of whatever it holds, and of any press still asking for its
+    /// file.
     public func stop() {
-        guard item != nil else { return }
-
-        engine.hold(nil)
-        item = nil
-        progress.position = 0
-        progress.length = nil
+        asking = nil
+        letGo()
     }
 
-    /// Lets go of what it holds for `place`, and of nothing else.
+    /// Lets go of what it holds for `place`, and of a press for `place` still
+    /// asking for its file, and of nothing else.
     public func stop(_ place: AppPlayerPlace) {
+        if asking?.place == place { asking = nil }
         guard item?.place == place else { return }
 
-        stop()
+        letGo()
     }
 
     public func holds(_ url: URL, _ place: AppPlayerPlace) -> Bool {
         item == AppPlayerItem(url: url, place: place)
     }
 
-    /// Whether the player can play the file at all. What it cannot is opened
-    /// outside the app (M66 §3.3).
-    public func isPlayable(_ url: URL) async -> Bool {
-        await engine.isPlayable(url)
-    }
-
-    /// A file's length before it is played, for the time a still sound shows.
-    public func length(of url: URL) async -> Double? {
-        await engine.length(of: url)
+    /// Whether it holds the phone-side file `ref` for `place`.
+    public func holds(ref: String, _ place: AppPlayerPlace) -> Bool {
+        item?.ref == ref && item?.place == place
     }
 
     // MARK: - Mechanics
 
-    private func hold(_ url: URL, _ place: AppPlayerPlace) {
+    /// Holds `url` for `place`, letting go of the grant the item before held,
+    /// and of any press still asking for its file.
+    private func hold(_ url: URL, _ place: AppPlayerPlace, ref: String? = nil) {
+        let leaving = item?.ref
+        asking = nil
         engine.hold(url)
-        item = AppPlayerItem(url: url, place: place)
+        item = AppPlayerItem(url: url, place: place, ref: ref)
         progress.position = 0
         progress.length = nil
+        leaving.map(grants.release)
+    }
+
+    private func move(to seconds: Double) {
+        engine.seek(to: seconds)
+        progress.position = seconds
+    }
+
+    /// Lets go of the item, and of its grant with it.
+    private func letGo() {
+        guard let leaving = item else { return }
+
+        engine.hold(nil)
+        item = nil
+        progress.position = 0
+        progress.length = nil
+        leaving.ref.map(grants.release)
     }
 
     private func callChanged(_ up: Bool) {
@@ -238,5 +308,11 @@ extension AppPlayer: AppPlaybackEvents {
     public func playbackEnded() {
         engine.seek(to: 0)
         progress.position = 0
+    }
+
+    /// Let go, as a stop does: the next press of play holds the file again,
+    /// a phone-side file from a fresh grant.
+    public func playbackFailed() {
+        letGo()
     }
 }

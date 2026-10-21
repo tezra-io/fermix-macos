@@ -18,7 +18,9 @@ import Foundation
 /// in AVKit's view for sound and film, and Quick Look's view for every other
 /// document. What the pane does not show is only shown in Finder, and a
 /// sound or a film the player cannot play goes to an app named for it
-/// (`openFile`). No file is ever handed to the Mac by its path alone.
+/// (`openFile`). No file is ever handed to the Mac by its path alone. A
+/// phone-side file opens as the file the engine grants for its ref
+/// (`openRef`), and the tab that shows it holds that grant until it closes.
 ///
 /// The host's side of the daemon's `browser_host` wire runs through here too:
 /// a task's tabs, their release, the availability the host reports and its
@@ -27,9 +29,6 @@ import Foundation
 /// `BrowserDownloads` carries it to its end.
 @MainActor
 public final class BrowserCoordinator {
-    /// How long a quit waits for the daemon's answer to `host_stopping`.
-    public static let quitBound: TimeInterval = 2
-
     public let model: BrowserModel
 
     private let makeEngine: BrowserEngineMaking
@@ -40,6 +39,9 @@ public final class BrowserCoordinator {
     private let player: AppPlayer
     /// The views the pane's own viewers draw in, AVKit's and Quick Look's.
     private let viewers: any BrowserViewerMaking
+    /// The engine's grants of phone-side files, which a file tab holds while
+    /// it shows one (M66 decision 1).
+    private let grants: any MediaGranting
     /// The Fermix home, inside which a file the person opens loads without a
     /// question. Resolved per open from the bootstrap record, as the host's
     /// roots are; a home that cannot be resolved has nothing inside it.
@@ -77,8 +79,27 @@ public final class BrowserCoordinator {
     private var placed: [BrowserTab.ID: BrowserPagePlace] = [:]
     /// A file outside the Fermix home the person opened while something
     /// else was asking: kept, one deep, and asked about as soon as the pane
-    /// is free to ask. A later one replaces it.
-    private var keptFile: (file: BrowserLocalFile, kind: BrowserFileKind)?
+    /// is free to ask. A later one replaces it. A phone-side file's grant is
+    /// kept with it, and let go with it.
+    private var keptFile: KeptFile?
+    /// The phone-side files the file tabs show, by tab: each tab holds its
+    /// ref's grant until it closes.
+    private var grantedTabs: [BrowserTab.ID: String] = [:]
+
+    /// A file kept behind the question up, as it will open: its kind, and
+    /// the phone-side file whose grant it holds, where it is one.
+    private struct KeptFile {
+        let file: BrowserLocalFile
+        let kind: BrowserFileKind
+        let grant: HeldGrant?
+    }
+
+    /// A phone-side file's grant, held by what shows the file, and the name
+    /// the file goes by, since its granted copy is named by its ref.
+    private struct HeldGrant {
+        let ref: String
+        let name: String
+    }
 
     public init(
         makeEngine: @escaping BrowserEngineMaking,
@@ -86,6 +107,7 @@ public final class BrowserCoordinator {
         workspace: any WorkspaceLinkOpening,
         player: AppPlayer,
         viewers: any BrowserViewerMaking,
+        grants: any MediaGranting,
         home: @escaping () throws -> URL,
         session: any SessionAvailabilityReporting,
         deadlines: any DeadlineScheduling,
@@ -98,6 +120,7 @@ public final class BrowserCoordinator {
         self.workspace = workspace
         self.player = player
         self.viewers = viewers
+        self.grants = grants
         self.home = home
         self.session = session
         self.deadlines = deadlines
@@ -126,17 +149,55 @@ public final class BrowserCoordinator {
     /// in a new file tab, in front, a sound or a film once AVFoundation says
     /// it can play it; and everything else is only shown in Finder.
     public func openFile(_ link: URL) {
-        guard let file = BrowserLocalFile(link) else {
-            model.notice = ProductStrings[.browserNoticeFileMissing]
-            showPane()
-            return
+        open(BrowserLocalFile(link), holding: nil)
+    }
+
+    /// A phone-side file a person asked for, by its ref (M66 §3.5, decision
+    /// 1): the file the engine grants for it, opened as a file at that path
+    /// is. A tab that shows it holds the grant until the tab closes; a file
+    /// handed to its app or to Finder, or one with nothing to open, holds
+    /// nothing once that is done. What the engine answered comes back, so a
+    /// tile can say the file is gone; a file the engine could not get ready
+    /// opens the pane on the sentence that says so, as a missing path does.
+    /// `name` is what its tab and any question call it, its row's filename or
+    /// its kind's word, since the granted copy is named by its ref; see
+    /// `shownName`.
+    public func openRef(_ ref: String, named name: String) async -> MediaGrantOutcome {
+        let outcome = await grants.hold(ref)
+        guard case .granted(let grant) = outcome else {
+            grants.release(ref)
+            if outcome == .failed {
+                model.notice = ProductStrings[.browserNoticeFileNotReady]
+                showPane()
+            }
+            return outcome
         }
 
-        switch file.opening() {
-        case .show(.media): openMedia(file)
-        case .show(let kind): openFileTab(file, as: kind)
-        case .reveal: workspace.reveal(file.url)
-        }
+        open(BrowserLocalFile(grant.url), holding: HeldGrant(ref: ref, name: Self.shownName(name, of: grant.url)))
+        return outcome
+    }
+
+    /// The sentence that says something a reply asked for did not open,
+    /// such as a place Maps could not find, opening the pane to say it, as
+    /// a reply's file that could not open does: a reply's link arrives with
+    /// the pane closed.
+    func report(_ notice: String) {
+        model.notice = notice
+        showPane()
+    }
+
+    /// The name a phone-side file goes by: its row's name, which whoever
+    /// sent it chose, with the extension of the file it really is, and none
+    /// of the invisible characters that can reorder or hide one. Neither its
+    /// tab nor the question before an HTML one can then call it a type it is
+    /// not: an HTML file sent as `report.pdf` is asked about as
+    /// `report.html`.
+    static func shownName(_ name: String, of file: URL) -> String {
+        let stem = (name as NSString).deletingPathExtension
+        let visible = String(String.UnicodeScalarView(stem.unicodeScalars.filter { scalar in
+            ![.control, .format].contains(scalar.properties.generalCategory)
+        }))
+        return file.pathExtension.isEmpty ? visible : visible + "." + file.pathExtension
     }
 
     /// A blank tab, with the caret in the address field.
@@ -208,7 +269,7 @@ public final class BrowserCoordinator {
     /// the question it answers goes with it: the person hid the pane it would
     /// be asked in.
     public func closePane() {
-        keptFile = nil
+        keep(nil)
         hidePane()
     }
 
@@ -453,12 +514,13 @@ public final class BrowserCoordinator {
 
     /// A tab that is going answers any dialog its page is waiting on, and its
     /// page answers anything it asks from now on by itself, and lets go of
-    /// what it holds.
+    /// what it holds, a phone-side file's grant among it.
     private func retire(_ tab: BrowserTab) {
         if model.dialog?.tabID == tab.id { dismissDialog() }
         tab.delegate = nil
         tab.close()
         unplace(tab)
+        grantedTabs.removeValue(forKey: tab.id).map(grants.release)
     }
 
     /// The dialog over the pane, answered as dismissed because nobody can see
@@ -517,20 +579,50 @@ public final class BrowserCoordinator {
         open(file.url, with: app)
     }
 
+    /// A file opened by the rule `openFile` states. `grant` is the phone-side
+    /// file whose grant it holds, which only a tab keeps: every other way it
+    /// goes lets the grant go.
+    private func open(_ file: BrowserLocalFile?, holding grant: HeldGrant?) {
+        guard let file else {
+            release(grant)
+            model.notice = ProductStrings[.browserNoticeFileMissing]
+            showPane()
+            return
+        }
+
+        switch file.opening() {
+        case .show(.media): openMedia(file, holding: grant)
+        case .show(let kind): openFileTab(file, as: kind, holding: grant)
+        case .reveal:
+            workspace.reveal(file.url)
+            release(grant)
+        }
+    }
+
     /// A sound or a film, in a media tab where AVFoundation says it can play
-    /// it, which it reads from the file itself and never from its name;
-    /// what it cannot play goes to its app, as a tile's Opens outside does.
-    private func openMedia(_ file: BrowserLocalFile) {
-        Task { [weak self, player] in
-            let playable = await player.isPlayable(file.url)
-            guard let self else { return }
+    /// it (`MediaFacts`), which it reads from the file itself and never from
+    /// its name; what it cannot play goes to its app, as a tile's Opens
+    /// outside does.
+    private func openMedia(_ file: BrowserLocalFile, holding grant: HeldGrant?) {
+        Task { [weak self, facts = player.facts, grants] in
+            let playable = await facts.isPlayable(file.url)
+            guard let self else {
+                grant.map { grants.release($0.ref) }
+                return
+            }
 
             if playable {
-                openFileTab(file, as: .media)
+                openFileTab(file, as: .media, holding: grant)
             } else {
                 handOver(file)
+                release(grant)
             }
         }
+    }
+
+    /// Lets go of a phone-side file's grant, where there is one.
+    private func release(_ grant: HeldGrant?) {
+        grant.map { grants.release($0.ref) }
     }
 
     /// A file, handed to the app named for it as a document. Where the app
@@ -549,21 +641,34 @@ public final class BrowserCoordinator {
     /// file with leave to read its own folder for its images and stylesheets;
     /// outside it, whatever its kind, the one file loads only on the person's
     /// answer. No tab is made while something else is asking, since the
-    /// question could not be put: the file is kept and asked about next.
-    private func openFileTab(_ file: BrowserLocalFile, as kind: BrowserFileKind) {
-        let inside = isInsideHome(file.url)
+    /// question could not be put: the file is kept and asked about next. The
+    /// tab holds `grant`, where it shows a phone-side file, and goes by its
+    /// name.
+    ///
+    /// A phone-side file lies inside the home only because the engine copied
+    /// it there: it is the phone's, not Fermix's. A picture, a PDF, text, a
+    /// film or a document of it loads at once, as nothing in a file tab runs;
+    /// an HTML one, which WebKit draws as a page, is asked about first and
+    /// reads nothing beside itself, as a file outside the home does.
+    private func openFileTab(_ file: BrowserLocalFile, as kind: BrowserFileKind, holding grant: HeldGrant?) {
+        let inside = isInsideHome(file.url) && !(grant != nil && kind == .html)
         guard inside || nothingIsAsking else {
-            keptFile = (file, kind)
+            keep(KeptFile(file: file, kind: kind, grant: grant))
             return
         }
-        guard let tab = makeFileTab(kind) else { return }
+        guard let tab = makeFileTab(kind) else {
+            release(grant)
+            return
+        }
 
+        grantedTabs[tab.id] = grant?.ref
         tab.file = file.url
+        tab.fileName = grant?.name
         tab.fileKind = kind
         tab.fileApp = file.documentApplication(workspace)
         add(tab)
         guard inside else {
-            askBeforeLoading(file.url, as: kind, in: tab)
+            askBeforeLoading(file.url, named: grant?.name ?? file.url.lastPathComponent, as: kind, in: tab)
             return
         }
 
@@ -575,7 +680,14 @@ public final class BrowserCoordinator {
         guard nothingIsAsking, let kept = keptFile else { return }
 
         keptFile = nil
-        openFileTab(kept.file, as: kept.kind)
+        openFileTab(kept.file, as: kept.kind, holding: kept.grant)
+    }
+
+    /// Keeps a file behind the question up, in place of the one kept before,
+    /// whose grant goes with it; nil keeps none.
+    private func keep(_ file: KeptFile?) {
+        release(keptFile?.grant)
+        keptFile = file
     }
 
     private func isInsideHome(_ file: URL) -> Bool {
@@ -587,9 +699,9 @@ public final class BrowserCoordinator {
     /// The pane's one dialog, over the file's own tab, before anything
     /// loads. Open loads it; any other answer closes the tab, unless the tab
     /// is already going, its record gone with the close that answered.
-    private func askBeforeLoading(_ file: URL, as kind: BrowserFileKind, in tab: BrowserTab) {
+    private func askBeforeLoading(_ file: URL, named name: String, as kind: BrowserFileKind, in tab: BrowserTab) {
         let question = BrowserDialog(
-            kind: .openFile(name: file.lastPathComponent),
+            kind: .openFile(name: name),
             message: ProductStrings[.browserOpenFileMessage],
             origin: ""
         )
@@ -709,7 +821,7 @@ public final class BrowserCoordinator {
     }
 }
 
-extension BrowserCoordinator: BrowserHostQuitting {
+extension BrowserCoordinator: HostQuitting {
     /// Reports the app terminating while it still may, then releases every
     /// task tab and, attached, sends `host_stopping` and holds the quit until
     /// the answer or the bound, whichever comes first (BROWSER-7).

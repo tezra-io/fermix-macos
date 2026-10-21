@@ -10,8 +10,9 @@ import Testing
 /// that close a sentence are not part of it.
 @Suite("Reply links")
 struct ReplyLinksTests {
+    /// A reply as drawn, its blocks as one text.
     private static func reply(_ text: String) -> AttributedString {
-        ChatText.reply(text, home: "/Users/me")
+        ChatText.oneText(ChatText.drawn(ReplyText(markdown: text, home: "/Users/me")))
     }
 
     /// Each linked stretch of a reply, by its text, as the address it opens.
@@ -25,7 +26,7 @@ struct ReplyLinksTests {
     }
 
     private static func addresses(_ text: String) -> [String] {
-        ReplyLinks.addresses(in: reply(text)).map(\.absoluteString)
+        ReplyText(markdown: text, home: "/Users/me").addresses.map(\.absoluteString)
     }
 
     private static func run(of text: String, in reply: AttributedString) -> AttributedString.Runs.Run? {
@@ -110,6 +111,6 @@ struct ReplyLinksTests {
             "~/shots/a.png": "file:///Users/me/shots/a.png",
             "https://example.com/a.png": "https://example.com/a.png",
         ])
-        #expect(ReplyPaths.files(in: reply).map(\.absoluteString) == ["file:///Users/me/shots/a.png"])
+        #expect(ReplyText(markdown: "Saved ~/shots/a.png from https://example.com/a.png", home: "/Users/me").files.map(\.absoluteString) == ["file:///Users/me/shots/a.png"])
     }
 }

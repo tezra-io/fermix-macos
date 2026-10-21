@@ -201,16 +201,18 @@ struct AgentLaunchTests {
         }
     }
 
+    /// An engine from before Grok's version 3: this app speaks 3 and nothing
+    /// lower, so the engine it bundles has to serve it.
     @Test("an engine whose realtime window excludes this app is refused")
     func refusesAnIncompatibleRealtimeWindow() throws {
-        let bundle = try stage(manifest: EngineManifestFixture.document(realtimeRange: (3, 3, 4)))
+        let bundle = try stage(manifest: EngineManifestFixture.document(realtimeRange: (2, 1, 2)))
 
         #expect(
             throws: EngineManifestDefect.protocolUnsupported(
                 name: "realtime",
                 declared: RealtimeProtocol.version,
-                minimum: 3,
-                maximum: 4
+                minimum: 1,
+                maximum: 2
             )
         ) {
             _ = try plan(bundle)
@@ -422,7 +424,7 @@ enum EngineManifestFixture {
         manifestArchitecture: String? = nil,
         distribution: String = "macos_app",
         managementRange: (Int, Int, Int) = (2, 1, 2),
-        realtimeRange: (Int, Int, Int) = (2, 1, 2)
+        realtimeRange: (Int, Int, Int) = (3, 1, 3)
     ) -> [String: Any] {
         let declared = manifestArchitecture ?? architecture
         return [

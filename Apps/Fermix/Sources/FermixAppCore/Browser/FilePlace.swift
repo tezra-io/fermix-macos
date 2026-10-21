@@ -36,6 +36,19 @@ public enum FilePlace {
         return resolvedPath == resolvedRoot || resolvedPath.hasPrefix(resolvedRoot + "/")
     }
 
+    /// The ways a path under `root` may be spelled before the disk is asked
+    /// about it: under the root as written, standardized, and under where the
+    /// root really lands, where that differs (`/tmp` is `/private/tmp`). A
+    /// test of a path's text against these is only a first reading, for
+    /// deciding what to show before anything is read; whether a file really
+    /// is under the root is `path(_:liesUnder:)`'s to say.
+    static func spellings(of root: URL) -> [String] {
+        let written = root.standardizedFileURL.path
+        guard let real = resolved(root.path), real != written else { return [written] }
+
+        return [written, real]
+    }
+
     /// Where `path` really lands: its deepest existing ancestor with every
     /// link resolved by the system, as a read or a write would resolve it,
     /// and the names below that ancestor as written, which is a file about to

@@ -18,15 +18,20 @@ public final class ContentLinkOpener {
     private let preference: any LinkPreferenceStoring
     private let browser: BrowserCoordinator
     private let workspace: any WorkspaceLinkOpening
+    /// The Mac's own maps, which open a place Apple Maps found by its
+    /// identifier.
+    private let maps: any PlaceMaps
 
     public init(
         preference: any LinkPreferenceStoring,
         browser: BrowserCoordinator,
-        workspace: any WorkspaceLinkOpening
+        workspace: any WorkspaceLinkOpening,
+        maps: any PlaceMaps
     ) {
         self.preference = preference
         self.browser = browser
         self.workspace = workspace
+        self.maps = maps
     }
 
     /// The schemes the pane opens from a link. A page itself may move to more
@@ -54,5 +59,56 @@ public final class ContentLinkOpener {
         case .fermix: browser.open(url)
         case .system: _ = workspace.open(url)
         }
+    }
+
+    /// A place a reply found goes to Apple Maps (M72 decision 3), as a
+    /// card's Open in Maps sends it and a click on a place another source
+    /// found does (`show`), whatever the preference, by what its own record
+    /// carries: a place Apple Maps found opens at Apple's own card for it, by
+    /// its identifier (§14.1), and any other at the address the app builds
+    /// from it (`PlaceMapsAddress`).
+    /// Never through the pane, and never by a link the reply wrote, so no
+    /// reply chooses which app opens. An identifier Maps cannot open is said
+    /// in the pane, as a reply's file that cannot open is, and the place is
+    /// not looked up again by its name.
+    public func openInMaps(_ place: CompanionPlace) {
+        guard let identifier = place.applePlaceID else {
+            _ = workspace.open(PlaceMapsAddress.url(for: place))
+            return
+        }
+
+        maps.openPlace(identifier) { [browser] in
+            browser.report(ProductStrings[.browserNoticePlaceNotOpened])
+        }
+    }
+
+    /// A click on a place a reply found. A place Apple Maps found is shown
+    /// here rather than in Maps, on the reply's own map with Apple's compact
+    /// callout at its pin (§14.1), so what comes back is the identifier it is
+    /// looked up by (`ChatPlaceSelection`). Any other place opens in Maps at
+    /// its address, as `openInMaps` opens it, and nothing comes back, since
+    /// nothing is shown here.
+    func show(_ place: CompanionPlace) -> String? {
+        guard let identifier = place.applePlaceID else {
+            openInMaps(place)
+            return nil
+        }
+
+        return identifier
+    }
+
+    /// A place Apple Maps found that Maps could not show on the reply's map
+    /// by its identifier, said in the pane as an identifier Maps cannot open
+    /// is; the place is not looked up again by its name.
+    func placeNotShown() {
+        browser.report(ProductStrings[.browserNoticePlaceNotShown])
+    }
+
+    /// A phone-side file, by its ref, goes where a file at the path the
+    /// engine grants for it would (M66 §3.5): the pane's own rule for files.
+    /// What the engine answered comes back, so the tile that asked can say
+    /// the file is gone.
+    public func open(ref: String, named name: String) async -> MediaGrantOutcome {
+        await browser.openRef(ref, named: name)
     }
 }

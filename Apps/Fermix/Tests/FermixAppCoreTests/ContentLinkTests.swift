@@ -15,7 +15,7 @@ struct ContentLinkTests {
         let workspace = RecordingWorkspaceOpener()
         let preference = InMemoryLinkPreferenceStore()
         preference.linkDestination = destination
-        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace)
+        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace, maps: FakeMediaReader())
 
         return (opener, harness, workspace)
     }
@@ -87,7 +87,7 @@ struct ContentLinkTests {
         let workspace = RecordingWorkspaceOpener()
         let preference = InMemoryLinkPreferenceStore()
         preference.linkDestination = destination
-        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace)
+        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: workspace, maps: FakeMediaReader())
         let notes = try place.write("notes.md", in: place.home)
         let app = try place.folder("Thing.app", in: place.home)
 
@@ -108,6 +108,27 @@ struct ContentLinkTests {
 @Suite("Sign-in never enters the pane")
 @MainActor
 struct SignInStaysExternalTests {
+    /// A phone-side file goes where a file at its granted path goes, the
+    /// pane's own rule, whatever the preference, which is about web pages
+    /// (M66 §3.5).
+    @Test("a phone-side file takes the pane's rule for files, whatever the preference", arguments: LinkDestination.allCases)
+    func refTakesTheFileRule(_ destination: LinkDestination) async throws {
+        let place = try FilePlaceFixture()
+        defer { place.remove() }
+        let harness = place.harness()
+        let preference = InMemoryLinkPreferenceStore()
+        preference.linkDestination = destination
+        let opener = ContentLinkOpener(preference: preference, browser: harness.coordinator, workspace: harness.workspace, maps: FakeMediaReader())
+        let ref = FakeMediaGrants.ref("a")
+        let file = FilePlaceFixture.real(try place.write(ref + ".pdf", in: place.home))
+        let grant = MediaGrantOutcome.granted(MediaGrant(ref: ref, url: file))
+        harness.grants.answers[ref] = grant
+
+        #expect(await opener.open(ref: ref, named: "report.pdf") == grant)
+        #expect(harness.model.tabs.first?.file == file)
+        #expect(harness.workspace.opened.isEmpty)
+    }
+
     @Test("a started sign-in goes to the external opener and never to the content link opener")
     func signInGoesExternal() async throws {
         let gateway = try SettingsFixture.gateway()
@@ -115,7 +136,7 @@ struct SignInStaysExternalTests {
         let model = SettingsFixture.model(gateway: gateway, opener: external)
         let browser = BrowserHarness()
         let workspace = RecordingWorkspaceOpener()
-        _ = ContentLinkOpener(preference: InMemoryLinkPreferenceStore(), browser: browser.coordinator, workspace: workspace)
+        _ = ContentLinkOpener(preference: InMemoryLinkPreferenceStore(), browser: browser.coordinator, workspace: workspace, maps: FakeMediaReader())
         let runner = model.makeJobRunner()
 
         #expect(await model.startSignIn(provider: "openai_codex", on: runner) == nil)
@@ -130,8 +151,9 @@ struct SignInStaysExternalTests {
     }
 
     /// The structure the behaviour stands on: the opener is built once, in the
-    /// composition, and reaches the chat and nothing else, while everything
-    /// that starts a sign-in or opens an installer holds `ExternalOpening`.
+    /// composition, and reaches the chat and nothing else, the place a reply's
+    /// map shows among it, while everything that starts a sign-in or opens an
+    /// installer holds `ExternalOpening`.
     @Test("the content link opener reaches the chat and nothing that signs in")
     func openerReachesOnlyContent() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
@@ -144,7 +166,9 @@ struct SignInStaysExternalTests {
             "App/AppComposition.swift",
             "App/AppKitWindowHost.swift",
             "App/MainWindowView.swift",
-            "Chat/ChatSurfaceView.swift"
+            "Chat/ChatSurfaceView.swift",
+            "Chat/ChatRows.swift",
+            "Chat/ChatPlaceSelection.swift"
         ])
 
         // Every surface that starts a sign-in or opens the installer, which the
@@ -158,11 +182,13 @@ struct SignInStaysExternalTests {
         }
 
         // The composition builds the opener over the workspace, never over the
-        // external opener that carries sign-in.
+        // external opener that carries sign-in, and over the one owner of the
+        // Mac's maps, the media reader the executable hands in.
         let composition = try #require(files.first { $0.path.hasSuffix("App/AppComposition.swift") }?.text)
         let built = try #require(composition.range(of: "links = ContentLinkOpener("))
         let arguments = composition[built.upperBound...].prefix { $0 != ")" }
         #expect(arguments.contains("workspace: environment.workspace"))
+        #expect(arguments.contains("maps: environment.mediaReader"))
         #expect(!arguments.contains("environment.opener"))
     }
 }

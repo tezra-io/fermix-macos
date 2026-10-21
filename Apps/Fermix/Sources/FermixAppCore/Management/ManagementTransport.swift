@@ -37,10 +37,13 @@ public struct DefaultManagementTimeoutPolicy: ManagementTimeoutPolicy {
     /// the VM stops, so it is the one call whose work is not bounded by a
     /// bounded query.
     public static let lifecycleCommit: Duration = .seconds(30)
-    /// The two writes that persist `config.toml`. M34 §7.4 budgets
+    /// The writes that persist `config.toml`. M34 §7.4 budgets
     /// `settings.apply` at 15 s and `secret.set` at 20 s inside the daemon;
     /// this is that budget plus the round trip, so the client never gives up on
-    /// a write the daemon is still allowed to be finishing.
+    /// a write the daemon is still allowed to be finishing. An MCP server
+    /// write, an import among them, persists the file and applies it the same
+    /// way (M74 §5); its reads, its scan and its check, which is a job,
+    /// answer at once.
     public static let write: Duration = .seconds(20)
 
     public init() {}
@@ -49,7 +52,9 @@ public struct DefaultManagementTimeoutPolicy: ManagementTimeoutPolicy {
         switch method {
         case .lifecycleCommit:
             return Self.lifecycleCommit
-        case .settingsApply, .secretSet:
+        case .settingsApply, .secretSet,
+             .mcpServersAdd, .mcpServersUpdate, .mcpServersRemove,
+             .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet, .mcpServersImport:
             return Self.write
         default:
             return Self.standard

@@ -97,23 +97,71 @@ struct ChatSurfaceTests {
     /// changes no size, so it is never undone.
     @Test("the transcript keeps a reader on its bottom edge when the strip takes room")
     func transcriptKeepsTheBottomEdge() {
-        func viewport(_ height: Double, width: Double = 720, atBottom: Bool) -> ChatViewport {
-            ChatViewport(size: CGSize(width: width, height: height), atBottom: atBottom)
+        let reading = Self.viewport(480, atBottom: true)
+        func keeps(_ readerAtBottom: Bool, _ before: ChatViewport, _ now: ChatViewport) -> Bool {
+            ChatFollow.keepsBottom(readerAtBottom: readerAtBottom, readerScrolling: false, before: before, now: now)
         }
-        let reading = viewport(480, atBottom: true)
 
         // The strip arrives, or takes a line.
-        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(400, atBottom: false)))
-        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(464, atBottom: true)))
+        #expect(keeps(true, reading, Self.viewport(400, atBottom: false)))
+        #expect(keeps(true, reading, Self.viewport(464, atBottom: true)))
         // The column narrows beside the pane and the rows rewrap.
-        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: viewport(480, atBottom: true), now: viewport(480, width: 432, atBottom: false)))
+        #expect(keeps(true, Self.viewport(480, atBottom: true), Self.viewport(480, width: 432, atBottom: false)))
         // The pane opens over a run of sizes: past the first, the last reading
         // is already off the bottom edge, and the reader still is not.
-        #expect(ChatFollow.keepsBottom(readerAtBottom: true, before: viewport(480, width: 600, atBottom: false), now: viewport(480, width: 480, atBottom: false)))
+        #expect(keeps(true, Self.viewport(480, width: 600, atBottom: false), Self.viewport(480, width: 480, atBottom: false)))
         // A reader further up keeps their place.
-        #expect(!ChatFollow.keepsBottom(readerAtBottom: false, before: viewport(480, atBottom: false), now: viewport(400, atBottom: false)))
+        #expect(!keeps(false, Self.viewport(480, atBottom: false), Self.viewport(400, atBottom: false)))
         // The reader scrolled away from the bottom edge themselves.
-        #expect(!ChatFollow.keepsBottom(readerAtBottom: true, before: reading, now: viewport(480, atBottom: false)))
+        #expect(!keeps(true, reading, Self.viewport(480, atBottom: false)))
+    }
+
+    /// A reply streams in below a reader on the bottom edge, or its thinking
+    /// line gives way to text: the content grows under them after the scroll
+    /// to the reply was made, and they stay on the bottom edge. A reader
+    /// further up keeps their place, and one scrolling is never pulled back
+    /// while the rows coming into view are measured under their hand.
+    @Test("the transcript keeps a reader on its bottom edge as a reply grows under them")
+    func transcriptFollowsAGrowingReply() {
+        let reading = Self.viewport(480, content: 2_000, atBottom: true)
+        let grown = Self.viewport(480, content: 2_060, atBottom: false)
+
+        #expect(ChatFollow.keepsBottom(readerAtBottom: true, readerScrolling: false, before: reading, now: grown))
+        #expect(!ChatFollow.keepsBottom(readerAtBottom: false, readerScrolling: false, before: reading, now: grown))
+        #expect(!ChatFollow.keepsBottom(readerAtBottom: true, readerScrolling: true, before: reading, now: grown))
+        // Nothing grew: the reader moved off the edge themselves.
+        #expect(!ChatFollow.keepsBottom(
+            readerAtBottom: true,
+            readerScrolling: false,
+            before: reading,
+            now: Self.viewport(480, content: 2_000, atBottom: false)
+        ))
+    }
+
+    /// Only the reader's own hand on the transcript counts as their scrolling;
+    /// a scroll the transcript makes itself does not.
+    @Test("the reader's scrolling is a trackpad, wheel or scroller, never the transcript's own scroll")
+    func readersOwnScrolling() {
+        #expect(ChatFollow.isReadersOwn(.tracking))
+        #expect(ChatFollow.isReadersOwn(.interacting))
+        #expect(ChatFollow.isReadersOwn(.decelerating))
+        #expect(!ChatFollow.isReadersOwn(.animating))
+        #expect(!ChatFollow.isReadersOwn(.idle))
+    }
+
+    /// The newest button shows a reply still being written as the thinking
+    /// cell, and turns to its arrow under the pointer, which is what a click
+    /// does; with nothing being written it is the arrow alone.
+    @Test("the newest button holds the thinking cell while a reply is written, and the arrow under the pointer or after")
+    func newestButtonFace() {
+        #expect(ChatNewestFace(running: true, hovering: false) == .thinking)
+        #expect(ChatNewestFace(running: true, hovering: true) == .arrow)
+        #expect(ChatNewestFace(running: false, hovering: false) == .arrow)
+        #expect(ChatNewestFace(running: false, hovering: true) == .arrow)
+    }
+
+    private static func viewport(_ height: Double, width: Double = 720, content: Double = 2_000, atBottom: Bool) -> ChatViewport {
+        ChatViewport(size: CGSize(width: width, height: height), contentHeight: content, atBottom: atBottom)
     }
 
     // MARK: - The draft
@@ -241,48 +289,46 @@ struct ChatSurfaceTests {
         #expect(!ChatSpeaker.isUser(nil))
     }
 
-    @Test("the tool line says what is running, what ran, and a phase it has no word for as the tool alone")
-    func toolLine() {
+    /// A turn is thinking until text starts arriving and again while a tool
+    /// it called runs, and quiet while it writes; no tool is ever named.
+    @Test("a turn is thinking until it writes and while a tool runs, read off its own fields alone")
+    func turnStatus() {
         let tool = { (phase: CompanionToolPhase) in
             CompanionToolEvent(turnId: "turn-1", tool: "web_search", phase: phase, detail: nil)
         }
+        let turn = { (text: String, tool: CompanionToolEvent?) in
+            ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: text, tool: tool))
+        }
 
-        #expect(ChatToolLine.sentence(tool(.start)) == "Using web_search")
-        #expect(ChatToolLine.sentence(tool(.stop)) == "Used web_search")
-        #expect(ChatToolLine.sentence(tool(.unrecognized("paused"))) == "web_search")
-    }
-
-    /// A turn is thinking until either a tool is named or text starts
-    /// arriving; a named tool stays shown even once text follows it; and a
-    /// turn with text and no tool is quiet, drawing nothing beneath it.
-    @Test("a turn is thinking, then a named tool, then quiet, read off its own fields alone")
-    func turnStatus() {
-        let tool = CompanionToolEvent(turnId: "turn-1", tool: "web_search", phase: .start, detail: nil)
-
-        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "", tool: nil)) == .thinking)
-        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "", tool: tool)) == .tool(tool))
-        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "So far", tool: nil)) == .quiet)
-        #expect(ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "So far", tool: tool)) == .tool(tool))
+        #expect(turn("", nil) == .thinking)
+        #expect(turn("", tool(.start)) == .thinking)
+        #expect(turn("", tool(.stop)) == .thinking)
+        #expect(turn("So far", nil) == .quiet)
+        #expect(turn("So far", tool(.start)) == .thinking)
+        #expect(turn("So far", tool(.stop)) == .quiet)
+        #expect(turn("So far", tool(.unrecognized("paused"))) == .quiet)
     }
 
     /// The engine's provider-lifecycle `tool_event` (carried today as a tool
-    /// named "unknown") is never matched by name: it reads as any other named
-    /// tool, because the thinking state is read off the turn having no tool at
-    /// all rather than off what a tool happens to be called.
-    @Test("a tool named unknown is drawn as any other named tool, never as thinking")
-    func noSpecialCaseForUnknown() {
-        let tool = CompanionToolEvent(turnId: "turn-1", tool: "unknown", phase: .start, detail: nil)
-        let turn = CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "", tool: tool)
+    /// named "unknown") is never matched by name: it reads as any other tool,
+    /// and nothing the chat draws names a tool.
+    @Test("a tool named unknown reads as any other tool, and no copy names a tool")
+    func noToolNamed() throws {
+        let unknown = CompanionToolEvent(turnId: "turn-1", tool: "unknown", phase: .start, detail: nil)
+        let search = CompanionToolEvent(turnId: "turn-1", tool: "web_search", phase: .start, detail: nil)
 
-        #expect(ChatTurnStatus(turn) == .tool(tool))
-        #expect(ChatTurnStatus(turn) != .thinking)
+        #expect(
+            ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "So far", tool: unknown))
+                == ChatTurnStatus(CompanionTurn(turnId: "turn-1", inReplyTo: nil, text: "So far", tool: search))
+        )
+        #expect(!ProductStringKey.allCases.map(\.rawValue).contains { $0.hasPrefix("chat.tool.") })
     }
 
     /// The links are live: the surface hands them to the content link opener,
     /// which opens them in the pane or the person's own browser.
     @Test("reply markdown is inline only, and its links are live")
-    func replyText() {
-        let reply = ChatText.reply("See **the notes** at [the site](https://example.com).", home: "/Users/me")
+    func replyText() throws {
+        let reply = try #require(ChatText.drawn(ReplyText(markdown: "See **the notes** at [the site](https://example.com).", home: "/Users/me")).first?.prose)
 
         #expect(String(reply.characters) == "See the notes at the site.")
         #expect(reply.runs.compactMap(\.link) == [URL(string: "https://example.com")!])
@@ -290,21 +336,26 @@ struct ChatSurfaceTests {
         #expect(reply.runs.contains { $0.inlinePresentationIntent == .stronglyEmphasized })
     }
 
-    /// A heading line is drawn as its text in bold and a fenced block as code
-    /// spans, their marks gone; a `#` that is not a heading, and every other
-    /// block mark, stays the text it is.
-    @Test("a heading line is drawn in bold and a fenced block as code, and other block marks stay")
-    func replyBlocks() {
-        let reply = ChatText.reply(
-            "Plan\n### What to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n```text\n/tmp/a.png\n\nx `y`\n```\nDone",
+    /// A heading line is drawn as its text in bold, its marks gone, inside
+    /// its paragraph; a `#` that is not a heading stays the text it is. A
+    /// list mark opens a list (`ReplyStructureTests`), and a fenced block is
+    /// a block of its own, kept as written.
+    @Test("a heading line is drawn in bold, a list is a list, and a fenced block is its own block")
+    func replyBlocks() throws {
+        let blocks = ChatText.drawn(ReplyText(
+            markdown: "Plan\n### What to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n```text\n/tmp/a.png\n\nx `y`\n```\nDone",
             home: "/Users/me"
-        )
+        ))
 
-        #expect(String(reply.characters) == "Plan\nWhat to expect\n- Heat: humid\n#hashtag\n####### seven\n## \n/tmp/a.png\n\nx `y`\nDone")
+        #expect(blocks.count == 5)
+        let reply = try #require(blocks.first?.prose)
+        #expect(String(reply.characters) == "Plan\nWhat to expect")
         let bold = reply.runs.filter { $0.inlinePresentationIntent == .stronglyEmphasized }
         #expect(bold.map { String(reply[$0.range].characters) } == ["What to expect"])
-        let code = reply.runs.filter { $0.inlinePresentationIntent == .code }
-        #expect(code.map { String(reply[$0.range].characters) } == ["/tmp/a.png", "x `y`"])
+        #expect(ReplyStructureTests.described(blocks[1]) == "list • Heat: humid")
+        #expect(blocks[2].prose.map { String($0.characters) } == "#hashtag\n####### seven\n## ")
+        #expect(blocks[3].code == ReplyCode(language: "text", text: "/tmp/a.png\n\nx `y`"))
+        #expect(blocks.last?.prose.map { String($0.characters) } == "Done")
     }
 
     @Test("marking finds every occurrence of each term, ignoring case")

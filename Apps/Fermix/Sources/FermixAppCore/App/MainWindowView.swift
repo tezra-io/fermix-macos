@@ -57,6 +57,8 @@ struct MainWindowView: View {
     let links: ContentLinkOpener
     /// What the chat's rows draw under their words (M66).
     let chatMedia: ChatMedia
+    /// The app's one player, which the chat's sounds play on.
+    let player: AppPlayer
 
     var body: some View {
         presented
@@ -80,11 +82,13 @@ struct MainWindowView: View {
                     restart: restart,
                     refusal: model.restartRefusal
                 ) { model.restartSheetShown = false }
+                .sheetGround()
             }
             // The one sheet of commands (M34 §15.2). Home's Attention row, a
             // Doctor remediation and the Help menu all open this one.
             .sheet(item: $model.instructionsShown) { instructions in
                 CoexistenceInstructionsSheet(instructions: instructions) { model.instructionsShown = nil }
+                    .sheetGround()
             }
             .lifecycleStatus(of: model)
     }
@@ -379,6 +383,7 @@ struct MainWindowView: View {
                 settings: settings,
                 links: links,
                 media: chatMedia,
+                player: player,
                 router: router
             )
         case .home:

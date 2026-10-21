@@ -419,6 +419,7 @@ struct ProviderDetailSheet: View {
     private var verbs: some View {
         HStack(spacing: Spacing.xs) {
             Button(ProductStrings[.providerSignOut], action: signOut)
+                .buttonStyle(SecondaryButtonStyle(.row))
                 // Both verbs write, and the daemon refuses a write while the
                 // settings file has changed outside Fermix (M34 §7.6).
                 .disabled(signingOut || model.writesBlocked)
@@ -428,6 +429,7 @@ struct ProviderDetailSheet: View {
             // unverified one primary is a write it refuses (M34 §5.1).
             if !row.primary, row.configured {
                 Button(ProductStrings[.providerUsePrimary]) { confirmPrimary(row) }
+                    .buttonStyle(SecondaryButtonStyle(.row))
                     .disabled(model.writesBlocked)
                     .accessibilityLabel(
                         ProductStrings.commaPair(ProductStrings[.providerUsePrimary], row.label)
@@ -436,8 +438,7 @@ struct ProviderDetailSheet: View {
 
             Spacer(minLength: 0)
 
-            Button(ProductStrings[.settingsSheetDone], action: dismiss)
-                .keyboardShortcut(.defaultAction)
+            PrimaryAction(ProductStrings[.settingsSheetDone], size: .row, action: dismiss)
         }
     }
 

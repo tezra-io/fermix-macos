@@ -54,6 +54,7 @@ struct AboutYouSurface: View {
         .padding(.top, Spacing.xs)
         .sheet(isPresented: $choosingTimezone) {
             TimeZoneSheet(selection: $model.answers.timezone) { choosingTimezone = false }
+                .sheetGround()
         }
     }
 
@@ -185,6 +186,7 @@ struct TimeZoneSheet: View {
             })) { choice in
                 Text(choice.title).tag(choice.id)
             }
+            .sheetList()
             .frame(maxHeight: .infinity)
 
             HStack(spacing: Spacing.s) {

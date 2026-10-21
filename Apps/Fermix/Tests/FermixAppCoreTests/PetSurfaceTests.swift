@@ -756,7 +756,7 @@ final class PetHarness {
     /// The daemon answering its half of the handshake, which is what turns a
     /// requested call into a live one.
     func negotiate() {
-        socket.deliver(.serverHello(minVersion: 1, maxVersion: 2))
+        socket.deliver(.serverHello(minVersion: 1, maxVersion: 3))
     }
 
     /// Lets the call's permission task run without a wall-clock wait.

@@ -40,6 +40,9 @@ final class AppComposition {
     /// The mascot renderer the executable handed in, carried to every window's
     /// root (`AppSurfaces`).
     let mascot: any MascotRendering
+    /// Which glass every sheet wears, carried to every window's root
+    /// (`AppSurfaces`).
+    let sheetGround: SheetGroundRecipe
     /// The update transaction and the seam every update surface reads
     /// (M34 §6, R2 and R3).
     let updates: UpdateCoordinator
@@ -74,15 +77,27 @@ final class AppComposition {
     /// dispatches every request onto `browser`. Connects once, at launch, and
     /// stays connected for the life of the process (plan §4.10).
     let browserHost: BrowserHostClient
+    /// Fermix's notifications on this Mac: the grant, the one prompt, the
+    /// posts and the person's answers to them (M76 §4.4). The native host
+    /// wire and the Permissions row are its two readers.
+    let notifications: MacNotifications
+    /// The daemon's fifth wire: attaches as this Mac's native host and answers
+    /// every request onto `notifications`. Connects once, at launch, beside
+    /// the browser host, and stays connected for the life of the process.
+    let nativeHost: NativeHostClient
     /// The one place a content link is opened: the pane or the person's own
     /// browser, by their preference. Sign-in and the installer never use it.
     let links: ContentLinkOpener
     /// The app's one player (M66 §3.4), for the chat's sounds and the pane's
     /// media tabs. Built before the pane, which plays on it.
     let player: AppPlayer
-    /// What the chat's rows draw under their words: the strips, their
-    /// previews and the sounds (M66).
+    /// What the chat's rows draw under their words: the strips and their
+    /// previews (M66).
     let chatMedia: ChatMedia
+    /// The engine's grants of phone-side files, counted per ref by what uses
+    /// them (M66 decision 1): the chat's session's, for the tiles, the player
+    /// and the pane to hold a ref's file by.
+    let mediaGrants: MediaGrants
 
     /// The shipped configuration: this Mac, this account, this bundle, and the
     /// updater, mascot renderer, browser engine, pane viewers and media reader
@@ -116,8 +131,17 @@ final class AppComposition {
         model = AppModel()
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
-        player = AppPlayer(engine: AVFoundationPlayback())
-        browser = Self.buildBrowser(environment: environment, store: store, location: location, windows: windows, player: player)
+        let companion = Self.buildCompanion(bootstrap: store, lines: environment.companionLines)
+        mediaGrants = companion.grants
+        player = AppPlayer(engine: AVFoundationPlayback(), facts: AVFoundationMediaFacts(), grants: mediaGrants)
+        browser = Self.buildBrowser(
+            environment: environment,
+            store: store,
+            location: location,
+            windows: windows,
+            player: player,
+            grants: mediaGrants
+        )
         browserHost = Self.buildBrowserHost(
             environment: environment,
             store: store,
@@ -125,15 +149,29 @@ final class AppComposition {
             configuration: configuration,
             browser: browser
         )
+        notifications = MacNotifications(
+            center: environment.notificationCenter,
+            bundleIdentifier: configuration.bundleIdentifier
+        )
+        nativeHost = Self.buildNativeHost(
+            environment: environment,
+            store: store,
+            configuration: configuration,
+            notifications: notifications
+        )
         links = ContentLinkOpener(
             preference: environment.linkPreference,
             browser: browser,
-            workspace: environment.workspace
+            workspace: environment.workspace,
+            maps: environment.mediaReader
         )
         chatMedia = ChatMedia(
             home: { [store] in try store.resolvedHome() },
-            player: player,
             reader: environment.mediaReader,
+            facts: player.facts,
+            levels: AVFoundationSoundLevels(),
+            grants: mediaGrants,
+            documentApplication: { WorkspaceLinkOpener.documentApplication(toOpen: $0) },
             deadlines: MainQueueDeadlineScheduler()
         )
         voiceCall = VoiceCallModel()
@@ -143,15 +181,15 @@ final class AppComposition {
             lines: environment.realtimeLines,
             audio: environment.voiceAudio
         )
-        let companion = Self.buildCompanion(bootstrap: store, lines: environment.companionLines)
         services = ServiceController(loginItems: environment.loginItems, plists: environment.plists)
         engineReconciler = environment.reconciler
         menuBar = MenuBarController(model: model)
         gate = ServiceMutationGate()
         updater = environment.updater
         mascot = environment.mascot
+        sheetGround = environment.sheetGround
 
-        let management = Self.buildManagement(environment: environment, services: services)
+        let management = Self.buildManagement(environment: environment, services: services, notifications: notifications)
         gateway = management.gateway
         settings = management.settings
         // Entering settings grows the window (decision D3), which the window
@@ -170,7 +208,7 @@ final class AppComposition {
             model: model,
             windows: windows,
             voice: voice,
-            browser: browser,
+            hostQuitting: HostQuitHolds([browser, nativeHost]),
             settings: settings,
             presentation: settingsPresentation
         )
@@ -215,7 +253,7 @@ final class AppComposition {
 
     /// The edges that only exist once both ends do — the coordinator's two
     /// callbacks into surfaces it created, and the window host's view of the
-    /// whole graph — plus the two first reads. Everything else points one way.
+    /// whole graph — plus the first reads. Everything else points one way.
     private func finishAssembly() {
         // The updater starts once, with the transaction bound as its delegate.
         // A bundle whose declared policy is wrong runs none at all, and the
@@ -226,6 +264,15 @@ final class AppComposition {
         // before the person ever opens it, so this asks for the connection
         // once, here, rather than waiting for a surface to ask as chat does.
         browserHost.connect()
+        // The native host wire is always-on for the same reason: a reminder
+        // due on this Mac rings whether or not a window was ever opened.
+        nativeHost.connect()
+        // The grant, read once now, so the Permissions row never opens on a
+        // guess before anything else has asked.
+        Task { [notifications] in await notifications.refresh() }
+        // A click on one of Fermix's notifications is the person asking for
+        // the app, and the coordinator owns which window that puts up.
+        notifications.onOpened = { [coordinator] in coordinator.bringForward() }
         // A staged update replaces the bundle on any exit of this process, so
         // the quit path finishes the stop first (M34 §6, R3). The closure is a
         // backwards edge for the same reason the two below are: the update
@@ -253,9 +300,11 @@ final class AppComposition {
             openRecovery: { [coordinator] in coordinator.enterRecovery() },
             restart: { [coordinator] in coordinator.restartDaemon() },
             mascot: mascot,
+            sheetGround: sheetGround,
             browser: browser,
             links: links,
-            chatMedia: chatMedia
+            chatMedia: chatMedia,
+            player: player
         )
         // Every report goes through the coordinator, which owns whether a window
         // is on screen; the pet, the browser and the chat's call box read
@@ -340,15 +389,17 @@ final class AppComposition {
     /// The browser pane: the engine the executable handed in, the website
     /// profile's record in this account's support folder, the app's one
     /// player and the system's own viewers for what WebKit does not draw,
-    /// this account's Fermix home, the session's availability, and the
-    /// window's room for the pane. The quit's bound is a run-loop timer,
-    /// which fires while AppKit holds the termination.
+    /// the grants a phone-side file's tab holds, this account's Fermix home,
+    /// the session's availability, and the window's room for the pane. The
+    /// quit's bound is a run-loop timer, which fires while AppKit holds the
+    /// termination.
     private static func buildBrowser(
         environment: AppEnvironment,
         store: BootstrapStore,
         location: BootstrapLocation,
         windows: WindowCoordinator,
-        player: AppPlayer
+        player: AppPlayer,
+        grants: MediaGrants
     ) -> BrowserCoordinator {
         BrowserCoordinator(
             makeEngine: environment.makeBrowser,
@@ -356,6 +407,7 @@ final class AppComposition {
             workspace: environment.workspace,
             player: player,
             viewers: environment.viewers,
+            grants: grants,
             // Resolved per open from the bootstrap record, as the host's
             // workspace and browser roots are, so a file opens silently only
             // under the home the record names now.
@@ -394,8 +446,27 @@ final class AppComposition {
         )
     }
 
-    /// The chat session, built once beside voice over its own socket. Nothing
-    /// connects it until a surface first asks.
+    /// The native host wire: the daemon's fifth socket, attached over this
+    /// Mac's notifications. Its deadlines are run-loop timers, because the
+    /// quit's bound has to fire while AppKit holds the termination.
+    private static func buildNativeHost(
+        environment: AppEnvironment,
+        store: BootstrapStore,
+        configuration: ProductConfiguration,
+        notifications: MacNotifications
+    ) -> NativeHostClient {
+        NativeHostClient(
+            lines: MainActorLineDelivery(wrapping: environment.nativeHostLines),
+            socketPath: { try store.nativeHostSocketPath() },
+            hostVersion: configuration.marketingVersion,
+            notifications: notifications,
+            deadlines: RunLoopDeadlineScheduler()
+        )
+    }
+
+    /// The chat session, built once over its own socket, before the player,
+    /// the pane and the chat's media, which hold phone-side files by its
+    /// grants. Nothing connects it until a surface first asks.
     private static func buildCompanion(
         bootstrap: BootstrapStore,
         lines: CompanionSocketClient.LineSocket
@@ -415,7 +486,8 @@ final class AppComposition {
     /// second is nothing but a reader of the first.
     private static func buildManagement(
         environment: AppEnvironment,
-        services: ServiceController
+        services: ServiceController,
+        notifications: MacNotifications
     ) -> (gateway: ManagementGateway, settings: SettingsModel) {
         // One gateway for every surface: `hello` is negotiated once, and the
         // window it reports is what refuses a call the daemon cannot serve.
@@ -432,7 +504,8 @@ final class AppComposition {
             permissions: PermissionLedger(
                 gateway: gateway,
                 services: services,
-                microphone: environment.microphone
+                microphone: environment.microphone,
+                notifications: notifications
             )
         )
 
@@ -454,7 +527,7 @@ final class AppComposition {
         model: AppModel,
         windows: WindowCoordinator,
         voice: VoiceCoordinator,
-        browser: BrowserCoordinator,
+        hostQuitting: any HostQuitting,
         settings: SettingsModel,
         presentation: SettingsPresentation
     ) -> (lifecycle: LifecycleCoordinator, coordinator: AppCoordinator) {
@@ -484,7 +557,7 @@ final class AppComposition {
                 ),
                 gate: gate,
                 store: store,
-                hostQuitting: browser,
+                hostQuitting: hostQuitting,
                 settings: settings,
                 presentation: presentation
             )
@@ -599,7 +672,7 @@ final class AppComposition {
         updates: any UpdateReconciling,
         gate: ServiceMutationGate,
         store: BootstrapStore,
-        hostQuitting: any BrowserHostQuitting,
+        hostQuitting: any HostQuitting,
         settings: SettingsModel,
         presentation: SettingsPresentation
     ) -> AppCoordinator {

@@ -23,9 +23,12 @@ public struct CompanionTimelineRow: Equatable, Sendable, Decodable {
     /// The link previews the engine stored on the row, at most four. The key
     /// is present only when there is one.
     public let linkPreviews: [CompanionLinkPreview]?
+    /// The records the engine kept with a reply (M72 §8.3). The key is
+    /// present only when there is one.
+    public let blocks: CompanionBlocks?
 
     private enum CodingKeys: String, CodingKey {
-        case role, content, kind, metadata
+        case role, content, kind, metadata, blocks
         case serverSeq = "server_seq"
         case timestamp = "ts"
         case mediaRefs = "media_refs"
@@ -35,10 +38,13 @@ public struct CompanionTimelineRow: Equatable, Sendable, Decodable {
     }
 }
 
-/// A link preview the engine stored on a row that touches the phone: it read
-/// the page itself, and stored the card under the address it reached after
-/// redirects, which need not be the one written in the row's text.
+/// A link preview the engine stored on a row once it was written (M72): it
+/// read the page itself, for a link the row's text names, and stored the card
+/// under the address it reached after redirects, which need not be that link.
 public struct CompanionLinkPreview: Equatable, Sendable, Decodable {
+    /// The link the row's text wrote, which the card is paired with. A
+    /// preview stored before links were kept has none.
+    public let link: String?
     public let url: String
     public let site: String
     public let title: String
@@ -47,7 +53,7 @@ public struct CompanionLinkPreview: Equatable, Sendable, Decodable {
     public let imageRef: String?
 
     private enum CodingKeys: String, CodingKey {
-        case url, site, title, description
+        case link, url, site, title, description
         case imageRef = "image_ref"
     }
 }
@@ -69,13 +75,24 @@ public struct CompanionAnnouncedRow: Equatable, Sendable, Decodable {
     /// call's row carries `metadata.call`.
     public let kind: String?
     public let metadata: [String: CompanionJSONValue]?
+    /// The history message's files and stored link previews, in its shapes
+    /// (version 3), so a new row needs no read for them. `media_refs` is
+    /// always present, possibly empty; `link_previews` only when the row has
+    /// one. A preview stored later arrives as `row_updated`.
+    public let mediaRefs: [CompanionMediaRef]
+    public let linkPreviews: [CompanionLinkPreview]?
+    /// The history message's blocks (M72 §8.3), only when it has one: the
+    /// phone's reply arrives as a row.
+    public let blocks: CompanionBlocks?
 
     private enum CodingKeys: String, CodingKey {
-        case role, text, kind, metadata
+        case role, text, kind, metadata, blocks
         case profileId = "profile_id"
         case serverSeq = "server_seq"
         case timestamp = "ts"
         case clientMsgId = "client_msg_id"
+        case mediaRefs = "media_refs"
+        case linkPreviews = "link_previews"
     }
 }
 

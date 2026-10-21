@@ -176,6 +176,19 @@ struct AmbientGroundRuleTests {
         #expect(!text.contains("RoundedRectangle("), "a drawn button has a shape of its own again")
     }
 
+    /// The two browser sign-in waits, a provider's and a plugin's, draw their
+    /// buttons from one view, so the two cannot be drawn apart again. That
+    /// every sheet's default is the monochrome capsule is the sheet rule's.
+    @Test("both sign-in waits draw their buttons from one view")
+    func signInWaitsShareTheirButtons() throws {
+        for wait in ["Settings/Panes/IntegrationSheets.swift", "Settings/Panes/ProviderSheets.swift"] {
+            let text = try #require(try SourceTree.swiftFiles(matching: wait).first?.text)
+
+            #expect(occurrences(of: "SignInWaitActions(", in: text) == 1, "\(wait) draws its own wait buttons")
+            #expect(occurrences(of: "SignInRetryAction(", in: text) == 1, "\(wait) draws its own retry button")
+        }
+    }
+
     private func occurrences(of needle: String, in text: String) -> Int {
         text.components(separatedBy: needle).count - 1
     }
@@ -348,5 +361,304 @@ struct RailRuleTests {
 
     private func occurrences(of needle: String, in text: String) -> Int {
         text.components(separatedBy: needle).count - 1
+    }
+}
+
+/// Every popup wears the app's glass (owner, 2026-10-16), as build gates: one
+/// modifier owns a sheet's ground, and the content of every sheet the app
+/// presents wears it at its root.
+@Suite("Sheet ground rule")
+struct SheetGroundRuleTests {
+    /// The case set is every sheet the tree presents, so a sheet added later
+    /// either wears the ground or fails here. Checked at the root: a ground
+    /// worn by something inside the content leaves the system's panel round it.
+    @Test("every sheet's content wears the sheet ground at its root")
+    func everySheetWearsTheGround() throws {
+        var presented = 0
+
+        for file in try SourceTree.swiftFiles(under: "", excluding: false) {
+            for content in try Self.sheetContents(in: file.text) {
+                presented += 1
+                guard let content else {
+                    Issue.record("\(file.path) presents a sheet with no trailing content closure")
+                    continue
+                }
+
+                #expect(
+                    content.hasSuffix(".sheetGround()"),
+                    "\(file.path) presents a sheet whose root does not wear the ground: \(content.suffix(120))"
+                )
+            }
+        }
+
+        // A scan that finds nothing passes every assertion it makes.
+        #expect(presented >= 15, "only \(presented) sheets were scanned")
+    }
+
+    /// The scan itself, on the cases it has to tell apart: it is the gate, so
+    /// a scan that stopped seeing a bare sheet would pass a tree full of them.
+    @Test("the scan sees a sheet without the ground, and only sheets")
+    func scanTellsTheCasesApart() throws {
+        let source = """
+            .sheet(item: $row) { row in
+                RowSheet(row: row) { dismiss() }
+                    .sheetGround()
+            }
+            .sheet(isPresented: $shown) { BareSheet() }
+            .sheet(isPresented: $nested) {
+                Outer { Inner().sheetGround() }
+            }
+            .sheet(isPresented: $labelled, content: { LabelledSheet() })
+            // .sheet(isPresented: $commented) { Commented() }
+            present(.sheet(.detail(row)))
+            """
+        let contents = try Self.sheetContents(in: source)
+
+        #expect(contents.count == 4)
+        #expect(contents[0]?.hasSuffix(".sheetGround()") == true)
+        #expect(contents[1] == "BareSheet()")
+        #expect(contents[2]?.hasSuffix(".sheetGround()") == false)
+        #expect(contents[3] == nil)
+    }
+
+    /// One owner: the presentation background is set in one place, and the
+    /// frame recipe is the frame's own glass rather than a copy of it. Liquid
+    /// Glass stays out of the frame (owner, 2026-09-25), so the sheet ground is
+    /// the one place it is drawn.
+    @Test("one modifier owns a sheet's ground, and the frame recipe is the default")
+    func oneOwner() throws {
+        let files = try SourceTree.swiftFiles(under: "", excluding: false)
+        let owner = "Design/Materials/SheetGround.swift"
+
+        #expect(Self.paths(of: files.filter { $0.text.contains(".presentationBackground") }) == [owner])
+        #expect(Self.paths(of: files.filter { $0.text.contains("NSGlassEffectView(") }) == [owner])
+
+        let text = try #require(try SourceTree.swiftFiles(matching: owner).first?.text)
+        #expect(text.contains("case .frame: FrameGlass()"))
+        #expect(
+            text.contains("LiquidGlassMaterial()\n        } else {\n            FrameGlass()\n        }"),
+            "the liquid recipe has no macOS 15 form"
+        )
+        #expect(SheetGroundRecipe.standard == .frame)
+        #expect(SheetGroundRecipe.allCases == [.frame, .liquid])
+    }
+
+    /// No sheet draws the accent-filled default: its default action is the
+    /// app's monochrome capsule, `PrimaryAction`, which carries the default
+    /// key itself, and nothing a sheet draws is the prominent system style
+    /// (owner, 2026-09-20: the accent blue on a primary action "doesnt match
+    /// with the theme").
+    ///
+    /// Over everything a sheet draws: the sheet's content, the presenting
+    /// view's own members it names, and every view reached from those, in
+    /// whichever file it lives. A view shared with a non-sheet surface is held
+    /// to the rule too, because a sheet draws it.
+    @Test("no sheet draws the accent-filled default or a prominent button")
+    func sheetsDrawNoAccentDefault() throws {
+        let files = try SourceTree.swiftFiles(under: "", excluding: false)
+        let views = try Self.viewDeclarations(in: files)
+        var drawn: [(name: String, text: String)] = []
+        var sheets = 0
+
+        for file in files {
+            for content in try Self.sheetContents(in: file.text) {
+                guard let content else { continue }
+
+                sheets += 1
+                drawn += Self.drawn(by: content, presentedIn: file.text, views: views)
+            }
+        }
+
+        #expect(sheets >= 15, "only \(sheets) sheets were scanned")
+        #expect(Set(drawn.map(\.name)).count >= 15, "only \(drawn.count) views were followed from the sheets")
+        // Any default key, written plainly or chosen by a condition, except
+        // the one the component that owns it carries.
+        let defaultKey = try NSRegularExpression(pattern: #"\.keyboardShortcut\([^\n]*\.defaultAction"#)
+        for view in drawn where view.name != "PrimaryAction" {
+            #expect(
+                defaultKey.firstMatch(in: view.text, range: NSRange(view.text.startIndex..., in: view.text)) == nil,
+                "\(view.name), drawn in a sheet, makes a system button the accent-filled default"
+            )
+            #expect(!view.text.contains("borderedProminent"), "\(view.name), drawn in a sheet, is the prominent style")
+        }
+    }
+
+    /// A list in a sheet is rounded like the grouped form sections beside it
+    /// rather than the square panel the system draws a bare list in, since a
+    /// shape inside a rounded card follows the card (Liquid Glass). Over the
+    /// same views the default-action rule follows.
+    @Test("every list a sheet draws is rounded like the sheet's sections")
+    func sheetListsAreRounded() throws {
+        let files = try SourceTree.swiftFiles(under: "", excluding: false)
+        let views = try Self.viewDeclarations(in: files)
+        let list = try NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])List\s*[({]"#)
+        var lists = 0
+
+        for file in files {
+            for content in try Self.sheetContents(in: file.text) {
+                guard let content else { continue }
+
+                for view in Self.drawn(by: content, presentedIn: file.text, views: views) {
+                    let built = list.numberOfMatches(in: view.text, range: NSRange(view.text.startIndex..., in: view.text))
+                    let rounded = view.text.components(separatedBy: ".sheetList()").count - 1
+                    lists += built
+                    #expect(built == rounded, "\(view.name), drawn in a sheet, builds \(built) lists and rounds \(rounded)")
+                }
+            }
+        }
+
+        #expect(lists >= 4, "only \(lists) lists were found in sheets")
+    }
+
+    /// A button in a sheet that names no style is the secondary capsule, not
+    /// the system button the window's tint turns blue: the sheet's one root
+    /// modifier states the row actions for everything inside it.
+    @Test("the sheet ground states the row actions for the whole sheet")
+    func sheetGroundStatesRowActions() throws {
+        let owner = try #require(try SourceTree.swiftFiles(matching: "Design/Materials/SheetGround.swift").first?.text)
+
+        #expect(owner.contains("content.rowActions()"))
+    }
+
+    /// Every view a sheet draws, by name with its text: the content itself,
+    /// the members of the presenting file it names (a builder such as
+    /// `sheetView(_:)`), and the closure of the view types they reach.
+    private static func drawn(
+        by content: String,
+        presentedIn file: String,
+        views: [String: [String]]
+    ) -> [(name: String, text: String)] {
+        var texts = [(name: "sheet content", text: content)]
+        var members: Set<String> = []
+        var index = 0
+        while index < texts.count {
+            for word in identifiers(in: texts[index].text) where !members.contains(word) {
+                guard let member = memberBody(named: word, in: file) else { continue }
+
+                members.insert(word)
+                texts.append((name: word, text: member))
+            }
+            index += 1
+        }
+
+        var reached: Set<String> = []
+        var queue = texts.flatMap { identifiers(in: $0.text) }.filter { views[$0] != nil }
+        while let name = queue.popLast() {
+            guard reached.insert(name).inserted, let bodies = views[name] else { continue }
+
+            for body in bodies {
+                texts.append((name: name, text: body))
+                queue += identifiers(in: body).filter { views[$0] != nil && !reached.contains($0) }
+            }
+        }
+
+        return texts
+    }
+
+    /// Every `View` the tree declares, by name, with each declaration's
+    /// braced body. A name declared privately in two files keeps both.
+    private static func viewDeclarations(in files: [SourceTree.File]) throws -> [String: [String]] {
+        let declaration = try NSRegularExpression(
+            pattern: #"struct ([A-Za-z_][A-Za-z0-9_]*)(?:<[^>{]*>)?\s*:[^{\n]*\bView\b[^{\n]*\{"#
+        )
+        var views: [String: [String]] = [:]
+
+        for file in files {
+            let text = file.text
+            for match in declaration.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                guard let whole = Range(match.range, in: text), let name = Range(match.range(at: 1), in: text),
+                    let open = text[whole].lastIndex(of: "{"),
+                    let close = closing(from: open, in: text, opens: "{", closes: "}")
+                else { continue }
+
+                views[String(text[name]), default: []].append(String(text[open...close]))
+            }
+        }
+
+        return views
+    }
+
+    /// The braced body of a function or computed property the file declares
+    /// under this name, opening on the declaration's own line.
+    private static func memberBody(named name: String, in file: String) -> String? {
+        let pattern = #"(?:func \#(name)\([^\n]*|var \#(name):[^\n=]*)\{"#
+        guard let declaration = try? NSRegularExpression(pattern: pattern),
+            let match = declaration.firstMatch(in: file, range: NSRange(file.startIndex..., in: file)),
+            let found = Range(match.range, in: file),
+            let open = file[found].lastIndex(of: "{"),
+            let close = closing(from: open, in: file, opens: "{", closes: "}")
+        else { return nil }
+
+        return String(file[open...close])
+    }
+
+    private static func identifiers(in text: String) -> Set<String> {
+        var words: Set<String> = []
+        var word = ""
+        for character in text {
+            if character.isLetter || character.isNumber || character == "_" {
+                word.append(character)
+            } else if !word.isEmpty {
+                words.insert(word)
+                word = ""
+            }
+        }
+        if !word.isEmpty { words.insert(word) }
+
+        return words
+    }
+
+    /// The content of every sheet a file presents: the trailing closure after
+    /// the presentation's arguments, trimmed. A presentation with no trailing
+    /// closure answers nil, which fails the gate rather than escaping it.
+    ///
+    /// A presentation is found by the two labels every SwiftUI sheet opens
+    /// with, so an enum case named `sheet` is not one, and whole-line comments
+    /// are blanked first, so prose that names a sheet is not one either.
+    static func sheetContents(in source: String) throws -> [String?] {
+        let code = source
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") ? "" : String($0) }
+            .joined(separator: "\n")
+        let presentation = try NSRegularExpression(pattern: #"\.sheet\(\s*(?:isPresented|item)\s*:"#)
+
+        return presentation.matches(in: code, range: NSRange(code.startIndex..., in: code)).map { match in
+            guard let found = Range(match.range, in: code),
+                let open = code[found].lastIndex(of: "("),
+                let close = closing(from: open, in: code, opens: "(", closes: ")")
+            else { return nil }
+
+            let rest = code[code.index(after: close)...]
+            guard let brace = rest.firstIndex(where: { !$0.isWhitespace }), code[brace] == "{",
+                let end = closing(from: brace, in: code, opens: "{", closes: "}")
+            else { return nil }
+
+            return code[code.index(after: brace)..<end].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    /// Where the bracket opened at `start` closes.
+    private static func closing(
+        from start: String.Index,
+        in code: String,
+        opens: Character,
+        closes: Character
+    ) -> String.Index? {
+        var depth = 0
+        var index = start
+        while index < code.endIndex {
+            if code[index] == opens { depth += 1 }
+            if code[index] == closes {
+                depth -= 1
+                if depth == 0 { return index }
+            }
+            index = code.index(after: index)
+        }
+
+        return nil
+    }
+
+    private static func paths(of files: [SourceTree.File]) -> [String] {
+        files.map { String($0.path.dropFirst(SourceTree.root.path.count + 1)) }.sorted()
     }
 }

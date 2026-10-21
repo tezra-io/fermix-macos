@@ -95,6 +95,25 @@ public protocol DaemonQuerying: Sendable {
     func cancelPairing(id: String) async throws -> ManagementPairingSession
     func mobileDevices() async throws -> ManagementMobileDevices
     func revokeMobileDevice(id: String) async throws -> ManagementMobileDeviceRevoked
+
+    /// The methods the daemon's `hello` lists, of the ones this build models.
+    ///
+    /// Protocol 2 grows inside itself: the MCP methods arrived after the
+    /// first protocol-2 daemons shipped, so a method's minimum version cannot
+    /// say whether this daemon has it, and its `hello` can (M74 §5).
+    func servedMethods() async throws -> Set<ManagementMethod>
+    func mcpServers() async throws -> ManagementMCPServerList
+    func mcpServer(name: String) async throws -> ManagementMCPServerRow
+    func draftMCPServer(text: String) async throws -> ManagementMCPDrafts
+    func addMCPServer(_ spec: ManagementMCPServerSpec) async throws -> ManagementMCPServerAdded
+    func updateMCPServer(_ change: ManagementMCPServerChange) async throws -> ManagementMCPServerRow
+    func removeMCPServer(name: String) async throws -> ManagementMCPServerRemoved
+    func enableMCPServer(name: String) async throws -> ManagementMCPServerRow
+    func disableMCPServer(name: String) async throws -> ManagementMCPServerRow
+    func setMCPTool(name: String, tool: String, enabled: Bool) async throws -> ManagementMCPServerRow
+    func startMCPCheck(name: String) async throws -> ManagementJob
+    func scanMCPImports() async throws -> ManagementMCPImportScan
+    func importMCPServers(_ picks: [ManagementMCPImportPick]) async throws -> ManagementMCPImported
 }
 
 /// The production gateway: one negotiated client, shared by every surface.
@@ -153,6 +172,15 @@ public actor ManagementGateway: DaemonQuerying {
 
     public func buildDiagnostics() async throws -> ManagementDiagnostics {
         try await negotiated().buildDiagnostics()
+    }
+
+    /// Read off the `hello` this gateway negotiated, which costs a round trip
+    /// only where nothing has been negotiated yet.
+    public func servedMethods() async throws -> Set<ManagementMethod> {
+        _ = try await negotiated()
+        let listed = negotiatedHello?.capabilities.methods ?? []
+
+        return Set(listed.compactMap(ManagementMethod.init(rawValue:)))
     }
 
     // MARK: - One client, negotiated once

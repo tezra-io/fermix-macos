@@ -48,6 +48,10 @@ private func wire(_ events: CompanionClientEvent...) throws -> [NSDictionary] {
 
 private let hello = CompanionClientEvent.clientHello(protocolVersion: CompanionProtocol.version)
 
+/// A window wholly above this build's version, and one wholly below it.
+private let above = (CompanionProtocol.version + 1, CompanionProtocol.version + 2)
+private let below = (CompanionProtocol.version - 2, CompanionProtocol.version - 1)
+
 private enum HomeUnreadable: Error {
     case malformed
 }
@@ -118,7 +122,7 @@ struct CompanionSessionTests {
         let harness = Harness()
         harness.session.connect()
 
-        harness.socket.deliver(E.hello(3, 4))
+        harness.socket.deliver(E.hello(above.0, above.1))
 
         #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateApp]))
         #expect(harness.socket.closeCount == 1)
@@ -130,7 +134,7 @@ struct CompanionSessionTests {
         let harness = Harness()
         harness.session.connect()
 
-        harness.socket.deliver(E.hello(1, 1))
+        harness.socket.deliver(E.hello(below.0, below.1))
 
         #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
         #expect(harness.scheduler.liveCount == 0)
@@ -173,7 +177,7 @@ struct CompanionSessionTests {
     func connectAfterRefusal() {
         let harness = Harness()
         harness.session.connect()
-        harness.socket.deliver(E.hello(3, 3))
+        harness.socket.deliver(E.hello(above.0, above.1))
 
         harness.session.connect()
         harness.socket.deliver(E.hello())
@@ -435,25 +439,46 @@ struct CompanionSessionTests {
         )
     }
 
-    /// Stage 1 reads a row again only on announcements the daemon already
-    /// sends (M66 §3.6): nothing is scheduled to look again later.
-    @Test("a voice note is read for its file, then for its transcript when its reply is announced, with no timer")
+    /// The engine says when it stores something on a written row (M66 §3.6):
+    /// nothing is scheduled to look again later.
+    @Test("a voice note is announced with its file, then read for its transcript when the engine says it changed, with no timer")
     func voiceNoteIsKeptCurrentWithNoTimer() throws {
         let harness = Harness()
         harness.connected()
         harness.socket.deliver(E.backward([10, 11, 12], head: 12))
 
-        harness.socket.deliver(M.voiceNote(13))
-        harness.socket.deliver(M.page([M.note(13)], head: 13))
-        harness.socket.deliver(E.row(14, role: "assistant"))
-        harness.socket.deliver(
-            M.page([M.note(13, text: "Pick up milk"), M.reply(14, to: 13, text: "row 14")], head: 14)
-        )
+        harness.socket.deliver(M.announced(13, refs: [M.voice]))
+        #expect(harness.model.rows.last?.mediaRefs == [M.voice])
+        harness.socket.deliver(M.updated(13))
+        harness.socket.deliver(M.page([M.exported(13, text: "Pick up milk", refs: [M.voice])], head: 13))
 
-        #expect(try harness.sent() == wire(hello, newestPagePull, M.read(after: 12, limit: 1), M.read(after: 12, limit: 2)))
-        #expect(harness.model.rows.first { $0.serverSeq == 13 }?.text == "Pick up milk")
+        #expect(try harness.sent() == wire(hello, newestPagePull, M.read(after: 12, limit: 1)))
+        #expect(harness.model.rows.last?.text == "Pick up milk")
         #expect(harness.model.reshape?.seqs == [13])
         #expect(harness.scheduler.liveCount == 0)
+    }
+
+    @Test("after a reconnect the rows on screen are read once the catch-up read has drained")
+    func reconnectReadsTheRowsOnScreen() throws {
+        let harness = Harness()
+        harness.connected()
+        harness.socket.deliver(E.backward(Array(1...12), head: 12))
+        harness.session.rowsOnScreen([10, 11, 12])
+        #expect(try harness.sent() == wire(hello, newestPagePull))
+
+        harness.socket.fail(.peerClosed)
+        harness.session.rowsOnScreen([9, 10, 11])
+        harness.scheduler.fireAll()
+        harness.socket.deliver(E.hello())
+        #expect(try harness.sent() == wire(hello, newestPagePull, hello, historyPull(.after(seq: 12))))
+
+        harness.socket.deliver(E.forward([], head: 12, next: 12))
+        #expect(try harness.sent().last == wireObject(companion: M.read(after: 8, limit: 3)))
+
+        harness.socket.deliver(M.page((9...11).map(E.exported), head: 12))
+        harness.session.rowsOnScreen([2, 3])
+        #expect(try harness.sent().last == wireObject(companion: M.read(after: 1, limit: 2)))
+        #expect(try harness.sent().count == 6)
     }
 
     // MARK: - Routing
@@ -491,7 +516,7 @@ struct CompanionSessionTests {
         harness.socket.deliver(E.row(1))
         harness.socket.deliver(E.hello())
         harness.socket.deliver(.unrecognized(type: "reaction"))
-        harness.socket.deliver(E.hello(3, 3))
+        harness.socket.deliver(E.hello(above.0, above.1))
 
         #expect(harness.model.rows.isEmpty)
         #expect(harness.model.connection == .connected)

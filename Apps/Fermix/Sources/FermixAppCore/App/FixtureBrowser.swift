@@ -217,8 +217,7 @@ struct FixtureWorkspaceOpener: WorkspaceLinkOpening {
     /// No app is named, so a fixture page never asks to leave for one, and a
     /// file tab offers its file to none.
     func application(toOpen url: URL) -> WorkspaceApplication? { nil }
-    func application(toOpen type: UTType) -> WorkspaceApplication? { nil }
-    func opensWebPages(_ app: WorkspaceApplication) -> Bool { false }
+    func documentApplication(toOpen type: UTType) -> WorkspaceApplication? { nil }
     func open(_ file: URL, withApplicationAt app: URL, failed: @escaping @MainActor (String) -> Void) {}
     /// Finder is another app too.
     func reveal(_ url: URL) {}

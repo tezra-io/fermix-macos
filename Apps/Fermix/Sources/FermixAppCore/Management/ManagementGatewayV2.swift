@@ -240,4 +240,54 @@ extension ManagementGateway {
     public func revokeMobileDevice(id: String) async throws -> ManagementMobileDeviceRevoked {
         try await negotiated().revokeMobileDevice(id: id)
     }
+
+    // MARK: - MCP servers
+
+    public func mcpServers() async throws -> ManagementMCPServerList {
+        try await negotiated().mcpServers()
+    }
+
+    public func mcpServer(name: String) async throws -> ManagementMCPServerRow {
+        try await negotiated().mcpServer(name: name)
+    }
+
+    public func draftMCPServer(text: String) async throws -> ManagementMCPDrafts {
+        try await negotiated().draftMCPServer(text: text)
+    }
+
+    public func addMCPServer(_ spec: ManagementMCPServerSpec) async throws -> ManagementMCPServerAdded {
+        try await negotiated().addMCPServer(spec)
+    }
+
+    public func updateMCPServer(_ change: ManagementMCPServerChange) async throws -> ManagementMCPServerRow {
+        try await negotiated().updateMCPServer(change)
+    }
+
+    public func removeMCPServer(name: String) async throws -> ManagementMCPServerRemoved {
+        try await negotiated().removeMCPServer(name: name)
+    }
+
+    public func enableMCPServer(name: String) async throws -> ManagementMCPServerRow {
+        try await negotiated().enableMCPServer(name: name)
+    }
+
+    public func disableMCPServer(name: String) async throws -> ManagementMCPServerRow {
+        try await negotiated().disableMCPServer(name: name)
+    }
+
+    public func setMCPTool(name: String, tool: String, enabled: Bool) async throws -> ManagementMCPServerRow {
+        try await negotiated().setMCPTool(name: name, tool: tool, enabled: enabled)
+    }
+
+    public func startMCPCheck(name: String) async throws -> ManagementJob {
+        try await negotiated().startMCPCheck(name: name)
+    }
+
+    public func scanMCPImports() async throws -> ManagementMCPImportScan {
+        try await negotiated().scanMCPImports()
+    }
+
+    public func importMCPServers(_ picks: [ManagementMCPImportPick]) async throws -> ManagementMCPImported {
+        try await negotiated().importMCPServers(picks)
+    }
 }

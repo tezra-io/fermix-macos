@@ -24,8 +24,9 @@ public enum FermixApp {
     /// - Parameter viewers: the pane's own viewers, handed in for the same
     ///   reason: their implementation links AVKit and QuickLookUI.
     /// - Parameter mediaReader: what the Mac's own frameworks say of a file a
-    ///   chat tile names, handed in for the same reason: its implementation
-    ///   links QuickLookThumbnailing.
+    ///   chat tile names, and the map of a reply's places, handed in for the
+    ///   same reason: its implementation links QuickLookThumbnailing and
+    ///   MapKit.
     @MainActor
     public static func main(
         updater: any UpdaterDriving,
@@ -99,10 +100,21 @@ public enum FermixApp {
         let fixture = fixtureRequest(arguments)
         let development = developmentEngineRequest(arguments)
         let background = backgroundRequest(arguments)
+        // Asked of every launch, so a sheet ground named without the fixture
+        // is refused rather than ignored.
+        let sheetGround = sheetGroundRequest(arguments)
 
         if fixture != nil, development { refuse(DevelopmentEngineLaunchRequest.Refusal.combinedWithFixture) }
         if fixture != nil, background { refuse(BackgroundLaunchRequest.Refusal.combinedWithFixture) }
-        if let fixture { return fixturePlan(named: fixture, mascot: mascot, viewers: viewers, mediaReader: mediaReader) }
+        if let fixture {
+            return fixturePlan(
+                named: fixture,
+                sheetGround: sheetGround,
+                mascot: mascot,
+                viewers: viewers,
+                mediaReader: mediaReader
+            )
+        }
         if development {
             return developmentEnginePlan(
                 registerBackground: arguments.contains(DevelopmentEngineLaunchRequest.registrationFlag),
@@ -136,6 +148,18 @@ public enum FermixApp {
         }
     }
 
+    /// The sheet ground a fixture launch named, or the standard one.
+    @MainActor
+    private static func sheetGroundRequest(_ arguments: [String]) -> SheetGroundRecipe {
+        do {
+            return try FixtureLaunchRequest.sheetGround(arguments)
+        } catch let refusal as FixtureLaunchRequest.Refusal {
+            refuse(refusal)
+        } catch {
+            preconditionFailure("FixtureLaunchRequest.sheetGround throws only Refusal, got \(error)")
+        }
+    }
+
     /// Whether this launch asked for the development configuration.
     @MainActor
     private static func developmentEngineRequest(_ arguments: [String]) -> Bool {
@@ -166,6 +190,7 @@ public enum FermixApp {
     @MainActor
     private static func fixturePlan(
         named name: String,
+        sheetGround: SheetGroundRecipe,
         mascot: any MascotRendering,
         viewers: any BrowserViewerMaking,
         mediaReader: any ChatMediaReading
@@ -177,7 +202,12 @@ public enum FermixApp {
             refuse(.unknownStart(name))
         }
 
-        return .fixture(FixtureLaunch(start: start), mascot: mascot, viewers: viewers, mediaReader: mediaReader)
+        return .fixture(
+            FixtureLaunch(start: start, sheetGround: sheetGround),
+            mascot: mascot,
+            viewers: viewers,
+            mediaReader: mediaReader
+        )
     }
     @MainActor
     private static func developmentEnginePlan(
@@ -203,6 +233,7 @@ public enum FermixApp {
     @MainActor
     private static func fixturePlan(
         named _: String,
+        sheetGround _: SheetGroundRecipe,
         mascot _: any MascotRendering,
         viewers _: any BrowserViewerMaking,
         mediaReader _: any ChatMediaReading

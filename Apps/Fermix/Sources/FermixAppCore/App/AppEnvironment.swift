@@ -5,8 +5,8 @@ import Foundation
 /// The graph in `AppComposition` is one shape with one wiring; this is the
 /// boundary that shape stands on — the account's directories, the management,
 /// companion and realtime sockets, `SMAppService`, the microphone and the
-/// speaker, user defaults, the browser, the liveness probes, and the clock the
-/// waits sleep on. Naming the boundary once
+/// speaker, the notification center, user defaults, the browser, the liveness
+/// probes, and the clock the waits sleep on. Naming the boundary once
 /// is what lets a second configuration exist without a second graph, and what
 /// keeps a surface from reaching past the graph to read the machine directly.
 ///
@@ -29,6 +29,9 @@ struct AppEnvironment {
     let loginItems: any LoginItemService
     let plists: any AgentPlistDigesting
     let microphone: any MicrophoneAuthorizationReading
+    /// This bundle's notification center, which answers for the grants this
+    /// Mac holds for the running bundle.
+    let notificationCenter: any UserNotificationCentering
     let settingsPanes: any SettingsPaneStoring
     let sidebarVisibility: any SidebarVisibilityStoring
     /// Where a clicked link opens: the pane or the person's own browser.
@@ -42,6 +45,9 @@ struct AppEnvironment {
     /// reason: its implementation links the Rive runtime, which only the GUI
     /// executable may load.
     let mascot: any MascotRendering
+    /// Which glass the sheets wear: the standard recipe, on every
+    /// configuration but a fixture launch that names the other.
+    let sheetGround: SheetGroundRecipe
     /// The browser pane's engine, behind the same kind of seam: its
     /// implementation links WebKit, which the agent must never load. A factory,
     /// because the engine is built over the website profile on the first tab.
@@ -49,9 +55,10 @@ struct AppEnvironment {
     /// The pane's own viewers, AVKit's player view and Quick Look's preview
     /// view, behind the same kind of seam: the agent shows neither.
     let viewers: any BrowserViewerMaking
-    /// What the Mac's own frameworks say of a file a chat tile names, behind
-    /// the same kind of seam: its thumbnails are Quick Look's, which the agent
-    /// never makes.
+    /// What the Mac's own frameworks say of a file a chat tile names, and the
+    /// Mac's own maps for a reply's places (`PlaceMaps`), behind the same
+    /// kind of seam: its thumbnails are Quick Look's and its maps MapKit's,
+    /// which the agent never makes.
     let mediaReader: any ChatMediaReading
     /// Whether the pane's tabs can be driven now: this Mac's screen lock,
     /// display sleep and the app's own quit.
@@ -71,6 +78,8 @@ struct AppEnvironment {
     let companionLines: CompanionSocketClient.LineSocket
     /// The browser host wire's own line socket, the same way.
     let browserHostLines: BrowserHostClient.LineSocket
+    /// The native host wire's own line socket, the same way.
+    let nativeHostLines: NativeHostClient.LineSocket
     /// The voice wire's line socket, the same way. One socket for the one
     /// voice session.
     let realtimeLines: RealtimeSocketClient.LineSocket
@@ -151,12 +160,14 @@ extension AppEnvironment {
             loginItems: loginItems,
             plists: plists,
             microphone: SystemMicrophoneAuthorization(),
+            notificationCenter: SystemUserNotificationCenter(),
             settingsPanes: UserDefaultsSettingsPaneStore(),
             sidebarVisibility: UserDefaultsSidebarStore(),
             linkPreference: UserDefaultsLinkPreferenceStore(),
             opener: WorkspaceExternalOpener(),
             updater: updater,
             mascot: mascot,
+            sheetGround: .standard,
             makeBrowser: browser,
             viewers: viewers,
             mediaReader: mediaReader,
@@ -171,6 +182,7 @@ extension AppEnvironment {
             identities: ManagementDaemonIdentityProbe(),
             companionLines: CompanionSocketClient.lineSocket(),
             browserHostLines: BrowserHostClient.lineSocket(),
+            nativeHostLines: NativeHostClient.lineSocket(),
             realtimeLines: RealtimeSocketClient.lineSocket(),
             voiceAudio: AudioController(),
             activationPlan: plan,

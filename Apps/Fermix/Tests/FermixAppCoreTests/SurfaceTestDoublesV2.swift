@@ -176,8 +176,14 @@ extension FakeDaemonGateway {
 
     // MARK: - Authentication
 
+    /// The golden sign-in of the provider's family: an MCP server's, or any
+    /// other provider's.
     func startAuth(provider: String) async throws -> ManagementAuthStart {
-        let started: ManagementAuthStart = try answer(.authStart, "auth_start")
+        signInProviders.append(provider)
+        let started: ManagementAuthStart = try answer(
+            .authStart,
+            provider.hasPrefix(MCPSecretId.prefix) ? "auth_start_mcp" : "auth_start"
+        )
         if let authStartGate { await authStartGate() }
         // The job's finish is what promotes, and this double's job is already
         // complete by the time the runner polls it.
@@ -194,7 +200,9 @@ extension FakeDaemonGateway {
     }
 
     func logOut(provider: String) async throws -> ManagementRestartOnly {
-        try answer(.authLogout, "auth_logout")
+        signOutProviders.append(provider)
+
+        return try answer(.authLogout, provider.hasPrefix(MCPSecretId.prefix) ? "auth_logout_mcp" : "auth_logout")
     }
 
     // MARK: - Plugins
@@ -320,8 +328,13 @@ extension FakeDaemonGateway {
 
     func mobileStatus() async throws -> ManagementMobileStatus {
         let published: ManagementMobileStatus = try answer(.mobileStatus, "mobile_status")
+        let scripted = mobileStatusScript.isEmpty
+            ? nil
+            : mobileStatusScript[min(mobileStatusIndex, mobileStatusScript.count - 1)]
+        mobileStatusIndex += 1
+        if let mobileStatusGate { await mobileStatusGate() }
 
-        return mobileStatusResult ?? published
+        return try scripted?.get() ?? mobileStatusResult ?? published
     }
 
     func startPairing() async throws -> ManagementPairingStart {
@@ -364,6 +377,94 @@ extension FakeDaemonGateway {
         revokedDevices.append(id)
 
         return try answer(.mobileDevicesRevoke, "mobile_devices_revoke")
+    }
+
+    // MARK: - MCP servers
+
+    /// The methods the scripted `hello` lists, as the gateway reads them.
+    func servedMethods() async throws -> Set<ManagementMethod> {
+        guard let hello else { throw Defect.notScripted("hello") }
+
+        return Set(hello.capabilities.methods.compactMap(ManagementMethod.init(rawValue:)))
+    }
+
+    func mcpServers() async throws -> ManagementMCPServerList {
+        let published: ManagementMCPServerList = try answer(.mcpServersList, "mcp_servers_list")
+        guard mcpServersScript.isEmpty else { return mcpServersScript.removeFirst() }
+
+        return mcpServersResult ?? published
+    }
+
+    func mcpServer(name: String) async throws -> ManagementMCPServerRow {
+        mcpReads.append(name)
+
+        return try answer(.mcpServersGet, mcpServerGolden)
+    }
+
+    /// The golden draft of the text asked for, by the golden request that
+    /// asks it, or the daemon's published refusal of a text it cannot read.
+    func draftMCPServer(text: String) async throws -> ManagementMCPDrafts {
+        mcpDraftTexts.append(text)
+        record(.v2(.mcpServersDraft))
+        if let failure = v2Failures[.mcpServersDraft] { throw failure }
+        try checkNegotiation(for: .mcpServersDraft)
+
+        let read = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let name = try FixtureManagementTransport.draftTexts().first(where: { $0.value == read })?.key else {
+            throw try ManagementRefusal.published("invalid_params_mcp_servers_draft_text")
+        }
+
+        return try FakeDaemonGateway.fixtureResult(named: name, as: ManagementMCPDrafts.self)
+    }
+
+    /// The golden add of the transport asked for: a local server that starts
+    /// a check, or a remote one waiting for its key.
+    func addMCPServer(_ spec: ManagementMCPServerSpec) async throws -> ManagementMCPServerAdded {
+        mcpSpecs.append(spec)
+        let published: ManagementMCPServerAdded = try answer(
+            .mcpServersAdd,
+            spec.transport == .http ? "mcp_servers_add_remote_key" : "mcp_servers_add"
+        )
+
+        return mcpAddedResult ?? published
+    }
+
+    func updateMCPServer(_ change: ManagementMCPServerChange) async throws -> ManagementMCPServerRow {
+        mcpChanges.append(change)
+
+        return try answer(.mcpServersUpdate, "mcp_servers_update")
+    }
+
+    func removeMCPServer(name: String) async throws -> ManagementMCPServerRemoved {
+        try answer(.mcpServersRemove, "mcp_servers_remove")
+    }
+
+    func enableMCPServer(name: String) async throws -> ManagementMCPServerRow {
+        try answer(.mcpServersEnable, "mcp_servers_enable")
+    }
+
+    func disableMCPServer(name: String) async throws -> ManagementMCPServerRow {
+        try answer(.mcpServersDisable, "mcp_servers_disable")
+    }
+
+    func setMCPTool(name: String, tool: String, enabled: Bool) async throws -> ManagementMCPServerRow {
+        mcpToolWrites.append(MCPToolWrite(server: name, tool: tool, enabled: enabled))
+
+        return try answer(.mcpServersToolSet, "mcp_servers_tool_set")
+    }
+
+    func startMCPCheck(name: String) async throws -> ManagementJob {
+        try answer(.mcpServersCheckStart, "mcp_servers_check_start")
+    }
+
+    func scanMCPImports() async throws -> ManagementMCPImportScan {
+        try answer(.mcpServersImportScan, "mcp_servers_import_scan")
+    }
+
+    func importMCPServers(_ picks: [ManagementMCPImportPick]) async throws -> ManagementMCPImported {
+        mcpImports.append(picks)
+
+        return try answer(.mcpServersImport, "mcp_servers_import")
     }
 
     // MARK: - One answer
@@ -447,6 +548,13 @@ struct PairingDecision: Equatable {
 struct SettingsWrite: Equatable {
     let section: String
     let values: [String: ManagementSettingValue]
+}
+
+/// One `mcp.servers.tool.set`, as the surface sent it.
+struct MCPToolWrite: Equatable {
+    let server: String
+    let tool: String
+    let enabled: Bool
 }
 
 /// One `secret.set` payload. Recorded so a test can prove a blank is never sent

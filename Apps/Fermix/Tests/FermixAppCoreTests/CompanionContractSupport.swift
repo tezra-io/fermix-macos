@@ -118,8 +118,13 @@ enum CompanionServerWire {
                 "phase": word(tool.phase),
                 "detail": tool.detail
             ])
-        case .textDone(let turnId, let serverSeq, let text):
-            return ["turn_id": turnId, "server_seq": serverSeq, "text": text]
+        case .textDone(let turnId, let serverSeq, let text, let blocks):
+            return present([
+                "turn_id": turnId,
+                "server_seq": serverSeq,
+                "text": text,
+                "blocks": blocks.isEmpty ? nil : blocks.map(block)
+            ])
         case .turnError(let turnId, let code, let message):
             return ["turn_id": turnId, "code": code, "message": message]
         case .turnDone(let turnId):
@@ -143,6 +148,19 @@ enum CompanionServerWire {
             ])
         case .error(let error):
             return errorFields(error)
+        case .mediaPath(let grant):
+            return [
+                "ref": grant.ref,
+                "path": grant.path,
+                "kind": grant.kind,
+                "mime": grant.mime,
+                "size_bytes": grant.sizeBytes,
+                "sha256": grant.sha256
+            ]
+        case .mediaMissing(let ref):
+            return ["ref": ref]
+        case .rowUpdated(let profileId, let serverSeq):
+            return ["profile_id": profileId, "server_seq": serverSeq]
         case .unrecognized:
             return [:]
         }
@@ -178,7 +196,10 @@ enum CompanionServerWire {
             "ts": row.timestamp,
             "client_msg_id": row.clientMsgId,
             "kind": row.kind,
-            "metadata": row.metadata.map { $0.mapValues(value) }
+            "metadata": row.metadata.map { $0.mapValues(value) },
+            "media_refs": row.mediaRefs.map(mediaRef),
+            "link_previews": row.linkPreviews.map { $0.map(linkPreview) },
+            "blocks": row.blocks.map { $0.known.map(block) }
         ])
     }
 
@@ -216,12 +237,36 @@ enum CompanionServerWire {
             "client_msg_id": row.clientMsgId,
             "in_reply_to": row.inReplyTo,
             "metadata": row.metadata.map { $0.mapValues(value) },
-            "link_previews": row.linkPreviews.map { $0.map(linkPreview) }
+            "link_previews": row.linkPreviews.map { $0.map(linkPreview) },
+            "blocks": row.blocks.map { $0.known.map(block) }
+        ])
+    }
+
+    private static func block(_ block: CompanionBlock) -> [String: Any] {
+        switch block {
+        case .places(let places): return ["type": "places", "places": places.map(place)]
+        }
+    }
+
+    private static func place(_ place: CompanionPlace) -> [String: Any] {
+        present([
+            "name": place.name,
+            "canonical_url": place.canonicalURL,
+            "source_url": place.sourceURL,
+            "apple_place_id": place.applePlaceID,
+            "location": ["latitude": place.location.latitude, "longitude": place.location.longitude],
+            "address": place.address,
+            "rating": place.rating.map { present(["value": $0.value, "best": $0.best, "count": $0.count]) },
+            "price_range": place.priceRange,
+            "categories": place.categories,
+            "opening_hours": place.openingHours.map { present(["current_day": $0.currentDay]) },
+            "distance": place.distance.map { present(["value": $0.value, "units": $0.units]) }
         ])
     }
 
     private static func linkPreview(_ preview: CompanionLinkPreview) -> [String: Any] {
         present([
+            "link": preview.link,
             "url": preview.url,
             "site": preview.site,
             "title": preview.title,
@@ -262,7 +307,8 @@ enum CompanionServerWire {
             "direction": error.direction?.rawValue,
             "client_version": error.clientVersion,
             "min_version": error.minVersion,
-            "max_version": error.maxVersion
+            "max_version": error.maxVersion,
+            "ref": error.ref
         ])
     }
 

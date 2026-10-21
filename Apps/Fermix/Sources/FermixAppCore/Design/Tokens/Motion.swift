@@ -7,6 +7,10 @@ public enum MotionRole: String, CaseIterable, Sendable {
     case stepCrossfade
     case mascotEntrance
     case riseIn
+    /// The chat's thinking line (`ThinkingLine`): the gap's walk once round
+    /// its braille cell, and the band's pass through the word.
+    case thinkingDots
+    case thinkingShimmer
 
     /// Whether SwiftUI drives this role.
     ///
@@ -36,6 +40,7 @@ public enum MotionKind: String, CaseIterable, Sendable {
 /// own published duration so drift from the redline is visible.
 public struct MotionSpec: Equatable, Sendable {
     public enum Curve: Equatable, Sendable {
+        case linear
         case easeInOut
         case easeOut
         case ease
@@ -73,6 +78,7 @@ public struct MotionSpec: Equatable, Sendable {
         let base: Animation
 
         switch curve {
+        case .linear: base = .linear(duration: duration)
         case .easeInOut: base = .easeInOut(duration: duration)
         case .easeOut: base = .easeOut(duration: duration)
         case .ease: base = .easeInOut(duration: duration)
@@ -158,12 +164,16 @@ public enum MotionTable {
             return MotionSpec(curve: .timingCurve(0.34, 1.4, 0.64, 1), duration: 0.7, redlineMilliseconds: 700)
         case .riseIn:
             return MotionSpec(curve: .timingCurve(0.32, 0.72, 0, 1), duration: 0.48, redlineMilliseconds: 480)
+        case .thinkingDots:
+            return MotionSpec(curve: .linear, duration: 1.2, repeatsForever: true, redlineMilliseconds: 1200)
+        case .thinkingShimmer:
+            return MotionSpec(curve: .linear, duration: 2.4, repeatsForever: true, redlineMilliseconds: 2400)
         }
     }
 
     public static func kind(_ role: MotionRole) -> MotionKind {
         switch role {
-        case .glyphPulse:
+        case .glyphPulse, .thinkingDots, .thinkingShimmer:
             return .loop
         case .windowEnter, .mascotEntrance, .riseIn:
             return .entrance

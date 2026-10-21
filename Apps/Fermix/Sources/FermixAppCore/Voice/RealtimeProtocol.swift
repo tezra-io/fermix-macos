@@ -12,9 +12,11 @@ public enum RealtimeProtocol {
     ///
     /// Version 2 is the Live engine's: `task_cancel` outbound, `call_ready`,
     /// `caption` and `task` inbound, and the extra fields on `usage` and
-    /// `error`. The daemon's window is N/N-1, so a daemon that speaks 2 still
-    /// serves a pet speaking 1 for one release.
-    public static let version = 2
+    /// `error`. Version 3 is Grok's (`xai_realtime`): its `audio_delta` carries
+    /// a `playback_id`, and the pet answers with `playback_progress`. The
+    /// daemon keeps its floor at 1, and refuses a call whose engine needs a
+    /// version the pet does not speak before any provider session opens.
+    public static let version = 3
 
     /// What the reader holds: one newline-delimited frame of at most 1 MiB,
     /// and at most 2 MiB of unscanned inbound data at once.
@@ -73,9 +75,12 @@ public enum RealtimeClientEvent: Equatable, Sendable, Encodable {
     case interrupt(audioEndMs: Int?)
     case mute(enabled: Bool)
     case callStop
-    /// Calls off one backend delegation of a Live call. The Realtime engine has
-    /// no delegations, and refuses this frame.
+    /// Calls off one backend delegation of a task-engine call (Live, Grok).
+    /// The Realtime engine has no delegations, and refuses this frame.
     case taskCancel(delegationId: String)
+    /// How much of one playback id's audio has played. Only a call whose audio
+    /// carries playback ids takes it; the OpenAI engines refuse it.
+    case playbackProgress(RealtimePlaybackProgress)
 
     public var wireType: String {
         switch self {
@@ -86,11 +91,14 @@ public enum RealtimeClientEvent: Equatable, Sendable, Encodable {
         case .mute: return "mute"
         case .callStop: return "call_stop"
         case .taskCancel: return "task_cancel"
+        case .playbackProgress: return "playback_progress"
         }
     }
 
     /// Whether this frame may be dropped when the socket backs up. Audio is
-    /// real-time droppable media; everything else is control traffic.
+    /// real-time droppable media; everything else is control traffic, a
+    /// progress report among it: the daemon paces the reply by them and ends a
+    /// call whose sent audio goes unreported.
     public var isDroppable: Bool {
         if case .audioChunk = self { return true }
 
@@ -104,6 +112,9 @@ public enum RealtimeClientEvent: Equatable, Sendable, Encodable {
         case audioEndMs = "audio_end_ms"
         case enabled
         case delegationId = "delegation_id"
+        case playbackId = "playback_id"
+        case playedMs = "played_ms"
+        case drained
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -121,6 +132,10 @@ public enum RealtimeClientEvent: Equatable, Sendable, Encodable {
             try container.encode(enabled, forKey: .enabled)
         case .taskCancel(let delegationId):
             try container.encode(delegationId, forKey: .delegationId)
+        case .playbackProgress(let progress):
+            try container.encode(progress.playbackId, forKey: .playbackId)
+            try container.encode(progress.playedMs, forKey: .playedMs)
+            try container.encode(progress.drained, forKey: .drained)
         case .callStart, .callStop:
             break
         }
@@ -129,6 +144,23 @@ public enum RealtimeClientEvent: Equatable, Sendable, Encodable {
     /// The frame as one line, without the newline the line socket adds.
     public func line() throws -> Data {
         try JSONEncoder().encode(self)
+    }
+}
+
+/// What the pet has played of one playback id's audio (v3, Grok).
+///
+/// `playedMs` is the milliseconds of the id's audio rendered so far: it never
+/// decreases, and never passes the audio the daemon sent under the id.
+/// `drained` is whether everything sent under the id so far has played.
+public struct RealtimePlaybackProgress: Equatable, Sendable {
+    public let playbackId: String
+    public let playedMs: Int
+    public let drained: Bool
+
+    public init(playbackId: String, playedMs: Int, drained: Bool) {
+        self.playbackId = playbackId
+        self.playedMs = playedMs
+        self.drained = drained
     }
 }
 
@@ -398,9 +430,16 @@ public struct RealtimeServerError: Equatable, Sendable {
 public enum RealtimeServerEvent: Equatable, Sendable {
     case serverHello(minVersion: Int, maxVersion: Int)
     case state(RealtimeTurnState)
-    case audioDelta(base64: String)
+    /// A chunk of the reply. `playbackId` is the id a Grok call's chunk is
+    /// sent under, which the pet reports `playback_progress` against; no
+    /// OpenAI call's chunk carries one.
+    case audioDelta(base64: String, playbackId: String? = nil)
     case transcriptDelta(text: String)
     case assistantTextDelta(text: String)
+    /// The reply's whole text once its words are done (Realtime only). Inert,
+    /// like the deltas before it: the call's captions are what the surfaces
+    /// show.
+    case assistantTextDone(text: String)
     case toolEvent(status: RealtimeToolStatus, reason: String?)
     case usage(RealtimeUsage)
     case error(RealtimeServerError)
@@ -418,6 +457,7 @@ public enum RealtimeServerEvent: Equatable, Sendable {
         case .audioDelta: return "audio_delta"
         case .transcriptDelta: return "transcript_delta"
         case .assistantTextDelta: return "assistant_text_delta"
+        case .assistantTextDone: return "assistant_text_done"
         case .toolEvent: return "tool_event"
         case .usage: return "usage"
         case .error: return "error"
@@ -471,6 +511,7 @@ extension RealtimeServerEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
         case type, state, audio, text, status, reason, direction, kind, detail
         case engine, captions, speaker, delta, revision, summary, accounting
+        case playbackId = "playback_id"
         case minVersion = "min_version"
         case maxVersion = "max_version"
         case requiredFor = "required_for"
@@ -500,11 +541,16 @@ extension RealtimeServerEvent: Decodable {
             let state = try container.decodeIfPresent(String.self, forKey: .state) ?? "idle"
             self = .state(RealtimeTurnState(wireValue: state))
         case "audio_delta":
-            self = .audioDelta(base64: try container.decode(String.self, forKey: .audio))
+            self = .audioDelta(
+                base64: try container.decode(String.self, forKey: .audio),
+                playbackId: try container.decodeIfPresent(String.self, forKey: .playbackId)
+            )
         case "transcript_delta":
             self = .transcriptDelta(text: try container.decode(String.self, forKey: .text))
         case "assistant_text_delta":
             self = .assistantTextDelta(text: try container.decode(String.self, forKey: .text))
+        case "assistant_text_done":
+            self = .assistantTextDone(text: try container.decode(String.self, forKey: .text))
         case "tool_event":
             self = .toolEvent(
                 status: RealtimeToolStatus(

@@ -276,4 +276,115 @@ struct AudioOwnerTests {
         #expect(played == 1_500)
         #expect(engine.calls.contains(.stopPlayback))
     }
+
+    // MARK: - Playback progress (a Grok call)
+
+    private static func progress(_ id: String, _ playedMs: Int, drained: Bool = false) -> RealtimePlaybackProgress {
+        RealtimePlaybackProgress(playbackId: id, playedMs: playedMs, drained: drained)
+    }
+
+    /// The daemon paces a Grok reply by these reports and ends a call whose
+    /// sent audio goes unreported, so they go out every tenth of a second while
+    /// any is queued, including while nothing moved, and stop once none is.
+    @Test("a chunk under a playback id is reported every tenth of a second while it plays")
+    func progressIsReportedWhilePlaying() {
+        let engine = FakeVoiceAudioEngine()
+        let deadlines = ManualDeadlineScheduler()
+        let owner = owner(engine, deadlines: deadlines)
+        var reported: [[RealtimePlaybackProgress]] = []
+        owner.onPlaybackProgress = { reported.append($0) }
+
+        owner.play(base64PCM16: "AAAA", playbackId: "p1")
+        #expect(engine.calls == [.play("AAAA", playbackId: "p1")])
+        #expect(deadlines.scheduledDelays == [AudioOwner.progressInterval])
+
+        engine.progressReports = [
+            PlaybackProgressReport(changed: [Self.progress("p1", 100)], unplayed: true),
+            PlaybackProgressReport(changed: [], unplayed: true),
+            PlaybackProgressReport(changed: [Self.progress("p1", 200, drained: true)], unplayed: false)
+        ]
+        deadlines.fireAll()
+        deadlines.fireAll()
+        deadlines.fireAll()
+
+        #expect(reported == [[Self.progress("p1", 100)], [Self.progress("p1", 200, drained: true)]])
+        #expect(engine.progressReads == 3)
+        #expect(deadlines.liveCount == 0)
+    }
+
+    @Test("a chunk with no playback id starts no reports")
+    func audioWithoutAnIdIsNotReported() {
+        let engine = FakeVoiceAudioEngine()
+        let deadlines = ManualDeadlineScheduler()
+        let owner = owner(engine, deadlines: deadlines)
+
+        owner.play(base64PCM16: "AAAA")
+
+        #expect(deadlines.liveCount == 0)
+        #expect(engine.progressReads == 0)
+    }
+
+    @Test("more chunks while the watch runs keep one watch")
+    func oneWatchAtATime() {
+        let engine = FakeVoiceAudioEngine()
+        let deadlines = ManualDeadlineScheduler()
+        let owner = owner(engine, deadlines: deadlines)
+
+        owner.play(base64PCM16: "AAAA", playbackId: "p1")
+        owner.play(base64PCM16: "AAAA", playbackId: "p1")
+        owner.play(base64PCM16: "AAAA", playbackId: "p2")
+
+        #expect(deadlines.liveCount == 1)
+    }
+
+    /// The contract asks for a drain at once, not at the next tick.
+    @Test("an id that drains is reported at once")
+    func drainIsReportedAtOnce() {
+        let engine = FakeVoiceAudioEngine()
+        let owner = owner(engine)
+        var reported: [[RealtimePlaybackProgress]] = []
+        owner.onPlaybackProgress = { reported.append($0) }
+        engine.progressReports = [PlaybackProgressReport(changed: [Self.progress("p1", 870, drained: true)], unplayed: false)]
+
+        engine.onPlaybackIdDrained?()
+
+        #expect(reported == [[Self.progress("p1", 870, drained: true)]])
+    }
+
+    /// A stop is where a Grok call cuts the reply, so what had played goes out
+    /// at once, and an interrupt's report goes before the caller's `interrupt`.
+    @Test("a stop reports what had played at once and ends the watch")
+    func stopReportsAtOnce() async throws {
+        let engine = FakeVoiceAudioEngine()
+        let deadlines = ManualDeadlineScheduler()
+        let owner = owner(engine, deadlines: deadlines)
+        var reported: [[RealtimePlaybackProgress]] = []
+        owner.onPlaybackProgress = { reported.append($0) }
+        try await owner.beginCall()
+
+        owner.play(base64PCM16: "AAAA", playbackId: "p1")
+        engine.progressReports = [PlaybackProgressReport(changed: [Self.progress("p1", 420)], unplayed: false)]
+        _ = owner.interruptPlayback()
+
+        #expect(engine.calls.suffix(2) == [.play("AAAA", playbackId: "p1"), .stopPlayback])
+        #expect(reported == [[Self.progress("p1", 420)]])
+        #expect(deadlines.liveCount == 0)
+    }
+
+    @Test("ending the call ends the watch without a report")
+    func endCallEndsTheWatch() async throws {
+        let engine = FakeVoiceAudioEngine()
+        let deadlines = ManualDeadlineScheduler()
+        let owner = owner(engine, deadlines: deadlines)
+        var reported: [[RealtimePlaybackProgress]] = []
+        owner.onPlaybackProgress = { reported.append($0) }
+        try await owner.beginCall()
+
+        owner.play(base64PCM16: "AAAA", playbackId: "p1")
+        owner.endCall()
+        deadlines.fireAll()
+
+        #expect(reported.isEmpty)
+        #expect(engine.progressReads == 0)
+    }
 }

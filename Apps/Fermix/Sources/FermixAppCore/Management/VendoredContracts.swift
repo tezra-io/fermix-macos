@@ -15,6 +15,10 @@ public enum VendoredContract: String, CaseIterable, Sendable {
     /// that attaches as the host, and the daemon is the one asking
     /// (`Resources/Contracts/browser_host/`).
     case browserHost = "browser_host"
+    /// The fifth, in the browser host's grammar for a different concept: the
+    /// app serves the daemon this Mac's own services, notifications first
+    /// (`Resources/Contracts/native_host/`).
+    case nativeHost = "native_host"
 }
 
 public enum VendoredContractError: Error, Equatable, Sendable {

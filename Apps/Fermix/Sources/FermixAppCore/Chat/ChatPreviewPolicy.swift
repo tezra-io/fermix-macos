@@ -28,49 +28,6 @@ enum ChatFileFamily: Equatable, Sendable {
     case other
 }
 
-/// The facts a tile reads of the file a path names, off the main thread
-/// (`ChatFileFacts.read`): enough to choose its look and to key its preview.
-struct ChatFileFacts: Equatable, Sendable {
-    /// Where the path really lands, every symbolic link resolved.
-    let file: URL
-    let type: UTType
-    /// A folder or a package.
-    let isDirectory: Bool
-    /// A regular file with its executable bit set, which Launch Services
-    /// would run rather than open.
-    let isExecutable: Bool
-    /// What the preview cache keys on: the file's volume and number, which a
-    /// rename keeps and a new file under the old name does not, and its
-    /// modification date and size, which an edit changes.
-    let identity: ChatFileIdentity
-    let modified: Date
-    /// Its size in bytes. A folder, a package among them, has none of its
-    /// own and counts zero.
-    let size: Int
-    /// Whether it lies inside the Fermix home, decided where both really are.
-    let insideHome: Bool
-
-    /// What it is on the disk, as the pane's own rule reads it.
-    var entry: BrowserLocalFile.Entry {
-        isDirectory ? .folder : .file(size: size, isExecutable: isExecutable)
-    }
-}
-
-/// A file's identity on this Mac: its volume and its number there.
-struct ChatFileIdentity: Hashable, Sendable {
-    let volume: UInt64
-    let number: UInt64
-}
-
-/// What a tile has learnt of its file so far.
-enum ChatFileLookup: Equatable, Sendable {
-    /// Its facts are being read.
-    case reading
-    /// Nothing is there now.
-    case missing
-    case found(ChatFileFacts)
-}
-
 /// The one state a tile is in, each with its own look (M66 §3.3). Every one
 /// but Loading is where a tile ends, and Loading ends in one of the others,
 /// since a preview that takes too long counts as failed.
@@ -86,8 +43,8 @@ enum ChatTileState: Equatable {
     /// The pane does not show it: icon, name and the pane's open-in-app
     /// glyph, and a click hands it to its app or shows it in Finder.
     case opensOutside
-    /// The file is gone, or its bytes are not in the app's hands: icon, name
-    /// and "Not available", and a click does nothing.
+    /// The file is gone, or the engine no longer has a phone-side file's
+    /// bytes: icon, name and "Not available", and a click does nothing.
     case notAvailable
 }
 
@@ -107,8 +64,10 @@ enum ChatTileHint: Equatable, Sendable {
 /// tile's: its word, whether it draws content, and where it goes outside.
 ///
 /// Content is drawn only for a file inside the Fermix home, where Fermix
-/// writes what it makes: a file outside it shows its icon until it is
-/// clicked, and the pane asks before loading it. Text, code, HTML and SVG
+/// writes what it makes, and for a phone-side file, which the engine grants
+/// there: a file outside it shows its icon until it is clicked, and the pane
+/// asks before loading it. A phone-side file is judged by the type its row
+/// names, through the same rules as a path. Text, code, HTML and SVG
 /// show their icon wherever they are: a reply that names `~/.ssh/config` must
 /// not print its first lines into the window, and Quick Look draws a page
 /// with WebKit, which could load a remote picture the moment it is drawn.
@@ -138,9 +97,9 @@ enum ChatPreviewPolicy {
     /// tile reads no bytes, so a type the Mac knows only as data is taken for
     /// the text the pane may find it is, and claims nothing more.
     static func family(of facts: ChatFileFacts) -> ChatFileFamily {
-        guard BrowserLocalFile.kind(of: facts.type, as: facts.entry, readsAsText: { true }) != nil else { return .other }
+        guard BrowserLocalFile.kind(of: facts.disk, readsAsText: { true }) != nil else { return .other }
 
-        return facts.isDirectory ? .document : family(of: facts.type)
+        return facts.disk.entry == .folder ? .document : family(of: facts.type)
     }
 
     /// A document tab's family in a tile's words: a picture WebKit does not
@@ -163,6 +122,27 @@ enum ChatPreviewPolicy {
         return UTType.types(tag: ext, tagClass: .filenameExtension, conformingTo: nil).first { !$0.isDynamic }
     }
 
+    /// The type a phone-side file is, read from the row before any file is
+    /// granted for it: its mime's, and where the Mac knows no type by that
+    /// mime, the broad one its kind names. A kind of no family is data.
+    static func type(of ref: CompanionMediaRef) -> UTType {
+        if let type = UTType(mimeType: ref.mime), !type.isDynamic { return type }
+
+        switch ref.kind {
+        case "image": return .image
+        case "video": return .movie
+        case CompanionProtocol.audioKind: return .audio
+        default: return .data
+        }
+    }
+
+    /// What a phone-side file's own file is on the disk, as the engine makes
+    /// it: a regular file of its type, its size the row's, and nothing that
+    /// runs. The pane's own rule reads the real one when it is opened.
+    static func facts(of ref: CompanionMediaRef) -> FileFacts {
+        FileFacts(type: type(of: ref), entry: .file(size: ref.sizeBytes, isExecutable: false))
+    }
+
     /// Whether a path in a reply is worth a tile wherever it is: a picture,
     /// a video, a sound, a PDF or a document. Inside the Fermix home every
     /// path is (`ChatStrip`).
@@ -175,8 +155,9 @@ enum ChatPreviewPolicy {
 
     /// Whether a type is one a tile draws by its content: a picture other
     /// than an SVG, a video's frame, a PDF's first page or a document's
-    /// thumbnail. A path the strip reads as one, inside the Fermix home, is a
-    /// preview tile, and keeps that shape whatever its file turns out to be.
+    /// thumbnail. A path the strip reads as one, inside the Fermix home, and
+    /// a phone-side file of one, are preview tiles, and keep that shape
+    /// whatever their file turns out to be.
     static func showsContent(_ type: UTType) -> Bool {
         showsContent(family(of: type), type)
     }
@@ -212,25 +193,41 @@ enum ChatPreviewPolicy {
         switch lookup {
         case .reading: return .loading
         case .missing: return .notAvailable
-        case .found(let facts): return family(of: facts) == .other ? .opensOutside : .ready(nil)
+        case .found(let facts): return cardState(of: family(of: facts))
         }
     }
 
-    private static func state(of outcome: ChatPreviewOutcome?) -> ChatTileState {
+    /// The state of a phone-side file drawn as a card, which asks for nothing
+    /// until it is clicked: Not available once a click has found its bytes
+    /// gone, and otherwise as its type says.
+    static func cardState(of ref: CompanionMediaRef, gone: Bool) -> ChatTileState {
+        gone ? .notAvailable : cardState(of: family(of: type(of: ref)))
+    }
+
+    private static func cardState(of family: ChatFileFamily) -> ChatTileState {
+        family == .other ? .opensOutside : .ready(nil)
+    }
+
+    /// The state a preview's answer puts its tile in, nil while it is being
+    /// made: a phone-side file's tile has nothing else to learn.
+    static func state(of outcome: ChatPreviewOutcome?) -> ChatTileState {
         switch outcome {
         case nil: return .loading
-        case .made(let preview)?: return .ready(preview)
-        case .iconOnly?: return .ready(nil)
+        case .made(.picture(let preview))?: return .ready(preview)
+        // A sound's levels are its waveform's and a map its block's, never a
+        // tile's: were one to reach a tile, it would show its icon.
+        case .made(.levels)?, .made(.map)?, .iconOnly?: return .ready(nil)
         case .unplayable?: return .opensOutside
         case .failed?, .dropped?: return .previewUnavailable
+        case .missing?: return .notAvailable
         }
     }
 
     /// Whether opening a file outside Fermix hands it to an app, as the
     /// pane's own rule decides (`BrowserLocalFile.mayGoToAnApp`), so its hint
     /// names that app; anything else is only ever shown in Finder.
-    static func handsToApp(_ facts: ChatFileFacts) -> Bool {
-        BrowserLocalFile.mayGoToAnApp(facts.type, as: facts.entry)
+    static func handsToApp(_ disk: FileFacts) -> Bool {
+        BrowserLocalFile.mayGoToAnApp(disk)
     }
 
     /// The word VoiceOver reads after a tile's name.
@@ -244,6 +241,19 @@ enum ChatPreviewPolicy {
         case .page: return ProductStrings[.chatKindPage]
         case .text, .data, .other: return ProductStrings[.chatKindFile]
         }
+    }
+
+    /// A phone-side file's name on its tile: its filename where its row
+    /// gives one, and its kind's word where not.
+    static func name(of ref: CompanionMediaRef) -> String {
+        ref.filename ?? kindWord(family(of: type(of: ref)))
+    }
+
+    /// What VoiceOver reads for a phone-side file's tile: its name with its
+    /// kind's word, or the word alone where that is all its name is.
+    static func label(of ref: CompanionMediaRef) -> String {
+        let kind = kindWord(family(of: type(of: ref)))
+        return ref.filename.map { ProductStrings.commaPair($0, kind) } ?? kind
     }
 
     /// A PDF's page count, in words.

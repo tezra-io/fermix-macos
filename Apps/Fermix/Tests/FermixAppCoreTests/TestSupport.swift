@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 @testable import FermixAppCore
 
@@ -18,6 +19,26 @@ final class TestSignal {
     }
 }
 
+/// How long a test waits for another task to reach a point before it says so
+/// rather than hanging the run. A clock rather than a count of yields, and
+/// wide: the other task usually waits on main-actor work that every suite
+/// running alongside shares, and a count of yields runs out while another
+/// suite holds the main actor.
+let testWaitBound: Duration = .seconds(30)
+
+/// Yields until `condition` holds or `testWaitBound` passes on the clock, and
+/// says whether it held. It runs where its caller runs, so a condition that
+/// reads main-actor state reads it there.
+func yieldUntil(isolation: isolated (any Actor)? = #isolation, _ condition: () -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + testWaitBound
+    while ContinuousClock.now < deadline {
+        if condition() { return true }
+        await Task.yield()
+    }
+
+    return condition()
+}
+
 /// A suspension point a test opens by hand.
 ///
 /// Used where the defect lives *inside* an await: a double parks there until the
@@ -30,9 +51,12 @@ final class AsyncGate: @unchecked Sendable {
         lock.withLock { opened = true }
     }
 
+    /// Waits for the release, up to `testWaitBound`; a case that never
+    /// releases records an issue and lets the double go on.
     func wait() async {
-        while !lock.withLock({ opened }) {
-            await Task.yield()
+        guard await yieldUntil({ lock.withLock { opened } }) else {
+            Issue.record("the gate was never released")
+            return
         }
     }
 }

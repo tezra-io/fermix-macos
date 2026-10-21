@@ -20,7 +20,8 @@ import Foundation
 // links the Rive runtime, which the agent must not load either. So is the
 // browser pane's engine, which links WebKit; it arrives as a factory because
 // it is built over the website profile on the pane's first tab. So are the
-// pane's viewers and the chat's media reader, which link AVKit and Quick Look.
+// pane's viewers and the chat's media reader, which link AVKit, Quick Look and
+// MapKit.
 MainActor.assumeIsolated {
     FermixApp.main(
         updater: SparkleUpdater(),

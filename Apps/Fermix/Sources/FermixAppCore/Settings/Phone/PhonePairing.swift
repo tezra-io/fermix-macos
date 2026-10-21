@@ -13,9 +13,25 @@ public enum PhoneChannel {
     /// The section's switch, `mobile_enabled`.
     public static var switchKey: String { ChannelRowProjection.enabledKey(for: name) }
 
+    /// Reach from anywhere's switch (M62), under which the rail's line is
+    /// drawn.
+    public static let remoteKey = "mobile_iroh"
+
     /// The cadence the contract recommends for reading a pairing window, and
     /// the one this app polls at (PROTOCOL.md).
     public static let pollSeconds: TimeInterval = 1
+
+    /// The most reads one follow of Reach from anywhere makes. While the
+    /// daemon answers, that is five minutes at the contract's cadence; while
+    /// it refuses, the waits back off to `remoteBackoffSeconds`, so a run of
+    /// refusals can stretch it to about two and a half hours. After the last
+    /// read the line stays as it was last read until the switch moves or the
+    /// Phones step is shown again.
+    public static let remotePolls = 300
+
+    /// The longest the follow of Reach from anywhere waits between reads
+    /// while the daemon refuses them, as one that is restarting does.
+    public static let remoteBackoffSeconds: TimeInterval = 30
 }
 
 // MARK: - The link
@@ -539,6 +555,95 @@ public enum PhoneRowProjection {
         case .unread, .loading:
             return ProductStrings[.channelStatusChecking]
         }
+    }
+}
+
+// MARK: - Reach from anywhere
+
+/// The line under Reach from anywhere (M62): where the rail stands, as
+/// `mobile.status.remote` publishes it, in the app's words except a failure,
+/// which is the daemon's sentence as written and is drawn the way the pane
+/// draws every other failure. A ready rail says whether this Mac is connected
+/// to Fermix's relays right now, naming none of them. A rail that is off says
+/// nothing beyond its switch, and neither does a state this app does not know
+/// or an engine older than the rail. A build with no rail never reads as
+/// reachable.
+public struct PhoneRemoteLine: Equatable, Sendable {
+    /// How the line is drawn: a plain note, a start that moves on by itself,
+    /// or a failure.
+    public enum Kind: Equatable, Sendable {
+        case note
+        case progress
+        case failure
+    }
+
+    public let text: String
+    public let kind: Kind
+
+    public static func line(_ remote: ManagementMobileRemote?) -> PhoneRemoteLine? {
+        guard let remote else { return nil }
+
+        switch remote.state {
+        case .helperMissing: return PhoneRemoteLine(ProductStrings[.phoneRemoteHelperMissing])
+        case .dormant: return PhoneRemoteLine(ProductStrings[.phoneRemoteDormant])
+        case .starting: return PhoneRemoteLine(ProductStrings[.phoneRemoteStarting], .progress)
+        case .ready:
+            return PhoneRemoteLine(ProductStrings[remote.connected ? .phoneRemoteReady : .phoneRemoteNotConnected])
+        case .failed: return remote.failure.map { PhoneRemoteLine($0, .failure) }
+        case .off, .unrecognized: return nil
+        }
+    }
+
+    init(_ text: String, _ kind: Kind = .note) {
+        self.text = text
+        self.kind = kind
+    }
+
+    /// Whether the rail can move while nobody touches its switch, so the line
+    /// is followed: a rail starting, one that is up and can lose its relay,
+    /// one the engine retries after a failure, and a state this app does not
+    /// know. Off, dormant and a build with no rail move only with the switch
+    /// or a pairing, and either puts the Phones step up again.
+    public static func moves(_ remote: ManagementMobileRemote?) -> Bool {
+        switch remote?.state {
+        case .starting, .ready, .failed, .unrecognized: return true
+        case .off, .dormant, .helperMissing, nil: return false
+        }
+    }
+}
+
+/// One follow of Reach from anywhere's rail (M62): the reads it has made,
+/// against `PhoneChannel.remotePolls`, and the refusals in a row since the
+/// last answer. The wait before the next read doubles with each refusal, up
+/// to `PhoneChannel.remoteBackoffSeconds`, so a daemon that is restarting is
+/// not asked once a second; and only the first refusal of a run, and the
+/// answer that ends it, are worth a log line.
+struct PhoneRailFollow: Equatable {
+    private(set) var reads = 0
+    private(set) var refusals = 0
+
+    var exhausted: Bool { reads >= PhoneChannel.remotePolls }
+
+    var wait: TimeInterval {
+        min(PhoneChannel.pollSeconds * pow(2, Double(refusals)), PhoneChannel.remoteBackoffSeconds)
+    }
+
+    /// An answer. Returns the length of the run of refusals it ends, where it
+    /// ends one.
+    mutating func answered() -> Int? {
+        reads += 1
+        let ended = refusals
+        refusals = 0
+
+        return ended > 0 ? ended : nil
+    }
+
+    /// A refusal. Returns whether it starts a run.
+    mutating func refused() -> Bool {
+        reads += 1
+        refusals += 1
+
+        return refusals == 1
     }
 }
 

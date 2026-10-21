@@ -231,8 +231,8 @@ struct AuthenticationParityTests {
     /// a token, which is the daemon's `auth_kind` and nothing the app infers.
     ///
     /// This measured the detail's height, which a token row made taller. The
-    /// detail is one size now, so the decision is asked directly: it is the one
-    /// projection the detail switches on.
+    /// height follows everything the detail draws, so the decision is asked
+    /// directly: it is the one projection the detail switches on.
     @Test("OAuth and keyless plugin details omit the API-token editor")
     func pluginTokenEditorMatchesCredentialKind() throws {
         #expect(try Self.detail(authKind: "api_key").row.tokenSlot == .leading)
@@ -240,11 +240,11 @@ struct AuthenticationParityTests {
         #expect(try Self.detail(authKind: nil).row.tokenSlot == .none)
     }
 
-    /// One size for every plugin and every page, so the sheet does not move as
-    /// it turns from the detail to a page and back. A detail sized to its rows
-    /// grew with a token row and shrank without one, which is the jump.
-    @Test("the plugin detail is one size whatever it draws")
-    func pluginDetailKeepsOneSize() throws {
+    /// The detail is the picker's width and as tall as what it draws, up to
+    /// the picker's height, past which its rows scroll: a short detail is no
+    /// mostly empty card (owner, 2026-10-18).
+    @Test("the plugin detail fits what it draws, up to the picker's height")
+    func pluginDetailFitsItsRows() throws {
         for authKind in ["api_key", "oauth", nil] {
             let detail = try Self.detail(authKind: authKind)
             let view = IntegrationDetailSheet(
@@ -253,8 +253,10 @@ struct AuthenticationParityTests {
                 runner: detail.harness.model.makeJobRunner(),
                 dismiss: {}
             )
+            let size = NSHostingView(rootView: view).fittingSize
 
-            #expect(NSHostingView(rootView: view).fittingSize == SheetMetrics.pickerSize, "\(authKind ?? "none")")
+            #expect(size.width == SheetMetrics.pickerSize.width, "\(authKind ?? "none")")
+            #expect(size.height > 0 && size.height < SheetMetrics.pickerSize.height, "\(authKind ?? "none"): \(size.height)")
         }
     }
 

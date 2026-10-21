@@ -45,12 +45,12 @@ enum ChatGreeting {
 /// of a conversation. A role this build has no word for is shown as the
 /// daemon wrote it.
 enum ChatSpeaker {
-    static let user = "user"
+    static let user = CompanionProtocol.userRole
 
     static func name(role: String?) -> String {
         switch role {
         case user?: return ProductStrings[.voiceCaptionSpeakerUser]
-        case "assistant"?, nil: return ProductStrings[.voiceCaptionSpeakerAssistant]
+        case CompanionProtocol.assistantRole?, nil: return ProductStrings[.voiceCaptionSpeakerAssistant]
         case let other?: return other
         }
     }
@@ -60,120 +60,149 @@ enum ChatSpeaker {
     }
 }
 
-/// A turn's latest tool call as one quiet line.
-enum ChatToolLine {
-    static func sentence(_ tool: CompanionToolEvent) -> String {
-        switch tool.phase {
-        case .start: return String(format: ProductStrings[.chatToolRunningFormat], tool.tool)
-        case .stop: return String(format: ProductStrings[.chatToolFinishedFormat], tool.tool)
-        case .unrecognized: return tool.tool
-        }
-    }
-}
-
-/// The turn answering now, as one of three quiet states, in the order it
-/// passes through them: thinking, from `turn_started` until either a tool is
-/// named or text starts arriving; the latest tool call once one is named,
-/// which stays even once text follows it; and quiet, once there is reply text
-/// and no tool has been named for it.
+/// The turn answering now, as one of two quiet states: thinking, from
+/// `turn_started` until reply text starts arriving and again whenever a tool
+/// it called is running; and quiet, while it writes. A tool is never named:
+/// the reader sees Fermix thinking, not the call it made.
 ///
 /// Every case is read straight off `CompanionTurn`'s own fields: nothing here
 /// is a fact of its own, so a provider's own lifecycle (carried, today, as a
 /// `tool_event` naming no real tool) is never matched by name to reach it.
 enum ChatTurnStatus: Equatable {
     case thinking
-    case tool(CompanionToolEvent)
     case quiet
 
     init(_ turn: CompanionTurn) {
-        if let tool = turn.tool {
-            self = .tool(tool)
-        } else if turn.text.isEmpty {
-            self = .thinking
-        } else {
-            self = .quiet
-        }
+        self = turn.text.isEmpty || turn.tool?.phase == .start ? .thinking : .quiet
     }
 }
 
-/// Reply text as it is drawn: SwiftUI's inline markdown, with its links
-/// live, and a search's matches marked where the reader was sent to them. A
-/// link opens through the surface's content link opener, in the pane or the
+/// Reply text as it is drawn: a row's words as they read (`ReplyText`),
+/// coloured, and a search's matches marked where the reader was sent to them.
+/// A link opens through the surface's content link opener, in the pane or the
 /// person's own browser, or, for a local path, as the file it names.
 enum ChatText {
-    /// Inline markdown only; blocks and tables are drawn as the text they
-    /// are, except a heading line, drawn as its text in bold, and a fenced
-    /// code block, drawn as code without its fence: a reply is a
-    /// conversation, and those two marks read as noise on the ground rather
-    /// than as structure (owner, 2026-09-28).
-    ///
-    /// A link is drawn in the text blue, `accentText`, which holds §9's floor
-    /// on the dark ground: left to the window's tint it would be the accent,
-    /// which does not.
-    ///
-    /// A local path the reply names is a link to its file too (`ReplyPaths`),
-    /// `~` read as `home`, which the caller passes so the text alone decides
-    /// what is drawn. A path keeps the reply's own `ink`, because blue on
-    /// every path read as noise, and is underlined in `faint`, because ink
-    /// alone passed for plain text (owner, 2026-10-04). A web address written
-    /// out (`ReplyLinks`) is drawn the same way, being the text it is too
-    /// (M66 §3.1); a markdown link's own words stay blue.
-    static func reply(_ text: String, home: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        let text = blocksInlined(text)
-        var attributed = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
-        for run in attributed.runs where run.link != nil {
-            attributed[run.range].foregroundColor = Palette.accentText.color
-        }
+    /// The blank line between two paragraphs drawn as one text.
+    private static let paragraphBreak = "\n\n"
 
-        return ReplyPaths.linked(ReplyLinks.linked(attributed, look: pathLook), home: home, look: pathLook)
+    /// Each block of the words drawn (`drawn(_:marking:)`).
+    static func drawn(_ reply: ReplyText) -> [ReplyBlock] {
+        reply.blocks.map { drawn($0) }
     }
 
-    static let pathLook = ReplyPaths.Look(ink: Palette.ink.color, underline: Palette.faint.color)
+    /// A block drawn: every stretch of its words in their links' colours with
+    /// their inline code on a faint fill, and a search's matches marked; code
+    /// as it was written, which its own block colours and marks (`code`).
+    static func drawn(_ block: ReplyBlock, marking terms: [String] = []) -> ReplyBlock {
+        block.mappingWords { marking(terms, in: drawn($0)) }
+    }
 
-    /// Every link a drawn reply carries, in reading order, a link drawn over
-    /// several runs (a bold word inside it) counted once.
-    static func links(in reply: AttributedString) -> [URL] {
-        reply.runs[\.link].compactMap { link, _ in link }
+    /// A run of paragraphs drawn as one text, as a block's words are, with
+    /// a blank line between each two.
+    static func paragraphs(_ run: [AttributedString], marking terms: [String]) -> AttributedString {
+        marking(terms, in: joined(run.map(drawn), by: paragraphBreak))
+    }
+
+    /// Words drawn in their links' colours. A markdown link's own words are
+    /// the text blue, `accentText`, which holds §9's floor on the dark
+    /// ground: left to the window's tint they would be the accent, which
+    /// does not. A path or an address written out is the text it is, so it
+    /// keeps the reply's own `ink`, because blue on every path read as noise,
+    /// and is underlined in `faint`, because ink alone passed for plain text
+    /// (owner, 2026-10-04; M66 §3.1). A code span sits on a faint fill
+    /// (`codeSpanFill`), which marks it as code without changing the line's
+    /// height.
+    private static func drawn(_ words: AttributedString) -> AttributedString {
+        var drawn = words
+        for run in words.runs {
+            if run.inlinePresentationIntent?.contains(.code) == true {
+                drawn[run.range].backgroundColor = Palette.codeSpanFill.color
+            }
+            guard run.link != nil else { continue }
+
+            if run[ReplyWrittenLink.self] == true {
+                drawn[run.range].foregroundColor = Palette.ink.color
+                drawn[run.range].underlineStyle = Text.LineStyle(pattern: .solid, color: Palette.faint.color)
+            } else {
+                drawn[run.range].foregroundColor = Palette.accentText.color
+            }
+        }
+
+        return drawn
+    }
+
+    /// A code block's text as it is drawn: the reply's ink, its comments
+    /// faint, and its keywords, strings and numbers each in its muted tone
+    /// (`CodeHighlight`), with a search's matches marked.
+    static func code(_ code: ReplyCode, marking terms: [String]) -> AttributedString {
+        var drawn = AttributedString()
+        var plain = code.text.startIndex
+        for token in CodeHighlight.tokens(in: code.text, language: code.language) {
+            drawn += AttributedString(String(code.text[plain..<token.range.lowerBound]))
+            var coloured = AttributedString(String(code.text[token.range]))
+            coloured.foregroundColor = colour(of: token.kind).color
+            drawn += coloured
+            plain = token.range.upperBound
+        }
+        drawn += AttributedString(String(code.text[plain...]))
+
+        return marking(terms, in: drawn)
+    }
+
+    private static func colour(of kind: CodeTokenKind) -> ThemedColor {
+        switch kind {
+        case .keyword: return Palette.codeKeyword
+        case .string: return Palette.codeString
+        case .number: return Palette.codeNumber
+        case .comment: return Palette.faint
+        }
+    }
+
+    /// The blocks as one text, for a place that draws a row's words as one, a
+    /// voice note's transcript: each part a row draws (`ChatReplyPart`) on
+    /// lines of its own, a run of paragraphs as a row draws it, code as code,
+    /// a list's items each after its mark (`ChatListBlock.label`) and a
+    /// table's rows as Copy writes them.
+    static func oneText(_ blocks: [ReplyBlock]) -> AttributedString {
+        joined(ChatReplyPart.parts(of: blocks).map(oneText), by: "\n")
+    }
+
+    private static func oneText(_ part: ChatReplyPart) -> AttributedString {
+        switch part {
+        case .paragraphs(let run): return joined(run, by: paragraphBreak)
+        case .block(let block): return oneText(block)
+        }
+    }
+
+    private static func oneText(_ block: ReplyBlock) -> AttributedString {
+        switch block {
+        case .prose(let words), .quote(let words):
+            return words
+        case .code(let code):
+            return codeLines(code)
+        case .list(let list):
+            return joined(list.items.map { AttributedString(ChatListBlock.label($0) + " ") + $0.words }, by: "\n")
+        case .table(let table):
+            return joined(([table.header] + table.rows).map { joined($0, by: "\t") }, by: "\n")
+        }
+    }
+
+    /// The parts one after another, the separator between each two.
+    private static func joined(_ parts: [AttributedString], by separator: String) -> AttributedString {
+        parts.enumerated().reduce(into: AttributedString()) { text, part in
+            if part.offset > 0 { text += AttributedString(separator) }
+            text += part.element
+        }
+    }
+
+    private static func codeLines(_ code: ReplyCode) -> AttributedString {
+        var lines = AttributedString(code.text)
+        lines.inlinePresentationIntent = .code
+        return lines
     }
 
     static func plain(_ text: String) -> AttributedString {
         AttributedString(text)
-    }
-
-    /// The two block marks drawn inline: a heading line, one to six `#` then
-    /// a space then its text, becomes that text strongly emphasised, and a
-    /// fenced code block loses its fence lines while each line inside becomes
-    /// a code span. Every other line is left as it is.
-    static func blocksInlined(_ text: String) -> String {
-        var fenced = false
-        return text.split(separator: "\n", omittingEmptySubsequences: false)
-            .compactMap { line -> String? in
-                if line.hasPrefix("```") {
-                    fenced.toggle()
-                    return nil
-                }
-                if fenced { return codeSpan(line) }
-                return heading(line).map { "**\($0)**" } ?? String(line)
-            }
-            .joined(separator: "\n")
-    }
-
-    /// The text of a heading line, or nil for any other line.
-    private static func heading(_ line: Substring) -> String? {
-        let marks = line.prefix { $0 == "#" }
-        guard (1...6).contains(marks.count), line.dropFirst(marks.count).first == " " else { return nil }
-        let title = line.dropFirst(marks.count + 1).trimmingCharacters(in: .whitespaces)
-        return title.isEmpty ? nil : title
-    }
-
-    /// One line of a fenced block as a code span; a line with its own
-    /// backtick takes the two-backtick fence, and an empty line stays empty.
-    private static func codeSpan(_ line: Substring) -> String {
-        if line.isEmpty { return "" }
-        return line.contains("`") ? "`` \(line) ``" : "`\(line)`"
     }
 
     /// Every occurrence of each term, marked. Case is ignored, as the search
@@ -190,6 +219,33 @@ enum ChatText {
         }
 
         return marked
+    }
+}
+
+/// A reply's blocks as a row draws them: each run of paragraphs one text, a
+/// blank line between each two as they were written, so a reader selects
+/// across them and the line between them follows the type; and every other
+/// block on its own.
+enum ChatReplyPart: Equatable {
+    /// A run of paragraphs, in reading order.
+    case paragraphs([AttributedString])
+    case block(ReplyBlock)
+
+    static func parts(of blocks: [ReplyBlock]) -> [ChatReplyPart] {
+        var parts: [ChatReplyPart] = []
+        for block in blocks {
+            guard let words = block.prose else {
+                parts.append(.block(block))
+                continue
+            }
+            if case .paragraphs(let run)? = parts.last {
+                parts[parts.count - 1] = .paragraphs(run + [words])
+            } else {
+                parts.append(.paragraphs([words]))
+            }
+        }
+
+        return parts
     }
 }
 

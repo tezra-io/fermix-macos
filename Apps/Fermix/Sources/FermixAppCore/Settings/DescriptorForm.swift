@@ -92,13 +92,27 @@ struct DescriptorRows: View {
     /// doing with a channel's enable toggle (M34 §5.2).
     var excluding: Set<String> = []
 
+    @State private var advancedShown = DescriptorRowFold.startsOpen
+
     var body: some View {
         switch model.section(section) {
         case .unread, .loading:
             ProgressView().controlSize(.small).accessibilityHidden(true)
         case .loaded(let rows):
-            ForEach(rows.rows.filter { !excluding.contains($0.key) }, id: \.key) { row in
+            let fold = DescriptorRowFold(rows.rows, excluding: excluding)
+
+            ForEach(fold.open, id: \.key) { row in
                 body(for: row)
+            }
+
+            if !fold.folded.isEmpty {
+                AdvancedRowsToggle(shown: $advancedShown)
+
+                if advancedShown {
+                    ForEach(fold.folded, id: \.key) { row in
+                        body(for: row)
+                    }
+                }
             }
         case .requiresNewerEngine:
             Text(model.newerEngineSentence)
@@ -118,6 +132,42 @@ struct DescriptorRows: View {
         } else {
             DescriptorRow(model: model, section: section, row: row)
         }
+    }
+}
+
+/// The row a section's advanced rows fold under (M62), and only that: the rows
+/// it shows are the form's own rows under it. A disclosure group inside a
+/// grouped form draws every row it holds in one cell, without the form's
+/// separators, and does not take VoiceOver's press, so the fold is a plain
+/// button here that says whether it is open.
+struct AdvancedRowsToggle: View {
+    @Binding var shown: Bool
+    /// What the fold is called: `Advanced` on a descriptor section, `More
+    /// options` on the MCP server form (M74 §4.2).
+    var title: ProductStringKey = .settingsAdvancedTitle
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button {
+            withAnimation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade)) { shown.toggle() }
+        } label: {
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "chevron.right")
+                    .imageScale(.small)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Palette.secondary.color)
+                    .rotationEffect(.degrees(shown ? 90 : 0))
+                    .accessibilityHidden(true)
+
+                Text(ProductStrings[title])
+
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(ProductStrings[shown ? .settingsAdvancedExpanded : .settingsAdvancedCollapsed])
     }
 }
 

@@ -65,7 +65,7 @@ enum EngineReconcilerFixture {
 /// Every seam is a double: the gateway is the fixture daemon, the store is in
 /// memory, the sleeper consumes its wait instantly, the browser records rather
 /// than opens, System Settings records the panes it was asked for, and the
-/// microphone is scripted.
+/// microphone and the notification center are scripted.
 @MainActor
 enum SettingsFixture {
     static func model(
@@ -74,19 +74,32 @@ enum SettingsFixture {
         opener: RecordingExternalOpener = RecordingExternalOpener(),
         settingsOpener: RecordingSystemSettingsOpener = RecordingSystemSettingsOpener(),
         microphone: StubMicrophoneAuthorization = StubMicrophoneAuthorization(),
-        loginItems: FakeLoginItemService = FakeLoginItemService()
+        notifications: MacNotifications? = nil,
+        loginItems: FakeLoginItemService = FakeLoginItemService(),
+        sleeper: any Sleeping = NoWaitSleeper()
     ) -> SettingsModel {
         SettingsModel(
             gateway: gateway,
             store: store ?? FakeSettingsPaneStore(),
-            sleeper: NoWaitSleeper(),
+            sleeper: sleeper,
             opener: opener,
             permissions: PermissionLedger(
                 gateway: gateway,
                 services: ServiceController(loginItems: loginItems),
                 microphone: microphone,
+                notifications: notifications ?? Self.notifications(),
                 settingsOpener: settingsOpener
             )
+        )
+    }
+
+    /// Notifications over a scripted center that has not been asked, and a
+    /// private activation center, so nothing outside a case reads the grant.
+    static func notifications(_ center: FakeNotificationCenter? = nil) -> MacNotifications {
+        MacNotifications(
+            center: center ?? FakeNotificationCenter(),
+            bundleIdentifier: "io.tezra.FermixPet.test",
+            activations: NotificationCenter()
         )
     }
 
@@ -201,7 +214,10 @@ extension ManagementValueFixture {
         readOnly: Bool = false,
         suggestions: Bool = false,
         unit: String? = nil,
-        format: String? = nil
+        format: String? = nil,
+        /// Whether the row folds under its section's Advanced. Nil leaves the
+        /// key out, which is the shape the pinned engine publishes.
+        advanced: Bool? = nil
     ) throws -> ManagementSettingRow {
         let optionList: String = options
             .map { option in
@@ -218,6 +234,7 @@ extension ManagementValueFixture {
         let stepField: String = number(step)
         let unitField: String = unit.map { "\"\($0)\"" } ?? "null"
         let formatField: String = format.map { "\"\($0)\"" } ?? "null"
+        let advancedField: String = advanced.map { ",\n  \"advanced\": \($0)" } ?? ""
 
         return try decode(
             """
@@ -236,7 +253,7 @@ extension ManagementValueFixture {
               "format": \(formatField),
               "restart": \(restart),
               "read_only": \(readOnly),
-              "suggestions": \(suggestions)
+              "suggestions": \(suggestions)\(advancedField)
             }
             """,
             as: ManagementSettingRow.self

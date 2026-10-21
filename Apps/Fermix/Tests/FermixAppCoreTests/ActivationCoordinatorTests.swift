@@ -1124,6 +1124,7 @@ final class PermissionCountingAudioEngine: VoiceAudioEngine, @unchecked Sendable
 
     var onOutputLevel: ((Float) -> Void)?
     var onPlaybackDrained: (() -> Void)?
+    var onPlaybackIdDrained: (() -> Void)?
     var isPlayingBack = false
 
     var permissionRequests: Int { lock.withLock { requests } }
@@ -1140,7 +1141,8 @@ final class PermissionCountingAudioEngine: VoiceAudioEngine, @unchecked Sendable
     func prepareCapture() async throws {}
     func beginStreaming(onChunk: @escaping @Sendable (Data) -> Void) throws {}
     func setCaptureMuted(_ muted: Bool) {}
-    func play(base64PCM16 encoded: String) {}
+    func play(base64PCM16 encoded: String, playbackId: String?) {}
+    func takePlaybackProgress() -> PlaybackProgressReport { .none }
     func stopPlayback() {}
     func resetUtteranceAnchor() {}
     func currentUtterancePlayedMs() -> Int? { nil }

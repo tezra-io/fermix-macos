@@ -298,14 +298,15 @@ check_rive_framework() {
 # spawn.
 # The system frameworks only the GUI may load, for the reason the two bundled
 # ones are refused: the agent links the same core library, and one dependency
-# edit there would put a web engine, a media player or a document viewer into
-# the launcher launchd keeps running. The trailing slash keeps a Swift overlay
-# such as libswiftWebKit.dylib from passing for the framework.
+# edit there would put a web engine, a media player, a document viewer or a
+# map into the launcher launchd keeps running. The trailing slash keeps a
+# Swift overlay such as libswiftWebKit.dylib from passing for the framework.
 GUI_ONLY_SYSTEM_FRAMEWORKS=(
   "WebKit.framework/"
   "AVKit.framework/"
   "QuickLookUI.framework/"
   "QuickLookThumbnailing.framework/"
+  "MapKit.framework/"
 )
 
 check_framework_linkage() {

@@ -42,10 +42,10 @@ struct VoiceSessionTests {
         session.onNegotiated = { negotiated = $0 }
 
         session.connect()
-        socket.deliver(.serverHello(minVersion: 1, maxVersion: 2))
+        socket.deliver(.serverHello(minVersion: 1, maxVersion: 3))
 
         #expect(session.phase == .negotiated)
-        #expect(negotiated == RealtimeVersionWindow(minimum: 1, maximum: 2))
+        #expect(negotiated == RealtimeVersionWindow(minimum: 1, maximum: 3))
         #expect(scheduler.liveCount == 0)
     }
 
@@ -60,10 +60,10 @@ struct VoiceSessionTests {
         session.onFailed = { failure = $0 }
 
         session.connect()
-        socket.deliver(.serverHello(minVersion: 3, maxVersion: 4))
+        socket.deliver(.serverHello(minVersion: 4, maxVersion: 5))
 
         #expect(
-            failure == .versionUnsupported(direction: .clientTooOld, minimum: 3, maximum: 4)
+            failure == .versionUnsupported(direction: .clientTooOld, minimum: 4, maximum: 5)
         )
         #expect(session.phase == .disconnected)
         #expect(socket.closeCount == 1)
@@ -78,9 +78,11 @@ struct VoiceSessionTests {
         session.onFailed = { failure = $0 }
 
         session.connect()
-        socket.deliver(.serverHello(minVersion: 0, maxVersion: 0))
+        // A daemon from before Grok's version, which this build no longer speaks
+        // down to: the pet declares one version, and the window must hold it.
+        socket.deliver(.serverHello(minVersion: 1, maxVersion: 2))
 
-        #expect(failure == .versionUnsupported(direction: .clientTooNew, minimum: 0, maximum: 0))
+        #expect(failure == .versionUnsupported(direction: .clientTooNew, minimum: 1, maximum: 2))
     }
 
     @Test("a refusal during the handshake carries the daemon's own reason")
@@ -154,7 +156,7 @@ struct VoiceSessionTests {
         socket.deliver(.audioDelta(base64: "AAAA"))
         #expect(routed.isEmpty)
 
-        socket.deliver(.serverHello(minVersion: 1, maxVersion: 2))
+        socket.deliver(.serverHello(minVersion: 1, maxVersion: 3))
         socket.deliver(.state(.listening))
 
         #expect(routed == [.state(.listening)])
@@ -171,8 +173,8 @@ struct VoiceSessionTests {
         session.onNegotiated = { _ in negotiations += 1 }
 
         session.connect()
-        socket.deliver(.serverHello(minVersion: 1, maxVersion: 2))
-        socket.deliver(.serverHello(minVersion: 1, maxVersion: 2))
+        socket.deliver(.serverHello(minVersion: 1, maxVersion: 3))
+        socket.deliver(.serverHello(minVersion: 1, maxVersion: 3))
 
         #expect(negotiations == 1)
         #expect(session.phase == .negotiated)
@@ -224,7 +226,7 @@ struct VoiceSessionTests {
         session.onFailed = { failure = $0 }
 
         session.connect()
-        socket.deliver(.serverHello(minVersion: 1, maxVersion: 2))
+        socket.deliver(.serverHello(minVersion: 1, maxVersion: 3))
         socket.fail(.peerClosed)
 
         #expect(failure == .transport(.peerClosed))

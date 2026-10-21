@@ -30,12 +30,11 @@ public protocol WorkspaceLinkOpening {
     /// The app on this Mac that would take the link, or nil where none would.
     func application(toOpen url: URL) -> WorkspaceApplication?
     /// The app on this Mac that opens a document of `type`, or nil where none
-    /// does. Asked of the type the pane decided on, never of the file, so a
-    /// file swapped in afterwards cannot change the answer.
-    func application(toOpen type: UTType) -> WorkspaceApplication?
-    /// Whether the app opens web pages: a browser given a file runs its
-    /// scripts and reaches the network, which a file tab exists to prevent.
-    func opensWebPages(_ app: WorkspaceApplication) -> Bool
+    /// does or where the one that would opens web pages: a browser given a
+    /// file runs its scripts and reaches the network, which a file tab exists
+    /// to prevent. Asked of the type the pane decided on, never of the file,
+    /// so a file swapped in afterwards cannot change the answer.
+    func documentApplication(toOpen type: UTType) -> WorkspaceApplication?
     /// A file, handed to exactly this app as a document: whatever is at the
     /// path by then is a document to that app, never launched or run.
     /// `failed` hears the system's sentence where the app could not take it.
@@ -56,21 +55,29 @@ public struct WorkspaceLinkOpener: WorkspaceLinkOpening {
         NSWorkspace.shared.urlForApplication(toOpen: url).map(Self.application(at:))
     }
 
-    public func application(toOpen type: UTType) -> WorkspaceApplication? {
-        NSWorkspace.shared.urlForApplication(toOpen: type).map(Self.application(at:))
+    public func documentApplication(toOpen type: UTType) -> WorkspaceApplication? {
+        Self.documentApplication(toOpen: type)
     }
 
-    /// Every app that takes an https link, the default browser and any other.
-    public func opensWebPages(_ app: WorkspaceApplication) -> Bool {
-        NSWorkspace.shared.urlsForApplications(toOpen: Self.webPage)
-            .contains { $0.standardizedFileURL == app.url.standardizedFileURL }
+    /// The one answer to which app a document of `type` goes to, never one
+    /// that takes an https link, the default browser or any other. Asked of
+    /// Launch Services directly, from any thread: the pane asks it through
+    /// the opener, and a chat tile off the main thread for its hint.
+    public nonisolated static func documentApplication(toOpen type: UTType) -> WorkspaceApplication? {
+        let workspace = NSWorkspace.shared
+        guard let app = workspace.urlForApplication(toOpen: type) else { return nil }
+
+        let browsers = workspace.urlsForApplications(toOpen: webPage).map(\.standardizedFileURL)
+        guard !browsers.contains(app.standardizedFileURL) else { return nil }
+
+        return application(at: app)
     }
 
-    private static func application(at url: URL) -> WorkspaceApplication {
+    private nonisolated static func application(at url: URL) -> WorkspaceApplication {
         WorkspaceApplication(url: url, name: FileManager.default.displayName(atPath: url.path))
     }
 
-    private static let webPage: URL = {
+    private nonisolated static let webPage: URL = {
         guard let url = URL(string: "https://example.com/") else { preconditionFailure("a web address parses") }
 
         return url

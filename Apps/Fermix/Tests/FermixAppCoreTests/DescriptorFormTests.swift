@@ -479,7 +479,7 @@ struct DescriptorCoverageTests {
     @Test("a backend section's key rows are whatever the daemon handed over")
     func backendKeyRowsAreTheDaemons() throws {
         let published: [String: Set<String>] = [
-            "web_search": ["web_search_backend", "brave_api_key"],
+            "web_search": ["web_search_backend", "place_search_backend", "brave_api_key"],
             "generate_image": ["image_backend", "image_model", "openai_api_key"],
             "transcription": ["transcription_backend", "transcription_model", "transcription_openai_api_key"]
         ]
@@ -703,7 +703,7 @@ struct DescriptorRowInfoTests {
     /// paired with its own record rather than looked up by section, because the
     /// voice section publishes one golden per engine and a row only Live
     /// publishes is only in Live's.
-    private static func publishedRows() throws -> [PublishedRow] {
+    static func publishedRows() throws -> [PublishedRow] {
         try ManagementFixtures.load(.success, from: .management)
             .filter { (try? $0.string("method")) == ManagementMethod.settingsGet.rawValue }
             .flatMap { fixture -> [PublishedRow] in
@@ -719,7 +719,7 @@ struct DescriptorRowInfoTests {
             }
     }
 
-    private typealias PublishedRow = (section: String, row: [String: Any], decoded: [ManagementSettingRow])
+    typealias PublishedRow = (section: String, row: [String: Any], decoded: [ManagementSettingRow])
 
     /// A component with no caller is the same defect as a design token no view
     /// applies. Both doors into a provider's Model row draw their label through
@@ -754,5 +754,67 @@ struct DescriptorRowInfoTests {
                 #expect(!text.contains(bare), "\(path) still draws \(bare)")
             }
         }
+    }
+}
+
+/// The rows an engine marks advanced (M62 owner decision 1): every surface
+/// draws them after the section's other rows, under one disclosure that
+/// starts closed, so neither app keeps a list of which keys fold.
+@Suite("Descriptor advanced rows")
+struct DescriptorRowFoldTests {
+    @Test("a row marked advanced decodes as one, and a row from an engine that omits the key is not")
+    func advancedDecodes() throws {
+        #expect(try ManagementValueFixture.settingRow(advanced: true).advanced)
+        #expect(try !ManagementValueFixture.settingRow(advanced: false).advanced)
+        #expect(try !ManagementValueFixture.settingRow().advanced, "the pinned engine publishes no key")
+        #expect(
+            try ManagementValueFixture.settingRow() == ManagementValueFixture.settingRow(advanced: false),
+            "a row is the same row whichever engine left the key out"
+        )
+    }
+
+    @Test("a section's advanced rows come last, folded under one disclosure that starts closed")
+    func advancedRowsFoldLast() throws {
+        let rows = try [
+            ManagementValueFixture.settingRow(key: "port", kind: "number", value: "4031", advanced: true),
+            ManagementValueFixture.settingRow(key: "enabled"),
+            ManagementValueFixture.settingRow(key: "bind", kind: "text", value: "\"0.0.0.0\"", advanced: true),
+            ManagementValueFixture.settingRow(key: "remote")
+        ]
+
+        let fold = DescriptorRowFold(rows, excluding: ["enabled"])
+
+        #expect(fold.open.map(\.key) == ["remote"])
+        #expect(fold.folded.map(\.key) == ["port", "bind"], "in the order the daemon published them")
+        // The fold's @State is seeded from this constant and cannot be read
+        // from a test, so the seed is what is pinned here.
+        #expect(!DescriptorRowFold.startsOpen)
+    }
+
+    /// The contract publishes the mark on every row, and the decoded row says
+    /// what its golden said, so a row the engine marks joins the fold at the
+    /// next re-vendor with nothing in this app naming it.
+    @Test("every vendored row carries the advanced mark its golden publishes")
+    func vendoredRowsCarryTheMark() throws {
+        for published in try DescriptorRowInfoTests.publishedRows() {
+            let key = try #require(published.row["key"] as? String)
+            let mark = try #require(published.row["advanced"] as? Bool, "\(published.section).\(key) publishes no mark")
+            let decoded = try #require(published.decoded.first { $0.key == key })
+
+            #expect(decoded.advanced == mark, "\(published.section).\(key)")
+        }
+    }
+
+    @Test("a section with no advanced row draws no disclosure")
+    func noAdvancedRowNoDisclosure() throws {
+        let rows = try [
+            ManagementValueFixture.settingRow(key: "enabled"),
+            ManagementValueFixture.settingRow(key: "remote", advanced: false)
+        ]
+
+        let fold = DescriptorRowFold(rows)
+
+        #expect(fold.open.map(\.key) == ["enabled", "remote"])
+        #expect(fold.folded.isEmpty)
     }
 }

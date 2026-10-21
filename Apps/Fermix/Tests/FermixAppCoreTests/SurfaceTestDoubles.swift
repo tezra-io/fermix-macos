@@ -140,6 +140,15 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// The phone channel, where a case needs answers the goldens do not give:
     /// another moment of the channel, of the start, or of the window.
     var mobileStatusResult: ManagementMobileStatus?
+    /// The channel's reads, each an answer or a refusal, consumed in order
+    /// ahead of `mobileStatusResult`; an exhausted script keeps answering with
+    /// the last.
+    var mobileStatusScript: [Result<ManagementMobileStatus, any Error>] = []
+    var mobileStatusIndex = 0
+    /// Holds a channel read open once its answer is chosen, so a case can
+    /// show a second read waiting behind the first rather than reaching the
+    /// daemon.
+    var mobileStatusGate: (@Sendable () async -> Void)?
     var mobileDevicesResult: ManagementMobileDevices?
     var pairingStartResult: ManagementPairingStart?
     /// Holds `mobile.pair.start` open, so a case can close the sheet while the
@@ -155,6 +164,27 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var pairingDecisions: [PairingDecision] = []
     var cancelledPairings: [String] = []
     var revokedDevices: [String] = []
+    /// The MCP list, where a case needs one the golden cannot express.
+    var mcpServersResult: ManagementMCPServerList?
+    /// The MCP lists the next reads answer, one each in order, ahead of
+    /// `mcpServersResult`: a daemon whose rows move between reads.
+    var mcpServersScript: [ManagementMCPServerList] = []
+    /// The add's answer, where a case needs one the goldens do not publish.
+    var mcpAddedResult: ManagementMCPServerAdded?
+    /// What the surfaces asked of the MCP servers, in order.
+    var mcpSpecs: [ManagementMCPServerSpec] = []
+    var mcpChanges: [ManagementMCPServerChange] = []
+    var mcpReads: [String] = []
+    /// The golden `mcp.servers.get` answers with: the published server, or
+    /// the same one signed in or expired.
+    var mcpServerGolden = "mcp_servers_get"
+    var mcpDraftTexts: [String] = []
+    /// What each `mcp.servers.import` picked, in order.
+    var mcpImports: [[ManagementMCPImportPick]] = []
+    var mcpToolWrites: [MCPToolWrite] = []
+    /// The providers each `auth.start` and `auth.logout` named, in order.
+    var signInProviders: [String] = []
+    var signOutProviders: [String] = []
 
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take

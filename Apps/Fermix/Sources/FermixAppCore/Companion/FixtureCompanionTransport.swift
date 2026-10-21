@@ -1,4 +1,5 @@
 #if DEBUG
+import CryptoKit
 import Foundation
 
 /// Which timeline a fixture launch's chat holds.
@@ -8,6 +9,10 @@ enum FixtureCompanionTimeline: Equatable {
     /// A dozen rows of both sides with older ones behind them, a reply being
     /// written with a tool running, and an approval waiting.
     case full
+    /// Replies drawn for what they hold (M72): places with their map and
+    /// cards, lists, a table, a quote, links and code, all on one page, and
+    /// nothing happening now.
+    case replies
 }
 
 /// The companion socket, replaced by a scripted daemon.
@@ -18,7 +23,9 @@ enum FixtureCompanionTimeline: Equatable {
 /// in by hand. What the daemon would decide is scripted, and no more: it
 /// answers the handshake with this build's window, pages and searches its own
 /// rows, takes a message into a row and a short reply, resolves an approval's
-/// answer, and stops a turn that is cancelled.
+/// answer, stops a turn that is cancelled, and grants only the link
+/// pictures of the replies timeline, from sample photos every Mac has; every
+/// other `media_fetch` is answered `media_missing`.
 ///
 /// Callbacks go out on whatever thread asked, which is the main one; the
 /// composition wraps this in the same main-actor delivery the real socket
@@ -32,6 +39,9 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
     /// The most rows one page carries, below the contract's page so the
     /// newest one has older rows behind it for the reader to reach.
     static let historyPage = 12
+    /// The replies timeline is looked at whole: its one page carries every
+    /// row it holds, so none is behind it.
+    static let repliesPage = FixtureRepliesScript.rows.count
     /// The most hits one answer carries, below the contract's page so the
     /// fixture can show the action that asks for older ones.
     static let searchPage = 4
@@ -40,6 +50,8 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
 
     private var rows: [CompanionTimelineRow]
     private let opening: [CompanionServerEvent]
+    /// The most rows one of this timeline's pages carries.
+    private let pageLimit: Int
     private var repliesWritten = 0
 
     init(timeline: FixtureCompanionTimeline) {
@@ -47,9 +59,15 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
         case .empty:
             rows = []
             opening = []
+            pageLimit = Self.historyPage
         case .full:
             rows = FixtureCompanionScript.rows
             opening = FixtureCompanionScript.opening
+            pageLimit = Self.historyPage
+        case .replies:
+            rows = FixtureRepliesScript.rows
+            opening = []
+            pageLimit = Self.repliesPage
         }
     }
 
@@ -96,9 +114,30 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             stop(event)
         case "read_state":
             emit(.readState(profileId: CompanionProtocol.profileId, readUpToSeq: event["read_up_to_seq"] as? Int ?? 0))
+        case "media_fetch":
+            emit(Self.grant(ref: event["ref"] as? String ?? ""))
+        case "media_release":
+            break
         default:
             preconditionFailure("the fixture daemon has no answer for \(type)")
         }
+    }
+
+    /// A link picture's sample photo, as the engine grants a file it holds;
+    /// any other ref, or a photo this Mac does not have, is missing.
+    private static func grant(ref: String) -> CompanionServerEvent {
+        guard let path = FixtureRepliesScript.pictures[ref], let bytes = FileManager.default.contents(atPath: path) else {
+            return .mediaMissing(ref: ref)
+        }
+
+        return .mediaPath(CompanionMediaPath(
+            ref: ref,
+            path: path,
+            kind: "image",
+            mime: "image/heic",
+            sizeBytes: bytes.count,
+            sha256: SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        ))
     }
 
     private var head: Int { rows.last?.serverSeq ?? 0 }
@@ -106,7 +145,7 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
     /// A page, as the contract cuts one: the newest rows below a cursor, or the
     /// oldest above one, oldest first either way.
     private func page(_ event: [String: Any]) -> CompanionHistoryPage {
-        let limit = min(event["limit"] as? Int ?? Self.historyPage, Self.historyPage)
+        let limit = min(event["limit"] as? Int ?? pageLimit, pageLimit)
 
         if let before = event["before_seq"] as? Int {
             let below = rows.filter { $0.serverSeq < before }
@@ -186,7 +225,10 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             timestamp: row.timestamp,
             clientMsgId: clientMsgId,
             kind: "text",
-            metadata: nil
+            metadata: nil,
+            mediaRefs: [],
+            linkPreviews: nil,
+            blocks: nil
         )))
 
         repliesWritten += 1
@@ -302,7 +344,9 @@ enum FixtureCompanionScript {
         _ role: String,
         _ content: String,
         clientMsgId: String? = nil,
-        inReplyTo: String? = nil
+        inReplyTo: String? = nil,
+        linkPreviews: [CompanionLinkPreview]? = nil,
+        blocks: [CompanionBlock]? = nil
     ) -> CompanionTimelineRow {
         CompanionTimelineRow(
             serverSeq: seq,
@@ -314,8 +358,281 @@ enum FixtureCompanionScript {
             clientMsgId: clientMsgId,
             inReplyTo: inReplyTo,
             metadata: nil,
-            linkPreviews: nil
+            linkPreviews: linkPreviews,
+            blocks: blocks.map(CompanionBlocks.init)
         )
     }
+}
+
+/// What the replies timeline holds (M72): seven questions, each answered in
+/// the shape its answer takes. Places in SoHo with the engine's block of
+/// them, one place with every field and the others each missing one, the
+/// last with a long name; then a list and steps, a table, and a quote, which
+/// are the reply's own markdown; then places Apple Maps found around a named
+/// town (§14.1), each with Apple's own identifier and page and its kind, and
+/// no rating, price, hours or distance; then a reply linking pages the
+/// engine previewed; and last, code, a shell one-liner too long for one line
+/// of the reply and a short Python function, each fence naming its language
+/// by a common tag.
+enum FixtureRepliesScript {
+    static let rows: [CompanionTimelineRow] = [
+        FixtureCompanionScript.row(1, "user", "Can you find a few quiet coffee shops in SoHo where I could work for an hour?", clientMsgId: "fixture-replies-1"),
+        FixtureCompanionScript.row(2, "assistant", places, inReplyTo: "fixture-replies-1", blocks: [.places(placeRecords)]),
+        FixtureCompanionScript.row(3, "user", "What should I pack for the hike on Saturday?", clientMsgId: "fixture-replies-3"),
+        FixtureCompanionScript.row(4, "assistant", lists, inReplyTo: "fixture-replies-3"),
+        FixtureCompanionScript.row(5, "user", "Compare the three flights to Lisbon for me.", clientMsgId: "fixture-replies-5"),
+        FixtureCompanionScript.row(6, "assistant", table, inReplyTo: "fixture-replies-5"),
+        FixtureCompanionScript.row(7, "user", "What did Priya say about the launch in her last email?", clientMsgId: "fixture-replies-7"),
+        FixtureCompanionScript.row(8, "assistant", quote, inReplyTo: "fixture-replies-7"),
+        FixtureCompanionScript.row(9, "user", "Where can I get tacos around Suwanee Town Center?", clientMsgId: "fixture-replies-9"),
+        FixtureCompanionScript.row(10, "assistant", applePlaces, inReplyTo: "fixture-replies-9", blocks: [.places(applePlaceRecords)]),
+        FixtureCompanionScript.row(11, "user", "Any good guides on growing sunflowers and dahlias this spring?", clientMsgId: "fixture-replies-11"),
+        FixtureCompanionScript.row(12, "assistant", links, inReplyTo: "fixture-replies-11", linkPreviews: linkPreviews),
+        FixtureCompanionScript.row(13, "user", "How do I find the biggest files in my Downloads folder?", clientMsgId: "fixture-replies-13"),
+        FixtureCompanionScript.row(14, "assistant", code, inReplyTo: "fixture-replies-13"),
+    ]
+
+    /// A one-liner wider than the reply, which wraps, and a short function,
+    /// fenced as `sh` and `python`, which the blocks name Shell and Python.
+    static let code = """
+        This lists the twenty largest files under Downloads, biggest first, and saves the list to your Desktop.
+
+        ```sh
+        find ~/Downloads -type f -size +10M -exec du -h {} + 2>/dev/null | sort -rh | head -n 20 | sed "s|$HOME|~|" | tee ~/Desktop/largest-downloads.txt
+        ```
+
+        If you would rather stay in Python, this does the same and skips anything it cannot read.
+
+        ```python
+        from pathlib import Path
+
+
+        def largest(folder, count=20):
+            # Every file under the folder with its size, biggest first.
+            sizes = []
+            for path in Path(folder).expanduser().rglob("*"):
+                try:
+                    if path.is_file():
+                        sizes.append((path.stat().st_size, path))
+                except OSError:
+                    continue
+            return sorted(sizes, reverse=True)[:count]
+
+
+        for size, path in largest("~/Downloads"):
+            print(f"{size / 1_000_000:8.1f} MB  {path}")
+        ```
+        """
+
+    /// Four pages the reply links, as the engine previews them: two with a
+    /// picture, one whose page gave none, and the last with no preview at
+    /// all, as a page the engine could not read is left.
+    static let links = """
+        Three good reads before you plant, and a seed list to start from.
+
+        - [Sunflowers from seed](https://gardennotes.example/grow/sunflowers) covers sowing dates, spacing and staking.
+        - [Dahlias for beginners](https://bloomandroot.example/guides/dahlias-for-beginners) explains tubers and when to lift them.
+        - [A cutting garden in one bed](https://weekendplot.example/2026/03/cutting-garden-in-one-bed) fits both into a small space.
+        - The [spring seed list](https://seedswap.example/lists/spring-seeds) has both in stock.
+
+        Start the sunflowers indoors about three weeks before your last frost.
+        """
+
+    static let linkPreviews: [CompanionLinkPreview] = [
+        CompanionLinkPreview(
+            link: "https://gardennotes.example/grow/sunflowers",
+            url: "https://gardennotes.example/grow/sunflowers",
+            site: "Garden Notes",
+            title: "How to grow sunflowers from seed, from sowing to staking",
+            description: "When to sow, how far apart, and how to keep tall stems standing.",
+            imageRef: sunflowerPicture
+        ),
+        CompanionLinkPreview(
+            link: "https://bloomandroot.example/guides/dahlias-for-beginners",
+            url: "https://bloomandroot.example/guides/dahlias-for-beginners",
+            site: "Bloom and Root",
+            title: "Dahlias for beginners",
+            description: "Tubers, spacing, and when to lift them before the first frost.",
+            imageRef: dahliaPicture
+        ),
+        CompanionLinkPreview(
+            link: "https://weekendplot.example/2026/03/cutting-garden-in-one-bed",
+            url: "https://weekendplot.example/2026/03/cutting-garden-in-one-bed",
+            site: "Weekend Plot",
+            title: "A cutting garden in one bed",
+            description: nil,
+            imageRef: nil
+        ),
+    ]
+
+    static let sunflowerPicture = "fba54ed7dccc3de7aefa463fe159b5b315a38c452f51bf526aa9ac3222ade744"
+    static let dahliaPicture = "d08cccaf4c5bf5dbceb48adb1807de2698ccc1cebd82c4e7a09c90ba3d37cdb5"
+
+    /// Each picture's file: a sample photo macOS keeps for account pictures.
+    static let pictures = [
+        sunflowerPicture: "/Library/User Pictures/Flowers/Sunflower.heic",
+        dahliaPicture: "/Library/User Pictures/Flowers/Dahlia.heic",
+    ]
+
+    /// A short lead and one line per place, each linked by name, in the order
+    /// the block holds them.
+    static let places = """
+        Here are four quiet places within a short walk, with seats and steady wifi.
+
+        - [Little Wooster Espresso Bar](https://littlewooster.example/) is small but calm before noon.
+        - [Mercer Roasting Room](https://mercerroasting.example/) has long tables at the back, away from the counter.
+        - [Spring and Thompson](https://places.example/p/spring-and-thompson) is quiet in the afternoon, with outlets along the wall.
+        - [The Reading Room at Broome Street Books and Coffee](https://broomestreetbooks.example/reading-room) asks for low voices, so it stays hushed.
+
+        Hours and ratings change, so check before you go.
+        """
+
+    static let placeRecords: [CompanionPlace] = [
+        CompanionPlace(
+            name: "Little Wooster Espresso Bar",
+            canonicalURL: "https://littlewooster.example/",
+            sourceURL: "https://places.example/p/little-wooster-espresso-bar",
+            applePlaceID: nil,
+            location: CompanionPlaceLocation(latitude: 40.7239, longitude: -74.0011),
+            address: "88 Wooster St, New York, NY 10012",
+            rating: CompanionPlaceRating(value: 4.4, best: 5, count: 87),
+            priceRange: "$$",
+            categories: ["espresso_bar"],
+            openingHours: nil,
+            distance: CompanionPlaceDistance(value: 0.3, units: "km")
+        ),
+        CompanionPlace(
+            name: "Mercer Roasting Room",
+            canonicalURL: "https://mercerroasting.example/",
+            sourceURL: "https://places.example/p/mercer-roasting-room",
+            applePlaceID: nil,
+            location: CompanionPlaceLocation(latitude: 40.7247, longitude: -73.9986),
+            address: "112 Mercer St, New York, NY 10012",
+            rating: CompanionPlaceRating(value: 4.6, best: 5, count: 321),
+            priceRange: "$$",
+            categories: ["coffee_shop", "bakery"],
+            openingHours: CompanionPlaceHours(currentDay: "Thursday 07:00-19:00"),
+            distance: CompanionPlaceDistance(value: 0.4, units: "km")
+        ),
+        CompanionPlace(
+            name: "Spring and Thompson",
+            canonicalURL: nil,
+            sourceURL: "https://places.example/p/spring-and-thompson",
+            applePlaceID: nil,
+            location: CompanionPlaceLocation(latitude: 40.7255, longitude: -74.0023),
+            address: "201 Spring St, New York, NY 10012",
+            rating: nil,
+            priceRange: "$",
+            categories: ["cafe"],
+            openingHours: CompanionPlaceHours(currentDay: "Thursday 08:00-18:00"),
+            distance: CompanionPlaceDistance(value: 0.6, units: "km")
+        ),
+        CompanionPlace(
+            name: "The Reading Room at Broome Street Books and Coffee",
+            canonicalURL: "https://broomestreetbooks.example/reading-room",
+            sourceURL: "https://places.example/p/broome-street-books",
+            applePlaceID: nil,
+            location: CompanionPlaceLocation(latitude: 40.7226, longitude: -74.0004),
+            address: "421 Broome St, New York, NY 10013",
+            rating: CompanionPlaceRating(value: 4.8, best: 5, count: 1204),
+            priceRange: "$$",
+            categories: ["book_store"],
+            openingHours: CompanionPlaceHours(currentDay: "Thursday 09:00-21:00"),
+            distance: CompanionPlaceDistance(value: 0.8, units: "km")
+        ),
+    ]
+
+    /// Apple Maps' places, the first linked by its own website and the other
+    /// two by Apple's own page for them, as the model writes whichever link
+    /// the search gave it.
+    static let applePlaces = """
+        Three taquerias within a few minutes of Town Center.
+
+        - [Tequila Mama Taqueria](https://tequilamama.com/) is on Town Center Avenue, facing the park, with its [menu](https://tequilamama.com/menu) online.
+        - [Beto's Tacos](https://maps.apple.com/place?place-id=I47957D91CD7E2F7B) is a short drive south on Lawrenceville-Suwanee Road.
+        - [A Tacoria](https://maps.apple.com/place?place-id=I89FC92F8D04D97C5) is a few minutes north-west, on Peachtree Industrial Boulevard.
+
+        Maps has their hours and photos.
+        """
+
+    /// Real places, by the identifiers Apple Maps gave them, so a card opens
+    /// each one's own card in Maps. The second's website is plain HTTP, which
+    /// the engine drops, and the third gave none of its own.
+    static let applePlaceRecords: [CompanionPlace] = [
+        CompanionPlace(
+            name: "Tequila Mama Taqueria",
+            canonicalURL: "https://tequilamama.com/",
+            sourceURL: "https://maps.apple.com/place?place-id=I15D3EC7F56AE8D5C",
+            applePlaceID: "I15D3EC7F56AE8D5C",
+            location: CompanionPlaceLocation(latitude: 34.0555026, longitude: -84.0647238),
+            address: "340 Town Center Ave, Suwanee, GA 30024, United States",
+            rating: nil,
+            priceRange: nil,
+            categories: ["restaurant"],
+            openingHours: nil,
+            distance: nil
+        ),
+        CompanionPlace(
+            name: "Beto's Tacos",
+            canonicalURL: nil,
+            sourceURL: "https://maps.apple.com/place?place-id=I47957D91CD7E2F7B",
+            applePlaceID: "I47957D91CD7E2F7B",
+            location: CompanionPlaceLocation(latitude: 34.043542, longitude: -84.0541653),
+            address: "3463 Lawrenceville-Suwanee Rd, Unit 110, Suwanee, GA 30024, United States",
+            rating: nil,
+            priceRange: nil,
+            categories: ["restaurant"],
+            openingHours: nil,
+            distance: nil
+        ),
+        CompanionPlace(
+            name: "A Tacoria",
+            canonicalURL: nil,
+            sourceURL: "https://maps.apple.com/place?place-id=I89FC92F8D04D97C5",
+            applePlaceID: "I89FC92F8D04D97C5",
+            location: CompanionPlaceLocation(latitude: 34.0666864, longitude: -84.0718644),
+            address: "315 Peachtree Industrial Blvd, Suwanee, GA 30024, United States",
+            rating: nil,
+            priceRange: nil,
+            categories: ["restaurant"],
+            openingHours: nil,
+            distance: nil
+        ),
+    ]
+
+    static let lists = """
+        For a day hike this time of year, pack light and in layers.
+
+        - Water, at least two litres
+        - A warm layer and a rain shell
+        - Snacks that will not melt
+        - A charged phone and a paper map
+
+        Before you set off:
+
+        1. Check the forecast for the trailhead, not the town.
+        2. Tell someone your route and when you expect to be back.
+        3. Start early, so you finish in daylight.
+        """
+
+    static let table = """
+        Here are the three options, cheapest first.
+
+        | Flight | Departs | Arrives | Price |
+        | --- | --- | --- | --- |
+        | TP 202 | 08:10 | 20:35 | $412 |
+        | UA 66 | 17:55 | 06:20 next day | $468 |
+        | DL 260 | 19:30 | 08:15 next day | $503 |
+
+        The first is the only one that lands the same day.
+        """
+
+    static let quote = """
+        She wrote:
+
+        > The release notes are ready for review. If nobody objects by Wednesday, we ship on the 14th as planned.
+
+        Nobody has objected so far.
+        """
 }
 #endif

@@ -150,13 +150,14 @@ let package = Package(
             name: "FermixBrowser",
             dependencies: ["FermixAppCore"]
         ),
-        // The one place in the repository that imports AVKit, QuickLookUI and
-        // QuickLookThumbnailing, for the same reason again: FermixAgent links
-        // FermixAppCore and must never load a viewer it never shows. The core
-        // declares the seams, the pane's `BrowserViewerMaking` and the chat's
-        // `ChatMediaReading`, and this target, linked by the GUI executable
-        // alone, draws a film, a document and a tile's preview on them. All
-        // three are the system's, so there is no package to pin.
+        // The one place in the repository that imports AVKit, QuickLookUI,
+        // QuickLookThumbnailing and MapKit, for the same reason again:
+        // FermixAgent links FermixAppCore and must never load a viewer it never
+        // shows. The core declares the seams, the pane's `BrowserViewerMaking`
+        // and the chat's `ChatMediaReading`, and this target, linked by the GUI
+        // executable alone, draws a film, a document, a tile's preview and a
+        // reply's map on them. All four are the system's, so there is no
+        // package to pin.
         .target(
             name: "FermixViewers",
             dependencies: ["FermixAppCore"]

@@ -55,7 +55,9 @@ struct CompanionProtocolTests {
             .historyPull(profileId: main, cursor: .before(seq: 120), limit: 50),
             .historySearch(profileId: main, query: "dentist", limit: 20, beforeSeq: nil),
             .historySearch(profileId: main, query: "dentist friday", limit: 20, beforeSeq: 88),
-            .readState(profileId: main, readUpToSeq: 13)
+            .readState(profileId: main, readUpToSeq: 13),
+            .mediaFetch(profileId: main, ref: "9879f6d3c9efefe8c4f4aabe9d3269762264be52794e96f62ab8ffa53b7fadec"),
+            .mediaRelease(profileId: main, ref: "9879f6d3c9efefe8c4f4aabe9d3269762264be52794e96f62ab8ffa53b7fadec")
         ]
 
         #expect(produced.count == fixtures.count)
@@ -106,7 +108,7 @@ struct CompanionProtocolTests {
             return try CompanionServerEvent.decode(fixture.line)
         }
 
-        #expect(try event("server_hello") == .serverHello(minVersion: 1, maxVersion: 2))
+        #expect(try event("server_hello") == .serverHello(minVersion: 2, maxVersion: 3))
 
         let duplicate = try event("accepted") { $0.object["duplicate"] as? Bool == true }
         #expect(duplicate == .accepted(CompanionAccepted(clientMsgId: "mac-1", duplicate: true, serverSeq: 13)))
@@ -160,8 +162,8 @@ struct CompanionProtocolTests {
         }
         #expect(refusal.reason == "unsupported_protocol_version")
         #expect(refusal.direction == .clientTooNew)
-        #expect(refusal.clientVersion == 3)
-        #expect(refusal.window == CompanionVersionWindow(minimum: 1, maximum: 2))
+        #expect(refusal.clientVersion == 4)
+        #expect(refusal.window == CompanionVersionWindow(minimum: 2, maximum: 3))
     }
 
     /// The contract takes exactly one cursor, and the Swift value is the only
@@ -269,7 +271,7 @@ struct CompanionProtocolTests {
     /// silently dropped, so it decodes to a value that carries its type.
     /// The vendored goldens carry no preview, so the line is built in the
     /// schema's `linkPreviewCard` shape: with and without its optional fields.
-    @Test("a history row keeps its media refs, its kind and its stored link previews")
+    @Test("a history row keeps its media refs and its stored link previews")
     func historyRowKeepsItsMedia() throws {
         let line = Data(#"""
         {"type":"history_page","profile_id":"main","history_head_seq":7,"messages":[{"server_seq":7,"role":"user","content":"see https://x.test/a and https://y.test","kind":"media","ts":"2026-10-11T17:16:19Z","media_refs":[{"ref":"3f46f7693efbeb011de675f80f03d6e94717a4150e38a1bac1e6dad75a0d95c3","kind":"audio","mime":"audio/ogg","size_bytes":33419,"filename":"voice-note.ogg"}],"link_previews":[{"url":"https://x.test/a","site":"X","title":"A page","description":"What it says","image_ref":"9214332e155bb4042b5019c575d43397cba703a76fe3246218546f13d4055569"},{"url":"https://www.y.test/","site":"Y","title":"Y home"}]}]}
@@ -281,19 +283,130 @@ struct CompanionProtocolTests {
         }
         let row = CompanionRow(exported)
 
-        #expect(row.kind == "media")
         #expect(row.mediaRefs.map(\.kind) == ["audio"])
         #expect(row.mediaRefs.first?.filename == "voice-note.ogg")
         #expect(row.linkPreviews == [
             CompanionLinkPreview(
+                link: nil,
                 url: "https://x.test/a",
                 site: "X",
                 title: "A page",
                 description: "What it says",
                 imageRef: "9214332e155bb4042b5019c575d43397cba703a76fe3246218546f13d4055569"
             ),
-            CompanionLinkPreview(url: "https://www.y.test/", site: "Y", title: "Y home", description: nil, imageRef: nil)
+            CompanionLinkPreview(link: nil, url: "https://www.y.test/", site: "Y", title: "Y home", description: nil, imageRef: nil)
         ])
+    }
+
+    // MARK: - Version 3
+
+    /// The vendored goldens are version 2 until the engine's version 3 is
+    /// re-vendored, so these lines are built from the contract's shapes.
+    @Test("a live row carries its media refs and link previews in the history message's shapes")
+    func announcedRowKeepsItsMedia() throws {
+        let line = Data(#"""
+        {"type":"row","profile_id":"main","server_seq":21,"role":"user","text":"","ts":"2026-10-15T09:00:00Z","kind":"media","media_refs":[{"ref":"3f46f7693efbeb011de675f80f03d6e94717a4150e38a1bac1e6dad75a0d95c3","kind":"audio","mime":"audio/ogg","size_bytes":48213,"sha256":"3f46f7693efbeb011de675f80f03d6e94717a4150e38a1bac1e6dad75a0d95c3"}],"link_previews":[{"url":"https://x.test/a","site":"X","title":"A page","image_ref":"9214332e155bb4042b5019c575d43397cba703a76fe3246218546f13d4055569"}]}
+        """#.utf8)
+
+        guard case .row(let announced) = try CompanionServerEvent.decode(line) else {
+            Issue.record("the row did not decode as a row")
+            return
+        }
+        let row = CompanionRow(announced)
+
+        #expect(row.mediaRefs.map(\.mime) == ["audio/ogg"])
+        #expect(row.mediaRefs.first?.sizeBytes == 48213)
+        #expect(row.linkPreviews.map(\.imageRef) == ["9214332e155bb4042b5019c575d43397cba703a76fe3246218546f13d4055569"])
+        #expect(CompanionServerWire.object(.row(announced)) as NSDictionary == (try wireObject(line)))
+    }
+
+    @Test("a live row's media refs are required, possibly empty, and its link previews optional")
+    func announcedRowMediaRefsAreRequired() throws {
+        let bare = #"{"type":"row","profile_id":"main","server_seq":3,"role":"assistant","text":"Done.","ts":"2026-10-15T09:00:00Z""#
+        guard case .row(let empty) = try CompanionServerEvent.decode(Data((bare + #","media_refs":[]}"#).utf8)) else {
+            Issue.record("the row did not decode as a row")
+            return
+        }
+
+        #expect(empty.mediaRefs.isEmpty)
+        #expect(empty.linkPreviews == nil)
+        #expect(throws: CompanionDecodeFailure.missingField("media_refs")) {
+            _ = try CompanionServerEvent.decode(Data((bare + "}").utf8))
+        }
+    }
+
+    @Test("a grant, a missing file and a changed row decode under the Swift names and write back as themselves")
+    func versionThreeServerEvents() throws {
+        let ref = "3f46f7693efbeb011de675f80f03d6e94717a4150e38a1bac1e6dad75a0d95c3"
+        let lines: [(String, CompanionServerEvent)] = [
+            (
+                #"{"type":"media_path","ref":"\#(ref)","path":"/Users/me/.fermix/companion/media/\#(ref).ogg","kind":"audio","mime":"audio/ogg","size_bytes":48213,"sha256":"\#(ref)"}"#,
+                .mediaPath(CompanionMediaPath(
+                    ref: ref,
+                    path: "/Users/me/.fermix/companion/media/\(ref).ogg",
+                    kind: "audio",
+                    mime: "audio/ogg",
+                    sizeBytes: 48213,
+                    sha256: ref
+                ))
+            ),
+            (#"{"type":"media_missing","ref":"\#(ref)"}"#, .mediaMissing(ref: ref)),
+            (#"{"type":"row_updated","profile_id":"main","server_seq":21}"#, .rowUpdated(profileId: "main", serverSeq: 21))
+        ]
+
+        for (line, expected) in lines {
+            let event = try CompanionServerEvent.decode(Data(line.utf8))
+
+            #expect(event == expected)
+            #expect(!event.isUnrecognized)
+            #expect(CompanionServerWire.object(event) as NSDictionary == (try wireObject(Data(line.utf8))))
+        }
+        #expect(throws: CompanionDecodeFailure.missingField("sha256")) {
+            _ = try CompanionServerEvent.decode(Data(#"{"type":"media_path","ref":"\#(ref)","path":"/p","kind":"audio","mime":"audio/ogg","size_bytes":1}"#.utf8))
+        }
+        #expect(throws: CompanionDecodeFailure.missingField("server_seq")) {
+            _ = try CompanionServerEvent.decode(Data(#"{"type":"row_updated","profile_id":"main"}"#.utf8))
+        }
+    }
+
+    @Test("a failed grant's error names its ref, and every other error names none")
+    func errorCarriesItsRef() throws {
+        let ref = "3f46f7693efbeb011de675f80f03d6e94717a4150e38a1bac1e6dad75a0d95c3"
+        let failed = try CompanionServerEvent.decode(
+            Data(#"{"type":"error","reason":"request_failed","message":"the copy could not be made","ref":"\#(ref)"}"#.utf8)
+        )
+        let other = try CompanionServerEvent.decode(Data(#"{"type":"error","reason":"unsupported_profile"}"#.utf8))
+
+        guard case .error(let grant) = failed, case .error(let refusal) = other else {
+            Issue.record("the errors did not decode as errors")
+            return
+        }
+        #expect(grant.ref == ref)
+        #expect(grant.reason == "request_failed")
+        #expect(refusal.ref == nil)
+    }
+
+    @Test("a media fetch and a media release carry the profile and the ref")
+    func mediaClientEvents() throws {
+        let ref = "3f46f7693efbeb011de675f80f03d6e94717a4150e38a1bac1e6dad75a0d95c3"
+        let fetch = CompanionClientEvent.mediaFetch(profileId: CompanionProtocol.profileId, ref: ref)
+        let release = CompanionClientEvent.mediaRelease(profileId: CompanionProtocol.profileId, ref: ref)
+
+        #expect(try wireObject(fetch.line()) == ["type": "media_fetch", "profile_id": "main", "ref": ref] as NSDictionary)
+        #expect(try wireObject(release.line()) == ["type": "media_release", "profile_id": "main", "ref": ref] as NSDictionary)
+    }
+
+    @Test("a media ref is 64 lowercase hex digits and nothing else")
+    func mediaRefShape() {
+        #expect(CompanionProtocol.isMediaRef(String(repeating: "0", count: 32) + String(repeating: "f", count: 32)))
+        #expect(CompanionProtocol.isMediaRef("3f46f7693efbeb011de675f80f03d6e94717a4150e38a1bac1e6dad75a0d95c3"))
+        #expect(!CompanionProtocol.isMediaRef(""))
+        #expect(!CompanionProtocol.isMediaRef(String(repeating: "a", count: 63)))
+        #expect(!CompanionProtocol.isMediaRef(String(repeating: "a", count: 65)))
+        #expect(!CompanionProtocol.isMediaRef(String(repeating: "A", count: 64)))
+        #expect(!CompanionProtocol.isMediaRef(String(repeating: "g", count: 64)))
+        #expect(!CompanionProtocol.isMediaRef("../" + String(repeating: "a", count: 61)))
+        #expect(!CompanionProtocol.isMediaRef(String(repeating: "é", count: 32)))
     }
 
     @Test("an unknown event type is preserved and never fatal")
@@ -319,12 +432,12 @@ struct CompanionProtocolTests {
 
     @Test("a version window names the side that must update")
     func windowNamesTheOutdatedSide() {
-        let window = CompanionVersionWindow(minimum: 3, maximum: 4)
+        let window = CompanionVersionWindow(minimum: CompanionProtocol.version + 1, maximum: CompanionProtocol.version + 2)
 
-        #expect(window.contains(3))
+        #expect(window.contains(CompanionProtocol.version + 1))
         #expect(!window.contains(CompanionProtocol.version))
-        #expect(window.direction(for: 2) == .clientTooOld)
-        #expect(window.direction(for: 5) == .clientTooNew)
+        #expect(window.direction(for: CompanionProtocol.version) == .clientTooOld)
+        #expect(window.direction(for: CompanionProtocol.version + 3) == .clientTooNew)
     }
 }
 

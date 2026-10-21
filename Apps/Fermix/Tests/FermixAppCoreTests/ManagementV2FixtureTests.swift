@@ -99,22 +99,48 @@ struct ManagementV2FixtureTests {
             ("pairing attestation status", Array(ManagementPairingAttestationStatus.publishedValues.keys)),
             ("mobile listener status", Array(ManagementMobileListenerStatus.publishedValues.keys)),
             ("mobile announcement", Array(ManagementMobileAnnouncement.publishedValues.keys)),
+            ("mobile remote state", Array(ManagementMobileRemoteState.publishedValues.keys)),
             ("mobile credentials", Array(ManagementMobileCredentials.publishedValues.keys)),
             ("mobile signer role", Array(ManagementMobileSignerRole.publishedValues.keys)),
             ("imessage grant service", Array(ManagementIMessageGrantService.publishedValues.keys)),
             ("imessage full disk access", Array(ManagementIMessageFullDiskAccess.publishedValues.keys)),
             ("imessage database", Array(ManagementIMessageDatabase.publishedValues.keys)),
             ("imessage automation", Array(ManagementIMessageAutomation.publishedValues.keys)),
-            ("imessage policy", Array(ManagementIMessagePolicy.publishedValues.keys))
+            ("imessage policy", Array(ManagementIMessagePolicy.publishedValues.keys)),
+            ("mcp transport", Array(ManagementMCPTransport.publishedValues.keys)),
+            ("mcp action", Array(ManagementMCPAction.publishedValues.keys)),
+            ("mcp auth mode", Array(ManagementMCPAuthMode.publishedValues.keys)),
+            ("mcp auth state", Array(ManagementMCPAuthState.publishedValues.keys)),
+            ("mcp import source", Array(ManagementMCPImportSource.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 29)
+        #expect(modelled.count == 35)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),
                 "the \(name) vocabulary is not a set the schema publishes: \(values.sorted())"
             )
         }
+    }
+
+    /// The MCP row's status is a plain string in the row's schema, so its
+    /// closed set is the one `x-mcp-server-vocabulary` publishes beside the
+    /// actions and auth states, read from the artifact rather than restated.
+    @Test("the MCP row vocabularies are the sets x-mcp-server-vocabulary publishes")
+    func mcpVocabulariesMatchTheSchema() throws {
+        let document = try #require(
+            try JSONSerialization.jsonObject(
+                with: try VendoredContracts.data(.management, "protocol.schema.json")
+            ) as? [String: Any]
+        )
+        let vocabulary = try #require(document["x-mcp-server-vocabulary"] as? [String: Any])
+
+        #expect(Set(try #require(vocabulary["statuses"] as? [String])) == Set(ManagementMCPStatus.publishedValues.keys))
+        #expect(Set(try #require(vocabulary["actions"] as? [String])) == Set(ManagementMCPAction.publishedValues.keys))
+        #expect(
+            Set(try #require(vocabulary["auth_states"] as? [String]))
+                == Set(ManagementMCPAuthState.publishedValues.keys)
+        )
     }
 
     @Test("every golden request is exercised")
@@ -214,7 +240,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 97, "every success record was decoded")
+        #expect(seen.count == 126, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -311,7 +337,45 @@ struct ManagementV2FixtureTests {
             carried += 1
         }
 
-        #expect(carried == 3, "the contract publishes a detail sentence for three codes")
+        #expect(carried == 11, "the contract publishes a detail sentence on eleven records")
+    }
+
+    /// An MCP server form's refusal names the input it is about in the
+    /// form's own words, so the form can mark that input with the sentence.
+    @Test("an MCP server refusal names its field beside the daemon's sentence")
+    func mcpServerRefusalNamesItsField() throws {
+        let refused = try Self.failure(named: "invalid_params_mcp_server_field")
+        let error = ManagementError.daemon(refused)
+
+        #expect(refused.code == .invalidParams)
+        #expect(ManagementMessage.details(of: error)?.field == "command_line")
+        #expect(ManagementMessage.sentence(for: error) == "A quotation mark is not closed.")
+    }
+
+    /// A secret answer names the environment variable the daemon uses in
+    /// place of the stored value. Every golden says none is, and an older
+    /// daemon that sends no field at all reads the same way.
+    @Test("a secret answer's environment override decodes, and its absence reads as none")
+    func secretAnswersCarryTheirOverride() throws {
+        for name in ["secret_set", "secret_clear", "secret_set_external_env", "secret_set_mcp_env"] {
+            let state: ManagementSecretState = try FakeDaemonGateway.fixtureResult(
+                named: name,
+                as: ManagementSecretState.self
+            )
+            #expect(state.environmentOverride == nil, "\(name) names an override")
+        }
+
+        let overridden = try JSONDecoder().decode(
+            ManagementSecretState.self,
+            from: Data(#"{"id": "openai_api_key", "present": true, "restart": {"required": false, "reasons": []}, "environment_override": "OPENAI_API_KEY"}"#.utf8)
+        )
+        let older = try JSONDecoder().decode(
+            ManagementSecretState.self,
+            from: Data(#"{"id": "openai_api_key", "present": true, "restart": {"required": false, "reasons": []}}"#.utf8)
+        )
+
+        #expect(overridden.environmentOverride == "OPENAI_API_KEY")
+        #expect(older.environmentOverride == nil)
     }
 
     /// The two codes that carry one, by name, so the accessor cannot quietly
@@ -501,7 +565,7 @@ struct ManagementV2FixtureTests {
     @Test("no job kind is doctor, in the schema or in the app")
     func doctorIsNotAJobKind() throws {
         #expect(ManagementJobKind.publishedValues["doctor"] == nil)
-        #expect(ManagementJobKind.publishedValues.count == 13)
+        #expect(ManagementJobKind.publishedValues.count == 14)
 
         let jobs: ManagementJobList = try FakeDaemonGateway.fixtureResult(
             named: "job_list",

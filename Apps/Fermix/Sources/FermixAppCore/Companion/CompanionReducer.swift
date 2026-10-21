@@ -20,10 +20,15 @@ enum CompanionReducer {
     /// A client that holds rows reads on from its cursor. One that holds none
     /// has nothing to read on from and asks for the newest page; its head is
     /// then the cursor, and older rows are read on demand.
-    static func negotiated(_ chat: inout CompanionChat) -> [CompanionClientEvent] {
+    ///
+    /// The notices sent while this client was away are lost, so the held rows
+    /// on screen, which the transcript reported last, are read again once the
+    /// catch-up read has drained (M66 §3.6): they wait behind it.
+    static func negotiated(_ chat: inout CompanionChat, onScreen: Set<Int>) -> [CompanionClientEvent] {
         let catchUp: CompanionHistoryCursor = chat.rows.isEmpty
             ? .before(seq: newestPageBound)
             : .after(seq: chat.cursor)
+        readAgain(onScreen, in: &chat)
 
         return send(.catchUp(catchUp), into: &chat) + chat.pending.map(\.event)
     }
@@ -36,10 +41,15 @@ enum CompanionReducer {
     /// catch-up read. A page the reader scrolled to is not kept: they ask
     /// again when they next reach the top, so a page landing late cannot move
     /// a reader who has scrolled on.
+    ///
+    /// No notice about a held row reaches a client that is away, so every
+    /// held row is marked as read before the disconnect, to be read again as
+    /// it comes on screen (M66 §3.6).
     static func disconnected(_ chat: inout CompanionChat) {
         if case .rows(let read) = chat.historyPull {
             chat.rowsToRead.formUnion(read.seqs)
         }
+        chat.readBeforeDisconnect = Set(chat.rows.map(\.serverSeq))
         chat.historyPull = nil
         chat.olderWaiting = nil
         chat.turn = nil
@@ -135,6 +145,27 @@ enum CompanionReducer {
         chat.search = nil
     }
 
+    /// The held rows the transcript shows now. Those read before a disconnect
+    /// are read again, in one read for what came on screen together, behind
+    /// any read out or waiting ahead of it (M66 §3.6).
+    static func rowsOnScreen(_ seqs: Set<Int>, into chat: inout CompanionChat) -> [CompanionClientEvent] {
+        guard readAgain(seqs, in: &chat) else { return [] }
+
+        return sendWaiting(&chat)
+    }
+
+    /// Moves the rows read before a disconnect among `seqs` to the rows to
+    /// read, and says whether there were any.
+    @discardableResult
+    private static func readAgain(_ seqs: Set<Int>, in chat: inout CompanionChat) -> Bool {
+        let due = chat.readBeforeDisconnect.intersection(seqs)
+        guard !due.isEmpty else { return false }
+
+        chat.readBeforeDisconnect.subtract(due)
+        chat.rowsToRead.formUnion(due)
+        return true
+    }
+
     /// The newest held row was seen. The frontier moves once per row, and never
     /// behind where the daemon already has it.
     static func newestRowSeen(_ chat: inout CompanionChat) -> [CompanionClientEvent] {
@@ -186,8 +217,8 @@ enum CompanionReducer {
             var turn = held(tool.turnId, in: chat)
             turn.tool = tool
             chat.turn = turn
-        case .textDone(let turnId, let serverSeq, let text):
-            return finish(turnId, at: serverSeq, text: text, into: &chat)
+        case .textDone(let turnId, let serverSeq, let text, let blocks):
+            return finish(turnId, at: serverSeq, text: text, blocks: blocks, into: &chat)
         case .turnError(let turnId, let code, let message):
             end(turnId, in: &chat)
             chat.lastError = sentence(forTurnError: code, message: message)
@@ -208,7 +239,10 @@ enum CompanionReducer {
             show(results, in: &chat)
         case .error(let error):
             refuse(error, in: &chat)
-        case .serverHello, .unrecognized:
+        case .rowUpdated(_, let serverSeq):
+            return updated(serverSeq, into: &chat)
+        case .serverHello, .mediaPath, .mediaMissing, .unrecognized:
+            // The handshake and the grants are the session's, never the chat's.
             break
         }
 
@@ -231,12 +265,14 @@ enum CompanionReducer {
         _ turnId: String,
         at serverSeq: Int,
         text: String,
+        blocks: [CompanionBlock],
         into chat: inout CompanionChat
     ) -> [CompanionClientEvent] {
         let inReplyTo = chat.turn?.turnId == turnId ? chat.turn?.inReplyTo : nil
         end(turnId, in: &chat)
 
-        return applyLive(CompanionRow(reply: turnId, serverSeq: serverSeq, text: text, inReplyTo: inReplyTo), into: &chat)
+        let row = CompanionRow(reply: turnId, serverSeq: serverSeq, text: text, inReplyTo: inReplyTo, blocks: blocks)
+        return applyLive(row, into: &chat)
     }
 
     private static func end(_ turnId: String, in chat: inout CompanionChat) {
@@ -290,50 +326,25 @@ enum CompanionReducer {
 
     // MARK: - The cursor rule
 
-    /// A row announced live, held by the cursor rule. What an announcement
-    /// cannot carry is read from history, with no timer (M66 §3.6, stage 1):
-    /// a media row's files, once, when the announcement is what brought the
-    /// row; and a voice note's transcript, read when an assistant's row is
-    /// announced, until a page brings the note's reply. A row typed here is
-    /// text, and a reply to this Mac's own turn arrives as its `text_done`:
-    /// neither is read again.
+    /// A row announced live, held by the cursor rule. It carries its files and
+    /// previews (version 3), so it is never read for them; what is stored on
+    /// it later is announced as `row_updated`.
     private static func announce(
         _ announced: CompanionAnnouncedRow,
         into chat: inout CompanionChat
     ) -> [CompanionClientEvent] {
-        let shownNow = announced.serverSeq == chat.cursor + 1
-        let replies = applyLive(CompanionRow(announced), into: &chat)
-
-        if announced.role == "assistant" {
-            readTranscripts(upTo: announced.serverSeq, in: &chat)
-        }
-        if announced.kind == "media" {
-            if shownNow {
-                chat.rowsToRead.insert(announced.serverSeq)
-            }
-            // A voice note is the person's, announced with no text, and its
-            // reply names the request it recorded; its read says whether it
-            // is one.
-            if announced.role == "user", announced.text.isEmpty, let request = announced.clientMsgId {
-                chat.awaitingTranscript[announced.serverSeq] = request
-            }
-        }
-
-        return replies + sendWaiting(&chat)
+        applyLive(CompanionRow(announced), into: &chat)
     }
 
-    /// An assistant's row may be the reply to a voice note waiting for its
-    /// transcript: the engine writes that reply only once the transcript is
-    /// stored or has failed. The rows from the oldest note waiting up to this
-    /// one are read, and the page says which note, if any, it answers; a
-    /// delivery costs the read and the notes wait on. A note a page of rows
-    /// behind this one is waited for no more: it stays as history last had it.
-    private static func readTranscripts(upTo seq: Int, in chat: inout CompanionChat) {
-        let reach = seq - CompanionProtocol.historyPageLimit
-        chat.awaitingTranscript = chat.awaitingTranscript.filter { $0.key > reach }
-        guard let oldest = chat.awaitingTranscript.keys.min() else { return }
+    /// A held row changed after it was written: its transcript, its files or
+    /// a link preview was stored (M66 §3.6). It joins the rows to read, which
+    /// the next read serves however many notices name them. A row not held is
+    /// read as it stands when a page brings it.
+    private static func updated(_ seq: Int, into chat: inout CompanionChat) -> [CompanionClientEvent] {
+        guard chat.rows.contains(where: { $0.serverSeq == seq }) else { return [] }
 
-        chat.rowsToRead.formUnion([oldest, seq])
+        chat.rowsToRead.insert(seq)
+        return sendWaiting(&chat)
     }
 
     /// A live row is shown when it is the next seq, dropped at or below the
@@ -361,7 +372,10 @@ enum CompanionReducer {
     ///
     /// A row the page brings again replaces the held one at its seq, and a
     /// row that now draws differently is a change of height the transcript
-    /// holds the reader against.
+    /// holds the reader against. A row the page brings is as history has it
+    /// now, so it is no longer one read before a disconnect; a notice that
+    /// arrived while the read was out stays to be read, since the page may
+    /// have been read before the change was stored.
     private static func merge(_ page: CompanionHistoryPage, into chat: inout CompanionChat) -> [CompanionClientEvent] {
         let answered = chat.historyPull
         chat.historyPull = nil
@@ -374,13 +388,10 @@ enum CompanionReducer {
         if case .before = answered?.cursor {
             chat.hasOlder = page.nextBeforeSeq != nil
         }
-        // A row the page brought is as history has it now: it needs no read
-        // of its own.
-        chat.rowsToRead.subtract(pageRows.map(\.serverSeq))
+        chat.readBeforeDisconnect.subtract(pageRows.map(\.serverSeq))
         if case .rows(let read) = answered {
             chat.rowsToRead.formUnion(read.unreached(by: page))
         }
-        settleTranscripts(pageRows, in: &chat)
         if !replaced.isEmpty {
             reshape(replaced, in: &chat)
         }
@@ -405,27 +416,6 @@ enum CompanionReducer {
         }
 
         return (bySeq.values.sorted { $0.serverSeq < $1.serverSeq }, replaced)
-    }
-
-    /// The voice notes a page settles (M66 §3.6, stage 1). A note it shows to
-    /// be no voice note, or to have its text, waits no more. Nor does a note
-    /// whose reply it brings: the reply is written only after the transcript
-    /// is stored or has failed, so the note is final as this page brought it,
-    /// or, where the page did not bring it, as one more read of it finds it.
-    private static func settleTranscripts(_ pageRows: [CompanionRow], in chat: inout CompanionChat) {
-        for row in pageRows where !row.awaitsTranscript {
-            chat.awaitingTranscript[row.serverSeq] = nil
-        }
-
-        let replied = Set(pageRows.compactMap(\.inReplyTo))
-        let brought = Set(pageRows.map(\.serverSeq))
-        let answered = chat.awaitingTranscript.filter { replied.contains($0.value) }.keys
-        for seq in answered {
-            chat.awaitingTranscript[seq] = nil
-            if !brought.contains(seq) {
-                chat.rowsToRead.insert(seq)
-            }
-        }
     }
 
     /// Publishes held rows whose height changed in place, as a change of its

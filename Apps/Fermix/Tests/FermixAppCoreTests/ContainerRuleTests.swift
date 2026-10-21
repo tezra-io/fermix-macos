@@ -106,11 +106,17 @@ struct ContainerRuleTests {
     ///
     /// Derived from the sheet declarations rather than a list, so a sheet added
     /// later joins the rule.
+    ///
+    /// The default action is `PrimaryAction`, the only default a sheet draws
+    /// (the sheet ground rule). The pair is held where both sit in one block:
+    /// a span that leaves the block Cancel is in has crossed to another step
+    /// of the sheet, with buttons of its own.
     @Test("every sheet titles at the headline rung with Cancel beside the default")
     func sheetsTitleAndOrderTheirButtons() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
             .filter { $0.text.contains("Sheet: View") }
         var checked = 0
+        var paired = 0
 
         #expect(!files.isEmpty, "the scan found no sheets at all")
         for file in files {
@@ -124,23 +130,35 @@ struct ContainerRuleTests {
                 )
 
                 guard let cancel = body.range(of: ".keyboardShortcut(.cancelAction)"),
-                      let action = body.range(of: ".keyboardShortcut(.defaultAction)"),
-                      cancel.lowerBound < action.lowerBound
+                      let action = body[cancel.upperBound...].range(of: "PrimaryAction("),
+                      Self.staysInOneBlock(body[cancel.upperBound..<action.lowerBound])
                 else { continue }
 
-                // Exactly one `Button(` between the two shortcuts: the default
-                // action's own, since a shortcut is written after the button it
-                // is on. A third button in that span is one standing between
-                // Cancel and the action it cancels.
-                let between = body[cancel.upperBound..<action.lowerBound]
+                // No `Button(` between Cancel's shortcut and the default: a
+                // button in that span is one standing between Cancel and the
+                // action it cancels.
+                paired += 1
                 #expect(
-                    between.components(separatedBy: "Button(").count == 2,
+                    !body[cancel.upperBound..<action.lowerBound].contains("Button("),
                     "\(declaration) puts a button between Cancel and the default action"
                 )
             }
         }
 
         #expect(checked >= 8, "only \(checked) sheets were scanned")
+        #expect(paired >= 4, "only \(paired) sheets were checked for the Cancel and default pair")
+    }
+
+    /// Whether a span of source stays inside the block it starts in.
+    private static func staysInOneBlock(_ span: Substring) -> Bool {
+        var depth = 0
+        for character in span {
+            if character == "{" { depth += 1 }
+            if character == "}" { depth -= 1 }
+            if depth < 0 { return false }
+        }
+
+        return true
     }
 
     /// A popup never raises a second popup (owner directive of 2026-09-20: "I
@@ -321,6 +339,22 @@ struct ContainerRuleTests {
         // make, so the browser target itself has to show up in it.
         #expect(importers.contains { $0.path.contains("/FermixBrowser/") }, "the scan found no browser target")
         #expect(offenders.isEmpty, "web content outside the browser target in: \(offenders.map(\.path))")
+    }
+
+    /// The maps are a reply's map's and nobody else's (M72 §7.2), for the
+    /// same reason: a MapKit import in `FermixAppCore` would put the maps
+    /// into `FermixAgent`, which draws nothing. The core declares the
+    /// `PlaceMaps` seam and imports nothing; `FermixViewers`, linked by
+    /// the GUI executable alone, is the one place a snapshot is taken and a
+    /// place is opened in Maps.
+    @Test("only the viewers target imports MapKit")
+    func noMapKit() throws {
+        let importers = try SparkleAdapterSource.everySwiftFileUnderSources()
+            .filter { $0.text.contains("import MapKit") || $0.text.contains("MKMapSnapshotter") }
+        let offenders = importers.filter { !$0.path.contains("/FermixViewers/") }
+
+        #expect(importers.contains { $0.path.contains("/FermixViewers/") }, "the scan found no viewers target")
+        #expect(offenders.isEmpty, "maps outside the viewers target in: \(offenders.map(\.path))")
     }
 
     /// The primitives M34 §6 deletes. Written as one invariant over the whole
@@ -514,8 +548,13 @@ struct ContainerRuleTests {
     /// the shared background behind that capsule as well as behind the status
     /// sentence, so the same modifier covers both and the inventory stays at
     /// five expressions over four files.
+    ///
+    /// The sheet ground adds a fifth file (owner, 2026-10-16): the Liquid Glass
+    /// recipe, one of the two the owner chooses a sheet's glass from. The floor
+    /// has no Liquid Glass, so there the recipe draws the frame's glass.
     static let macOS26Sites: [String: [String]] = [
         "App/AppKitWindowHost.swift": ["window.titlebarAppearsTransparent = Self.titlebarIsClear("],
+        "Design/Materials/SheetGround.swift": ["NSGlassEffectView("],
         "Design/Components/SurfaceToolbar.swift": [
             "ToolbarSpacer(",
             ".sharedBackgroundVisibility("

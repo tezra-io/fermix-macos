@@ -149,6 +149,13 @@ public struct BootstrapRecord: Equatable, Sendable {
         fermixHome.appendingPathComponent("browser_host.sock", isDirectory: false)
     }
 
+    /// The native host socket for this home, the fifth wire, in the browser
+    /// host's direction: the app attaches as this Mac's native host, and the
+    /// daemon asks it for the Mac's own services.
+    public var nativeHostSocketURL: URL {
+        fermixHome.appendingPathComponent("native_host.sock", isDirectory: false)
+    }
+
     /// The engine's own workspace, the root a `page.upload` path the daemon
     /// names must fall under: the file a page receives is one the engine keeps
     /// there. The host client refuses one that does not.

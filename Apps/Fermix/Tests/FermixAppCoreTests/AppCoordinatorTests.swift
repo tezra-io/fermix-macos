@@ -475,6 +475,37 @@ struct AppCoordinatorTests {
         #expect(holding.stopped == 1)
     }
 
+    /// The browser pane and the native host each hold the quit for their own
+    /// answer, side by side, and the quit goes on once the slower of the two
+    /// has ended its hold, never before and never twice.
+    @Test("two hosts' holds run together and the quit goes on once both have ended")
+    func bothHostsHoldTheQuit() async throws {
+        let browser = HoldingHostQuitting()
+        let native = HoldingHostQuitting()
+        let harness = try CoordinatorHarness(bootstrap: .present, hostQuitting: HostQuitHolds([browser, native]))
+
+        #expect(harness.coordinator.terminationRequested() == .terminateLater)
+        #expect(browser.stopped == 1)
+        #expect(native.stopped == 1, "the second host is asked without waiting for the first")
+
+        native.release()
+        try await harness.coordinator.drainPendingWork()
+        #expect(harness.termination.completed == 0, "one host still holds the quit")
+
+        browser.release()
+        try await harness.coordinator.drainPendingWork()
+        #expect(harness.termination.completed == 1)
+    }
+
+    @Test("with no host to hold it, the quit goes on at once")
+    func noHostsHoldNothing() {
+        var done = 0
+
+        HostQuitHolds([]).stopHost { done += 1 }
+
+        #expect(done == 1)
+    }
+
     // MARK: - Hidden launches
 
     /// `--background` opens no window, exactly as a login launch does
@@ -486,6 +517,39 @@ struct AppCoordinatorTests {
         harness.coordinator.start(reason: .background)
 
         #expect(harness.windows.presented.isEmpty)
+    }
+
+    /// The daemon opens the app in the background to ring a reminder, and a
+    /// click on that notification is the person asking for the app: it comes
+    /// forward where a reopen in the background role would not.
+    @Test("a click on a notification brings the app forward, even from the background role")
+    func notificationClickBringsTheAppForward() async throws {
+        let harness = try makeCoordinator()
+        harness.coordinator.start(reason: .background)
+        try await harness.coordinator.drainPendingWork()
+
+        harness.coordinator.bringForward()
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.windows.presented == [.main])
+        #expect(harness.model.route == .home)
+    }
+
+    /// A window already open is raised where it stands: the click does not
+    /// take the person off the page they were on.
+    @Test("a click on a notification raises an open window without moving it to Home")
+    func notificationClickRaisesTheOpenWindow() async throws {
+        let harness = try makeCoordinator()
+        harness.coordinator.open(.chat)
+        try await harness.coordinator.drainPendingWork()
+        let presentations = harness.windows.presentations.count
+
+        harness.coordinator.bringForward()
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.model.route == .chat)
+        #expect(harness.windows.presentations.count == presentations)
+        #expect(harness.windows.focused.last == .main)
     }
 
     /// A reopen event while the app still runs in the background role is
@@ -638,9 +702,9 @@ final class CoordinatorHarness {
     let voice = FakeVoiceController()
     let lifecycle = FakeLifecycleController()
     let termination = FakeTerminationRequester()
-    /// The browser host's half of a quit. The default completes at once, as an
+    /// The hosts' part of a quit. The default completes at once, as an
     /// unattached host does; a case that wants to hold the quit passes its own.
-    let hostQuitting: any BrowserHostQuitting
+    let hostQuitting: any HostQuitting
     /// What the coordinator told VoiceOver, in order.
     let announcer = RecordingAnnouncer()
     let coordinator: AppCoordinator
@@ -665,7 +729,7 @@ final class CoordinatorHarness {
     init(
         bootstrap: BootstrapCondition,
         registrationBuild: AgentRegistrationBuild = .unregistered,
-        hostQuitting: (any BrowserHostQuitting)? = nil
+        hostQuitting: (any HostQuitting)? = nil
     ) throws {
         windows = FakeWindowHost()
         self.hostQuitting = hostQuitting ?? ImmediateHostQuitting()
@@ -841,13 +905,13 @@ final class FakeTerminationRequester: TerminationRequesting {
     }
 }
 
-/// The browser host's half of a quit, scripted rather than held: `stopHost`
+/// The hosts' part of a quit, scripted rather than held: `stopHost`
 /// answers on the spot, as an unattached host does, so a harness that does not
 /// care about the browser still exercises the real handshake shape. A case
 /// that does hold the quit builds its own `BrowserCoordinator` instead
 /// (`BrowserHostCoordinatorTests` already proves the reducer's own rules).
 @MainActor
-final class ImmediateHostQuitting: BrowserHostQuitting {
+final class ImmediateHostQuitting: HostQuitting {
     private(set) var stopped = 0
 
     func stopHost(done: @escaping @MainActor () -> Void) {
@@ -856,11 +920,11 @@ final class ImmediateHostQuitting: BrowserHostQuitting {
     }
 }
 
-/// The browser host's half of a quit, held until a case releases it: what an
+/// The hosts' part of a quit, held until a case releases it: what an
 /// attached host with a task tab open does while it waits on the daemon's
 /// answer or its own bound.
 @MainActor
-final class HoldingHostQuitting: BrowserHostQuitting {
+final class HoldingHostQuitting: HostQuitting {
     private(set) var stopped = 0
     private var pending: (@MainActor () -> Void)?
 

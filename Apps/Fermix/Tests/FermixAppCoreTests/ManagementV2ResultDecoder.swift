@@ -71,12 +71,26 @@ enum ManagementV2ResultDecoder {
             try read(ManagementMobileDevices.self, payload, identifier, method)
         case .mobileDevicesRevoke:
             try read(ManagementMobileDeviceRevoked.self, payload, identifier, method)
+        case .mcpServersList:
+            try read(ManagementMCPServerList.self, payload, identifier, method)
+        case .mcpServersDraft:
+            try read(ManagementMCPDrafts.self, payload, identifier, method)
+        case .mcpServersImportScan:
+            try read(ManagementMCPImportScan.self, payload, identifier, method)
+        case .mcpServersImport:
+            try read(ManagementMCPImported.self, payload, identifier, method)
+        case .mcpServersGet, .mcpServersUpdate, .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet:
+            try read(ManagementMCPServerRow.self, payload, identifier, method)
+        case .mcpServersAdd:
+            try read(ManagementMCPServerAdded.self, payload, identifier, method)
+        case .mcpServersRemove:
+            try read(ManagementMCPServerRemoved.self, payload, identifier, method)
 
         // Every remaining method answers the uniform job view.
         case .providersProbeStart, .jobGet, .jobCancel, .authImportStart, .pluginsInstallStart,
              .pluginsCheckStart, .pluginsWorkspacesDiscoverStart, .pluginsWorkspaceSelectStart,
              .capabilitiesInstallStart, .meetingsSigninStart, .computerUseGrantStart,
-             .browserInstallStart, .imessageGrantStart, .imessagePolicyConfirm:
+             .browserInstallStart, .imessageGrantStart, .imessagePolicyConfirm, .mcpServersCheckStart:
             try read(ManagementJob.self, payload, identifier, method)
         }
     }

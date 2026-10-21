@@ -267,7 +267,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case attentionProviderCredentialsBody = "attention.provider.credentials.body"
     case attentionChannelTitleFormat = "attention.channel.titleFormat"
     case attentionChannelBody = "attention.channel.body"
-    case attentionVoiceTitle = "attention.voice.title"
+    case attentionVoiceTitleFormat = "attention.voice.titleFormat"
     case attentionVoiceBody = "attention.voice.body"
     case attentionSandboxEnvMissingTitle = "attention.sandboxEnv.missing.title"
     case attentionSandboxEnvMissingBody = "attention.sandboxEnv.missing.body"
@@ -437,12 +437,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatSending = "chat.sending"
     case chatApprove = "chat.approve"
     case chatDeny = "chat.deny"
-    /// The turn answering now, before anything names what it is doing: after
-    /// `turn_started`, before the first `text_delta` or a named tool call.
+    /// The turn answering now, while it has no reply text yet and while a
+    /// tool it called runs.
     case chatThinking = "chat.thinking"
-    /// The turn's latest tool call, while it runs and once it has stopped.
-    case chatToolRunningFormat = "chat.tool.runningFormat"
-    case chatToolFinishedFormat = "chat.tool.finishedFormat"
+    /// The button that takes a reader up the transcript back to its foot.
+    case chatShowNewest = "chat.showNewest"
     case chatSearchPrompt = "chat.search.prompt"
     case chatSearchSearching = "chat.search.searching"
     case chatSearchNoMatches = "chat.search.noMatches"
@@ -456,6 +455,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatTilePagesMany = "chat.tile.pages.many"
     /// A voice note's chip, and its name where VoiceOver reads it.
     case chatVoiceNote = "chat.voiceNote"
+    /// The one player's two actions: a sound's button and VoiceOver actions
+    /// in the chat, and a media tab's Play while another holds the player.
+    case mediaPlay = "media.play"
+    case mediaPause = "media.pause"
     /// The word for what a tile is, after its name: one per kind, the app's
     /// own rather than the system's type description.
     case chatKindPicture = "chat.kind.picture"
@@ -466,6 +469,78 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatKindPage = "chat.kind.page"
     case chatKindFile = "chat.kind.file"
     case chatKindLink = "chat.kind.link"
+    /// A reply's code block, as VoiceOver names it, its language after it.
+    case chatCode = "chat.code"
+    /// The languages a code block's header names (`CodeLanguage`), each as
+    /// its own makers write it.
+    case chatCodeLanguageShell = "chat.code.language.shell"
+    case chatCodeLanguagePowerShell = "chat.code.language.powerShell"
+    case chatCodeLanguageBatch = "chat.code.language.batch"
+    case chatCodeLanguagePython = "chat.code.language.python"
+    case chatCodeLanguageRuby = "chat.code.language.ruby"
+    case chatCodeLanguagePerl = "chat.code.language.perl"
+    case chatCodeLanguageLua = "chat.code.language.lua"
+    case chatCodeLanguagePHP = "chat.code.language.php"
+    case chatCodeLanguageR = "chat.code.language.r"
+    case chatCodeLanguageSwift = "chat.code.language.swift"
+    case chatCodeLanguageObjectiveC = "chat.code.language.objectiveC"
+    case chatCodeLanguageKotlin = "chat.code.language.kotlin"
+    case chatCodeLanguageJava = "chat.code.language.java"
+    case chatCodeLanguageScala = "chat.code.language.scala"
+    case chatCodeLanguageDart = "chat.code.language.dart"
+    case chatCodeLanguageC = "chat.code.language.c"
+    case chatCodeLanguageCPlusPlus = "chat.code.language.cPlusPlus"
+    case chatCodeLanguageCSharp = "chat.code.language.cSharp"
+    case chatCodeLanguageGo = "chat.code.language.go"
+    case chatCodeLanguageRust = "chat.code.language.rust"
+    case chatCodeLanguageJavaScript = "chat.code.language.javaScript"
+    case chatCodeLanguageTypeScript = "chat.code.language.typeScript"
+    case chatCodeLanguageElixir = "chat.code.language.elixir"
+    case chatCodeLanguageErlang = "chat.code.language.erlang"
+    case chatCodeLanguageHaskell = "chat.code.language.haskell"
+    case chatCodeLanguageSQL = "chat.code.language.sql"
+    case chatCodeLanguageGraphQL = "chat.code.language.graphQL"
+    case chatCodeLanguageJSON = "chat.code.language.json"
+    case chatCodeLanguageYAML = "chat.code.language.yaml"
+    case chatCodeLanguageTOML = "chat.code.language.toml"
+    case chatCodeLanguageINI = "chat.code.language.ini"
+    case chatCodeLanguageXML = "chat.code.language.xml"
+    case chatCodeLanguageSVG = "chat.code.language.svg"
+    case chatCodeLanguageHTML = "chat.code.language.html"
+    case chatCodeLanguageCSS = "chat.code.language.css"
+    case chatCodeLanguageSCSS = "chat.code.language.scss"
+    case chatCodeLanguageLess = "chat.code.language.less"
+    case chatCodeLanguageMarkdown = "chat.code.language.markdown"
+    case chatCodeLanguageDiff = "chat.code.language.diff"
+    case chatCodeLanguageDockerfile = "chat.code.language.dockerfile"
+    case chatCodeLanguageMakefile = "chat.code.language.makefile"
+    case chatCodeLanguageText = "chat.code.language.text"
+    /// A reply's table and quote, as VoiceOver names them.
+    case chatTable = "chat.table"
+    case chatQuote = "chat.quote"
+    /// A list's marks: a bullet, a nested one, and a number with its point.
+    case chatListBullet = "chat.list.bullet"
+    case chatListBulletNested = "chat.list.bulletNested"
+    case chatListNumberFormat = "chat.list.numberFormat"
+    /// A task's box, as VoiceOver reads it before the task's words.
+    case chatTaskDone = "chat.task.done"
+    case chatTaskOpen = "chat.task.open"
+    /// A code block's or a table's Copy, and what it says for a moment once
+    /// pressed.
+    case chatCodeCopy = "chat.code.copy"
+    case chatCodeCopied = "chat.code.copied"
+    /// A reply's places (M72 §8.1): what VoiceOver calls the map, a card's
+    /// menu, and the rating and distance on a card, each a number and its
+    /// count or units.
+    case chatPlacesMap = "chat.places.map"
+    case chatPlaceOpenInMaps = "chat.place.openInMaps"
+    /// What a click on a place Apple Maps found does, as VoiceOver hints it
+    /// (§14.1).
+    case chatPlaceShowOnMap = "chat.place.showOnMap"
+    case chatPlaceOpenWebsite = "chat.place.openWebsite"
+    case chatPlaceCopyAddress = "chat.place.copyAddress"
+    case chatPlaceRatingFormat = "chat.place.ratingFormat"
+    case chatPlaceDistanceFormat = "chat.place.distanceFormat"
 
     // The browser pane. Its one sentence says why something the person asked
     // for did not happen, or what became of a file they saved.
@@ -476,9 +551,20 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case browserNoticeNoApp = "browser.notice.noApp"
     /// A file the person opened from a link is not where the link says.
     case browserNoticeFileMissing = "browser.notice.fileMissing"
+    /// A file from the phone the engine could not get ready to open, for a
+    /// reason of its own (M66 decision 1): the person can ask again.
+    case browserNoticeFileNotReady = "browser.notice.fileNotReady"
     /// A text file that grew past what a file tab shows by the time it was
     /// read again.
     case browserNoticeFileTooLarge = "browser.notice.fileTooLarge"
+    /// A place from a reply that Maps could not open by Apple's own
+    /// identifier for it (M72 §14.1), which is never looked up again by its
+    /// name.
+    case browserNoticePlaceNotOpened = "browser.notice.placeNotOpened"
+    /// A place from a reply that Maps could not show on the reply's map by
+    /// Apple's own identifier for it (§14.1), which is never looked up again
+    /// by its name.
+    case browserNoticePlaceNotShown = "browser.notice.placeNotShown"
     /// A file the person chose a place for, by its name: on its way, saved,
     /// and stopped short, with the system's own sentence after.
     case browserNoticeDownloadingFormat = "browser.notice.downloadingFormat"
@@ -505,6 +591,14 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case browserSecure = "browser.secure"
     case browserOpenInBrowser = "browser.openInBrowser"
     case browserHide = "browser.hide"
+    /// The pane's zoom of the page in front, by key: a step either way, a
+    /// page at its own size or a picture at its actual size, and a picture
+    /// fitted to the pane. A picture tab also draws the last two as its one
+    /// zoom control.
+    case browserZoomIn = "browser.zoomIn"
+    case browserZoomOut = "browser.zoomOut"
+    case browserActualSize = "browser.actualSize"
+    case browserZoomToFit = "browser.zoomToFit"
     /// A file tab: the mark that says so, its file in the app on the Mac that
     /// opens it, named, and its file selected in Finder.
     case browserFileTab = "browser.fileTab"
@@ -551,6 +645,16 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// refuses to save: it finishes the engine's "The download did not
     /// finish: ...".
     case browserHostReasonTaskDownloadRefused = "browserHost.reason.taskDownloadRefused"
+
+    // The native host wire's own refusal messages (M76 §4.4): each stands as
+    // a host error's message, sent to the daemon over native_host.sock, which
+    // records a delivery's failure in them. Never drawn in this app's own UI.
+    /// `not_authorized` while the person has turned notifications off.
+    case nativeHostRefusalTurnedOff = "nativeHost.refusal.turnedOff"
+    /// `not_authorized` while nobody has been asked yet.
+    case nativeHostRefusalNotAsked = "nativeHost.refusal.notAsked"
+    /// `host_unavailable` for a request already on the wire as the app quits.
+    case nativeHostReasonAppQuitting = "nativeHost.reason.appQuitting"
 
     // Pet
     case petCallBegin = "pet.callBegin"
@@ -656,6 +760,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsListAdd = "settings.list.add"
     case settingsListAddPrompt = "settings.list.addPrompt"
     case settingsTextEmptyPrompt = "settings.text.emptyPrompt"
+    /// The one disclosure a section folds its advanced rows under (M62).
+    case settingsAdvancedTitle = "settings.advanced.title"
+    /// What VoiceOver says the Advanced row is: open or closed.
+    case settingsAdvancedExpanded = "settings.advanced.expanded"
+    case settingsAdvancedCollapsed = "settings.advanced.collapsed"
     case settingsChoiceNotSet = "settings.choice.notSet"
     case settingsChoiceSuggestions = "settings.choice.suggestions"
     /// What VoiceOver calls the info control beside a row's label. The row's own
@@ -665,7 +774,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsJobCancel = "settings.job.cancel"
     case settingsJobTimedOut = "settings.job.timedOut"
 
-    /// The ten job phases the contract publishes, in the app's own words. The
+    /// The job phases the contract publishes, in the app's own words. The
     /// wire value is an atom, so the sentence is the app's (M34 §7.3).
     case jobPhaseAwaitingBrowser = "job.phase.awaitingBrowser"
     case jobPhaseAwaitingSignIn = "job.phase.awaitingSignIn"
@@ -679,6 +788,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case jobPhaseSidecarDownloading = "job.phase.sidecarDownloading"
     case jobPhaseVerifying = "job.phase.verifying"
     case jobPhaseVerifyingSignIn = "job.phase.verifyingSignIn"
+    case jobPhaseConnecting = "job.phase.connecting"
+    case jobPhaseDiscovering = "job.phase.discovering"
+    case jobPhaseRegistering = "job.phase.registering"
+    case jobPhaseListingTools = "job.phase.listingTools"
     case settingsInstall = "settings.install"
 
     // Settings: the hand-built sections
@@ -784,6 +897,13 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case phoneStatusCouldNotStart = "phone.status.couldNotStart"
     case phoneStatusNoPhone = "phone.status.noPhone"
     case phoneStatusCountFormat = "phone.status.countFormat"
+    /// The line under Reach from anywhere (M62): where the rail stands. A rail
+    /// that failed says why in the daemon's sentence, which is not here.
+    case phoneRemoteHelperMissing = "phone.remote.helperMissing"
+    case phoneRemoteDormant = "phone.remote.dormant"
+    case phoneRemoteStarting = "phone.remote.starting"
+    case phoneRemoteReady = "phone.remote.ready"
+    case phoneRemoteNotConnected = "phone.remote.notConnected"
     case phonePair = "phone.pair"
     case phoneTurnOnAndRestart = "phone.turnOn.andRestart"
     case phoneTurnOnRestart = "phone.turnOn.restart"
@@ -834,6 +954,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case permissionScreenRecordingTitle = "permission.screenRecording.title"
     case permissionInputControlTitle = "permission.inputControl.title"
     case permissionBackgroundServiceTitle = "permission.backgroundService.title"
+    /// The app's own notification grant (M76 §4.8). The engine's refusal
+    /// sentence names it as "Settings > Permissions > Notifications > Grant…",
+    /// so this title and `permissionActionGrant` are held to those words.
+    case permissionNotificationsTitle = "permission.notifications.title"
     /// The iMessage helper's three rights (M54 §10.2).
     case permissionMessagesDataTitle = "permission.messagesData.title"
     case permissionMessagesAutomationTitle = "permission.messagesAutomation.title"
@@ -936,6 +1060,78 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case integrationDisclosureTitle = "integration.disclosure.title"
     case integrationTokenLabel = "integration.token.label"
 
+    // MCP servers the owner adds (M74). The status, consent and refusal lines
+    // are the daemon's; these are the app's own words around them.
+    case integrationsMCPFromPlugins = "integrations.mcp.fromPlugins"
+    case integrationsMCPAdd = "integrations.mcp.add"
+    case integrationsMCPAddMenuAdd = "integrations.mcp.addMenu.add"
+    case integrationsMCPAddMenuImport = "integrations.mcp.addMenu.import"
+    case integrationsMCPEmpty = "integrations.mcp.empty"
+    case mcpAddTitle = "mcp.add.title"
+    case mcpAddRemote = "mcp.add.remote"
+    case mcpAddLocal = "mcp.add.local"
+    case mcpAddWhereItRuns = "mcp.add.whereItRuns"
+    case mcpAddPasteHint = "mcp.add.pasteHint"
+    case mcpPastedTitle = "mcp.pasted.title"
+    case mcpCandidateTaken = "mcp.candidate.taken"
+    case mcpPastedKeysFooter = "mcp.pasted.keysFooter"
+    case mcpPastedAdd = "mcp.pasted.add"
+    case mcpImportTitle = "mcp.import.title"
+    case mcpImportKeysFooter = "mcp.import.keysFooter"
+    case mcpImportDo = "mcp.import.do"
+    case mcpImportNone = "mcp.import.none"
+    case mcpFieldURL = "mcp.field.url"
+    case mcpFieldCommand = "mcp.field.command"
+    case mcpFieldName = "mcp.field.name"
+    case mcpFieldNameFooter = "mcp.field.nameFooter"
+    case mcpFieldSignIn = "mcp.field.signIn"
+    case mcpSignInAutomatic = "mcp.signIn.automatic"
+    case mcpSignInAutomaticFooter = "mcp.signIn.automaticFooter"
+    case mcpSignInAPIKey = "mcp.signIn.apiKey"
+    case mcpSignInNone = "mcp.signIn.none"
+    case mcpFieldHeader = "mcp.field.header"
+    case mcpFieldKey = "mcp.field.key"
+    case mcpFieldVariables = "mcp.field.variables"
+    case mcpFieldAddVariable = "mcp.field.addVariable"
+    case mcpFieldHeaders = "mcp.field.headers"
+    case mcpFieldAddHeader = "mcp.field.addHeader"
+    case mcpFieldWorkingFolder = "mcp.field.workingFolder"
+    case mcpFieldClientID = "mcp.field.clientID"
+    case mcpFieldClientSecret = "mcp.field.clientSecret"
+    case mcpFieldClientFooter = "mcp.field.clientFooter"
+    case mcpFieldURLMissing = "mcp.field.urlMissing"
+    case mcpFieldCommandMissing = "mcp.field.commandMissing"
+    case mcpFieldNameMissing = "mcp.field.nameMissing"
+    case mcpMoreOptions = "mcp.moreOptions"
+    case mcpStored = "mcp.stored"
+    case mcpNotStored = "mcp.notStored"
+    case mcpStoredValue = "mcp.storedValue"
+    case mcpReplace = "mcp.replace"
+    case mcpGone = "mcp.gone"
+    case mcpDetailRunsOn = "mcp.detail.runsOn"
+    case mcpDetailServer = "mcp.detail.server"
+    case mcpDetailAccount = "mcp.detail.account"
+    case mcpDetailTools = "mcp.detail.tools"
+    case mcpDetailToolsCount = "mcp.detail.toolsCount"
+    case mcpDetailChoose = "mcp.detail.choose"
+    case mcpAccountSignedOut = "mcp.account.signedOut"
+    case mcpActionSignIn = "mcp.action.signIn"
+    case mcpActionSignOut = "mcp.action.signOut"
+    case mcpActionCheck = "mcp.action.check"
+    case mcpActionEdit = "mcp.action.edit"
+    case mcpActionLogs = "mcp.action.logs"
+    case mcpRemove = "mcp.remove"
+    case mcpRemoveConfirm = "mcp.remove.confirm"
+    case mcpRemoveDo = "mcp.remove.do"
+    case mcpToolsTitle = "mcp.tools.title"
+    case mcpToolsSearch = "mcp.tools.search"
+    case mcpToolsAllOn = "mcp.tools.allOn"
+    case mcpToolsAllOff = "mcp.tools.allOff"
+    case mcpToolReadOnly = "mcp.tool.readOnly"
+    case mcpToolDestructive = "mcp.tool.destructive"
+    case mcpToolChanges = "mcp.tool.changes"
+    case mcpToolUseFormat = "mcp.tool.useFormat"
+
     // Menu bar status item
     case menuStateStarting = "menu.state.starting"
     case menuGlyphRunning = "menu.glyph.running"
@@ -1030,21 +1226,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case timeHours = "time.hours"
     case timeMinute = "time.minute"
     case timeMinutes = "time.minutes"
-
-    // MARK: - Browser media (M66)
-
-    /// The pane's zoom of the page in front, by key: a step either way, a
-    /// page at its own size or a picture at its actual size, and a picture
-    /// fitted to the pane. A picture tab also draws the last two as its one
-    /// zoom control.
-    case browserZoomIn = "browser.zoomIn"
-    case browserZoomOut = "browser.zoomOut"
-    case browserActualSize = "browser.actualSize"
-    case browserZoomToFit = "browser.zoomToFit"
-    /// The one player's two actions: a media tab's Play while another holds
-    /// the player, and a sound's button and VoiceOver actions in the chat.
-    case mediaPlay = "media.play"
-    case mediaPause = "media.pause"
 
     /// The one recorded exception to the sentence-case rule (M34 §14 decision
     /// 4): macOS menu titles.

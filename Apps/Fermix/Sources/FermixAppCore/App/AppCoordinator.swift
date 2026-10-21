@@ -65,10 +65,11 @@ public final class AppCoordinator {
     /// bootstrap condition is.
     private let registrationBuild: () -> AgentRegistrationBuild
     private let termination: any TerminationRequesting
-    /// The browser host's half of a quit (plan §4.0): a run loop callback, not
-    /// a coroutine, because AppKit spins a nested run loop while a termination
-    /// is held and a suspended task would starve behind it.
-    private let hostQuitting: any BrowserHostQuitting
+    /// The hosts' part of a quit (plan §4.0), the browser pane's and the
+    /// native host's: a run loop callback, not a coroutine, because AppKit
+    /// spins a nested run loop while a termination is held and a suspended
+    /// task would starve behind it.
+    private let hostQuitting: any HostQuitting
     /// The one settings model, so opening a pane by url and opening it from the
     /// sidebar write the same selection.
     private let settings: SettingsModel
@@ -128,7 +129,7 @@ public final class AppCoordinator {
         bootstrap: @escaping () -> BootstrapCondition,
         registrationBuild: @escaping () -> AgentRegistrationBuild,
         termination: any TerminationRequesting,
-        hostQuitting: any BrowserHostQuitting,
+        hostQuitting: any HostQuitting,
         settings: SettingsModel,
         presentation: SettingsPresentation,
         announcer: any AccessibilityAnnouncing
@@ -300,6 +301,21 @@ public final class AppCoordinator {
             return
         }
         guard !runningInBackground else { return }
+
+        start(reason: .user)
+    }
+
+    /// The person clicked one of Fermix's notifications (M76 §4.6).
+    ///
+    /// The app comes forward as a user launch brings it, and a window already
+    /// open is raised where it stands rather than sent to Home. Unlike a
+    /// reopen, a hidden launch does not hold this back: the click is the
+    /// person asking, as the status item is.
+    public func bringForward() {
+        guard !windows.isOpen(.main) else {
+            windows.show(.main)
+            return
+        }
 
         start(reason: .user)
     }
@@ -519,12 +535,12 @@ public final class AppCoordinator {
         }
         terminationStarted = true
 
-        // The browser host handshake is driven straight off this call, the run
+        // The host handshakes are driven straight off this call, the run
         // loop's own turn: AppKit spins a nested run loop while
         // `.terminateLater` is pending, and a task suspended here to await its
-        // answer would starve behind it (plan §4.8). `hostQuitting`'s own bound
-        // is a run-loop timer for the same reason, so this never hangs even
-        // with a task's tabs open and the daemon gone quiet.
+        // answer would starve behind it (plan §4.8). Each host's own bound is
+        // a run-loop timer for the same reason, so this never hangs even with
+        // a task's tabs open and the daemon gone quiet.
         hostQuitting.stopHost { [weak self] in
             self?.finishTermination()
         }
@@ -532,8 +548,8 @@ public final class AppCoordinator {
         return .terminateLater
     }
 
-    /// The browser host's own part of the quit has ended — there was nothing
-    /// to hold for, the daemon answered `host_stopping`, or its bound elapsed.
+    /// The hosts' own part of the quit has ended — there was nothing to hold
+    /// for, the daemon answered `host_stopping`, or each bound elapsed.
     /// What is left is a staged update's own stop, which is `prepareForQuit`'s.
     private func finishTermination() {
         quitting = Task { @MainActor [weak self] in

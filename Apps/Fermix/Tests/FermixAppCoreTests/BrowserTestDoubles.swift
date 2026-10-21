@@ -190,6 +190,55 @@ final class FakePageStage: BrowserPageStage {
     }
 }
 
+/// A media tab's view with no AVKit behind it: what it was last asked to
+/// show, and its Play pressed by the test.
+@MainActor
+final class FakeMediaSurface: BrowserMediaSurface {
+    lazy var view = NSView()
+    var onPlay: (@MainActor () -> Void)?
+    private(set) var holding = false
+    private(set) var playable = false
+
+    func show(holding: Bool, playable: Bool) {
+        self.holding = holding
+        self.playable = playable
+    }
+
+    func pressPlay() {
+        onPlay?()
+    }
+}
+
+/// A document tab's view with no Quick Look behind it.
+@MainActor
+final class FakeDocumentPreview: BrowserDocumentPreview {
+    lazy var view = NSView()
+    private(set) var shown: [URL] = []
+    private(set) var closes = 0
+
+    func show(_ file: URL) { shown.append(file) }
+    func close() { closes += 1 }
+}
+
+/// The pane's own viewers over fake views, keeping every one it made.
+@MainActor
+final class FakeBrowserViewers: BrowserViewerMaking {
+    private(set) var surfaces: [FakeMediaSurface] = []
+    private(set) var previews: [FakeDocumentPreview] = []
+
+    func mediaSurface(_ player: AppPlayer) -> any BrowserMediaSurface {
+        let surface = FakeMediaSurface()
+        surfaces.append(surface)
+        return surface
+    }
+
+    func documentPreview() -> any BrowserDocumentPreview {
+        let preview = FakeDocumentPreview()
+        previews.append(preview)
+        return preview
+    }
+}
+
 /// The session's availability as a test states it.
 @MainActor
 final class FakeSessionAvailability: SessionAvailabilityReporting {
@@ -389,7 +438,8 @@ final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
     /// The system's sentence the named app answers a file with, or nil where
     /// it takes it.
     var appFailure: String?
-    /// The apps that open web pages on this Mac.
+    /// The apps that open web pages on this Mac, which a document is never
+    /// handed to.
     var webBrowsers: [URL] = []
     private(set) var opened: [URL] = []
     /// Every type an app was asked for, in order.
@@ -406,12 +456,12 @@ final class RecordingWorkspaceOpener: WorkspaceLinkOpening {
 
     func application(toOpen url: URL) -> WorkspaceApplication? { linkApp }
 
-    func application(toOpen type: UTType) -> WorkspaceApplication? {
+    func documentApplication(toOpen type: UTType) -> WorkspaceApplication? {
         typesAsked.append(type)
+        guard let documentApp, !webBrowsers.contains(documentApp.url) else { return nil }
+
         return documentApp
     }
-
-    func opensWebPages(_ app: WorkspaceApplication) -> Bool { webBrowsers.contains(app.url) }
 
     func open(_ file: URL, withApplicationAt app: URL, failed: @escaping @MainActor (String) -> Void) {
         openedWith.append(AppOpen(file: file, app: app))
@@ -452,6 +502,9 @@ struct BrowserHarness {
     let engine = FakeBrowserEngine()
     let workspace = RecordingWorkspaceOpener()
     let playback = FakePlaybackEngine()
+    let facts = FakeMediaFacts()
+    /// The engine's grants of phone-side files, which a file tab holds.
+    let grants = FakeMediaGrants()
     let player: AppPlayer
     let viewers = FakeBrowserViewers()
     let record = BrowserRecord()
@@ -468,7 +521,7 @@ struct BrowserHarness {
     init(availability: BrowserAvailability = .available, home: URL? = nil) {
         location = BrowserProfileLocation().location
         session = FakeSessionAvailability(availability)
-        player = AppPlayer(engine: playback)
+        player = AppPlayer(engine: playback, facts: facts, grants: grants)
         coordinator = BrowserCoordinator(
             makeEngine: { [engine, record] profile in
                 record.enginesBuilt.append(profile)
@@ -478,6 +531,7 @@ struct BrowserHarness {
             workspace: workspace,
             player: player,
             viewers: viewers,
+            grants: grants,
             home: {
                 guard let home else { throw CocoaError(.fileNoSuchFile) }
                 return home

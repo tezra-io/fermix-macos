@@ -1,10 +1,8 @@
-import AVFoundation
-import AppKit
+import CoreGraphics
 import FermixAppCore
 import Foundation
 import ImageIO
 import QuickLookThumbnailing
-import UniformTypeIdentifiers
 
 /// The chat's production reader (M66 §3.7): the Mac's own frameworks,
 /// nothing bundled.
@@ -39,28 +37,6 @@ public struct SystemMediaReader: ChatMediaReading {
 
     public func pageCount(of file: URL) async -> Int? {
         CGPDFDocument(file as CFURL)?.numberOfPages
-    }
-
-    public func length(of file: URL) async -> Double? {
-        guard let duration = try? await AVURLAsset(url: file).load(.duration), duration.isNumeric else { return nil }
-
-        return duration.seconds
-    }
-
-    public func isPlayable(_ file: URL) async -> Bool {
-        (try? await AVURLAsset(url: file).load(.isPlayable)) == true
-    }
-
-    /// Asked of Launch Services directly rather than through the pane's
-    /// opener, whose answers are the main thread's: this runs off it.
-    public func application(toOpen type: UTType) -> String? {
-        let workspace = NSWorkspace.shared
-        guard let app = workspace.urlForApplication(toOpen: type), let page = URL(string: "https://example.com/") else { return nil }
-
-        let browsers = workspace.urlsForApplications(toOpen: page).map(\.standardizedFileURL)
-        guard !browsers.contains(app.standardizedFileURL) else { return nil }
-
-        return FileManager.default.displayName(atPath: app.path)
     }
 }
 

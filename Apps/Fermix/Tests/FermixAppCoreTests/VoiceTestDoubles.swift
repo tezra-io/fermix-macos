@@ -25,7 +25,7 @@ final class FakeVoiceAudioEngine: VoiceAudioEngine, @unchecked Sendable {
         case prepareCapture
         case beginStreaming
         case setMuted(Bool)
-        case play(String)
+        case play(String, playbackId: String? = nil)
         case stopPlayback
         case resetUtteranceAnchor
         case shutdown
@@ -33,6 +33,7 @@ final class FakeVoiceAudioEngine: VoiceAudioEngine, @unchecked Sendable {
 
     var onOutputLevel: ((Float) -> Void)?
     var onPlaybackDrained: (() -> Void)?
+    var onPlaybackIdDrained: (() -> Void)?
 
     private(set) var calls: [Call] = []
     private(set) var chunkHandler: (@Sendable (Data) -> Void)?
@@ -42,6 +43,10 @@ final class FakeVoiceAudioEngine: VoiceAudioEngine, @unchecked Sendable {
     var streamingError: (any Error)?
     var isPlayingBack = false
     var utterancePlayedMs: Int?
+    /// What `takePlaybackProgress` answers, oldest first; nothing played and
+    /// nothing queued once they run out.
+    var progressReports: [PlaybackProgressReport] = []
+    private(set) var progressReads = 0
 
     /// Holds `requestCapturePermission` open, the way the real TCC prompt does.
     /// The call can end while it is up, which is the whole point.
@@ -114,8 +119,13 @@ final class FakeVoiceAudioEngine: VoiceAudioEngine, @unchecked Sendable {
         calls.append(.setMuted(muted))
     }
 
-    func play(base64PCM16 encoded: String) {
-        calls.append(.play(encoded))
+    func play(base64PCM16 encoded: String, playbackId: String?) {
+        calls.append(.play(encoded, playbackId: playbackId))
+    }
+
+    func takePlaybackProgress() -> PlaybackProgressReport {
+        progressReads += 1
+        return progressReports.isEmpty ? .none : progressReports.removeFirst()
     }
 
     func stopPlayback() {
@@ -177,6 +187,8 @@ final class VoiceCallHarness {
     let sessionDeadlines = ManualDeadlineScheduler()
     /// The stopping call's wait for the daemon's last frame.
     let callDeadlines = ManualDeadlineScheduler()
+    /// The audio owner's: the end of a reply, and the playback progress ticks.
+    let audioDeadlines = ManualDeadlineScheduler()
     let call = VoiceCallModel()
     let coordinator: VoiceCoordinator
 
@@ -189,14 +201,14 @@ final class VoiceCallHarness {
         coordinator = VoiceCoordinator(
             model: call,
             session: session,
-            audio: AudioOwner(engine: engine, deadlines: ManualDeadlineScheduler()),
+            audio: AudioOwner(engine: engine, deadlines: audioDeadlines),
             deadlines: callDeadlines
         )
     }
 
     /// The daemon answering its half of the handshake.
     func negotiate() {
-        socket.deliver(.serverHello(minVersion: 1, maxVersion: 2))
+        socket.deliver(.serverHello(minVersion: 1, maxVersion: 3))
     }
 
     /// Yields until `condition` holds. The permission request hops off the

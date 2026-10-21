@@ -16,15 +16,16 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
     public let inReplyTo: String?
     /// On a reply held from its turn's `text_done`, that turn.
     public let turnId: String?
-    /// The history message's kind, `text` or `media`, where the event that
-    /// brought the row carried it.
-    public let kind: String?
-    /// The files the row refers to, by ref. Only a history page carries them:
-    /// a live `row` and a `text_done` bring none.
+    /// The files the row refers to, by ref. A history page and a live `row`
+    /// carry them; a `text_done` brings none.
     public let mediaRefs: [CompanionMediaRef]
-    /// The link previews the engine stored on the row. Only a history page
-    /// carries them.
+    /// The link previews the engine stored on the row, as the event that
+    /// brought the row had them. One stored later arrives as `row_updated`.
     public let linkPreviews: [CompanionLinkPreview]
+    /// The records the engine kept with a reply, drawn under its text
+    /// (M72 §8.3). Every event that brings a reply carries them, its turn's
+    /// `text_done` too, so history bringing the row again changes nothing.
+    public let blocks: [CompanionBlock]
 
     public var id: Int { serverSeq }
 
@@ -36,9 +37,9 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
         clientMsgId: String?,
         inReplyTo: String?,
         turnId: String?,
-        kind: String? = nil,
         mediaRefs: [CompanionMediaRef] = [],
-        linkPreviews: [CompanionLinkPreview] = []
+        linkPreviews: [CompanionLinkPreview] = [],
+        blocks: [CompanionBlock] = []
     ) {
         self.serverSeq = serverSeq
         self.text = text
@@ -47,9 +48,9 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
         self.clientMsgId = clientMsgId
         self.inReplyTo = inReplyTo
         self.turnId = turnId
-        self.kind = kind
         self.mediaRefs = mediaRefs
         self.linkPreviews = linkPreviews
+        self.blocks = blocks
     }
 }
 
@@ -64,13 +65,14 @@ extension CompanionRow {
             clientMsgId: row.clientMsgId,
             inReplyTo: row.inReplyTo,
             turnId: nil,
-            kind: row.kind,
             mediaRefs: row.mediaRefs,
-            linkPreviews: row.linkPreviews ?? []
+            linkPreviews: row.linkPreviews ?? [],
+            blocks: row.blocks?.known ?? []
         )
     }
 
-    /// A row announced live as it was written outside a turn's completion.
+    /// A row announced live as it was written outside a turn's completion,
+    /// with its files and previews (version 3).
     init(_ row: CompanionAnnouncedRow) {
         self.init(
             serverSeq: row.serverSeq,
@@ -80,12 +82,14 @@ extension CompanionRow {
             clientMsgId: row.clientMsgId,
             inReplyTo: nil,
             turnId: nil,
-            kind: row.kind
+            mediaRefs: row.mediaRefs,
+            linkPreviews: row.linkPreviews ?? [],
+            blocks: row.blocks?.known ?? []
         )
     }
 
-    /// A reply part at its row, from the turn's `text_done`.
-    init(reply turnId: String, serverSeq: Int, text: String, inReplyTo: String?) {
+    /// A reply part at its row, from the turn's `text_done`, with its blocks.
+    init(reply turnId: String, serverSeq: Int, text: String, inReplyTo: String?, blocks: [CompanionBlock]) {
         self.init(
             serverSeq: serverSeq,
             text: text,
@@ -93,21 +97,17 @@ extension CompanionRow {
             timestamp: nil,
             clientMsgId: nil,
             inReplyTo: inReplyTo,
-            turnId: turnId
+            turnId: turnId,
+            blocks: blocks
         )
     }
 
-    /// Whether two rows at one seq draw alike: the same text, files and
-    /// previews (M66 §3.1). Who wrote a row and when are not what changes its
-    /// height when history brings it again.
+    /// Whether two rows at one seq draw alike: the same text, files,
+    /// previews (M66 §3.1) and blocks (M72 §8.5). Who wrote a row and when
+    /// are not what changes its height when history brings it again.
     func drawsAlike(_ other: CompanionRow) -> Bool {
         text == other.text && mediaRefs == other.mediaRefs && linkPreviews == other.linkPreviews
-    }
-
-    /// A voice note whose transcript is not stored yet: a row with an `audio`
-    /// ref (M66 §3.4) and no text, as history last had it.
-    var awaitsTranscript: Bool {
-        text.isEmpty && mediaRefs.contains { $0.kind == "audio" }
+            && blocks == other.blocks
     }
 }
 
@@ -195,7 +195,8 @@ enum CompanionPull: Equatable, Sendable {
     case catchUp(CompanionHistoryCursor)
     /// The page before the oldest held row, which the reader scrolled to.
     case older(beforeSeq: Int)
-    /// Held rows read again for what their announcement could not carry.
+    /// Held rows read again: rows the engine said changed, and rows that may
+    /// have changed while this client was away (M66 §3.6).
     case rows(CompanionRowRead)
 
     var event: CompanionClientEvent {
@@ -284,16 +285,15 @@ struct CompanionChat: Equatable, Sendable {
     /// Paging waiting for the read out: the page before this seq, the oldest
     /// held row when it was asked for.
     var olderWaiting: Int?
-    /// Held rows to read again, waiting for the read out. One read serves
-    /// them all.
+    /// Held rows to read again, waiting for the read out: rows a
+    /// `row_updated` named, and rows read before a disconnect as they come on
+    /// screen. One read serves them all, and a notice that arrives while a
+    /// read is out is served by the next one (M66 §3.6).
     var rowsToRead: Set<Int> = []
-    /// The person's media rows announced in this session with no text, which
-    /// may be voice notes waiting for their transcript (M66 §3.6, stage 1), by
-    /// seq, with the request each recorded: its reply names that request in
-    /// `in_reply_to`. A row leaves when history shows it is no voice note or
-    /// has its text, when a page brings its reply, or when an assistant's row
-    /// is announced a page of rows past it.
-    var awaitingTranscript: [Int: String] = [:]
+    /// Held rows last read before a disconnect lost the notices about them.
+    /// Each is read again when it is next on screen, after the catch-up read,
+    /// and leaves when a page brings it (M66 §3.6, reconnecting).
+    var readBeforeDisconnect: Set<Int> = []
     /// The read frontier, as the daemon last reported it or this client last
     /// advanced it.
     var readUpToSeq = 0

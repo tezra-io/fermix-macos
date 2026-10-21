@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import UserNotifications
 
 /// The app's second declared configuration: the whole graph, over the wire
 /// contract's own golden answers, on a throwaway Fermix home.
@@ -44,6 +45,10 @@ enum FixtureStart: Equatable {
     /// Chat over a timeline with nothing in it, which is the only way its
     /// empty state is drawn: `chat` itself opens on the full timeline.
     case emptyChat
+    /// Chat over replies drawn for what they hold (M72): a reply's places on
+    /// their map and cards, lists and steps, a table and a quote, and last
+    /// the places Apple Maps found, which open at Apple's own card.
+    case chatReplies
     /// Chat with the browser pane open beside it on two fake tabs. The pane
     /// closed is `chat` itself.
     case browser
@@ -57,6 +62,11 @@ enum FixtureStart: Equatable {
     /// sheet is presented from the phone model's own flag, which is the flag
     /// the row's button and the last setup screen set.
     case phone(FixturePhoneStart)
+    /// Settings, Integrations, on a daemon whose MCP servers are in a state
+    /// the golden list does not publish: none added, or the one the golden
+    /// sign-in reads signed in or expired. `settings/integrations` itself
+    /// carries the golden servers.
+    case mcp(FixtureMCPStart)
 
     static let settingsPrefix = "settings/"
     static let assistantPrefix = "assistant/"
@@ -64,6 +74,7 @@ enum FixtureStart: Equatable {
     static let restartSheetName = "restart-sheet"
     static let approvalStepName = "assistant/approval"
     static let emptyChatName = "chat-empty"
+    static let chatRepliesName = "chat-replies"
     static let browserName = "browser"
     static let chatCallName = "chat-call"
     static let failedChatCallName = "chat-call-failed"
@@ -78,12 +89,16 @@ enum FixtureStart: Equatable {
             self = .approvalStep
         } else if name == Self.emptyChatName {
             self = .emptyChat
+        } else if name == Self.chatRepliesName {
+            self = .chatReplies
         } else if name == Self.browserName {
             self = .browser
         } else if name == Self.chatCallName {
             self = .chatCall
         } else if name == Self.failedChatCallName {
             self = .failedChatCall
+        } else if let servers = FixtureMCPStart(rawValue: name) {
+            self = .mcp(servers)
         } else if let slug = name.dropping(prefix: Self.settingsPrefix) {
             guard let pane = SettingsPane(rawValue: slug) else { return nil }
             self = .settings(pane)
@@ -104,7 +119,8 @@ enum FixtureStart: Equatable {
         AppRoute.allCases.map(\.rawValue)
             + SettingsPane.allCases.map { settingsPrefix + $0.slug }
             + OnboardingStage.allCases.map { assistantPrefix + $0.rawValue }
-            + [restartSheetName, approvalStepName, emptyChatName, browserName, chatCallName, failedChatCallName]
+            + [restartSheetName, approvalStepName, emptyChatName, chatRepliesName, browserName, chatCallName, failedChatCallName]
+            + FixtureMCPStart.allCases.map(\.rawValue)
             + FixturePhoneStart.allCases.map { phonePrefix + $0.rawValue }
     }
 }
@@ -168,6 +184,137 @@ struct FixturePhoneChannel: Equatable {
 
     /// A channel nobody has turned on.
     static let switchedOff = FixturePhoneChannel(switchedOn: false, running: false, moment: nil)
+}
+
+/// The MCP servers a fixture launch opens on where the golden list is not
+/// the state looked at (M74).
+enum FixtureMCPStart: String, CaseIterable {
+    /// The owner has added none: the tab's empty state.
+    case empty = "mcp-empty"
+    /// The server the golden sign-in reads, signed in.
+    case signedIn = "mcp-signed-in"
+    /// The same server, its grant expired.
+    case expired = "mcp-expired"
+}
+
+/// The MCP servers on the fixture machine (M74): the golden list's rows, as
+/// this run's writes left them.
+///
+/// A row is the contract's own until a write moves it, and what a write puts
+/// in it is that write's own golden answer, under the server it named.
+struct FixtureMCPServers {
+    /// What the run opens on: the golden list where nil.
+    let start: FixtureMCPStart?
+    /// Each server's row, by name. Nil until the first MCP answer seeds it
+    /// from the golden list.
+    private var rows: [String: [String: Any]]?
+    /// The tools each server described, by server.
+    private var described: [String: [[String: Any]]] = [:]
+    /// The tools a switch turned on or off, by server and tool.
+    private var switched: [String: [String: Bool]] = [:]
+    /// The names each paste's draft id holds a value for, until an add uses it.
+    private var held: [String: Set<String>] = [:]
+    /// The server whose sign-in is waiting in the browser, where one is.
+    var signingIn: String?
+    /// How many times each job has been read, which is how long a sign-in
+    /// has been waiting in the browser.
+    private var reads: [String: Int] = [:]
+
+    init(start: FixtureMCPStart?) {
+        self.start = start
+    }
+
+    /// Takes the golden list's rows the first time, and never again: from
+    /// then on the rows are this run's. `server` is one golden
+    /// `mcp.servers.get` row, which takes its name's place in the list with
+    /// the tools it describes.
+    mutating func seed(_ golden: [[String: Any]], server: [String: Any]?) {
+        guard rows == nil else { return }
+
+        guard start != .empty else {
+            rows = [:]
+            return
+        }
+
+        var seeded = Dictionary(uniqueKeysWithValues: golden.map { ($0["name"] as? String ?? "", $0) })
+        if var server, let name = server["name"] as? String {
+            described[name] = server["tools"] as? [[String: Any]] ?? []
+            server["tools"] = nil
+            seeded[name] = server
+        }
+        rows = seeded
+    }
+
+    /// One more read of a job, and how many there have been.
+    mutating func read(job: String) -> Int {
+        reads[job, default: 0] += 1
+        return reads[job] ?? 0
+    }
+
+    /// The rows sorted by name, as the daemon sends them.
+    var list: [[String: Any]] {
+        (rows ?? [:]).sorted { $0.key < $1.key }.map(\.value)
+    }
+
+    func row(_ name: String) -> [String: Any]? {
+        rows?[name]
+    }
+
+    mutating func put(_ row: [String: Any]) {
+        guard let name = row["name"] as? String else { return }
+
+        rows?[name] = row
+    }
+
+    mutating func remove(_ name: String) {
+        rows?[name] = nil
+        switched[name] = nil
+        described[name] = nil
+    }
+
+    /// A value stored for one name a server declares, which its row then
+    /// reports as present.
+    mutating func markStored(_ name: String, of server: String) {
+        guard let row = rows?[server] else { return }
+
+        rows?[server] = Self.marked(row, stored: name)
+    }
+
+    /// A row whose declared name has its value stored.
+    static func marked(_ row: [String: Any], stored name: String) -> [String: Any] {
+        var server = row
+        for field in ["env", "headers"] {
+            server[field] = (row[field] as? [[String: Any]])?.map { entry in
+                entry["name"] as? String == name ? entry.merging(["present": true]) { $1 } : entry
+            }
+        }
+
+        return server
+    }
+
+    mutating func hold(_ draftId: String, names: Set<String>) {
+        held[draftId] = names
+    }
+
+    /// The names a draft id held, which an add uses once.
+    mutating func release(_ draftId: String) -> Set<String> {
+        held.removeValue(forKey: draftId) ?? []
+    }
+
+    mutating func switchTool(_ tool: String, of server: String, on: Bool) {
+        switched[server, default: [:]][tool] = on
+    }
+
+    /// The tools a server described, with this run's switches on them.
+    func tools(of server: String) -> [[String: Any]] {
+        (described[server] ?? []).map { tool in
+            guard let on = switched[server]?[tool["name"] as? String ?? ""] else { return tool }
+
+            var switchedTool = tool
+            switchedTool["enabled"] = on
+            return switchedTool
+        }
+    }
 }
 
 /// What the Mac under the app looks like.
@@ -252,14 +399,17 @@ enum FixturePresentation: Equatable {
     case channelsWithPhone(PhoneSheetIntent)
 }
 
-/// One fixture launch: where it lands, and the machine it lands on.
+/// One fixture launch: where it lands, the machine it lands on, and the glass
+/// its sheets wear.
 struct FixtureLaunch {
     let start: FixtureStart
     let home: FixtureHome
+    let sheetGround: SheetGroundRecipe
 
-    init(start: FixtureStart) {
+    init(start: FixtureStart, sheetGround: SheetGroundRecipe = .standard) {
         self.start = start
         self.home = FixtureHome.forStart(start)
+        self.sheetGround = sheetGround
     }
 
     /// What this launch opens.
@@ -275,10 +425,11 @@ struct FixtureLaunch {
         case .surface(let route): return .route(route)
         case .settings(let pane): return .settings(pane)
         case .restartSheet: return .homeWithRestartSheet
-        case .emptyChat: return .route(.chat)
+        case .emptyChat, .chatReplies: return .route(.chat)
         case .browser: return .chatWithBrowser
         case .chatCall, .failedChatCall: return .chatWithCall
         case .phone(let step): return .channelsWithPhone(step.intent)
+        case .mcp: return .settings(.integrations)
         }
     }
 
@@ -291,10 +442,22 @@ struct FixtureLaunch {
         return home == .fresh ? .switchedOff : .published
     }
 
-    /// The timeline the chat holds. Every start but the empty one gets the
-    /// full timeline, so Chat reached from any of them shows a conversation.
+    /// The MCP servers the machine opens on, where its start names them.
+    var mcpServers: FixtureMCPStart? {
+        guard case .mcp(let servers) = start else { return nil }
+
+        return servers
+    }
+
+    /// The timeline the chat holds. Every start but the empty one and the
+    /// replies' gets the full timeline, so Chat reached from any of them
+    /// shows a conversation.
     var companionTimeline: FixtureCompanionTimeline {
-        start == .emptyChat ? .empty : .full
+        switch start {
+        case .emptyChat: return .empty
+        case .chatReplies: return .replies
+        default: return .full
+        }
     }
 
     /// The call the voice socket's scripted daemon plays. Every start but the
@@ -314,10 +477,12 @@ struct FixtureLaunch {
         case .restartSheet: return FixtureStart.restartSheetName
         case .approvalStep: return "assistant-approval"
         case .emptyChat: return FixtureStart.emptyChatName
+        case .chatReplies: return FixtureStart.chatRepliesName
         case .browser: return FixtureStart.browserName
         case .chatCall: return FixtureStart.chatCallName
         case .failedChatCall: return FixtureStart.failedChatCallName
         case .phone(let step): return "phone-\(step.rawValue)"
+        case .mcp(let servers): return servers.rawValue
         }
     }
 }
@@ -388,12 +553,19 @@ final class FixtureMachine: @unchecked Sendable {
     private var running: Bool
     private var pid = FixtureMachine.firstPid
     private var phone: FixturePhoneChannel
+    private var mcp: FixtureMCPServers
 
-    init(daemonUp: Bool, agentHeldForApproval: Bool = false, phone: FixturePhoneChannel = .published) {
+    init(
+        daemonUp: Bool,
+        agentHeldForApproval: Bool = false,
+        phone: FixturePhoneChannel = .published,
+        mcpServers: FixtureMCPStart? = nil
+    ) {
         launchdStartsTheDaemon = daemonUp
         running = daemonUp
         self.agentHeldForApproval = agentHeldForApproval
         self.phone = phone
+        mcp = FixtureMCPServers(start: mcpServers)
         // A first install: nothing is registered until setup asks.
         if agentHeldForApproval { registered = [] }
     }
@@ -401,6 +573,11 @@ final class FixtureMachine: @unchecked Sendable {
     var currentPid: Int32 { withLock { pid } }
     var daemonRunning: Bool { withLock { running } }
     var phoneChannel: FixturePhoneChannel { withLock { phone } }
+
+    /// Reads or changes the MCP servers this run holds, under the lock.
+    func withMCPServers<Answer>(_ body: (inout FixtureMCPServers) -> Answer) -> Answer {
+        withLock { body(&mcp) }
+    }
 
     /// The phone channel's switch was written. Like the daemon's, it moves the
     /// channel only at the next boot.
@@ -512,6 +689,37 @@ struct FixtureMicrophone: MicrophoneAuthorizationReading {
     func requestMicrophone() async -> PermissionState { .granted }
 }
 
+/// Notifications, granted, and nothing ever shown: reading never prompts here,
+/// asking raises no system prompt, and a post goes nowhere, so a fixture run
+/// neither reads nor changes the grants this Mac holds for the bundle.
+@MainActor
+final class FixtureNotificationCenter: UserNotificationCentering {
+    var responses: ((NotificationResponse) -> Void)?
+
+    func grant() async -> NotificationGrant { .granted }
+    func requestAlertsWithSound() async throws -> Bool { true }
+    func categories() async -> Set<UNNotificationCategory> { [] }
+    func setCategories(_ categories: Set<UNNotificationCategory>) {}
+    func add(_ request: UNNotificationRequest) async throws {}
+}
+
+/// The native host wire, unserved: no daemon to attach to, so every connect
+/// answers as an engine that predates the wire would, as the browser host's
+/// fixture socket does.
+final class FixtureNativeHostTransport: LineSocketTransport, @unchecked Sendable {
+    var onMessage: ((NativeHostInbound) -> Void)?
+    var onFailure: ((LineSocketFailure<NativeHostDecodeFailure>) -> Void)?
+
+    func connect(path: String, completion: @escaping (Result<Void, LineSocketConnectFailure>) -> Void) {
+        completion(.failure(.system(errno: ENOENT)))
+    }
+
+    func send(_ line: Data) {}
+    func sendDroppable(_ line: Data) {}
+    func sendDroppable(producing line: @escaping @Sendable () -> Data) {}
+    func close() {}
+}
+
 /// The liveness probes, reading the machine rather than a fixed answer. Every
 /// path but the daemon's own socket is there: the throwaway home is real, and
 /// the socket is the one thing a lifecycle transaction takes away.
@@ -600,7 +808,8 @@ extension AppEnvironment {
         let machine = FixtureMachine(
             daemonUp: launch.home != .daemonStarting && launch.home != .awaitingApproval,
             agentHeldForApproval: launch.home == .awaitingApproval,
-            phone: launch.phoneChannel
+            phone: launch.phoneChannel,
+            mcpServers: launch.mcpServers
         )
         let transport = try FixtureManagementTransport(
             machine: machine,
@@ -623,12 +832,14 @@ extension AppEnvironment {
             // fixture run from claiming the agent plist changed.
             plists: AbsentAgentPlistDigest(),
             microphone: FixtureMicrophone(),
+            notificationCenter: FixtureNotificationCenter(),
             settingsPanes: FixturePaneStore(),
             sidebarVisibility: FixtureSidebarStore(),
             linkPreference: FixtureLinkPreferenceStore(),
             opener: FixtureExternalOpener(),
             updater: UnwiredUpdater(),
             mascot: mascot,
+            sheetGround: launch.sheetGround,
             // Fake pages, so the pane is looked at with no web engine and no
             // network behind it.
             makeBrowser: { _ in FixtureBrowserEngine() },
@@ -649,6 +860,7 @@ extension AppEnvironment {
             identities: FixtureDaemonIdentity(),
             companionLines: FixtureCompanionTransport(timeline: launch.companionTimeline),
             browserHostLines: FixtureBrowserHostTransport(),
+            nativeHostLines: FixtureNativeHostTransport(),
             // A scripted daemon on the voice socket and a silent engine under
             // the call, so a call begun from any surface reaches neither the
             // realtime socket nor the microphone: the claim at the top of this

@@ -29,6 +29,7 @@ struct ComputerPane: View {
         }
         .sheet(item: $picking) { request in
             InstalledAppsSheet(request: request, model: model) { picking = nil }
+                .sheetGround()
         }
         // Through the model, so a refusal from the helper's probe records the
         // N-1 window here exactly as it does on Permissions.
@@ -145,6 +146,7 @@ struct InstalledAppsSheet: View {
             List(matching, id: \.id) { app in
                 Toggle(app.name, isOn: binding(app))
             }
+            .sheetList()
             .frame(maxHeight: .infinity)
 
             Text(InstalledAppsSelection.summary(selected))
@@ -155,10 +157,10 @@ struct InstalledAppsSheet: View {
                 Spacer(minLength: 0)
 
                 Button(ProductStrings[.settingsSheetCancel], action: dismiss)
+                    .buttonStyle(SecondaryButtonStyle(.row))
                     .keyboardShortcut(.cancelAction)
 
-                Button(ProductStrings[.settingsSheetDone], action: commit)
-                    .keyboardShortcut(.defaultAction)
+                PrimaryAction(ProductStrings[.settingsSheetDone], size: .row, action: commit)
                     // Done writes the list, and the daemon refuses a write while
                     // the settings file has changed outside Fermix (M34 §7.6):
                     // the sheet would otherwise close on a write that never

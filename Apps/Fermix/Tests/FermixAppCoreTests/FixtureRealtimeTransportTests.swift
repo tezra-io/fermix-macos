@@ -19,7 +19,7 @@ struct FixtureRealtimeTransportTests {
 
         try daemon.send(.clientHello(protocolVersion: RealtimeProtocol.version))
 
-        #expect(daemon.heard == [.serverHello(minVersion: 1, maxVersion: 2)])
+        #expect(daemon.heard == [.serverHello(minVersion: 1, maxVersion: 3)])
         #expect(daemon.deadlines.liveCount == 0)
     }
 
@@ -105,7 +105,7 @@ struct FixtureRealtimeTransportTests {
         daemon.playAll()
 
         let audio = daemon.heard.compactMap { event -> String? in
-            guard case .audioDelta(let base64) = event else { return nil }
+            guard case .audioDelta(let base64, _) = event else { return nil }
             return base64
         }
 
@@ -283,7 +283,7 @@ struct FixtureRealtimeTransportTests {
         try await engine.prepareCapture()
         try engine.beginStreaming(onChunk: { _ in chunks.count() })
         engine.setCaptureMuted(false)
-        engine.play(base64PCM16: FixtureRealtimeScript.silence)
+        engine.play(base64PCM16: FixtureRealtimeScript.silence, playbackId: nil)
         Self.drain(deadlines)
 
         #expect(chunks.total == 0)
@@ -301,7 +301,7 @@ struct FixtureRealtimeTransportTests {
         engine.onOutputLevel = { levels.append($0) }
 
         for _ in 0..<3 {
-            engine.play(base64PCM16: FixtureRealtimeScript.silence)
+            engine.play(base64PCM16: FixtureRealtimeScript.silence, playbackId: nil)
         }
         let playing = levels
         Self.drain(deadlines)
@@ -319,7 +319,7 @@ struct FixtureRealtimeTransportTests {
         let deadlines = ManualDeadlineScheduler()
         let engine = FixtureAudioEngine(deadlines: deadlines)
 
-        engine.play(base64PCM16: FixtureRealtimeScript.silence)
+        engine.play(base64PCM16: FixtureRealtimeScript.silence, playbackId: nil)
         engine.shutdown()
 
         #expect(deadlines.liveCount == 0)

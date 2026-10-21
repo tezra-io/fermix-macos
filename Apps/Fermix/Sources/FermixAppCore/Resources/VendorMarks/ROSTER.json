@@ -11,13 +11,13 @@
     "channels": {
       "path": "apps/fermix_web/lib/fermix_web_web/live/setup_live.ex",
       "symbol": "the channels form map",
-      "sha256": "61f225964af9cffd6ab4493594b49d3092f80cbb7339c784ad0ef8bd5d00475f"
+      "sha256": "3204934f21aaa93b410dae5918de89df4a3f6c757933e4be04592e34c7e21223"
     },
     "plugins": {
       "path": "apps/fermix_core/priv/plugins/index.json",
       "symbol": "the static plugin catalog",
-      "sha256": "81f301033b6064b752905448963ea97d46ac8ef7a3fcc60cc955bd57b9095792",
-      "generated_at": "2026-10-07T01:07:38Z",
+      "sha256": "ac2b5abb2f0c4ec10d8af21e2d3f6241de05894fe600f49f5970392ebf2f92db",
+      "generated_at": "2026-10-17T05:03:57Z",
       "bundled": {
         "path": "apps/fermix_core/priv/plugins/catalog.json",
         "symbol": "the plugins the engine ships inside itself, which Registry.list unions into every install",

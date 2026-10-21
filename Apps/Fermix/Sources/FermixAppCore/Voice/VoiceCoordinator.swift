@@ -63,6 +63,7 @@ public final class VoiceCoordinator: VoiceControlling {
 
         audio.onLevel = { [weak self] level in self?.model.voiceLevelChanged(level) }
         audio.onPlaybackDrained = { [weak self] in self?.model.voicePlaybackDrained() }
+        audio.onPlaybackProgress = { [weak self] progress in self?.reportPlayback(progress) }
     }
 
     // MARK: - Commands
@@ -93,6 +94,8 @@ public final class VoiceCoordinator: VoiceControlling {
     public func interrupt() {
         guard model.voice.phase == .active else { return }
 
+        // Reports the stopped playback's progress before the interrupt goes
+        // out, which is where a Grok call cuts the reply.
         let played = audio.interruptPlayback()
         session.send(.interrupt(audioEndMs: played))
         model.voiceInterrupted()
@@ -270,8 +273,8 @@ public final class VoiceCoordinator: VoiceControlling {
             startCapture()
         case .setCaptureMuted(let muted):
             audio.setMuted(muted)
-        case .play(let base64):
-            audio.play(base64PCM16: base64)
+        case .play(let base64, let playbackId):
+            audio.play(base64PCM16: base64, playbackId: playbackId)
         case .stopPlayback:
             audio.stopPlayback()
         case .resetUtteranceAnchor:
@@ -280,6 +283,17 @@ public final class VoiceCoordinator: VoiceControlling {
             audio.endCall()
         case .callEnded:
             stopFinished()
+        }
+    }
+
+    /// What has played of the call's playback ids. Only a call takes them: a
+    /// report after `call_stop`, or with no call at all, is a control frame
+    /// the daemon would answer by closing the socket.
+    private func reportPlayback(_ progress: [RealtimePlaybackProgress]) {
+        guard model.voice.phase == .active else { return }
+
+        for report in progress {
+            session.send(.playbackProgress(report))
         }
     }
 

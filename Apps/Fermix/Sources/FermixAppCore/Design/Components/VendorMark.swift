@@ -247,6 +247,10 @@ public struct VendorMarkView: View {
     private let kind: VendorMark.Kind
     private let size: Double
     private let container: Container
+    /// A system symbol drawn in place of the kind's neutral one, for a row
+    /// that has no vendor at all: an MCP server is a place its code runs
+    /// rather than a vendor (M74 §4.1).
+    private let symbol: String?
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -257,6 +261,20 @@ public struct VendorMarkView: View {
         self.kind = kind
         self.size = size
         self.container = container
+        self.symbol = nil
+    }
+
+    /// The neutral plate with one system symbol on it, on the tile every list
+    /// row shares.
+    public init(symbol: String, size: Double) {
+        precondition(size > 0, "a mark is drawn at a positive size")
+        precondition(!symbol.isEmpty, "a symbol tile names its symbol")
+
+        self.mark = nil
+        self.kind = .plugin
+        self.size = size
+        self.container = .tile
+        self.symbol = symbol
     }
 
     public var body: some View {
@@ -286,7 +304,7 @@ public struct VendorMarkView: View {
         if let image, let mark {
             drawn(image, mark: mark)
         } else {
-            Image(systemName: kind.neutralSymbol)
+            Image(systemName: symbol ?? kind.neutralSymbol)
                 .font(.system(size: size * Self.symbolInset))
                 .foregroundStyle(Palette.secondary.color)
         }

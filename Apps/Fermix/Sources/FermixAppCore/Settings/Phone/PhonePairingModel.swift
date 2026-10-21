@@ -40,6 +40,11 @@ public final class PhonePairingModel: ObservableObject {
     private var work: Task<Void, Never>?
     /// The cancel a closing sheet sends, which outlives the sheet.
     private var closing: Task<Void, Never>?
+    /// The last `mobile.status` read asked. Each read waits for the one before
+    /// it to answer, so answers land in the order they were asked and an older
+    /// one never replaces a newer one, although the row and the rail's
+    /// follower each read on a connection of their own.
+    private var statusRead: Task<ManagementMobileStatus, any Error>?
 
     public init(settings: SettingsModel, sleeper: any Sleeping) {
         self.settings = settings
@@ -66,6 +71,49 @@ public final class PhonePairingModel: ObservableObject {
         guard status != .unread else { return }
 
         await readRow()
+    }
+
+    // MARK: - Reach from anywhere
+
+    /// The line under Reach from anywhere's switch (M62).
+    public var remoteLine: PhoneRemoteLine? { PhoneRemoteLine.line(status.value?.remote) }
+
+    /// Reads the rail as it stands, then again at the sheet's cadence for as
+    /// long as it can move by itself, so the line under its switch is never
+    /// more than one read behind the daemon, up to `remotePolls` reads; while
+    /// the daemon refuses, the cadence backs off. The Phones step runs it as
+    /// the switch appears and each time the daemon publishes the switch moved,
+    /// and cancels it when the step goes.
+    public func followRemote() async {
+        var follow = PhoneRailFollow()
+
+        while await readRail(&follow), !follow.exhausted {
+            do {
+                try await sleeper.sleep(seconds: follow.wait)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+        }
+    }
+
+    /// One read of the rail, and whether it is read again: while it can move
+    /// by itself, and after a refusal, which leaves the line as the last
+    /// answer said rather than blanking it. The first refusal of a run is
+    /// logged, and the answer that ends it.
+    private func readRail(_ follow: inout PhoneRailFollow) async -> Bool {
+        do {
+            publish(.loaded(try await askStatus()), to: \.status)
+        } catch {
+            if follow.refused() { _ = refusal(error, "mobile.status") }
+
+            return true
+        }
+
+        if let refusals = follow.answered() {
+            log.notice("mobile.status answered again after \(refusals, privacy: .public) refusals")
+        }
+        return PhoneRemoteLine.moves(status.value?.remote)
     }
 
     // MARK: - The sheet
@@ -281,7 +329,7 @@ public final class PhonePairingModel: ObservableObject {
 
     private func elsewhere() async -> PhoneAnswer {
         do {
-            return .busy(try await gateway.mobileStatus().pairing)
+            return .busy(try await askStatus().pairing)
         } catch {
             return .refused(refusal(error, "mobile.status"))
         }
@@ -358,7 +406,7 @@ public final class PhonePairingModel: ObservableObject {
         if status.value == nil { publish(.loading, to: \.status) }
 
         do {
-            let answer = try await gateway.mobileStatus()
+            let answer = try await askStatus()
             publish(.loaded(answer), to: \.status)
             return answer
         } catch {
@@ -366,6 +414,22 @@ public final class PhonePairingModel: ObservableObject {
             _ = refusal(error, "mobile.status")
             throw error
         }
+    }
+
+    /// One `mobile.status` read, asked once the read before it has answered.
+    /// A read already queued still runs after its reader is cancelled, which
+    /// costs at most one more local round trip, and what it publishes is the
+    /// newest answer anyway.
+    private func askStatus() async throws -> ManagementMobileStatus {
+        let previous = statusRead
+        let gateway = self.gateway
+        let read = Task {
+            _ = try? await previous?.value
+            return try await gateway.mobileStatus()
+        }
+        statusRead = read
+
+        return try await read.value
     }
 
     private func readDevices() async {

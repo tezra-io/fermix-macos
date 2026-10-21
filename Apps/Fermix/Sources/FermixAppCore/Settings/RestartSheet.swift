@@ -57,18 +57,19 @@ struct RestartSheet: View {
                 Button(ProductStrings[.settingsRestartWhenIdle]) {
                     Task { await take(.whenIdle) }
                 }
+                .buttonStyle(SecondaryButtonStyle(.row))
                 .disabled(model.restartProgress == .waitingForIdle)
 
                 Button(ProductStrings[.settingsRestartCancel]) {
                     model.cancelRestartWait()
                     dismiss()
                 }
+                .buttonStyle(SecondaryButtonStyle(.row))
                 .keyboardShortcut(.cancelAction)
 
-                Button(ProductStrings[.settingsRestartNow]) {
+                PrimaryAction(ProductStrings[.settingsRestartNow], size: .row) {
                     Task { await take(.now) }
                 }
-                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(WindowMetrics.contentPadding)
@@ -175,4 +176,16 @@ struct RestartInFlightLine: View {
 public enum SheetMetrics {
     public static let credentialWidth: Double = 460
     public static let pickerSize = CGSize(width: 520, height: 480)
+    /// A list's corner in a sheet: the corner macOS gives a grouped form's
+    /// section there, measured on macOS 27.
+    public static let listRadius = Radius.control
+}
+
+extension View {
+    /// A list in a sheet, rounded like the grouped form sections a sheet's
+    /// other rows sit in, rather than the square panel the system draws a
+    /// bare list in: a shape inside the sheet's rounded card follows the card.
+    func sheetList() -> some View {
+        clipShape(RoundedRectangle(cornerRadius: SheetMetrics.listRadius, style: .continuous))
+    }
 }
