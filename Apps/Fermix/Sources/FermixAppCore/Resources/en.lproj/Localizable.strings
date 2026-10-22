@@ -223,6 +223,54 @@
 "uninstall.body" = "Nothing has been changed. Your Fermix home and its data are where they were, and the settings file is the one place to look before you remove anything by hand.";
 "uninstall.reveal" = "Reveal settings file";
 
+/* MARK: The update window */
+"updateWindow.title" = "Fermix update";
+"updateWindow.permission.title" = "Check for updates automatically?";
+"updateWindow.permission.body" = "Fermix looks for a new version in the background and installs one only when you ask it to.";
+"updateWindow.permission.allow" = "Check automatically";
+"updateWindow.permission.decline" = "Don’t check";
+"updateWindow.checking.title" = "Checking for updates";
+"updateWindow.offer.titleFormat" = "Fermix %@ is available";
+"updateWindow.offer.bodyFormat" = "You have %@. Fermix restarts to finish installing it.";
+"updateWindow.critical.titleFormat" = "Fermix %@ is an important update";
+"updateWindow.critical.bodyFormat" = "You have %@. It fixes something important, and Fermix restarts to finish installing it.";
+"updateWindow.information.bodyFormat" = "You have %@. This version installs from the Fermix website.";
+"updateWindow.staged.titleFormat" = "Fermix %@ is ready to install";
+"updateWindow.staged.body" = "Relaunch to finish now, or it installs the next time Fermix quits.";
+"updateWindow.downloading.title" = "Downloading the update";
+"updateWindow.downloadedFormat" = "%@ downloaded";
+"updateWindow.downloadedOfFormat" = "%@ of %@";
+"updateWindow.preparing.title" = "Preparing the update";
+"updateWindow.ready.title" = "Ready to install";
+"updateWindow.ready.body" = "Fermix restarts to finish the update.";
+"updateWindow.installing.title" = "Installing the update";
+"updateWindow.installing.body" = "Fermix opens again when it is done.";
+"updateWindow.installed.title" = "Fermix is updated";
+"updateWindow.current.title" = "Fermix is up to date";
+"updateWindow.current.latestFormat" = "Version %@ is the newest version.";
+"updateWindow.current.newer" = "This copy is newer than the newest published version.";
+"updateWindow.unavailable.title" = "No update for this Mac";
+"updateWindow.unavailable.systemOld" = "The newest version of Fermix needs a newer version of macOS.";
+"updateWindow.unavailable.systemNew" = "The newest version of Fermix does not support this version of macOS yet.";
+"updateWindow.unavailable.hardware" = "The newest version of Fermix does not run on this Mac.";
+"updateWindow.failed.title" = "Fermix could not update";
+"updateWindow.failed.feed" = "Fermix could not reach the update server. Check your internet connection, then try again.";
+"updateWindow.failed.download" = "The download did not finish. Check your internet connection, then try again.";
+"updateWindow.failed.signature" = "The download did not pass the signature check, so nothing was installed.";
+"updateWindow.failed.install" = "The new version could not be installed. Try again, or download it from fermix.ai.";
+"updateWindow.failed.busy" = "Fermix is restarting or checking its background service. Try again in a moment.";
+"updateWindow.failed.recovery" = "The last update did not finish, so Fermix will not start another until you open it and see what that one left.";
+"updateWindow.failed.unowned" = "A Fermix daemon this account did not start is running, so this copy cannot update it.";
+"updateWindow.failed.notInstallable" = "This copy of Fermix cannot install that update. Download the newest version from fermix.ai.";
+"updateWindow.failed.other" = "Try again later, or download the newest version from fermix.ai.";
+"updateWindow.action.install" = "Install update";
+"updateWindow.action.relaunch" = "Install and relaunch";
+"updateWindow.action.later" = "Later";
+"updateWindow.action.skip" = "Skip this version";
+"updateWindow.action.learnMore" = "Learn more…";
+"updateWindow.action.cancel" = "Cancel";
+"updateWindow.action.done" = "OK";
+
 /* MARK: Recovery from an update that did not finish */
 "updateRecovery.title" = "Fermix could not finish updating";
 "updateRecovery.reason.interrupted" = "Fermix could not finish checking the last update. Try again, or open Doctor for diagnostics.";

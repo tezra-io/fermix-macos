@@ -201,6 +201,23 @@ struct SparkleAdapterTests {
         }
     }
 
+    /// Every window an update shows is the app's update window. Sparkle's
+    /// standard driver draws its own, with copy this product did not write and
+    /// a look the app does not have, and either type brings them back.
+    @Test("the adapter builds none of the updater's own windows")
+    func adapterDrawsNoFrameworkWindow() throws {
+        let adapter = try SparkleAdapterSource.everySwiftFileUnderSources()
+            .filter { $0.path.contains("/FermixSparkle/") }
+
+        #expect(adapter.contains { $0.text.contains("SPUUserDriver") }, "the adapter declares no user driver of its own")
+
+        for file in adapter {
+            for standard in ["SPUStandardUpdaterController", "SPUStandardUserDriver"] {
+                #expect(!file.text.contains(standard), "\(file.path) builds \(standard)")
+            }
+        }
+    }
+
     /// Two writes the adapter must never make.
     ///
     /// `setFeedURL` writes the feed into this account's defaults, where it wins

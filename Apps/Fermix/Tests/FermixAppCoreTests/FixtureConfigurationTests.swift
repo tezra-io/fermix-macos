@@ -188,7 +188,8 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 7 + FixturePhoneStart.allCases.count + FixtureMCPStart.allCases.count)
+            + OnboardingStage.allCases.count + 7 + FixturePhoneStart.allCases.count + FixtureMCPStart.allCases.count
+            + FixtureUpdateStart.allCases.count)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -248,12 +249,14 @@ struct FixtureConfigurationTests {
             var browserOpened = false
             var callsBegun = 0
             var phoneSheet: PhoneSheetIntent?
+            var updateShown: FixtureUpdateStart?
             FixtureLaunch(start: start).present(
                 with: harness.coordinator,
                 showRestartSheet: { restartSheetShown = true },
                 openBrowser: { browserOpened = true },
                 beginCall: { callsBegun += 1 },
-                presentPhone: { phoneSheet = $0 }
+                presentPhone: { phoneSheet = $0 },
+                showUpdate: { updateShown = $0 }
             )
             // `fermix://setup` asks the daemon where to land before it lands
             // (M34 §3.4), so the window opens on the answer rather than on the
@@ -270,6 +273,11 @@ struct FixtureConfigurationTests {
                 #expect(phoneSheet == step.intent, "\(name) did not put the Phone sheet up")
             } else {
                 #expect(phoneSheet == nil, "\(name) put the Phone sheet up")
+            }
+            if case .update(let phase) = start {
+                #expect(updateShown == phase, "\(name) did not show the update window")
+            } else {
+                #expect(updateShown == nil, "\(name) showed the update window")
             }
         }
     }
@@ -323,6 +331,10 @@ struct FixtureConfigurationTests {
             #expect(harness.windows.presented == [.main])
             #expect(harness.settings.selectedPane == .integrations)
             #expect(harness.presentation.isShowing)
+        case .update:
+            // The update window is the prompt's, which the coordinator does not
+            // hold, so the coordinator opens nothing of its own.
+            #expect(harness.windows.presented.isEmpty)
         }
     }
 

@@ -428,8 +428,8 @@ private struct RestartSheetHost: View {
 ///
 /// Three facts and one action: which engine is answering, which one this copy
 /// of Fermix ships, what the last check found, and the check itself. Install,
-/// Remind Later and Skip are the updater's own alert, so nothing here draws a
-/// second one.
+/// Later and Skip are the update window's, so nothing here draws a second
+/// copy of them.
 struct UpdateSurfaceView: View {
     let model: UpdateSurfaceModel
     let router: any CommandPerforming

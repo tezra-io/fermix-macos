@@ -15,17 +15,18 @@ import Sparkle
 /// do lives in `UpdateCoordinator`, which has no Sparkle types in it and is
 /// provable without a framework, a feed, a signature, or a bundle to replace.
 ///
-/// One controller for the whole process, as M34 §6 requires: scheduled checks
+/// One updater for the whole process, as M34 §6 requires: scheduled checks
 /// belong to a live updater, and an updater rebuilt per question would have no
 /// schedule to keep.
 @MainActor
 public final class SparkleUpdater: UpdaterDriving {
-    private var controller: SPUStandardUpdaterController?
-    /// The two delegate objects. Sparkle holds both weakly, so these are what
-    /// keep them alive.
+    private var updater: SPUUpdater?
+    /// The delegate and the user driver. Sparkle holds the delegate weakly and
+    /// the driver strongly; both are held here so neither question has to be
+    /// asked again.
     private var delegate: SparkleUpdaterDelegate?
-    private var userDriverDelegate: SparkleUserDriverDelegate?
-    /// Kept for the controller's lifetime: the observation is what publishes
+    private var userDriver: SparkleUserDriver?
+    /// Kept for the updater's lifetime: the observation is what publishes
     /// `canCheckForUpdates` changes to the menu row.
     private var canCheckObservation: NSKeyValueObservation?
     private var canCheckLatched = false
@@ -36,14 +37,17 @@ public final class SparkleUpdater: UpdaterDriving {
 
     /// Starts the updater, or refuses to construct one at all.
     ///
-    /// The policy is validated here rather than left to Sparkle: `startUpdater`
-    /// swallows a configuration failure into a framework-authored modal alert
-    /// about a second later, and every user-visible string in this product goes
-    /// through `ProductStrings`. The shipped public key is R5's placeholder
-    /// until an owner plumbs a real one, and this is what turns that into one
-    /// truthful sentence on the update surface.
-    public func start(_ coordinator: UpdateCoordinator) -> UpdateConfigurationRefusal? {
-        precondition(controller == nil, "the updater is started once")
+    /// The policy is validated here rather than left to Sparkle, and a start
+    /// Sparkle refuses comes back as a refusal rather than the alert its
+    /// standard controller raises a second later: every user-visible string in
+    /// this product goes through `ProductStrings`. The shipped public key is
+    /// R5's placeholder until an owner plumbs a real one, and this is what
+    /// turns that into one truthful sentence on the update surface.
+    ///
+    /// The user driver is the app's own (`SparkleUserDriver`), so every window
+    /// an update shows is the app's update window rather than Sparkle's.
+    public func start(_ coordinator: UpdateCoordinator, prompt: UpdatePrompt) -> UpdateConfigurationRefusal? {
+        precondition(updater == nil, "the updater is started once")
 
         do {
             try UpdateConfiguration.validate(Self.declaredPolicy())
@@ -54,25 +58,31 @@ public final class SparkleUpdater: UpdaterDriving {
         }
 
         let delegate = SparkleUpdaterDelegate(coordinator: coordinator)
-        let userDriverDelegate = SparkleUserDriverDelegate()
-        let controller = SPUStandardUpdaterController(
-            startingUpdater: false,
-            updaterDelegate: delegate,
-            userDriverDelegate: userDriverDelegate
+        let userDriver = SparkleUserDriver(prompt: prompt)
+        let updater = SPUUpdater(
+            hostBundle: .main,
+            applicationBundle: .main,
+            userDriver: userDriver,
+            delegate: delegate
         )
         self.delegate = delegate
-        self.userDriverDelegate = userDriverDelegate
-        self.controller = controller
+        self.userDriver = userDriver
 
-        observeCanCheck(controller.updater)
-        controller.startUpdater()
-        checkAtLaunch(controller.updater)
+        do {
+            try updater.start()
+        } catch {
+            return .updaterDidNotStart((error as NSError).localizedDescription)
+        }
+
+        self.updater = updater
+        observeCanCheck(updater)
+        checkAtLaunch(updater)
 
         return nil
     }
 
     public func checkForUpdates() {
-        controller?.updater.checkForUpdates()
+        updater?.checkForUpdates()
     }
 
     /// The launch-time background check, and only where the person's stored
@@ -90,9 +100,9 @@ public final class SparkleUpdater: UpdaterDriving {
     /// Follows the updater's own answer for the menu row and Home.
     ///
     /// It stays true while an update is merely being shown, because asking
-    /// again is what brings that alert back into focus. The observation is held
-    /// for the controller's lifetime; without it the latched value would never
-    /// change.
+    /// again is what brings the update window back into focus. The observation
+    /// is held for the updater's lifetime; without it the latched value would
+    /// never change.
     private func observeCanCheck(_ updater: SPUUpdater) {
         canCheckObservation = updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { updater, _ in
             MainActor.assumeIsolated { [weak self] in

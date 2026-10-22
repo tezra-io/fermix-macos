@@ -52,6 +52,9 @@ public enum UpdateConfigurationRefusal: Error, Equatable, Sendable {
     case automaticInstallationNotForbidden
     /// `SUAutomaticallyUpdate` is absent or true.
     case automaticDownloadNotForbidden
+    /// The policy was sound and the updater still refused to start, with the
+    /// updater's own reason, which goes to the log and never to the screen.
+    case updaterDidNotStart(String)
 }
 
 /// The one place the update policy is checked.

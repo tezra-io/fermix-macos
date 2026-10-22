@@ -527,6 +527,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// An update a scheduled check found waits for Fermix to come in front
+    /// rather than taking focus from whatever the person is doing.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            composition?.updatePrompt.appBecameActive()
+        }
+    }
+
     /// Pause the pet's animation whenever its window isn't actually on screen
     /// (other Space, minimized, fully covered).
     private func observeWindowOcclusion(_ composition: AppComposition) {

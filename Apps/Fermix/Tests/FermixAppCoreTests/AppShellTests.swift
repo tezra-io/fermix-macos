@@ -324,15 +324,35 @@ struct LaunchReasonTests {
 struct WindowCoordinatorTests {
     @Test("Home, Setup and Settings share the one primary window kind")
     func primaryWindowOwnsTheJourney() {
-        #expect(WindowKind.allCases == [.main, .pet])
+        #expect(WindowKind.allCases == [.main, .pet, .update])
         #expect(AssistantBottomBar.height == 64)
     }
 
-    @Test("both remaining windows keep system restoration")
+    /// The update window is the one exception: an update's state is the
+    /// updater's, and a window macOS put back at login would hold no update.
+    @Test("the primary and pet windows keep system restoration, the update window does not")
     func windowsUseSystemRestoration() {
-        for kind in WindowKind.allCases {
-            #expect(WindowCoordinator.descriptor(for: kind).restorable)
-        }
+        #expect(WindowCoordinator.descriptor(for: .main).restorable)
+        #expect(WindowCoordinator.descriptor(for: .pet).restorable)
+        #expect(!WindowCoordinator.descriptor(for: .update).restorable)
+    }
+
+    /// Each phase offers its own way out, and the ones that offer none (the
+    /// download being unpacked, the relaunch that finishes it) are the ones an
+    /// update may not be walked away from or parked out of sight.
+    @Test("the update window is one fixed size with nothing to close, minimize or zoom")
+    func updateWindowGeometry() {
+        let update = WindowCoordinator.descriptor(for: .update)
+
+        #expect(update.size == WindowMetrics.updateWindowSize)
+        #expect(Double(update.size.width) == SheetMetrics.credentialWidth, "\(update.size.width)")
+        #expect(!update.resizable)
+        #expect(!update.closable)
+        #expect(!update.minimizable)
+        #expect(!update.zoomable)
+        #expect(!update.borderless)
+        #expect(update.frameAutosaveName == nil)
+        #expect(WindowCoordinator.descriptor(for: .main).closable)
     }
 
     /// Decision D3: settings runs inside this window, so its default is the
