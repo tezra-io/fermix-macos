@@ -111,10 +111,25 @@ struct ManagementV2FixtureTests {
             ("mcp action", Array(ManagementMCPAction.publishedValues.keys)),
             ("mcp auth mode", Array(ManagementMCPAuthMode.publishedValues.keys)),
             ("mcp auth state", Array(ManagementMCPAuthState.publishedValues.keys)),
-            ("mcp import source", Array(ManagementMCPImportSource.publishedValues.keys))
+            ("mcp import source", Array(ManagementMCPImportSource.publishedValues.keys)),
+            ("cue state", Array(ManagementCueState.publishedValues.keys)),
+            ("cue door state", Array(ManagementCueDoorState.publishedValues.keys)),
+            ("cue source kind", Array(ManagementCueSourceKind.publishedValues.keys)),
+            ("cue source action", Array(ManagementCueSourceAction.publishedValues.keys)),
+            ("cue secret field", Array(ManagementCueSecretField.publishedValues.keys)),
+            ("cue watcher filter", Array(ManagementCueWatcherFilter.publishedValues.keys)),
+            ("cue mandate mode", Array(ManagementCueMandateMode.publishedValues.keys)),
+            ("cue mandate action", Array(ManagementCueMandateAction.publishedValues.keys)),
+            ("cue mandate load", Array(ManagementCueMandateLoad.publishedValues.keys)),
+            ("cue approval state", Array(ManagementCueApprovalState.publishedValues.keys)),
+            ("cue proposal state", Array(ManagementCueProposalState.publishedValues.keys)),
+            ("cue decided from", Array(ManagementCueDecidedFrom.publishedValues.keys)),
+            ("cue result status", Array(ManagementCueResultStatus.publishedValues.keys)),
+            ("cue decision", Array(ManagementCueDecision.publishedValues.keys)),
+            ("cue proposal filter", Array(ManagementCueProposalFilter.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 35)
+        #expect(modelled.count == 50)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),
@@ -240,7 +255,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 126, "every success record was decoded")
+        #expect(seen.count == 157, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -337,7 +352,7 @@ struct ManagementV2FixtureTests {
             carried += 1
         }
 
-        #expect(carried == 11, "the contract publishes a detail sentence on eleven records")
+        #expect(carried == 16, "the contract publishes a detail sentence on sixteen records")
     }
 
     /// An MCP server form's refusal names the input it is about in the

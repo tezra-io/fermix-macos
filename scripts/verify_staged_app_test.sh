@@ -896,6 +896,25 @@ expect_refusal "a release bundle whose engine does not serve the version it spea
   "does not serve management protocol" \
   "$VERIFY" "$app" universal unsigned release --engine-pin "$FIXTURE_ENGINE_PIN"
 
+# The same promise for every contract the app speaks, not only management: an
+# app whose Chat speaks a companion protocol the engine's window stops below
+# has its hello refused with client_too_new, and Chat never retries. The
+# version and window are read from the staged record, so this row follows the
+# contract when it moves.
+companion_speaks="$(python3 -c 'import json,sys; print(next(c["protocol_version"] for c in json.load(open(sys.argv[1]))["contracts"] if c["name"] == "companion"))' \
+  "$FAKE_APP_RESOURCES/Contracts/SOURCE.json")"
+companion_window="$(python3 -c 'import json,sys; r=next(c["supported_version_range"] for c in json.load(open(sys.argv[1]))["contracts"] if c["name"] == "companion"); print(r["minimum"], "to", r["maximum"])' \
+  "$FAKE_APP_RESOURCES/Contracts/SOURCE.json")"
+app="$(published_bundle release-engine-behind-the-chat)"
+build_argument_stub "$app/Contents/MacOS/$GUI_EXECUTABLE" none
+fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/arm64" arm64 1 2 \
+  "$FAKE_APP_ENGINE_SOURCE_COMMIT" "$((companion_speaks - 1))"
+fake_app_build_engine_tree "$app/$(product_config engine_relative_path)/x86_64" x86_64 1 2 \
+  "$FAKE_APP_ENGINE_SOURCE_COMMIT" "$((companion_speaks - 1))"
+expect_refusal "a release bundle whose engine's companion window stops below the version Chat speaks is refused" \
+  "does not serve companion protocol $companion_speaks: the app speaks $companion_window, the engine $((companion_speaks - 2)) to $((companion_speaks - 1))" \
+  "$VERIFY" "$app" universal unsigned release --engine-pin "$FIXTURE_ENGINE_PIN"
+
 # The third release promise: the engine inside the bundle is the engine
 # engine/PIN.json names. Both rows stand on the fixture pin, which vouches for
 # the commit and version a fixture engine tree declares; the repository's own

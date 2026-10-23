@@ -24,11 +24,16 @@ enum CompanionReducer {
     /// The notices sent while this client was away are lost, so the held rows
     /// on screen, which the transcript reported last, are read again once the
     /// catch-up read has drained (M66 §3.6): they wait behind it.
+    ///
+    /// Every proposal card not resolved is dropped: the daemon sends again
+    /// each one still waiting, so a card decided elsewhere meanwhile is gone
+    /// and none is doubled (M60 §4.7).
     static func negotiated(_ chat: inout CompanionChat, onScreen: Set<Int>) -> [CompanionClientEvent] {
         let catchUp: CompanionHistoryCursor = chat.rows.isEmpty
             ? .before(seq: newestPageBound)
             : .after(seq: chat.cursor)
         readAgain(onScreen, in: &chat)
+        dropUnresolvedProposals(&chat)
 
         return send(.catchUp(catchUp), into: &chat) + chat.pending.map(\.event)
     }
@@ -241,12 +246,124 @@ enum CompanionReducer {
             refuse(error, in: &chat)
         case .rowUpdated(_, let serverSeq):
             return updated(serverSeq, into: &chat)
+        case .proposal(_, let proposal):
+            hold(proposal, in: &chat)
+        case .proposalResolved(let resolution):
+            resolve(resolution, in: &chat)
         case .serverHello, .mediaPath, .mediaMissing, .unrecognized:
             // The handshake and the grants are the session's, never the chat's.
             break
         }
 
         return []
+    }
+
+    // MARK: - Proposals (version 4)
+
+    /// Answers a proposal with the owner's decision, through the outbox, by
+    /// its id and the word alone (M60 §5.2). Only a card that asks takes an
+    /// answer, and once one is sent both buttons wait for the daemon, so a
+    /// card is never answered twice.
+    static func answer(
+        proposal proposalId: String,
+        _ decision: CompanionProposalDecision,
+        clientMsgId: String,
+        into chat: inout CompanionChat
+    ) -> [CompanionClientEvent] {
+        guard let index = chat.proposals.firstIndex(where: { $0.id == proposalId }),
+              chat.proposals[index].awaitsDecision
+        else { return [] }
+
+        chat.proposals[index].standing = .answered(decision)
+        let request = CompanionRequest.proposalAnswer(proposalId: proposalId, decision: decision)
+        return enqueue(CompanionOutboxEntry(clientMsgId: clientMsgId, request: request), into: &chat)
+    }
+
+    /// Takes the buttons from every card this Mac's clock has passed with no
+    /// answer sent. The card says nothing ran until the daemon's resolution
+    /// replaces that (M60 §4.7).
+    static func expire(at now: Date, in chat: inout CompanionChat) {
+        for index in chat.proposals.indices where chat.proposals[index].standing == .open {
+            guard let expiresAt = chat.proposals[index].expiresAt, expiresAt <= now else { continue }
+
+            chat.proposals[index].standing = .expired
+        }
+    }
+
+    /// The soonest expiry of the cards still asking, which the session's one
+    /// timer waits for.
+    static func nextExpiry(of chat: CompanionChat) -> Date? {
+        chat.proposals.filter(\.awaitsDecision).compactMap(\.expiresAt).min()
+    }
+
+    /// A request to show one card, a new value each time.
+    static func reveal(proposal proposalId: String, in chat: inout CompanionChat) {
+        chat.proposalReveal = CompanionProposalReveal(id: (chat.proposalReveal?.id ?? 0) + 1, proposalId: proposalId)
+    }
+
+    /// The cards that ask, oldest first by when each was made; a card whose
+    /// time cannot be read goes last, in the order the cards arrived.
+    static func waiting(_ cards: [CompanionProposalCard]) -> [CompanionProposalCard] {
+        cards.filter(\.awaitsDecision).enumerated().sorted { left, right in
+            let leftMade = left.element.createdAt ?? .distantFuture
+            let rightMade = right.element.createdAt ?? .distantFuture
+            return leftMade == rightMade ? left.offset < right.offset : leftMade < rightMade
+        }.map(\.element)
+    }
+
+    /// A card the daemon sent, keyed by its id: one sent again replaces the
+    /// card and keeps where its answer stands, and a new one stands where
+    /// the outbox says, so a card dropped at a handshake whose answer still
+    /// waits to be sent comes back answered.
+    private static func hold(_ proposal: CompanionProposal, in chat: inout CompanionChat) {
+        if let index = chat.proposals.firstIndex(where: { $0.id == proposal.proposalId }) {
+            chat.proposals[index] = CompanionProposalCard(proposal: proposal, standing: chat.proposals[index].standing)
+            return
+        }
+
+        chat.proposals.append(CompanionProposalCard(proposal: proposal, standing: standing(of: proposal, in: chat.pending)))
+    }
+
+    private static func standing(
+        of proposal: CompanionProposal,
+        in pending: [CompanionOutboxEntry]
+    ) -> CompanionProposalStanding {
+        for entry in pending {
+            guard case .proposalAnswer(let proposalId, let decision) = entry.request,
+                  proposalId == proposal.proposalId
+            else { continue }
+
+            return .answered(decision)
+        }
+
+        return .open
+    }
+
+    /// The daemon's last word on a card it held. One for a card not held, a
+    /// card decided before this client was told of it, has nothing to show.
+    private static func resolve(_ resolution: CompanionProposalResolution, in chat: inout CompanionChat) {
+        guard let index = chat.proposals.firstIndex(where: { $0.id == resolution.proposalId }) else { return }
+
+        chat.proposals[index].standing = .resolved(sentence: resolution.sentence, resultText: resolution.resultText)
+    }
+
+    /// A handshake: every card not resolved is dropped, and the daemon sends
+    /// again the ones still waiting. A resolved card stays as a record.
+    private static func dropUnresolvedProposals(_ chat: inout CompanionChat) {
+        chat.proposals.removeAll { card in
+            guard case .resolved = card.standing else { return true }
+
+            return false
+        }
+    }
+
+    /// A refused answer: its card says why, in the daemon's sentence, and the
+    /// chat's failure line says nothing of it.
+    private static func refuseAnswer(_ error: CompanionServerError, to proposalId: String, in chat: inout CompanionChat) {
+        guard let index = chat.proposals.firstIndex(where: { $0.id == proposalId }) else { return }
+
+        let sentence = error.message ?? String(format: ProductStrings[.companionErrorRefusedFormat], error.reason)
+        chat.proposals[index].standing = .resolved(sentence: sentence, resultText: nil)
     }
 
     /// The turn an event names: the one held, or one this connection joined
@@ -317,8 +434,14 @@ enum CompanionReducer {
     /// A refusal naming a request ends that request's delivery: it can never
     /// be accepted, so it leaves the outbox.
     private static func refuse(_ error: CompanionServerError, in chat: inout CompanionChat) {
+        let refused = chat.pending.first { $0.clientMsgId == error.clientMsgId }
         if let clientMsgId = error.clientMsgId {
             chat.pending.removeAll { $0.clientMsgId == clientMsgId }
+        }
+
+        if case .proposalAnswer(let proposalId, _) = refused?.request {
+            refuseAnswer(error, to: proposalId, in: &chat)
+            return
         }
 
         chat.lastError = String(format: ProductStrings[.companionErrorRefusedFormat], error.reason)

@@ -10,10 +10,12 @@ import Foundation
 public enum CompanionProtocol {
     /// Wire protocol version this build speaks, declared in `client_hello` and
     /// validated against the window the daemon advertises in `server_hello`.
-    public static let version = 3
+    /// Version 4 adds a cue proposal's card, its answer and its resolution
+    /// (M60 §3.7).
+    public static let version = 4
 
     /// The daemon's window at the pinned contract, which `version` sits inside.
-    public static let supportedWindow = CompanionVersionWindow(minimum: 2, maximum: 3)
+    public static let supportedWindow = CompanionVersionWindow(minimum: 3, maximum: 4)
 
     /// The longest client line the daemon reads. A longer one is refused with
     /// `line_too_large` and closes the connection, so `line()` refuses it first.
@@ -155,7 +157,7 @@ public enum CompanionHistoryCursor: Equatable, Sendable {
 public enum CompanionClientEvent: Equatable, Sendable, Encodable {
     case clientHello(protocolVersion: Int)
     /// A message to the agent. This wire carries no attachments in versions 1
-    /// to 3, so the line always sends an empty `attach_ids`.
+    /// to 4, so the line always sends an empty `attach_ids`.
     case msg(clientMsgId: String, profileId: String, text: String)
     /// A slash command, `/name args`. An approval's routes are sent this way.
     case command(clientMsgId: String, profileId: String, name: String, args: String?)
@@ -176,6 +178,11 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
     /// Version 3: this client has finished with the file of `ref`. Never
     /// answered.
     case mediaRelease(profileId: String, ref: String)
+    /// Version 4: the owner's answer to a proposal, by its id and the one
+    /// word, and nothing else: never its arguments, never a token, never a
+    /// value edited here (M60 §5.2). Answered `accepted`, then
+    /// `proposal_resolved`, or refused with `request_failed`.
+    case proposalAnswer(clientMsgId: String, profileId: String, proposalId: String, decision: CompanionProposalDecision)
 
     public var wireType: String {
         switch self {
@@ -188,11 +195,12 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         case .readState: return "read_state"
         case .mediaFetch: return "media_fetch"
         case .mediaRelease: return "media_release"
+        case .proposalAnswer: return "proposal_answer"
         }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, text, name, args, query, limit, ref
+        case type, text, name, args, query, limit, ref, decision
         case protocolVersion = "protocol_version"
         case clientMsgId = "client_msg_id"
         case profileId = "profile_id"
@@ -201,6 +209,7 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         case beforeSeq = "before_seq"
         case readUpToSeq = "read_up_to_seq"
         case taskRef = "task_ref"
+        case proposalId = "proposal_id"
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -242,6 +251,11 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         case .mediaFetch(let profileId, let ref), .mediaRelease(let profileId, let ref):
             try container.encode(profileId, forKey: .profileId)
             try container.encode(ref, forKey: .ref)
+        case .proposalAnswer(let clientMsgId, let profileId, let proposalId, let decision):
+            try container.encode(clientMsgId, forKey: .clientMsgId)
+            try container.encode(profileId, forKey: .profileId)
+            try container.encode(proposalId, forKey: .proposalId)
+            try container.encode(decision, forKey: .decision)
         }
     }
 
@@ -454,6 +468,157 @@ public struct CompanionMediaPath: Equatable, Sendable, Decodable {
     }
 }
 
+// MARK: - Proposals (version 4)
+
+/// Version 4: where a proposal stands, in the daemon's word. A word this build
+/// does not know keeps its own and draws no button (M60 §4.9).
+public enum CompanionProposalState: Equatable, Sendable, Decodable {
+    case waiting
+    case confirmed
+    case denied
+    case expired
+    case refused
+    case unrecognized(String)
+
+    public init(wireValue: String) {
+        switch wireValue {
+        case "waiting": self = .waiting
+        case "confirmed": self = .confirmed
+        case "denied": self = .denied
+        case "expired": self = .expired
+        case "refused": self = .refused
+        default: self = .unrecognized(wireValue)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        self.init(wireValue: try decoder.singleValueContainer().decode(String.self))
+    }
+}
+
+/// Version 4: the owner's answer to a proposal, the contract's two words.
+public enum CompanionProposalDecision: String, Equatable, Sendable, Encodable {
+    case confirm
+    case deny
+}
+
+/// The task whose cue run raised a proposal. A task with no name of the
+/// owner's is named by its job.
+public struct CompanionProposalTask: Equatable, Sendable, Decodable {
+    public let jobId: String
+    public let name: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case jobId = "job_id"
+    }
+}
+
+/// The item that woke the task, from the cue's snapshot. Every field is
+/// outside text, `occurredAt` too: it is the producer's claim. Any field the
+/// snapshot did not keep is absent.
+public struct CompanionProposalCue: Equatable, Sendable, Decodable {
+    public let type: String?
+    public let subject: String?
+    public let text: String?
+    public let occurredAt: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case type, subject, text
+        case occurredAt = "occurred_at"
+    }
+}
+
+/// Everything a model or a stranger wrote, kept apart from Fermix's record by
+/// structure (M60 §3.7): drawn only by `OutsideTextBlock`.
+public struct CompanionProposalOutside: Equatable, Sendable, Decodable {
+    /// The recorded call's arguments, pretty JSON, never cut by the daemon.
+    public let argsText: String
+    /// Nil when Fermix no longer keeps the cue.
+    public let cue: CompanionProposalCue?
+
+    private enum CodingKeys: String, CodingKey {
+        case cue
+        case argsText = "args_text"
+    }
+}
+
+/// Version 4: a proposal's card, one shape on every surface (M60 §3.7). Its
+/// record, `statusSentence` and `summary` are Fermix's; `outside` is not. A
+/// field that does not apply is absent.
+public struct CompanionProposal: Equatable, Sendable, Decodable {
+    public let proposalId: String
+    public let state: CompanionProposalState
+    public let mandate: String
+    public let task: CompanionProposalTask
+    public let watcher: String?
+    public let sourceRef: String?
+    public let tool: String
+    /// When the proposal was made, which places its card in the conversation.
+    public let createdAt: String
+    /// When it stops waiting, which this Mac's own clock counts down to.
+    public let expiresAt: String
+    /// When Fermix received the cue.
+    public let receivedAt: String?
+    /// When and where a decided proposal was decided, and how its call
+    /// ended: Fermix's record, carried as the daemon wrote it.
+    public let decidedAt: String?
+    public let decidedFrom: String?
+    public let resultStatus: String?
+    /// Fermix's line for where the proposal stands, which a card in a state
+    /// this build does not know draws in place of buttons (M60 §4.9).
+    public let statusSentence: String?
+    /// Fermix's sentence, with no outside text in it.
+    public let summary: String
+    public let outside: CompanionProposalOutside
+
+    private enum CodingKeys: String, CodingKey {
+        case state, mandate, task, watcher, tool, summary, outside
+        case proposalId = "proposal_id"
+        case sourceRef = "source_ref"
+        case createdAt = "created_at"
+        case expiresAt = "expires_at"
+        case receivedAt = "received_at"
+        case decidedAt = "decided_at"
+        case decidedFrom = "decided_from"
+        case resultStatus = "result_status"
+        case statusSentence = "status_sentence"
+    }
+}
+
+/// Version 4: a proposal left `waiting`, decided here, elsewhere or by its
+/// clock. `sentence` is Fermix's reply; `resultText` is outside text, what
+/// the tool answered.
+public struct CompanionProposalResolution: Equatable, Sendable, Decodable {
+    public let profileId: String
+    public let proposalId: String
+    public let state: CompanionProposalState
+    public let resultStatus: String?
+    public let sentence: String
+    public let resultText: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case state, sentence
+        case profileId = "profile_id"
+        case proposalId = "proposal_id"
+        case resultStatus = "result_status"
+        case resultText = "result_text"
+    }
+}
+
+/// The wire's times, as the engine writes them: ISO 8601, with or without
+/// fractional seconds. Nil for one in a shape this build cannot read, which
+/// is then never counted down to or placed by.
+enum CompanionTime {
+    static func date(_ value: String?) -> Date? {
+        guard let value else { return nil }
+
+        return try? wire.parse(value)
+    }
+
+    private static let wire = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+}
+
 /// Everything the daemon sends.
 public enum CompanionServerEvent: Equatable, Sendable {
     case serverHello(minVersion: Int, maxVersion: Int)
@@ -486,6 +651,11 @@ public enum CompanionServerEvent: Equatable, Sendable {
     /// Version 3: a row already written changed, its text, its media or its
     /// link previews. It carries no content: the row is read from history.
     case rowUpdated(profileId: String, serverSeq: Int)
+    /// Version 4: a proposal waiting on the owner, sent when it is stored and
+    /// again after every `server_hello` while it still waits, oldest first.
+    case proposal(profileId: String, proposal: CompanionProposal)
+    /// Version 4: a proposal left `waiting`.
+    case proposalResolved(CompanionProposalResolution)
     /// An event type published after this build shipped: logged by the session,
     /// never silently dropped.
     case unrecognized(type: String)
@@ -510,6 +680,8 @@ public enum CompanionServerEvent: Equatable, Sendable {
         case .mediaPath: return "media_path"
         case .mediaMissing: return "media_missing"
         case .rowUpdated: return "row_updated"
+        case .proposal: return "proposal"
+        case .proposalResolved: return "proposal_resolved"
         case .unrecognized(let type): return type
         }
     }
@@ -559,7 +731,7 @@ public enum CompanionServerEvent: Equatable, Sendable {
 
 extension CompanionServerEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case type, text, code, message, outcome, ref, blocks
+        case type, text, code, message, outcome, ref, blocks, proposal
         case minVersion = "min_version"
         case maxVersion = "max_version"
         case profileId = "profile_id"
@@ -641,6 +813,13 @@ extension CompanionServerEvent: Decodable {
                 profileId: try fields.decode(String.self, forKey: .profileId),
                 serverSeq: try fields.decode(Int.self, forKey: .serverSeq)
             )
+        case "proposal":
+            self = .proposal(
+                profileId: try fields.decode(String.self, forKey: .profileId),
+                proposal: try fields.decode(CompanionProposal.self, forKey: .proposal)
+            )
+        case "proposal_resolved":
+            self = .proposalResolved(try CompanionProposalResolution(from: decoder))
         default:
             self = .unrecognized(type: type)
         }

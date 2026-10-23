@@ -68,7 +68,7 @@ struct AppRouteTests {
     /// assigns to a pane and a url that opens it cannot drift.
     @Test("every pane slug is the wire value the daemon publishes")
     func paneSlugsAreTheWireVocabulary() {
-        #expect(SettingsPane.allCases.count == 15)
+        #expect(SettingsPane.allCases.count == 16)
         #expect(Set(SettingsPane.allCases.map(\.slug)) == Set(ManagementSettingsPane.publishedValues.keys))
 
         for pane in SettingsPane.allCases {
@@ -76,15 +76,15 @@ struct AppRouteTests {
         }
     }
 
-    /// The four groups hold the fifteen panes exactly once each, in the
+    /// The four groups hold the sixteen panes exactly once each, in the
     /// design's own order.
-    @Test("the four sidebar groups partition the fifteen panes")
+    @Test("the four sidebar groups partition the sixteen panes")
     func groupsPartitionThePanes() {
         let grouped = SettingsPaneGroup.allCases.flatMap(\.panes)
 
         #expect(grouped == SettingsPane.allCases)
         #expect(SettingsPaneGroup.assistant.panes == [.providers, .personality, .memory])
-        #expect(SettingsPaneGroup.connections.panes == [.channels, .integrations])
+        #expect(SettingsPaneGroup.connections.panes == [.channels, .integrations, .cues])
         #expect(SettingsPaneGroup.system.panes == [.sandbox, .secrets, .permissions])
         #expect(SettingsPaneGroup.capabilities.panes.count == 7)
     }

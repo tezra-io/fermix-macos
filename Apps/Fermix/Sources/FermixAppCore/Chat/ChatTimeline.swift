@@ -7,6 +7,7 @@ enum ChatItemID: Hashable, Sendable {
     case row(Int)
     case turn(String)
     case approval(String)
+    case proposal(String)
     case pending(String)
     case error
 }
@@ -20,6 +21,9 @@ enum ChatItem: Equatable, Identifiable {
     /// An approval waiting on the owner. `answering` while its answer is in
     /// the outbox, so it is not answered twice.
     case approval(CompanionApproval, answering: Bool)
+    /// A cue proposal's card (M60 §4.7): no timeline row and no seq, placed
+    /// in the conversation at the time it was made.
+    case proposal(CompanionProposalCard)
     /// A message the daemon has not accepted yet.
     case pending(clientMsgId: String, text: String)
     /// The latest failure, in the daemon's or the catalogue's sentence.
@@ -30,6 +34,7 @@ enum ChatItem: Equatable, Identifiable {
         case .row(let row): return .row(row.serverSeq)
         case .turn(let turn): return .turn(turn.turnId)
         case .approval(let approval, _): return .approval(approval.approvalId)
+        case .proposal(let card): return .proposal(card.id)
         case .pending(let clientMsgId, _): return .pending(clientMsgId)
         case .error: return .error
         }
@@ -49,7 +54,7 @@ enum ChatItem: Equatable, Identifiable {
         switch self {
         case .row(let row): return ChatSpeaker.isUser(row.role)
         case .pending: return true
-        case .turn, .approval, .error: return false
+        case .turn, .approval, .proposal, .error: return false
         }
     }
 }
@@ -57,20 +62,22 @@ enum ChatItem: Equatable, Identifiable {
 /// The transcript as a list: every fact the chat model publishes, in reading
 /// order, and nothing derived beyond that order.
 ///
-/// Rows come first, oldest to newest, then the turn answering now, then the
-/// approvals it raised, then what the owner has sent and the daemon has not
-/// yet accepted, and last the latest failure. A command in the outbox is an
-/// approval's answer rather than something the owner wrote, so it is not drawn
-/// as a message: its token is never rendered.
+/// Rows come first, oldest to newest, with each proposal's card among them at
+/// the time it was made, then the turn answering now, then the approvals it
+/// raised, then what the owner has sent and the daemon has not yet accepted,
+/// and last the latest failure. A command or a proposal's answer in the outbox
+/// is an answer rather than something the owner wrote, so it is not drawn as a
+/// message: an approval's token is never rendered.
 enum ChatTimeline {
     static func items(
         rows: [CompanionRow],
         turn: CompanionTurn?,
         approvals: [CompanionApproval],
         pending: [CompanionOutboxEntry],
-        lastError: String?
+        lastError: String?,
+        proposals: [CompanionProposalCard] = []
     ) -> [ChatItem] {
-        var items = rows.map(ChatItem.row)
+        var items = placed(rows, proposals)
         if let turn { items.append(.turn(turn)) }
         items += approvals.map { .approval($0, answering: isAnswering($0, in: pending)) }
         items += pending.compactMap(message)
@@ -86,15 +93,50 @@ enum ChatTimeline {
             turn: model.turn,
             approvals: model.approvals,
             pending: model.pending,
-            lastError: model.lastError
+            lastError: model.lastError,
+            proposals: model.proposals
         )
+    }
+
+    /// The rows, each card after the newest row written at or before the
+    /// card was made (M60 §4.7). A row with no time of its own, a reply held
+    /// from its turn, places nothing; a card made before every held row goes
+    /// first, and one whose time this build cannot read goes after the rows.
+    /// The walk starts at the newest row, where a card nearly always lands, so
+    /// a redraw reads the times of a few rows rather than of every one.
+    private static func placed(_ rows: [CompanionRow], _ cards: [CompanionProposalCard]) -> [ChatItem] {
+        guard !cards.isEmpty else { return rows.map(ChatItem.row) }
+
+        let slotted = Dictionary(grouping: cards) { slot(of: $0, among: rows) }
+        var items: [ChatItem] = []
+        for (index, row) in rows.enumerated() {
+            items += (slotted[index] ?? []).map(ChatItem.proposal)
+            items.append(.row(row))
+        }
+        items += (slotted[rows.count] ?? []).map(ChatItem.proposal)
+
+        return items
+    }
+
+    /// How many held rows come before a card.
+    private static func slot(of card: CompanionProposalCard, among rows: [CompanionRow]) -> Int {
+        guard let made = card.createdAt else { return rows.count }
+
+        for index in rows.indices.reversed() {
+            guard let written = CompanionTime.date(rows[index].timestamp) else { continue }
+            if written <= made { return index + 1 }
+        }
+
+        return 0
     }
 
     /// Whether the seam between two adjacent items opens a new turn: every
     /// seam does, except the one between a user's own row (or a message not
-    /// yet accepted) and the reply that follows it, which is one turn.
+    /// yet accepted) and the reply that follows it, which is one turn. A
+    /// proposal's card answers no message, so it always stands apart.
     static func opensNewTurn(after previous: ChatItem?, before current: ChatItem) -> Bool {
         guard let previous else { return false }
+        if case .proposal = current { return true }
 
         return !(previous.isUserAuthored && !current.isUserAuthored)
     }

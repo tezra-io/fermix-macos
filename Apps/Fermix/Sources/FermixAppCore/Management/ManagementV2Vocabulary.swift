@@ -19,6 +19,7 @@ public enum ManagementSettingsPane: ManagementVocabulary {
     case memory
     case channels
     case integrations
+    case cues
     case voice
     case meetings
     case computer
@@ -37,6 +38,7 @@ public enum ManagementSettingsPane: ManagementVocabulary {
         "memory": .memory,
         "channels": .channels,
         "integrations": .integrations,
+        "cues": .cues,
         "voice": .voice,
         "meetings": .meetings,
         "computer": .computer,

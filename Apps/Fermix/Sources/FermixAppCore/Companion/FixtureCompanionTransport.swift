@@ -7,7 +7,8 @@ enum FixtureCompanionTimeline: Equatable {
     /// Nothing written yet: the chat surface's empty state.
     case empty
     /// A dozen rows of both sides with older ones behind them, a reply being
-    /// written with a tool running, and an approval waiting.
+    /// written with a tool running, an approval waiting, and a cue proposal's
+    /// card in each of its states (M60 §4.7).
     case full
     /// Replies drawn for what they hold (M72): places with their map and
     /// cards, lists, a table, a quote, links and code, all on one page, and
@@ -23,9 +24,10 @@ enum FixtureCompanionTimeline: Equatable {
 /// in by hand. What the daemon would decide is scripted, and no more: it
 /// answers the handshake with this build's window, pages and searches its own
 /// rows, takes a message into a row and a short reply, resolves an approval's
-/// answer, stops a turn that is cancelled, and grants only the link
-/// pictures of the replies timeline, from sample photos every Mac has; every
-/// other `media_fetch` is answered `media_missing`.
+/// answer, resolves a proposal's answer a moment later, stops a turn that is
+/// cancelled, and grants only the link pictures of the replies timeline, from
+/// sample photos every Mac has; every other `media_fetch` is answered
+/// `media_missing`.
 ///
 /// Callbacks go out on whatever thread asked, which is the main one; the
 /// composition wraps this in the same main-actor delivery the real socket
@@ -54,7 +56,9 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
     private let pageLimit: Int
     private var repliesWritten = 0
 
-    init(timeline: FixtureCompanionTimeline) {
+    /// `now` is when the launch began: a waiting proposal's expiry is counted
+    /// from it, so the card still asks when the chat is looked at.
+    init(timeline: FixtureCompanionTimeline, now: Date = Date()) {
         switch timeline {
         case .empty:
             rows = []
@@ -62,7 +66,7 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             pageLimit = Self.historyPage
         case .full:
             rows = FixtureCompanionScript.rows
-            opening = FixtureCompanionScript.opening
+            opening = FixtureCompanionScript.opening + FixtureProposalScript.opening(now: now)
             pageLimit = Self.historyPage
         case .replies:
             rows = FixtureRepliesScript.rows
@@ -118,6 +122,8 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             emit(Self.grant(ref: event["ref"] as? String ?? ""))
         case "media_release":
             break
+        case "proposal_answer":
+            decide(proposal: event)
         default:
             preconditionFailure("the fixture daemon has no answer for \(type)")
         }
@@ -255,6 +261,19 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
         ))
     }
 
+    /// A proposal's answer is accepted at once and resolved a moment later,
+    /// so a confirm is seen running before the tool's answer arrives.
+    private func decide(proposal event: [String: Any]) {
+        let clientMsgId = event["client_msg_id"] as? String ?? ""
+        let proposalId = event["proposal_id"] as? String ?? ""
+        let confirmed = event["decision"] as? String == CompanionProposalDecision.confirm.rawValue
+        emit(.accepted(CompanionAccepted(clientMsgId: clientMsgId, duplicate: false, serverSeq: nil)))
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.replyDelay) { [weak self] in
+            self?.emit(confirmed ? FixtureProposalScript.confirmed(proposalId) : FixtureProposalScript.denied(proposalId))
+        }
+    }
+
     /// The contract's own answer to a cancel: the turn ends as cancelled.
     private func stop(_ event: [String: Any]) {
         let clientMsgId = event["client_msg_id"] as? String ?? ""
@@ -362,6 +381,137 @@ enum FixtureCompanionScript {
             blocks: blocks.map(CompanionBlocks.init)
         )
     }
+}
+
+/// The cue proposals the full timeline holds (M60 §4.7): one card in each
+/// state, placed among the newest page's rows by when each was made. One was
+/// confirmed and ran, with what the tool answered; one was denied, from a
+/// task no watcher woke; one the daemon expired; one the daemon refused, its
+/// item no longer kept; one this Mac's clock expired with no answer; and the
+/// last still asks, its item long enough to be cut at twelve lines and
+/// holding a Markdown link, an address and a phone number, all drawn as the
+/// text they are. Answering it is accepted at once and resolved a moment
+/// later.
+enum FixtureProposalScript {
+    static let waitingId = "fixture-proposal-waiting"
+    static let tool = "github_create_issue"
+    /// How long the waiting card asks, from the launch.
+    static let asksFor: TimeInterval = 30 * 60
+
+    static func opening(now: Date) -> [CompanionServerEvent] {
+        let asking = now.addingTimeInterval(asksFor)
+        let passed = now.addingTimeInterval(-60)
+
+        return [
+            card("fixture-proposal-confirmed", made: 12, until: passed),
+            confirmed("fixture-proposal-confirmed"),
+            card("fixture-proposal-denied", made: 14, until: passed, watcher: nil),
+            denied("fixture-proposal-denied"),
+            card("fixture-proposal-expired", made: 15, until: passed),
+            resolved("fixture-proposal-expired", .expired, "That proposal expired; nothing ran."),
+            card("fixture-proposal-refused", made: 16, until: passed, cue: nil),
+            resolved("fixture-proposal-refused", .refused, "That proposal was refused; nothing ran. The mandate is switched off."),
+            card("fixture-proposal-lapsed", made: 18, until: passed),
+            card(waitingId, made: 19, until: asking, cue: longItem)
+        ]
+    }
+
+    static func confirmed(_ proposalId: String) -> CompanionServerEvent {
+        resolved(proposalId, .confirmed, "Confirmed. \(tool) ran.", result: issueCreated, status: "ok")
+    }
+
+    static func denied(_ proposalId: String) -> CompanionServerEvent {
+        resolved(proposalId, .denied, "Denied. \(tool) will not run.")
+    }
+
+    private static func resolved(
+        _ proposalId: String,
+        _ state: CompanionProposalState,
+        _ sentence: String,
+        result: String? = nil,
+        status: String? = nil
+    ) -> CompanionServerEvent {
+        .proposalResolved(CompanionProposalResolution(
+            profileId: CompanionProtocol.profileId,
+            proposalId: proposalId,
+            state: state,
+            resultStatus: status,
+            sentence: sentence,
+            resultText: result
+        ))
+    }
+
+    /// A card made at 09:`minute`:30 on the full timeline's day, its item
+    /// received half a minute before.
+    private static func card(
+        _ proposalId: String,
+        made minute: Int,
+        until expiresAt: Date,
+        watcher: String? = "release-watch",
+        cue: CompanionProposalCue? = shortItem
+    ) -> CompanionServerEvent {
+        .proposal(profileId: CompanionProtocol.profileId, proposal: CompanionProposal(
+            proposalId: proposalId,
+            state: .waiting,
+            mandate: "release-issues",
+            task: CompanionProposalTask(jobId: "fixture-job-release-watch", name: "Release watch"),
+            watcher: watcher,
+            sourceRef: "eng-blogs",
+            tool: tool,
+            createdAt: String(format: "2026-09-25T09:%02d:30Z", minute),
+            expiresAt: expiresAt.formatted(.iso8601),
+            receivedAt: String(format: "2026-09-25T09:%02d:00Z", minute),
+            decidedAt: nil,
+            decidedFrom: nil,
+            resultStatus: nil,
+            statusSentence: "Waiting for your answer; it runs only if you confirm.",
+            summary: "A task wants to run \(tool) under your mandate release-issues. It runs only if you confirm.",
+            outside: CompanionProposalOutside(argsText: arguments, cue: cue)
+        ))
+    }
+
+    private static let arguments = """
+        {
+          "owner": "example-org",
+          "repo": "ops",
+          "title": "Lantern 4.2 security advisory"
+        }
+        """
+
+    private static let issueCreated = """
+        {
+          "number": 4127,
+          "url": "https://tracker.example/example-org/ops/issues/4127"
+        }
+        """
+
+    private static let shortItem = CompanionProposalCue(
+        type: "feed.item",
+        subject: nil,
+        text: "Lantern 4.2 security advisory: upgrade before Friday.",
+        occurredAt: "2026-09-25T08:58:00Z"
+    )
+
+    private static let longItem = CompanionProposalCue(
+        type: "feed.item",
+        subject: "Lantern 4.2",
+        text: """
+            Lantern 4.2 security advisory
+
+            A flaw in the session store lets a crafted cookie read another visitor's session.
+            Every release from 4.0 to 4.2.1 is affected. Read [the full notice](https://login.example/notice) before you upgrade.
+
+            What to do:
+            1. Upgrade to 4.2.2, published at https://lantern.example/releases/4.2.2
+            2. Rotate the session signing key.
+            3. Clear the session table.
+
+            Questions go to the security desk on +1 555 0142, weekdays from nine.
+            The maintainers thank the two people who reported it.
+            A second advisory for the 3.x line follows next week.
+            """,
+        occurredAt: "2026-09-25T08:58:00Z"
+    )
 }
 
 /// What the replies timeline holds (M72): seven questions, each answered in

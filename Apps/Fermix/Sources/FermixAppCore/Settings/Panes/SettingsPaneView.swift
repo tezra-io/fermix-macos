@@ -21,6 +21,8 @@ struct SettingsPaneView: View {
             IntegrationsPane(model: model, showLogs: { router.perform(.showLogs) }) { pane in
                 model.selectedPane = pane
             }
+        case .cues:
+            CuesPane(model: model, router: router)
         case .computer:
             ComputerPane(model: model)
         case .permissions:
