@@ -51,6 +51,8 @@ public final class CompanionSession {
     private let deadlines: any DeadlineScheduling
     private let messageIds: () -> String
     private let protocolVersion: Int
+    /// This Mac's clock, which a proposal's expiry is counted on (M60 §4.7).
+    private let now: () -> Date
     private let log = AppLog.logger(.companion)
 
     private var phase: Phase = .idle
@@ -61,6 +63,9 @@ public final class CompanionSession {
     /// The handshake deadline or the reconnect timer; never both.
     private var deadline: DeadlineToken?
     private var consecutiveFailures = 0
+    /// The next proposal expiry this Mac's clock is waiting for, and its
+    /// timer: one at a time, set again only when the next expiry moves.
+    private var expiry: (due: Date, token: DeadlineToken)?
 
     /// The socket path is resolved at every attempt, not at construction: it
     /// comes from the bootstrap record, which activation may not have written
@@ -70,13 +75,15 @@ public final class CompanionSession {
         socketPath: @escaping () throws -> String,
         deadlines: any DeadlineScheduling,
         messageIds: @escaping () -> String = { UUID().uuidString },
-        protocolVersion: Int = CompanionProtocol.version
+        protocolVersion: Int = CompanionProtocol.version,
+        now: @escaping () -> Date = Date.init
     ) {
         self.transport = transport
         self.socketPath = socketPath
         self.deadlines = deadlines
         self.messageIds = messageIds
         self.protocolVersion = protocolVersion
+        self.now = now
 
         transport.onEvent = { [weak self] event in
             self?.receive(event)
@@ -115,6 +122,25 @@ public final class CompanionSession {
     public func answerApproval(_ approvalId: String, approve: Bool) {
         let clientMsgId = messageIds()
         reduce { CompanionReducer.answer(approvalId, approve: approve, clientMsgId: clientMsgId, into: &$0) }
+    }
+
+    /// Answers a proposal with the owner's decision, by its id alone. Only
+    /// the card's own buttons call this: no automation route, menu command,
+    /// URL or script answers a proposal (M60 §5.3).
+    public func answerProposal(_ proposalId: String, decision: CompanionProposalDecision) {
+        let clientMsgId = messageIds()
+        reduce { CompanionReducer.answer(proposal: proposalId, decision, clientMsgId: clientMsgId, into: &$0) }
+    }
+
+    /// Asks the transcript to show a proposal's card: the menu line's, which
+    /// opens Chat at the oldest card waiting.
+    public func revealProposal(_ proposalId: String) {
+        update { CompanionReducer.reveal(proposal: proposalId, in: &$0) }
+    }
+
+    /// The transcript showed the card it was asked for.
+    public func proposalRevealServed() {
+        update { $0.proposalReveal = nil }
     }
 
     /// The page before the oldest held row. It waits for a read out, and
@@ -349,11 +375,35 @@ public final class CompanionSession {
     /// connection that asks before it, and the outbox resends at the next one.
     private func reduce(_ step: (inout CompanionChat) -> [CompanionClientEvent]) {
         let replies = step(&chat)
+        countDownProposals()
         model.show(chat)
 
         guard phase == .connected else { return }
 
         replies.forEach(transport.send)
+    }
+
+    /// Expires every proposal this Mac's clock has passed, then waits for the
+    /// next one's expiry: one timer, moved only when that expiry moves, so a
+    /// reply streaming tens of deltas a second sets nothing.
+    private func countDownProposals() {
+        CompanionReducer.expire(at: now(), in: &chat)
+
+        let due = CompanionReducer.nextExpiry(of: chat)
+        guard due != expiry?.due else { return }
+
+        expiry?.token.cancel()
+        expiry = due.map { due in
+            let token = deadlines.schedule(after: max(0, due.timeIntervalSince(now()))) { [weak self] in
+                self?.proposalExpiryDue()
+            }
+            return (due, token)
+        }
+    }
+
+    private func proposalExpiryDue() {
+        expiry = nil
+        update { _ in }
     }
 
     /// Sends one of the grants' events on a negotiated connection, and says

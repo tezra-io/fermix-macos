@@ -4,6 +4,9 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Chat: when a task asks to act under your mandate, decide on a card in Chat.
+- Settings: set up cues in a new Cues pane: sources, the default filter model, and the mandates you approve, with no terminal needed.
+
 ## 0.6.0 (2026-10-21)
 
 - Runs the Fermix engine 0.16.0, which keeps the MCP servers you add and signs them in, offers Grok Voice beside GPT-Live, rings a reminder or a timer on this Mac and takes timers in minutes and hours, finds places through Apple Maps with no key, knows it is the Mac app so a how-to question is answered for the Fermix you have, says in Doctor when your provider is down, and reaches a provider over IPv6 first, which brings Sign in with ChatGPT back on networks where OpenAI refuses it over IPv4. On a Mac, the commands it runs for you now stay inside the sandbox mode as its file tools do and can no longer change Fermix's own settings or read its keys, so a command that writes outside your folders, such as brew install, needs that folder granted or the mode set to open.

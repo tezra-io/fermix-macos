@@ -161,8 +161,59 @@ enum CompanionServerWire {
             return ["ref": ref]
         case .rowUpdated(let profileId, let serverSeq):
             return ["profile_id": profileId, "server_seq": serverSeq]
+        case .proposal(let profileId, let proposal):
+            return ["profile_id": profileId, "proposal": proposalFields(proposal)]
+        case .proposalResolved(let resolution):
+            return present([
+                "profile_id": resolution.profileId,
+                "proposal_id": resolution.proposalId,
+                "state": word(resolution.state),
+                "result_status": resolution.resultStatus,
+                "sentence": resolution.sentence,
+                "result_text": resolution.resultText
+            ])
         case .unrecognized:
             return [:]
+        }
+    }
+
+    /// A proposal's card. A field that does not apply is absent, never null.
+    private static func proposalFields(_ proposal: CompanionProposal) -> [String: Any] {
+        present([
+            "proposal_id": proposal.proposalId,
+            "state": word(proposal.state),
+            "mandate": proposal.mandate,
+            "task": present(["job_id": proposal.task.jobId, "name": proposal.task.name]),
+            "watcher": proposal.watcher,
+            "source_ref": proposal.sourceRef,
+            "tool": proposal.tool,
+            "created_at": proposal.createdAt,
+            "expires_at": proposal.expiresAt,
+            "received_at": proposal.receivedAt,
+            "decided_at": proposal.decidedAt,
+            "decided_from": proposal.decidedFrom,
+            "result_status": proposal.resultStatus,
+            "status_sentence": proposal.statusSentence,
+            "summary": proposal.summary,
+            "outside": present([
+                "args_text": proposal.outside.argsText,
+                "cue": proposal.outside.cue.map(cueFields)
+            ])
+        ])
+    }
+
+    private static func cueFields(_ cue: CompanionProposalCue) -> [String: Any] {
+        present(["type": cue.type, "subject": cue.subject, "text": cue.text, "occurred_at": cue.occurredAt])
+    }
+
+    private static func word(_ state: CompanionProposalState) -> String {
+        switch state {
+        case .waiting: return "waiting"
+        case .confirmed: return "confirmed"
+        case .denied: return "denied"
+        case .expired: return "expired"
+        case .refused: return "refused"
+        case .unrecognized(let word): return word
         }
     }
 

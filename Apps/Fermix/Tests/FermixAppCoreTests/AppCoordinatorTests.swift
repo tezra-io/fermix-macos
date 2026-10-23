@@ -57,6 +57,33 @@ struct AppCoordinatorTests {
         #expect(harness.presentation.isShowing)
     }
 
+    /// M60 app surface §4.1: Cues is a pane only where the daemon has cues,
+    /// and a `fermix://settings/cues` link is held to the same gate. Where
+    /// the daemon has been read and has none, the link lands on Providers;
+    /// where nothing has been read yet, the window's own gate read decides.
+    @Test("a route to Cues lands on Providers where the daemon is known to have no cues")
+    func cuesRouteIsGated() async throws {
+        let harness = try makeCoordinator()
+        await harness.settings.refreshCueGate()
+        #expect(!harness.settings.drawsCuesPane)
+
+        harness.coordinator.open(.settings(.cues))
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.settings.selectedPane == .providers)
+        #expect(harness.presentation.isShowing)
+    }
+
+    @Test("a route to Cues before anything is read opens it, and the window's gate read decides")
+    func cuesRouteBeforeTheGateIsRead() async throws {
+        let harness = try makeCoordinator()
+
+        harness.coordinator.open(.settings(.cues))
+        try await harness.coordinator.drainPendingWork()
+
+        #expect(harness.settings.selectedPane == .cues)
+    }
+
     @Test(
         "a delayed setup reply cannot replace newer navigation",
         arguments: [AppDestination.surface(.home), .settings(.providers)]

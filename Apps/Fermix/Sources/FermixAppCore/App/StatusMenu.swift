@@ -39,6 +39,71 @@ public enum StatusLine: Equatable, Sendable {
     }
 }
 
+/// The status menu's line while cue proposals wait for the owner's decision
+/// (M60 §4.7). It says how many, in Fermix's words alone: no proposal's
+/// summary, tool or outside text ever reaches the menu.
+public struct StatusProposalLine: Equatable, Sendable {
+    public let count: Int
+    /// The card the line opens Chat at: the oldest one waiting.
+    public let oldestProposalId: String
+
+    public var text: String {
+        count == 1
+            ? ProductStrings[.menuProposalWaiting]
+            : String(format: ProductStrings[.menuProposalsWaitingFormat], count)
+    }
+}
+
+/// Reads the proposal line on the status menu's own refresh (M60 §4.7): the
+/// daemon's count of proposals waiting from `cues.status`, and the oldest
+/// waiting one's id from `cues.proposals.list`, which is the card the line
+/// opens Chat at. A daemon whose `hello` does not list `cues.status` is never
+/// asked, and the menu then draws no line.
+@MainActor
+public final class StatusProposalReader {
+    /// The line as last read, or nil while nothing waits or nothing answered.
+    public private(set) var line: StatusProposalLine?
+
+    private let gateway: any DaemonQuerying
+    /// Whether Home last found the daemon answering.
+    private let daemonAnswers: () -> Bool
+    private let log = AppLog.logger(.app)
+
+    public init(gateway: any DaemonQuerying, daemonAnswers: @escaping () -> Bool) {
+        self.gateway = gateway
+        self.daemonAnswers = daemonAnswers
+    }
+
+    /// Reads the line, or, while Home says the daemon is not answering, asks
+    /// nothing and draws none: a menu opened with Fermix stopped is not a
+    /// failure worth a log line.
+    public func refresh() async {
+        guard daemonAnswers() else {
+            line = nil
+            return
+        }
+
+        do {
+            line = try await read()
+        } catch {
+            line = nil
+            log.debug("proposal line unread: \(ManagementMessage.diagnostic(for: error), privacy: .public)")
+        }
+    }
+
+    private func read() async throws -> StatusProposalLine? {
+        let served = try await gateway.servedMethods()
+        guard served.contains(.cuesStatus), served.contains(.cuesProposalsList) else { return nil }
+
+        let status = try await gateway.cuesStatus()
+        let count = status.counts.proposalsWaiting
+        guard status.available, count > 0 else { return nil }
+
+        let oldest = try await gateway.cueProposals(.waiting).proposals.first?.proposalId
+        return oldest.map { StatusProposalLine(count: count, oldestProposalId: $0) }
+    }
+}
+
 /// Where the status line reads its facts.
 ///
 /// Home already resolved every one of them from `overview.get`; reading that
@@ -52,15 +117,25 @@ public struct StatusMenuSource {
     /// because a daemon running an engine the operator has already replaced
     /// reports no restart requirement of its own.
     private let reconcile: () -> EngineReconcileOutcome
+    /// The proposal line as last read, while any proposal waits
+    /// (`StatusProposalReader`).
+    private let proposals: () -> StatusProposalLine?
 
     public init(
         model: AppModel,
         snapshot: @escaping () -> HomeSnapshot,
-        reconcile: @escaping () -> EngineReconcileOutcome = { .aligned }
+        reconcile: @escaping () -> EngineReconcileOutcome = { .aligned },
+        proposals: @escaping () -> StatusProposalLine? = { nil }
     ) {
         self.model = model
         self.snapshot = snapshot
         self.reconcile = reconcile
+        self.proposals = proposals
+    }
+
+    /// The proposal line, while any proposal waits.
+    public func proposalLine() -> StatusProposalLine? {
+        proposals()
     }
 
     public func line() -> StatusLine {
@@ -94,15 +169,19 @@ public final class StatusMenuController: NSObject, NSMenuItemValidation, NSMenuD
     /// this the item said `Running for 8 minutes` three hours later, and a dead
     /// daemon still said running (M34 §7.2).
     private let refresh: () -> Void
+    /// Shows a proposal's card in Chat, once Chat is open.
+    private let showProposal: (String) -> Void
 
     public init(
         router: any CommandPerforming,
         source: StatusMenuSource,
-        refresh: @escaping () -> Void = {}
+        refresh: @escaping () -> Void = {},
+        showProposal: @escaping (String) -> Void = { _ in }
     ) {
         self.router = router
         self.source = source
         self.refresh = refresh
+        self.showProposal = showProposal
     }
 
     public func menu() -> NSMenu {
@@ -111,6 +190,7 @@ public final class StatusMenuController: NSObject, NSMenuItemValidation, NSMenuD
         menu.autoenablesItems = true
 
         menu.addItem(stateItem())
+        menu.addItem(proposalItem())
         menu.addItem(.separator())
 
         for entry in CommandTable.statusItem {
@@ -135,6 +215,33 @@ public final class StatusMenuController: NSObject, NSMenuItemValidation, NSMenuD
         item.identifier = Self.stateIdentifier
 
         return item
+    }
+
+    /// The proposal line under the state line: there only while a proposal
+    /// waits, and a click opens Chat at the oldest card. It is no command of
+    /// the table, because it names no verb of the app's: it is the one way
+    /// the menu says a decision is waiting, and it never answers one.
+    private func proposalItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "", action: #selector(openProposal(_:)), keyEquivalent: "")
+        item.target = self
+        item.identifier = Self.proposalIdentifier
+        show(source.proposalLine(), in: item)
+
+        return item
+    }
+
+    private func show(_ line: StatusProposalLine?, in item: NSMenuItem) {
+        item.title = line?.text ?? ""
+        item.representedObject = line?.oldestProposalId
+        item.isHidden = line == nil
+    }
+
+    @objc
+    private func openProposal(_ sender: NSMenuItem) {
+        guard let proposalId = sender.representedObject as? String else { return }
+
+        router.perform(.showChat)
+        showProposal(proposalId)
     }
 
     /// One command row, with no key equivalent on any of them.
@@ -166,6 +273,7 @@ public final class StatusMenuController: NSObject, NSMenuItemValidation, NSMenuD
     }
 
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.identifier == Self.proposalIdentifier { return menuItem.representedObject != nil }
         guard let command = MainMenuController.command(of: menuItem) else { return false }
 
         return router.canPerform(command)
@@ -185,6 +293,10 @@ public final class StatusMenuController: NSObject, NSMenuItemValidation, NSMenuD
                 item.title = source.line().text
                 continue
             }
+            if item.identifier == Self.proposalIdentifier {
+                show(source.proposalLine(), in: item)
+                continue
+            }
 
             guard let command = MainMenuController.command(of: item) else { continue }
 
@@ -193,4 +305,5 @@ public final class StatusMenuController: NSObject, NSMenuItemValidation, NSMenuD
     }
 
     static let stateIdentifier = NSUserInterfaceItemIdentifier("fermix.statusItem.state")
+    static let proposalIdentifier = NSUserInterfaceItemIdentifier("fermix.statusItem.proposals")
 }

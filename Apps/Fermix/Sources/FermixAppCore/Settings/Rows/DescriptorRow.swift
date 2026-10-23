@@ -15,6 +15,10 @@ struct DescriptorRow: View {
     @ObservedObject var model: SettingsModel
     let section: String
     let row: ManagementSettingRow
+    /// Where the row's value lives when a sheet holds it rather than the
+    /// daemon's section: the cue source form, sent whole on Add (M60 app
+    /// surface §4.3). Nil on every pane row, which writes as it is edited.
+    var held: DescriptorHeldValue?
 
     @State private var choosingTimeZone = false
 
@@ -34,7 +38,7 @@ struct DescriptorRow: View {
     }
 
     private var projection: DescriptorRowModel {
-        DescriptorRowModel(row: row, value: model.value(of: row, in: section))
+        DescriptorRowModel(row: row, value: held?.value ?? model.value(of: row, in: section))
     }
 
     private var draftKey: SettingsDraftKey {
@@ -64,7 +68,8 @@ struct DescriptorRow: View {
                 model: model,
                 key: draftKey,
                 commit: commit,
-                info: info
+                info: info,
+                commitsAsTyped: held != nil
             )
         case .stepper(let value, let minimum, let maximum, let step, let measure):
             DescriptorNumberRow(
@@ -75,7 +80,8 @@ struct DescriptorRow: View {
                 step: step,
                 measure: measure,
                 commit: commit,
-                info: info
+                info: info,
+                commitsAsTyped: held != nil
             )
         case .slider(let value, let minimum, let maximum, let step, let measure):
             DescriptorSliderRow(
@@ -156,7 +162,8 @@ struct DescriptorRow: View {
             key: draftKey,
             commit: commit,
             suggestions: options,
-            info: info
+            info: info,
+            commitsAsTyped: held != nil
         )
     }
 
@@ -198,7 +205,7 @@ struct DescriptorRow: View {
 
     @ViewBuilder
     private var refusal: some View {
-        if let message = model.message(for: draftKey) {
+        if let message = held.map(\.refusal) ?? model.message(for: draftKey) {
             Text(message)
                 .fermixType(Typography.style(.calloutSmall))
                 .foregroundStyle(Palette.warning.color)
@@ -216,6 +223,11 @@ struct DescriptorRow: View {
     }
 
     private func commit(_ value: ManagementSettingValue) {
+        if let held {
+            held.change(value)
+            return
+        }
+
         Task { await model.apply(section: section, key: row.key, value: value) }
     }
 
@@ -265,6 +277,11 @@ struct DescriptorTextRow: View {
     var suggestions: [ManagementSettingOption] = []
     /// The row's longer explanation, drawn behind the (i) beside the label.
     var info: String?
+    /// Hands each keystroke on rather than waiting for Return or focus loss,
+    /// for a row whose value a sheet holds until it sends the whole form: a
+    /// click on the sheet's button does not take focus from the field, so a
+    /// commit kept for focus loss would miss the send.
+    var commitsAsTyped = false
 
     @State private var draft = DescriptorTextDraft()
     @FocusState private var focused: Bool
@@ -295,6 +312,11 @@ struct DescriptorTextRow: View {
                 draft.receive(latest, focused: focused)
             }
             .onSubmit { submit(draft.text) }
+            .onChange(of: draft.text) { _, typed in
+                guard commitsAsTyped, focused else { return }
+
+                submit(typed)
+            }
             .onChange(of: focused) { _, isFocused in
                 guard !isFocused else {
                     model.beginEditing(key)
@@ -385,6 +407,10 @@ struct DescriptorNumberRow: View {
     let commit: (ManagementSettingValue) -> Void
     /// The row's longer explanation, drawn behind the (i) beside the label.
     var info: String?
+    /// Hands on each figure as it is typed, for a row a sheet holds
+    /// (`DescriptorTextRow.commitsAsTyped`). The bounds still apply on Return
+    /// and on focus loss.
+    var commitsAsTyped = false
 
     @State private var draft = ""
     @FocusState private var focused: Bool
@@ -403,6 +429,13 @@ struct DescriptorNumberRow: View {
                         guard !isFocused else { return }
 
                         submit()
+                    }
+                    .onChange(of: draft) { _, typed in
+                        guard commitsAsTyped, focused,
+                              let figure = Double(typed.trimmingCharacters(in: .whitespaces)), figure != value
+                        else { return }
+
+                        commit(.number(figure))
                     }
                     .accessibilityLabel(label)
                     .accessibilityValue(measure.text(value, step: step))
@@ -569,4 +602,12 @@ public enum NumberRowFormat {
 
         return String(format: "%.\(digits)f", value)
     }
+}
+
+/// A descriptor row's value as a sheet holds it (`DescriptorRow.held`): what
+/// the row shows, the sheet's refusal under it, and where a change goes.
+struct DescriptorHeldValue {
+    let value: ManagementSettingValue
+    let refusal: String?
+    let change: (ManagementSettingValue) -> Void
 }

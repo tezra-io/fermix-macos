@@ -716,11 +716,12 @@ struct FixtureConfigurationTests {
 
     /// The params one method is asked with.
     ///
-    /// Seven methods are keyed on their params, because the contract publishes
+    /// Eight methods are keyed on their params, because the contract publishes
     /// more than one golden for each: `settings.get` answers per section,
     /// `settings.apply` per key it changes, `job.get` per job, `secret.set` and
-    /// `secret.clear` per secret, `mcp.servers.add` per transport and
-    /// `mcp.servers.draft` per text, so asking any of them with none would be
+    /// `secret.clear` per secret, `mcp.servers.add` per transport,
+    /// `mcp.servers.draft` per text and `cues.sources.add` per kind, which a
+    /// preset names, so asking any of them with none would be
     /// asking for something the contract does not publish. Every other method
     /// answers one shape.
     static func params(for method: ManagementMethod) -> [String: Any] {
@@ -731,6 +732,7 @@ struct FixtureConfigurationTests {
         case .secretSet, .secretClear: return ["id": "openai_api_key"]
         case .mcpServersAdd: return ["transport": "stdio"]
         case .mcpServersDraft: return ["text": "uvx mcp-server-fetch"]
+        case .cuesSourcesAdd: return ["ref": "eng-blogs", "preset": "rss", "values": [String: Any]()]
         default: return [:]
         }
     }

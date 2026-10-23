@@ -114,6 +114,33 @@ public protocol DaemonQuerying: Sendable {
     func startMCPCheck(name: String) async throws -> ManagementJob
     func scanMCPImports() async throws -> ManagementMCPImportScan
     func importMCPServers(_ picks: [ManagementMCPImportPick]) async throws -> ManagementMCPImported
+
+    // Cues (M60 app surface §3.3). Found in `servedMethods()`, like the MCP
+    // methods: they arrived inside protocol 2.
+    func cuesStatus() async throws -> ManagementCueStatus
+    func cueSources() async throws -> ManagementCueSourceList
+    func cueSource(ref: String) async throws -> ManagementCueSourceDetail
+    func cueSourceForm(_ request: ManagementCueFormRequest) async throws -> ManagementCueSourceForm
+    func addCueSource(_ spec: ManagementCueSourceSpec) async throws -> ManagementCueSourceAdded
+    func updateCueSource(ref: String, values: [String: ManagementCueValue]) async throws -> ManagementCueSourceAnswer
+    func removeCueSource(ref: String) async throws -> ManagementCueSourceRemoved
+    func enableCueSource(ref: String) async throws -> ManagementCueSourceAnswer
+    func disableCueSource(ref: String) async throws -> ManagementCueSourceAnswer
+    func newCueSourceToken(ref: String) async throws -> ManagementCueSourceToken
+    func cueSourceAddress(ref: String) async throws -> ManagementCueSourceAddress
+    func cueWatchers() async throws -> ManagementCueWatcherList
+    func cueWatcher(name: String) async throws -> ManagementCueWatcherAnswer
+    func cueMandates() async throws -> ManagementCueMandateList
+    func cueMandateChoices() async throws -> ManagementCueMandateChoices
+    func addCueMandate(name: String, values: [String: ManagementCueValue]) async throws -> ManagementCueMandateAnswer
+    func updateCueMandate(name: String, values: [String: ManagementCueValue]) async throws -> ManagementCueMandateAnswer
+    func removeCueMandate(name: String) async throws -> ManagementCueMandateRemoved
+    func enableCueMandate(name: String) async throws -> ManagementCueMandateAnswer
+    func disableCueMandate(name: String) async throws -> ManagementCueMandateAnswer
+    func approveCueMandate(name: String) async throws -> ManagementCueMandateAnswer
+    func cueProposals(_ filter: ManagementCueProposalFilter) async throws -> ManagementCueProposalList
+    func cueProposal(id: String) async throws -> ManagementCueProposalCardAnswer
+    func decideCueProposal(id: String, decision: ManagementCueDecision) async throws -> ManagementCueProposalAnswer
 }
 
 /// The production gateway: one negotiated client, shared by every surface.
@@ -262,10 +289,21 @@ public enum ManagementMessage {
     ///
     /// The surfaces render it as a state with one action, never as an error and
     /// never as an empty pane (M34 §7.1).
+    ///
+    /// Two ways to learn it, one state: this client's own gate refuses before
+    /// sending, and a daemon that gates on the version a request declares
+    /// answers `method_not_found` naming the version it `requires` (M60 app
+    /// surface §6). A `method_not_found` that names none is a method this
+    /// daemon does not have at all, which no restart fixes.
     public static func requiresNewerEngine(_ error: any Error) -> Bool {
-        guard case .methodRequiresNewerEngine? = error as? ManagementError else { return false }
-
-        return true
+        switch error as? ManagementError {
+        case .methodRequiresNewerEngine?:
+            return true
+        case .daemon(let failure)?:
+            return failure.code == .methodNotFound && failure.details.integer("requires") != nil
+        default:
+            return false
+        }
     }
 
     /// Whether this failure means the daemon is simply not there, which the

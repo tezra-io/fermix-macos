@@ -49,6 +49,8 @@ struct ChatItemView: View {
     /// Words to mark, where the reader was sent here by a search.
     let marked: [String]
     let answer: (String, Bool) -> Void
+    /// A proposal card's two buttons, and nothing else, answer through this.
+    let decide: (String, CompanionProposalDecision) -> Void
 
     var body: some View {
         switch item {
@@ -59,6 +61,8 @@ struct ChatItemView: View {
             ChatTurnRow(turn: turn)
         case .approval(let approval, let answering):
             ChatApprovalCard(approval: approval, answering: answering, answer: answer)
+        case .proposal(let card):
+            ChatProposalCard(card: card, decide: decide)
         case .pending(_, let text):
             ChatUserRow(text: ChatText.plain(text), sending: true)
         case .error(let sentence):
