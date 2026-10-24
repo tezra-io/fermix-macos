@@ -137,23 +137,12 @@ enum CuesSheetMetrics {
     static let formPause: TimeInterval = 0.25
 }
 
-/// The cue rows' times as the pane draws them: the time alone today, the date
-/// beside it otherwise.
-enum CueTimes {
-    static func time(_ date: Date) -> String {
-        date.formatted(date: Calendar.current.isDateInToday(date) ? .omitted : .abbreviated, time: .shortened)
-    }
-
-    static func day(_ date: Date) -> String {
-        date.formatted(.dateTime.day().month(.abbreviated))
-    }
-}
-
 /// Settings, Connections, Cues (M60 app surface §4.2).
 ///
-/// The top block is the `cues` section's own descriptor rows, with the
-/// default filter model drawn by the model rows. Below it, the proposals
-/// waiting, then the three lists, each in the daemon's words. Drawn at all
+/// One line under the toolbar's title, then the `cues` section's own
+/// descriptor rows in one group: the two switches, the filter model and,
+/// folded under Advanced, the door. Below it, the proposals waiting, then
+/// the three lists as compact rows, each in the daemon's words. Drawn at all
 /// only where the daemon serves cues; with them missing the pane is empty
 /// and the sidebar lists no Cues row.
 struct CuesPane: View {
@@ -168,8 +157,7 @@ struct CuesPane: View {
     var body: some View {
         SettingsPaneForm(title: SettingsPane.cues.title) {
             if model.drawsCuesPane {
-                CuesSwitchesSection(model: model, router: router)
-                CuesFilterSection(model: model) { modelPick = CueModelPick(provider: $0) }
+                CuesSettingsSection(model: model, router: router) { modelPick = CueModelPick(provider: $0) }
                 CuesWaitingSection(model: model)
                 CuesSourcesSection(model: model, notice: $notice) { sheet = CuesSheetTarget(page: $0) }
                 CuesWatchersSection(model: model) { sheet = CuesSheetTarget(page: $0) }
@@ -200,42 +188,74 @@ struct CuesPane: View {
     }
 }
 
-/// The switches, the line under them, and the door.
-struct CuesSwitchesSection: View {
+/// The pane's one line, and the way to the cues guide beside it.
+struct CuesPaneLead: View {
+    @ObservedObject var model: SettingsModel
+    @Binding var refusal: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.s) {
+            Text(ProductStrings[.cuesSubtitle])
+                .fermixType(Typography.style(.calloutSmall))
+                .foregroundStyle(Palette.secondary.color)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: Spacing.s)
+
+            LinkButton(title: ProductStrings[.cuesLearnMore]) { refusal = model.openCuesGuide() }
+                .fermixType(Typography.style(.calloutSmall))
+        }
+        .textCase(nil)
+    }
+}
+
+/// The `cues` section's rows in one group (§4.2, §4.6): the two switches,
+/// whose explanations are behind their info, the status under the first,
+/// the filter model, and the door's port with the door's line folded under
+/// Advanced. A door that could not open says so in the open.
+struct CuesSettingsSection: View {
     @ObservedObject var model: SettingsModel
     let router: any CommandPerforming
+    /// Opens the model listing for a provider just chosen.
+    let pickModel: (String) -> Void
+
+    @State private var guideRefusal: String?
 
     var body: some View {
         Section {
-            DescriptorRows(
-                model: model,
-                section: CueFilterPair.section,
-                specialised: specialised,
-                excluding: [CueFilterPair.providerKey, CueFilterPair.modelKey, CuesPaneKeys.doorPort]
-            )
+            DescriptorRows(model: model, section: CueFilterPair.section, specialised: specialised)
 
-            if let door = model.cueStatus.value?.door {
-                CueNote(text: door.sentence)
+            if let door, CueTone.door(door) == .warn {
+                CueStatusLine(text: door.sentence, tone: .warn, attention: true)
+            }
+            if let guideRefusal {
+                CueNote(text: guideRefusal, attention: true)
             }
         } header: {
-            Text(ProductStrings[.cuesSubtitle])
-                .textCase(nil)
-                .fixedSize(horizontal: false, vertical: true)
+            CuesPaneLead(model: model, refusal: $guideRefusal)
+        }
+    }
+
+    private var door: ManagementCueStatus.Door? { model.cueStatus.value?.door }
+
+    private func specialised(_ row: ManagementSettingRow) -> AnyView? {
+        switch row.key {
+        case CuesPaneKeys.enabled: return AnyView(enabledRow(row))
+        case CuesPaneKeys.doorPort: return AnyView(doorRow(row))
+        case CueFilterPair.providerKey: return AnyView(providerRow(row))
+        case CueFilterPair.modelKey: return modelRow(row)
+        default: return nil
         }
     }
 
     /// The Cues switch carries the line under it: the restart the daemon
     /// asks for, from the pane's own restart transaction, or the status
     /// sentence.
-    private func specialised(_ row: ManagementSettingRow) -> AnyView? {
-        guard row.key == CuesPaneKeys.enabled else { return nil }
-
-        return AnyView(
-            VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
-                DescriptorRow(model: model, section: CueFilterPair.section, row: row)
-                statusLine
-            }
-        )
+    private func enabledRow(_ row: ManagementSettingRow) -> some View {
+        VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+            DescriptorRow(model: model, section: CueFilterPair.section, row: row)
+            statusLine
+        }
     }
 
     @ViewBuilder
@@ -244,52 +264,32 @@ struct CuesSwitchesSection: View {
 
         if !reasons.isEmpty {
             HStack(alignment: .firstTextBaseline, spacing: Spacing.s) {
-                CueNote(text: reasons.map(\.sentence).joined(separator: " "))
+                CueStatusLine(text: reasons.map(\.sentence).joined(separator: " "), tone: .warn)
                 Spacer(minLength: Spacing.s)
                 Button(ProductStrings[.settingsRestartAction]) { router.perform(.restartDaemon) }
                     .disabled(!router.canPerform(.restartDaemon))
             }
         } else if let status = model.cueStatus.value {
-            CueNote(text: status.statusSentence)
-        }
-    }
-}
-
-/// The `cues` section's keys the pane places itself.
-enum CuesPaneKeys {
-    static let enabled = "cues_enabled"
-    static let mandatesEnabled = "cues_mandates_enabled"
-    static let doorPort = "cues_door_port"
-}
-
-/// The default filter model: Provider, then Model, applied together (§4.6).
-/// The door port folds under Advanced here, after the model.
-struct CuesFilterSection: View {
-    @ObservedObject var model: SettingsModel
-    /// Opens the model listing for a provider just chosen.
-    let pickModel: (String) -> Void
-
-    var body: some View {
-        Section(ProductStrings[.cuesFilterTitle]) {
-            DescriptorRows(
-                model: model,
-                section: CueFilterPair.section,
-                specialised: specialised,
-                excluding: [CuesPaneKeys.enabled, CuesPaneKeys.mandatesEnabled]
-            )
+            CueStatusLine(text: status.statusSentence, tone: CueTone.status(status))
         }
     }
 
-    private func specialised(_ row: ManagementSettingRow) -> AnyView? {
-        switch row.key {
-        case CueFilterPair.providerKey: return AnyView(providerRow(row))
-        case CueFilterPair.modelKey: return modelRow(row)
-        default: return nil
+    /// The door's port, folded under Advanced by the daemon's mark, with the
+    /// door's own line under it while it has nothing to warn of.
+    private func doorRow(_ row: ManagementSettingRow) -> some View {
+        VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+            DescriptorRow(model: model, section: CueFilterPair.section, row: row)
+
+            if let door, CueTone.door(door) != .warn {
+                CueStatusLine(text: door.sentence, tone: CueTone.door(door))
+            }
         }
     }
 
-    /// The provider pop-up. Choosing one holds it and opens the model
-    /// listing at once; choosing None clears both.
+    /// The filter model's pop-up: the main model first, as the daemon names
+    /// it, then the providers that are set up. Choosing a provider holds it
+    /// and opens the model listing at once; choosing the main model clears
+    /// the pair.
     private func providerRow(_ row: ManagementSettingRow) -> DescriptorRow {
         let key = SettingsDraftKey(section: CueFilterPair.section, key: row.key)
 
@@ -314,9 +314,9 @@ struct CuesFilterSection: View {
         )
     }
 
-    /// The model row, for the provider in force: the typeahead where the
+    /// The model row, for the provider chosen: the typeahead where the
     /// daemon offers suggestions, the listing where its list is the
-    /// account's own. With no provider there is no model to choose.
+    /// account's own. On the main model there is no model to choose here.
     private func modelRow(_ row: ManagementSettingRow) -> AnyView? {
         let provider = model.savedFilterProvider
         guard !provider.isEmpty else { return AnyView(EmptyView()) }
@@ -332,6 +332,12 @@ struct CuesFilterSection: View {
     }
 }
 
+/// The `cues` section's keys the pane places itself.
+enum CuesPaneKeys {
+    static let enabled = "cues_enabled"
+    static let doorPort = "cues_door_port"
+}
+
 /// "Waiting for you": Fermix's record of each proposal waiting, drawn only
 /// while one waits. Deciding happens on the card in Chat, in one place.
 struct CuesWaitingSection: View {
@@ -339,10 +345,12 @@ struct CuesWaitingSection: View {
 
     var body: some View {
         if let proposals = model.cueProposals.value?.proposals, !proposals.isEmpty {
-            Section(ProductStrings[.cuesWaitingTitle]) {
+            Section {
                 ForEach(proposals, id: \.proposalId) { proposal in
                     CuesWaitingRow(proposal: proposal) { model.showChat(at: proposal.proposalId) }
                 }
+            } header: {
+                CuesSectionHeader(title: .cuesWaitingTitle, count: proposals.count, action: nil) {}
             }
         }
     }
@@ -355,46 +363,25 @@ struct CuesWaitingRow: View {
     let show: () -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Spacing.s) {
-            Image(systemName: "exclamationmark.circle")
-                .foregroundStyle(Palette.warning.color)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(String(format: ProductStrings[.cuesWaitingRowFormat], proposal.mandate, proposal.tool))
-                    .foregroundStyle(Palette.ink.color)
-                CueNote(text: waits)
-            }
-
-            Spacer(minLength: Spacing.s)
-
+        CueRow(
+            symbol: "hand.raised",
+            title: line,
+            status: waits,
+            tone: .warn,
+            accessibilityLabel: ProductStrings.commaPair(line, waits)
+        ) {
             Button(ProductStrings[.cuesWaitingShowInChat], action: show)
                 .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.cuesWaitingShowInChat], proposal.mandate))
         }
     }
 
-    private var waits: String {
-        let expiry = ManagementCueTime.date(proposal.expiresAt).map(CueTimes.time) ?? proposal.expiresAt
-        return String(format: ProductStrings[.proposalWaitsUntilFormat], expiry)
+    private var line: String {
+        String(format: ProductStrings[.cuesWaitingRowFormat], proposal.mandate, proposal.tool)
     }
-}
 
-/// A section's title with its one action beside it.
-struct CuesSectionHeader: View {
-    let title: ProductStringKey
-    let action: ProductStringKey?
-    let perform: () -> Void
-
-    var body: some View {
-        HStack(spacing: Spacing.s) {
-            Text(ProductStrings[title])
-            Spacer(minLength: Spacing.s)
-            if let action {
-                Button(ProductStrings[action], action: perform)
-                    .buttonStyle(SecondaryButtonStyle(.row))
-                    .textCase(nil)
-            }
-        }
+    private var waits: String {
+        let expiry = ManagementCueTime.date(proposal.expiresAt).map { CueTimes.time($0) } ?? proposal.expiresAt
+        return String(format: ProductStrings[.proposalWaitsUntilFormat], expiry)
     }
 }
 
@@ -437,7 +424,11 @@ struct CuesSourcesSection: View {
                 CueNote(text: notice, attention: true)
             }
         } header: {
-            CuesSectionHeader(title: .cuesSourcesTitle, action: canAdd ? .cuesSourcesAdd : nil) { open(.addSource) }
+            CuesSectionHeader(
+                title: .cuesSourcesTitle,
+                count: model.cueSources.value?.sources.count,
+                action: canAdd ? .cuesSourcesAdd : nil
+            ) { open(.addSource) }
         }
     }
 
@@ -448,23 +439,31 @@ struct CuesSourcesSection: View {
     }
 }
 
-/// One source: the integration row's anatomy over the daemon's sentence.
+/// One source: its kind's symbol, its name, the daemon's sentence after the
+/// dot, and its switch.
 struct CuesSourceRow: View {
     let source: ManagementCueSource
     let setEnabled: (ManagementCueSource, Bool) -> Void
     let open: () -> Void
 
     var body: some View {
-        IntegrationRowLayout(
+        CueRow(
+            symbol: CueSourceProjection.symbol(for: source.kind),
             title: source.ref,
-            subtitle: source.statusSentence,
-            accessibilityLabel: ProductStrings.commaPair(source.ref, source.statusSentence),
-            isOn: CueSourceProjection.switchShown(source)
-                ? Binding(get: { source.enabled }, set: { setEnabled(source, $0) })
-                : nil,
+            status: source.statusSentence,
+            tone: CueTone.source(source),
+            attention: CueTone.isLoud(CueTone.source(source)),
+            accessibilityLabel: ProductStrings.commaPair(ProductStrings.commaPair(source.ref, source.label), source.statusSentence),
             open: open
         ) {
-            CuesSourceTile(source: source)
+            // Stated as `IntegrationRowLayout` states it: this row is hand
+            // built, so the switch has to be asked for.
+            if CueSourceProjection.switchShown(source) {
+                Toggle(source.ref, isOn: Binding(get: { source.enabled }, set: { setEnabled(source, $0) }))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.integrationEnabled], source.ref))
+            }
         }
     }
 }
@@ -523,54 +522,40 @@ struct CuesWatchersSection: View {
                     CuesWatcherRow(watcher: watcher) { open(.watcher(watcher.name)) }
                 }
             }
-            CueNote(text: ProductStrings[.cuesWatchersFooter])
         } header: {
-            CuesSectionHeader(title: .cuesWatchersTitle, action: nil) {}
+            CuesSectionHeader(title: .cuesWatchersTitle, count: model.cueWatchers.value?.watchers.count, action: nil) {}
+        } footer: {
+            CueNote(text: ProductStrings[.cuesWatchersFooter])
         }
     }
 }
 
-/// One watcher: its name and sources, the daemon's sentence, and the day's
-/// counts. Never anything a watcher read.
+/// One watcher: its name and the sources it listens to, and the daemon's
+/// sentence after the dot. The day's counts are on its page. Never anything
+/// a watcher read.
 struct CuesWatcherRow: View {
     let watcher: ManagementCueWatcher
     let open: () -> Void
 
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: Spacing.s) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: Spacing.xs) {
-                        Text(watcher.name)
-                            .fermixType(Typography.style(.callout).weight(.medium))
-                            .foregroundStyle(Palette.ink.color)
-                        Text(watcher.sources.joined(separator: ", "))
-                            .fermixType(Typography.style(.calloutSmall))
-                            .foregroundStyle(Palette.secondary.color)
-                    }
-                    CueNote(text: watcher.statusSentence, attention: watcher.state.drawsAttention)
-                    CueNote(text: CueWatcherProjection.lastDay(watcher.counts))
-                }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.forward")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.faint.color)
-                    .accessibilityHidden(true)
-            }
-            .contentShape(Rectangle())
+        CueRow(
+            symbol: CueWatcherProjection.symbol,
+            title: watcher.name,
+            qualifier: watcher.sources.joined(separator: ", "),
+            status: watcher.statusSentence,
+            tone: CueTone.watcher(watcher),
+            attention: watcher.state.drawsAttention,
+            accessibilityLabel: ProductStrings.commaPair(watcher.name, watcher.statusSentence),
+            open: open
+        ) {
+            EmptyView()
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(ProductStrings.commaPair(watcher.name, watcher.statusSentence))
     }
 }
 
-/// What a watcher's rows say, from its published counts.
-public enum CueWatcherProjection {
-    public static func lastDay(_ counts: ManagementCueWatcher.Counts) -> String {
-        String(format: ProductStrings[.cuesWatchersLastDayFormat], counts.passed, counts.dropped, counts.acted)
-    }
+/// How a watcher is drawn.
+enum CueWatcherProjection {
+    static let symbol = "eye"
 }
 
 /// The mandates (§4.5).
@@ -600,15 +585,20 @@ struct CuesMandatesSection: View {
                 }
             }
         } header: {
-            CuesSectionHeader(title: .cuesMandatesTitle, action: canAdd ? .cuesMandatesAdd : nil) { open(.addMandate) }
+            CuesSectionHeader(
+                title: .cuesMandatesTitle,
+                count: model.cueMandates.value?.mandates.count,
+                action: canAdd ? .cuesMandatesAdd : nil
+            ) { open(.addMandate) }
         }
     }
 
     private var canAdd: Bool { model.cueMandates.value?.canAdd == true }
 }
 
-/// One mandate: its name, its mode in the app's words and its task, the
-/// daemon's sentence, the primary action and the switch.
+/// One mandate: its name and task, its mode as a tag in the app's words,
+/// the daemon's sentence after the dot, then Approve where the daemon leads
+/// with it and the switch.
 struct CuesMandateRow: View {
     let mandate: ManagementCueMandate
     let blocked: Bool
@@ -617,41 +607,43 @@ struct CuesMandateRow: View {
     let open: () -> Void
 
     var body: some View {
-        HStack(spacing: Spacing.s) {
-            Button(action: open) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(mandate.name)
-                        .fermixType(Typography.style(.callout).weight(.medium))
-                        .foregroundStyle(Palette.ink.color)
-                    CueNote(text: CueMandateProjection.summary(mandate))
-                    CueNote(text: mandate.statusSentence)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(ProductStrings.commaPair(mandate.name, mandate.statusSentence))
+        CueRow(
+            symbol: CueMandateProjection.symbol,
+            title: mandate.name,
+            qualifier: mandate.job.name ?? mandate.job.id,
+            tag: CueMandateProjection.tag(mandate),
+            status: mandate.statusSentence,
+            tone: CueTone.mandate(mandate),
+            accessibilityLabel: ProductStrings.commaPair(mandate.name, mandate.statusSentence),
+            open: open
+        ) {
+            controls
+        }
+    }
 
-            if CueMandateProjection.offersApprove(mandate) {
-                Button(ProductStrings[.cuesMandateApprove], action: approve)
-                    .buttonStyle(SecondaryButtonStyle(.row))
-                    .disabled(blocked)
-                    .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.cuesMandateApprove], mandate.name))
-            }
+    @ViewBuilder
+    private var controls: some View {
+        if CueMandateProjection.offersApprove(mandate) {
+            Button(ProductStrings[.cuesMandateApprove], action: approve)
+                .buttonStyle(SecondaryButtonStyle(.row))
+                .disabled(blocked)
+                .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.cuesMandateApprove], mandate.name))
+        }
 
-            if CueMandateProjection.switchShown(mandate) {
-                Toggle(mandate.name, isOn: Binding(get: { mandate.enabled }, set: setEnabled))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .disabled(blocked)
-                    .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.integrationEnabled], mandate.name))
-            }
+        if CueMandateProjection.switchShown(mandate) {
+            Toggle(mandate.name, isOn: Binding(get: { mandate.enabled }, set: setEnabled))
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .disabled(blocked)
+                .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.integrationEnabled], mandate.name))
         }
     }
 }
 
 /// What a mandate's rows say and offer, from its published facts.
 public enum CueMandateProjection {
+    static let symbol = "checkmark.shield"
+
     /// The mode in the app's words, or nil for one this build does not know.
     public static func modeTitle(_ mode: ManagementCueMandateMode) -> String? {
         switch mode {
@@ -661,12 +653,10 @@ public enum CueMandateProjection {
         }
     }
 
-    /// "Ask me first · Release watch".
-    public static func summary(_ mandate: ManagementCueMandate) -> String {
-        let task = mandate.job.name ?? mandate.job.id
-        guard let mode = modeTitle(mandate.mode) else { return task }
-
-        return ProductStrings.middot(mode, task)
+    /// The mode as the row's tag: amber where it acts without asking, and no
+    /// tag for a mode this build does not know.
+    public static func tag(_ mandate: ManagementCueMandate) -> CueTagModel? {
+        modeTitle(mandate.mode).map { CueTagModel(text: $0, tone: mandate.mode == .auto ? .warn : .neutral) }
     }
 
     /// Approve is offered where the daemon leads with it and publishes it.
@@ -677,20 +667,6 @@ public enum CueMandateProjection {
 
     public static func switchShown(_ mandate: ManagementCueMandate) -> Bool {
         mandate.actions.contains(.enable) || mandate.actions.contains(.disable)
-    }
-}
-
-/// One line of the pane's small print, or the daemon's sentence in the
-/// attention style where §4.9 asks for it.
-struct CueNote: View {
-    let text: String
-    var attention = false
-
-    var body: some View {
-        Text(text)
-            .fermixType(Typography.style(.calloutSmall))
-            .foregroundStyle((attention ? Palette.warning : Palette.secondary).color)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

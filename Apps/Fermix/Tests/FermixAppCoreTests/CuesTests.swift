@@ -149,7 +149,7 @@ struct CuesTests {
         })
         #expect(mandate.mode == .unrecognized("whenever"))
         #expect(CueMandateProjection.modeTitle(mandate.mode) == nil)
-        #expect(CueMandateProjection.summary(mandate) == "Release watch", "an unknown mode is not given a name")
+        #expect(CueMandateProjection.tag(mandate) == nil, "an unknown mode is not given a name")
         #expect(!CueMandateProjection.offersApprove(mandate))
         #expect(!CueMandateProjection.switchShown(mandate))
 
@@ -297,9 +297,8 @@ struct CuesTests {
         let detail: ManagementCueWatcherAnswer = try Self.golden("cues_watchers_get")
         let watcher = detail.watcher.row
 
-        #expect(CueWatcherProjection.lastDay(watcher.counts) == "Last day: 3 passed, 0 dropped, 1 acted")
-        #expect(CueWatcherDetailWords.filter(watcher) == "The default filter model")
-        #expect(CueWatcherDetailWords.task(watcher) == "Release watch · runs on cues · keeps no notes")
+        #expect(CueWatcherDetailWords.filter(watcher) == "Default")
+        #expect(CueWatcherDetailWords.task(watcher) == "Release watch · keeps no notes")
         #expect(CueWatcherDetailWords.dailyLimit(watcher) == "None")
         #expect(CueWatcherDetailWords.lastDay(watcher.counts) == "0 waiting · 3 passed · 0 dropped · 1 acted · 0 failed")
         #expect(CueWatcherDetailWords.examples(detail.watcher.examples) == "1 marked useful · 0 marked not useful")
@@ -310,7 +309,9 @@ struct CuesTests {
     func mandateProjection() throws {
         let approved: ManagementCueMandateList = try Self.golden("cues_mandates_list")
         let mandate = try #require(approved.mandates.first)
-        #expect(CueMandateProjection.summary(mandate) == "Ask me first · Release watch")
+        #expect(CueMandateProjection.tag(mandate) == CueTagModel(text: "Ask me first", tone: .neutral))
+        let auto = try Self.mandate(editing: { $0["mode"] = "auto" })
+        #expect(CueMandateProjection.tag(auto) == CueTagModel(text: "Act without asking", tone: .warn), "acting unasked stands out")
         #expect(!CueMandateProjection.offersApprove(mandate))
         #expect(CueMandateProjection.switchShown(mandate))
         #expect(CueMandateDetailWords.waits(mandate) == "30 minutes, then the proposal expires")
@@ -328,6 +329,66 @@ struct CuesTests {
         })
         #expect(CueMandateDetailWords.approval(inactive) == "Its task no longer exists.", "the load sentence stands where Approval would")
         #expect(!CueMandateProjection.offersApprove(inactive))
+    }
+
+    @Test("a row's dot follows what the daemon publishes: a failure is red, a gap amber, off quiet, the rest well")
+    func rowTones() throws {
+        let sources: ManagementCueSourceList = try Self.golden("cues_sources_list")
+        #expect(sources.sources.map(CueTone.source) == [.pass, .pass, .pass])
+        let waiting: ManagementCueSourceAdded = try Self.golden("cues_sources_add_webhook")
+        #expect(CueTone.source(waiting.source) == .warn, "a source waiting for its secret")
+        #expect(CueTone.source(try Self.source(editing: { $0["state"] = "auth_failed" })) == .fail)
+        let off = try Self.source(editing: { row in
+            row["enabled"] = false
+            row["state"] = "off"
+            row["actions"] = ["enable"]
+            row["primary_action"] = "enable"
+        })
+        #expect(CueTone.source(off) == .neutral, "a source switched off is quiet, whatever it leads with")
+
+        let watchers: ManagementCueWatcherList = try Self.golden("cues_watchers_list")
+        let watcher = try #require(watchers.watchers.first)
+        #expect(CueTone.watcher(watcher) == .pass)
+
+        let mandates: ManagementCueMandateList = try Self.golden("cues_mandates_list")
+        #expect(CueTone.mandate(try #require(mandates.mandates.first)) == .pass)
+        let added: ManagementCueMandateAnswer = try Self.golden("cues_mandates_add")
+        #expect(CueTone.mandate(added.mandate) == .warn, "a mandate waiting for its approval")
+        let unloaded = try Self.mandate(editing: { $0["load"] = ["state": "inactive", "sentence": "Its task no longer exists."] })
+        #expect(CueTone.mandate(unloaded) == .warn)
+
+        let status: ManagementCueStatus = try Self.golden("cues_status")
+        #expect(CueTone.status(status) == .pass)
+        #expect(CueTone.door(status.door) == .neutral, "a door with nothing to take is quiet")
+        #expect(CueTone.status(try Self.status(editing: { $0["state"] = "needs_restart" })) == .warn)
+    }
+
+    @Test("a list row's time is short: the time today, the day this year, the year only beyond it")
+    func shortTimes() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let parse = ISO8601DateFormatter()
+        let now = try #require(parse.date(from: "2026-10-17T09:00:00Z"))
+        let today = try #require(parse.date(from: "2026-10-17T08:20:00Z"))
+        let earlier = try #require(parse.date(from: "2026-10-12T08:20:00Z"))
+        let lastYear = try #require(parse.date(from: "2025-12-30T08:20:00Z"))
+
+        #expect(!CueTimes.time(today, now: now, calendar: calendar).contains("Oct"), "today is the time alone")
+        #expect(CueTimes.time(earlier, now: now, calendar: calendar).contains("Oct 12"))
+        #expect(!CueTimes.time(earlier, now: now, calendar: calendar).contains("2026"), "this year is not said")
+        #expect(CueTimes.time(lastYear, now: now, calendar: calendar).contains("2025"))
+    }
+
+    @Test("Learn more opens the cues guide, and says so where the browser does not open")
+    func guideOpens() throws {
+        let opener = RecordingExternalOpener()
+        let model = SettingsFixture.model(gateway: FakeDaemonGateway(), opener: opener)
+
+        #expect(model.openCuesGuide() == nil)
+        #expect(opener.urls == [try #require(URL(string: "https://fermix.ai/docs/cues/"))])
+
+        let refusing = SettingsFixture.model(gateway: FakeDaemonGateway(), opener: RecordingExternalOpener(succeeds: false))
+        #expect(refusing.openCuesGuide() == ProductStrings[.cuesGuideOpenFailed])
     }
 
     @Test("the approval row is the daemon's own words, never a line composed here")
@@ -711,14 +772,16 @@ struct CuesTests {
     @Test("the pane's deck matches the design's copy table")
     func copyDeck() {
         #expect(ProductStrings[.settingsPaneCues] == "Cues")
-        #expect(ProductStrings[.cuesSubtitle] == "Items from outside that can wake a task: feeds, streams, webhooks and your own scripts.")
+        #expect(ProductStrings[.cuesSubtitle] == "Outside items that can wake a task: feeds, streams, webhooks and your scripts.")
         #expect(ProductStrings[.cuesWaitingTitle] == "Waiting for you")
         #expect(ProductStrings[.cuesWaitingShowInChat] == "Show in chat")
-        #expect(ProductStrings[.cuesSourcesEmpty] == "No sources yet. A source is a feed, a stream, a webhook or a script of yours.")
+        #expect(ProductStrings[.cuesSourcesEmpty] == "No sources yet.")
+        #expect(ProductStrings[.cuesLearnMore] == "Learn more")
         #expect(ProductStrings[.cuesSourceNewTokenConfirm] == "Make a new token for %@? The old one stops working within a minute.")
         #expect(ProductStrings[.cuesSourceTokenOnce] == "Copy it now. Fermix shows it only once.")
         #expect(ProductStrings[.cuesSourceRemoveConfirm] == "Remove %@? Its stored secrets are deleted.")
-        #expect(ProductStrings[.cuesWatchersEmpty] == "No watchers yet. Ask Fermix in chat to watch a source for you.")
+        #expect(ProductStrings[.cuesWatchersEmpty] == "No watchers yet.")
+        #expect(ProductStrings[.cuesWatchersFooter] == "Watchers are made and changed in chat.")
         #expect(ProductStrings[.cuesMandatesEmpty] == "No mandates. Without one, a task only reports to you.")
         #expect(ProductStrings[.cuesMandateModeApprove] == "Ask me first")
         #expect(ProductStrings[.cuesMandateModeAuto] == "Act without asking")

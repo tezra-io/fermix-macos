@@ -17,11 +17,10 @@ public enum CueWatcherDetailWords {
         }
     }
 
-    /// "Release watch · runs on cues · keeps no notes", and paused where it is.
+    /// "Release watch · keeps no notes", and paused where it is.
     public static func task(_ watcher: ManagementCueWatcher) -> String {
         var parts = [
             watcher.task.name ?? watcher.task.jobId,
-            ProductStrings[.cuesWatcherRunsOnCues],
             ProductStrings[watcher.taskNotes ? .cuesWatcherKeepsNotes : .cuesWatcherKeepsNoNotes]
         ]
         if watcher.task.paused { parts.append(ProductStrings[.cuesWatcherPaused]) }
@@ -95,44 +94,70 @@ struct CuesWatcherPage: View {
     }
 
     private func heading(_ watcher: ManagementCueWatcher) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(watcher.name)
-                .fermixType(Typography.sheetTitle)
-                .foregroundStyle(Palette.ink.color)
-            CueNote(text: watcher.statusSentence, attention: watcher.state.drawsAttention)
+        CuesPageHeading(
+            title: watcher.name,
+            status: watcher.statusSentence,
+            tone: CueTone.watcher(watcher),
+            attention: watcher.state.drawsAttention
+        ) {
+            VendorMarkView(symbol: CueWatcherProjection.symbol, size: IntegrationMetrics.tileSize)
+        } trailing: {
+            EmptyView()
         }
     }
 
+    /// The owner's own words first, set at the reading edge, then what the
+    /// watcher runs on and did.
     @ViewBuilder
     private func facts(_ watcher: ManagementCueWatcher) -> some View {
-        if let purpose = detail?.purpose {
-            LabeledContent(ProductStrings[.cuesWatcherPurpose]) { CueValue(text: purpose) }
-        }
-        if let instructions = detail?.instructions, !instructions.isEmpty {
-            LabeledContent(ProductStrings[.cuesWatcherInstructions]) {
-                VStack(alignment: .trailing, spacing: 2) {
-                    ForEach(instructions, id: \.number) { instruction in
-                        CueValue(text: CueWatcherDetailWords.instruction(instruction))
-                        if let added = CueWatcherDetailWords.added(instruction) {
-                            CueNote(text: added)
-                        }
-                    }
+        if detail?.purpose != nil || detail?.instructions.isEmpty == false {
+            Section {
+                if let purpose = detail?.purpose {
+                    CuesStackedFact(label: ProductStrings[.cuesWatcherPurpose], text: purpose)
+                }
+                if let instructions = detail?.instructions, !instructions.isEmpty {
+                    instructionRows(instructions)
                 }
             }
         }
 
-        if let filter = CueWatcherDetailWords.filter(watcher) {
-            LabeledContent(ProductStrings[.cuesWatcherFilter]) { CueValue(text: filter) }
-        }
-        LabeledContent(ProductStrings[.cuesWatcherSources]) {
-            CueValue(text: watcher.sources.isEmpty ? ProductStrings[.cuesNone] : watcher.sources.joined(separator: ", "))
-        }
-        LabeledContent(ProductStrings[.cuesWatcherTask]) { CueValue(text: CueWatcherDetailWords.task(watcher)) }
-        LabeledContent(ProductStrings[.cuesWatcherDailyLimit]) { CueValue(text: CueWatcherDetailWords.dailyLimit(watcher)) }
-        LabeledContent(ProductStrings[.cuesWatcherLastDay]) { CueValue(text: CueWatcherDetailWords.lastDay(watcher.counts)) }
+        Section {
+            if let filter = CueWatcherDetailWords.filter(watcher) {
+                LabeledContent(ProductStrings[.cuesWatcherFilter]) { CueValue(text: filter) }
+            }
+            LabeledContent(ProductStrings[.cuesWatcherSources]) {
+                CueValue(text: watcher.sources.isEmpty ? ProductStrings[.cuesNone] : watcher.sources.joined(separator: ", "))
+            }
+            LabeledContent(ProductStrings[.cuesWatcherTask]) { CueValue(text: CueWatcherDetailWords.task(watcher)) }
+            LabeledContent(ProductStrings[.cuesWatcherDailyLimit]) { CueValue(text: CueWatcherDetailWords.dailyLimit(watcher)) }
+            LabeledContent(ProductStrings[.cuesWatcherLastDay]) { CueValue(text: CueWatcherDetailWords.lastDay(watcher.counts)) }
 
-        if let examples = detail?.examples {
-            LabeledContent(ProductStrings[.cuesWatcherExamples]) { CueValue(text: CueWatcherDetailWords.examples(examples)) }
+            if let examples = detail?.examples {
+                LabeledContent(ProductStrings[.cuesWatcherExamples]) { CueValue(text: CueWatcherDetailWords.examples(examples)) }
+            }
+        }
+    }
+
+    /// Each instruction on its own line, numbered, with the day it was added
+    /// beside it.
+    private func instructionRows(_ instructions: [ManagementCueWatcherDetail.Instruction]) -> some View {
+        VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+            Text(ProductStrings[.cuesWatcherInstructions])
+
+            ForEach(instructions, id: \.number) { instruction in
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                    Text(CueWatcherDetailWords.instruction(instruction))
+                        .foregroundStyle(Palette.secondary.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let added = CueWatcherDetailWords.added(instruction) {
+                        Text(added)
+                            .fermixType(Typography.style(.caption))
+                            .foregroundStyle(Palette.faint.color)
+                    }
+                }
+            }
         }
     }
 

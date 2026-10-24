@@ -240,20 +240,9 @@ struct CuesMandateDetailPage: View {
     }
 
     private func heading(_ mandate: ManagementCueMandate) -> some View {
-        HStack(alignment: .top, spacing: Spacing.xs) {
-            VendorMarkView(symbol: "checkmark.shield", size: IntegrationMetrics.tileSize)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(mandate.name)
-                    .fermixType(Typography.sheetTitle)
-                    .foregroundStyle(Palette.ink.color)
-                CueNote(text: mandate.statusSentence)
-                    .accessibilityAddTraits(.updatesFrequently)
-            }
-
-            Spacer(minLength: Spacing.s)
-
+        CuesPageHeading(title: mandate.name, status: mandate.statusSentence, tone: CueTone.mandate(mandate)) {
+            VendorMarkView(symbol: CueMandateProjection.symbol, size: IntegrationMetrics.tileSize)
+        } trailing: {
             if CueMandateProjection.switchShown(mandate) {
                 Toggle(mandate.name, isOn: Binding(get: { mandate.enabled }, set: { setEnabled($0) }))
                     .toggleStyle(.switch)
@@ -263,27 +252,41 @@ struct CuesMandateDetailPage: View {
         }
     }
 
+    /// What it lets its task do, and how, then how long it waits and what
+    /// it did. A row that would only repeat the heading, or say None, is
+    /// left out: no read tools, no validator, an approval the heading
+    /// already states.
     @ViewBuilder
     private func facts(_ mandate: ManagementCueMandate) -> some View {
-        LabeledContent(ProductStrings[.cuesMandateTask]) { CueValue(text: mandate.job.name ?? mandate.job.id) }
-        LabeledContent(ProductStrings[.cuesMandateMode]) {
-            VStack(alignment: .trailing, spacing: 2) {
-                if let mode = CueMandateProjection.modeTitle(mandate.mode) {
-                    CueValue(text: mode)
+        Section {
+            LabeledContent(ProductStrings[.cuesMandateTask]) { CueValue(text: mandate.job.name ?? mandate.job.id) }
+            LabeledContent(ProductStrings[.cuesMandateMode]) {
+                VStack(alignment: .trailing, spacing: SettingsRowMetrics.captionGap) {
+                    if let tag = CueMandateProjection.tag(mandate) {
+                        CueTag(tag: tag)
+                    }
+                    // Acting without asking is a consequence the owner must read.
+                    CueNote(text: mandate.consentSentence, attention: mandate.mode == .auto)
+                        .multilineTextAlignment(.trailing)
                 }
-                // Acting without asking is a consequence the owner must read.
-                CueNote(text: mandate.consentSentence, attention: mandate.mode == .auto)
+            }
+            LabeledContent(ProductStrings[.cuesMandateTools]) { CueValue(text: CueMandateDetailWords.list(mandate.tools)) }
+            if !mandate.readTools.isEmpty {
+                LabeledContent(ProductStrings[.cuesMandateReadTools]) { CueValue(text: CueMandateDetailWords.list(mandate.readTools)) }
+            }
+            if let validator = mandate.validator {
+                LabeledContent(ProductStrings[.cuesMandateValidator]) { CueValue(text: validator.path) }
             }
         }
-        LabeledContent(ProductStrings[.cuesMandateTools]) { CueValue(text: CueMandateDetailWords.list(mandate.tools)) }
-        LabeledContent(ProductStrings[.cuesMandateReadTools]) { CueValue(text: CueMandateDetailWords.list(mandate.readTools)) }
-        LabeledContent(ProductStrings[.cuesMandateWaits]) { CueValue(text: CueMandateDetailWords.waits(mandate)) }
-        LabeledContent(ProductStrings[.cuesMandateActsOn]) { CueValue(text: CueMandateDetailWords.actsOn(mandate)) }
-        LabeledContent(ProductStrings[.cuesMandateValidator]) {
-            CueValue(text: mandate.validator?.path ?? ProductStrings[.cuesNone])
+
+        Section {
+            LabeledContent(ProductStrings[.cuesMandateWaits]) { CueValue(text: CueMandateDetailWords.waits(mandate)) }
+            LabeledContent(ProductStrings[.cuesMandateActsOn]) { CueValue(text: CueMandateDetailWords.actsOn(mandate)) }
+            if CueMandateDetailWords.approval(mandate) != mandate.statusSentence {
+                LabeledContent(ProductStrings[.cuesMandateApproval]) { CueValue(text: CueMandateDetailWords.approval(mandate)) }
+            }
+            LabeledContent(ProductStrings[.cuesMandateLastDay]) { CueValue(text: CueMandateDetailWords.lastDay(mandate.counts)) }
         }
-        LabeledContent(ProductStrings[.cuesMandateApproval]) { CueValue(text: CueMandateDetailWords.approval(mandate)) }
-        LabeledContent(ProductStrings[.cuesMandateLastDay]) { CueValue(text: CueMandateDetailWords.lastDay(mandate.counts)) }
     }
 
     /// Approve, Edit, `Remove mandate…` and `Done`; or the question asked in
@@ -381,7 +384,7 @@ struct CuesMandateFormPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.m) {
             heading
-            CuesPageForm { rows }
+            CuesPageForm { Section { rows } }
 
             if case .unavailable(let sentence) = model.cueMandateChoices {
                 CueNote(text: sentence, attention: true)
@@ -421,9 +424,8 @@ struct CuesMandateFormPage: View {
         error("tools")
         error("read_tools")
 
-        minutesRow(.cuesMandateWaits, text: $form.waits, key: "approve_within_s")
-        minutesRow(.cuesMandateActsOn, text: $form.actsOn, key: "max_cue_age_s")
-        CueNote(text: ProductStrings[.cuesMandateActsOnFooter])
+        minutesRow(.cuesMandateWaits, info: .cuesMandateWaitsInfo, text: $form.waits, key: "approve_within_s")
+        minutesRow(.cuesMandateActsOn, info: .cuesMandateActsOnInfo, text: $form.actsOn, key: "max_cue_age_s")
 
         AdvancedRowsToggle(shown: $form.moreOptions, title: .cuesMoreOptions)
         if form.moreOptions {
@@ -436,13 +438,14 @@ struct CuesMandateFormPage: View {
         if let original = form.original {
             LabeledContent(ProductStrings[.cuesMandateName]) { CueValue(text: original.name) }
         } else {
-            LabeledContent(ProductStrings[.cuesMandateName]) {
+            LabeledContent {
                 TextField(ProductStrings[.cuesMandateName], text: $form.name)
                     .settingsTextField()
                     .labelsHidden()
                     .accessibilityLabel(ProductStrings[.cuesMandateName])
+            } label: {
+                DescriptorRowLabel(ProductStrings[.cuesMandateName], info: ProductStrings[.cuesMandateNameInfo])
             }
-            CueNote(text: ProductStrings[.cuesMandateNameFooter])
             error("name")
         }
     }
@@ -460,9 +463,9 @@ struct CuesMandateFormPage: View {
         error("job")
     }
 
-    private func minutesRow(_ label: ProductStringKey, text: Binding<String>, key: String) -> some View {
+    private func minutesRow(_ label: ProductStringKey, info: ProductStringKey, text: Binding<String>, key: String) -> some View {
         VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
-            LabeledContent(ProductStrings[label]) {
+            LabeledContent {
                 HStack(spacing: Spacing.xs) {
                     TextField(ProductStrings[label], text: text)
                         .labelsHidden()
@@ -472,6 +475,8 @@ struct CuesMandateFormPage: View {
                         .accessibilityLabel(ProductStrings[label])
                     Text(ProductStrings[.cuesMinutes]).foregroundStyle(Palette.secondary.color)
                 }
+            } label: {
+                DescriptorRowLabel(ProductStrings[label], info: ProductStrings[info])
             }
             error(key)
         }
@@ -575,14 +580,12 @@ struct CuesMandateOptionRows: View {
     @Binding var form: CueMandateFormState
 
     var body: some View {
-        textRow(.cuesMandateValidator, text: $form.validator, key: "validator")
+        textRow(.cuesMandateValidator, info: .cuesMandateValidatorInfo, text: $form.validator, key: "validator")
         textRow(.cuesMandateInterpreter, text: $form.interpreter, key: "interpreter")
         DescriptorListRow(label: ProductStrings[.cuesMandateValidatorEnv], items: form.validatorEnv) { form.validatorEnv = $0 }
         error("validator_env")
-        CueNote(text: ProductStrings[.cuesMandateValidatorNote])
 
-        textRow(.cuesMandateIdempotency, text: $form.idempotencyArg, key: "idempotency_arg")
-        CueNote(text: ProductStrings[.cuesMandateIdempotencyFooter])
+        textRow(.cuesMandateIdempotency, info: .cuesMandateIdempotencyInfo, text: $form.idempotencyArg, key: "idempotency_arg")
 
         DescriptorListRow(label: ProductStrings[.cuesMandateUnpinned], items: form.unpinned) { form.unpinned = $0 }
         error("unpinned")
@@ -591,13 +594,15 @@ struct CuesMandateOptionRows: View {
         error("pin_args")
     }
 
-    private func textRow(_ label: ProductStringKey, text: Binding<String>, key: String) -> some View {
+    private func textRow(_ label: ProductStringKey, info: ProductStringKey? = nil, text: Binding<String>, key: String) -> some View {
         VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
-            LabeledContent(ProductStrings[label]) {
+            LabeledContent {
                 TextField(ProductStrings[label], text: text)
                     .settingsTextField()
                     .labelsHidden()
                     .accessibilityLabel(ProductStrings[label])
+            } label: {
+                DescriptorRowLabel(ProductStrings[label], info: info.map { ProductStrings[$0] })
             }
             error(key)
         }

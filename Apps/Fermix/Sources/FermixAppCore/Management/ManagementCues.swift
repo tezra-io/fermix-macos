@@ -185,14 +185,12 @@ public enum ManagementCueWatcherState: ManagementVocabulary, Hashable {
     case on
     case paused
     case held
-    case noModel
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
         "on": .on,
         "paused": .paused,
-        "held": .held,
-        "no_model": .noModel
+        "held": .held
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
     public var unrecognizedValue: String? {
@@ -203,7 +201,7 @@ public enum ManagementCueWatcherState: ManagementVocabulary, Hashable {
     /// Whether §4.9 draws this watcher's sentence in the attention style.
     public var drawsAttention: Bool {
         switch self {
-        case .held, .noModel: return true
+        case .held: return true
         case .on, .paused, .unrecognized: return false
         }
     }

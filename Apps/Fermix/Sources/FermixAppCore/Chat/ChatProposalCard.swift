@@ -26,21 +26,7 @@ struct ChatProposalCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.s) {
-            Text(ProductStrings[.proposalTitle])
-                .fermixType(Typography.style(.headline))
-                .foregroundStyle(Palette.ink.color)
-                .accessibilitySortPriority(6)
-
-            Text(proposal.summary)
-                .fermixType(Typography.style(.body))
-                .foregroundStyle(Palette.ink.color)
-                .textSelection(.enabled)
-                .accessibilitySortPriority(5)
-
-            Text(Self.facts(of: proposal))
-                .fermixType(Typography.style(.calloutSmall))
-                .foregroundStyle(Palette.secondary.color)
-                .accessibilitySortPriority(2)
+            lead
 
             OutsideTextBlock(header: ProductStrings[.outsideCall], facts: [], text: proposal.outside.argsText, face: .code)
                 .accessibilitySortPriority(4)
@@ -65,6 +51,35 @@ struct ChatProposalCard: View {
     }
 
     private var proposal: CompanionProposal { card.proposal }
+
+    /// Fermix's lines, read as one block: the title with its mark, the
+    /// summary, and the task, the watcher and the expiry under them.
+    private var lead: some View {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+            Label {
+                Text(ProductStrings[.proposalTitle])
+                    .fermixType(Typography.style(.headline))
+                    .foregroundStyle(Palette.ink.color)
+            } icon: {
+                Image(systemName: "hand.raised")
+                    .foregroundStyle(Palette.warning.color)
+                    .accessibilityHidden(true)
+            }
+            .accessibilitySortPriority(6)
+
+            Text(proposal.summary)
+                .fermixType(Typography.style(.body))
+                .foregroundStyle(Palette.ink.color)
+                .textSelection(.enabled)
+                .padding(.top, Spacing.xxs)
+                .accessibilitySortPriority(5)
+
+            Text(Self.facts(of: proposal))
+                .fermixType(Typography.style(.calloutSmall))
+                .foregroundStyle(Palette.secondary.color)
+                .accessibilitySortPriority(2)
+        }
+    }
 
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: ChatMetrics.rowRadius, style: .continuous)
@@ -131,7 +146,7 @@ struct ChatProposalCard: View {
         announcer.announce(
             ProductStrings.commaPair(
                 ProductStrings[.proposalTitle],
-                String(format: ProductStrings[.proposalWaitsUntilFormat], Self.time(expiresAt))
+                String(format: ProductStrings[.proposalWaitsUntilFormat], CueTimes.time(expiresAt))
             )
         )
 
@@ -153,7 +168,7 @@ struct ChatProposalCard: View {
         let watcher = proposal.watcher.map { String(format: ProductStrings[.proposalWatcherFormat], $0) }
         let waits = String(
             format: ProductStrings[.proposalWaitsUntilFormat],
-            CompanionTime.date(proposal.expiresAt).map(time) ?? proposal.expiresAt
+            CompanionTime.date(proposal.expiresAt).map { CueTimes.time($0) } ?? proposal.expiresAt
         )
 
         return [watcher, waits].compactMap { $0 }.reduce(task) { ProductStrings.middot($0, $1) }
@@ -166,7 +181,7 @@ struct ChatProposalCard: View {
             return ProductStrings[.outsideItemUnsourced]
         }
 
-        let received = CompanionTime.date(receivedAt).map(time) ?? receivedAt
+        let received = CompanionTime.date(receivedAt).map { CueTimes.time($0) } ?? receivedAt
         return String(format: ProductStrings[.outsideItemFormat], source, received)
     }
 
@@ -179,12 +194,6 @@ struct ChatProposalCard: View {
             cue.subject.map { String(format: ProductStrings[.outsideSubjectFormat], $0) },
             cue.occurredAt.map { String(format: ProductStrings[.outsideDatedFormat], $0) }
         ].compactMap { $0 }
-    }
-
-    /// A moment of Fermix's record in this Mac's conventions: the time alone
-    /// today, with the date on any other day.
-    static func time(_ date: Date) -> String {
-        date.formatted(date: Calendar.current.isDateInToday(date) ? .omitted : .abbreviated, time: .shortened)
     }
 }
 

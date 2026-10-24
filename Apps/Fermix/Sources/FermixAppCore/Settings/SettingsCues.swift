@@ -60,9 +60,22 @@ public enum CueSourceAddOutcome: Equatable, Sendable {
     case added(ref: String, token: String?, unstored: CueRefusal?)
 }
 
+/// The cues guide on fermix.ai: what the pane keeps short, explained. A
+/// constant rather than a daemon field, like ChatGPT's usage page: it is the
+/// product's own page, the same for every home, and carries nothing private.
+public enum CueGuide {
+    public static let url: URL = {
+        guard let url = URL(string: "https://fermix.ai/docs/cues/") else {
+            preconditionFailure("the cues guide forms a url")
+        }
+
+        return url
+    }()
+}
+
 /// The default filter model's two keys, which the daemon takes together
-/// only (M60 app surface §4.6): "Pick a provider and a model, or clear
-/// both."
+/// only (M60 app surface §4.6): a provider and a model, or both cleared,
+/// which is the main model.
 public enum CueFilterPair {
     public static let section = "cues"
     public static let providerKey = "filter_provider"
@@ -252,10 +265,16 @@ extension SettingsModel {
         openChat(proposalId)
     }
 
+    /// Opens the cues guide on fermix.ai, where what the pane keeps short is
+    /// explained. Answers a sentence where the browser could not open.
+    public func openCuesGuide() -> String? {
+        opener.open(CueGuide.url) ? nil : ProductStrings[.cuesGuideOpenFailed]
+    }
+
     // MARK: - The default filter model
 
     /// The provider the daemon has in force for the default filter model,
-    /// empty for none.
+    /// empty for the main model.
     public var savedFilterProvider: String {
         let row = section(CueFilterPair.section).value?.rows.first { $0.key == CueFilterPair.providerKey }
         return row.map { DescriptorValue.text($0.value) } ?? ""
@@ -264,7 +283,7 @@ extension SettingsModel {
     /// Shows a provider just chosen in its pop-up while its model is picked.
     /// Nothing is written until the model is.
     public func holdFilterProvider(_ provider: String) {
-        precondition(!provider.isEmpty, "None is written, never held")
+        precondition(!provider.isEmpty, "the main model is written, never held")
         setDraft(.text(provider), for: filterProviderKey)
     }
 
@@ -273,7 +292,7 @@ extension SettingsModel {
         setDraft(nil, for: filterProviderKey)
     }
 
-    /// None: both keys cleared in one `settings.apply`.
+    /// The main model: both keys cleared in one `settings.apply`.
     public func clearFilterModel() async {
         await apply(section: CueFilterPair.section, changes: [CueFilterPair.providerKey: .text("")])
     }

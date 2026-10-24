@@ -239,14 +239,14 @@ struct CueQuestion: View {
     }
 }
 
-/// The grouped form a page's rows are drawn in, the shape the channel sheet
-/// gives its rows, sized to its content.
+/// The grouped form a page's sections are drawn in, the shape the channel
+/// sheet gives its rows, sized to its content.
 struct CuesPageForm<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
         Form {
-            Section { content }
+            content
         }
         .formStyle(.grouped)
         .showsAmbientGround()
@@ -282,10 +282,10 @@ struct CuesSourceFormPage: View {
             if form.rows.isEmpty {
                 ProgressView().controlSize(.small).accessibilityHidden(true)
             } else {
-                CuesPageForm { rows }
+                CuesPageForm { Section { rows } }
             }
 
-            notes
+            consent
             buttons
         }
         .task(id: form.request) {
@@ -318,8 +318,8 @@ struct CuesSourceFormPage: View {
                 .labelsHidden()
                 .fixedSize()
             }
-            if let sentence = form.kinds.first(where: { $0.id == form.kind })?.sentence {
-                CueNote(text: sentence)
+            if let kind = form.kinds.first(where: { $0.id == form.kind }) {
+                kindLine(kind)
             }
             if let refused = form.refusal(for: "kind") ?? form.refusal(for: "preset") {
                 CueNote(text: refused, attention: true)
@@ -368,13 +368,20 @@ struct CuesSourceFormPage: View {
         }
     }
 
+    /// The kind's one line, with the daemon's notes for this choice behind
+    /// the info beside it: a webhook's tunnel, a preset's content type.
+    private func kindLine(_ kind: ManagementCueSourceForm.Kind) -> some View {
+        DescriptorRowLabel(kind.sentence, info: form.notes.isEmpty ? nil : form.notes.joined(separator: "\n\n"))
+            .fermixType(Typography.style(.calloutSmall))
+            .foregroundStyle(Palette.secondary.color)
+    }
+
+    /// What adding it means, in the daemon's words, and a refusal that names
+    /// no field.
     @ViewBuilder
-    private var notes: some View {
+    private var consent: some View {
         if let consent = form.consent {
             CueNote(text: consent)
-        }
-        ForEach(Array(form.notes.enumerated()), id: \.offset) { _, note in
-            CueNote(text: note)
         }
         if let refused = form.formRefusal {
             CueNote(text: refused, attention: true)
@@ -534,19 +541,14 @@ struct CuesSourceDetailPage: View {
     }
 
     private func heading(_ source: ManagementCueSource) -> some View {
-        HStack(alignment: .top, spacing: Spacing.xs) {
+        CuesPageHeading(
+            title: source.ref,
+            status: source.statusSentence,
+            tone: CueTone.source(source),
+            attention: CueTone.isLoud(CueTone.source(source))
+        ) {
             CuesSourceTile(source: source)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(source.ref)
-                    .fermixType(Typography.sheetTitle)
-                    .foregroundStyle(Palette.ink.color)
-                CueNote(text: source.statusSentence, attention: source.state.drawsAttention)
-                    .accessibilityAddTraits(.updatesFrequently)
-            }
-
-            Spacer(minLength: Spacing.s)
-
+        } trailing: {
             if CueSourceProjection.switchShown(source) {
                 Toggle(source.ref, isOn: Binding(get: { source.enabled }, set: { setEnabled($0) }))
                     .toggleStyle(.switch)
@@ -556,25 +558,38 @@ struct CuesSourceDetailPage: View {
         }
     }
 
+    /// The secrets first, then what the source is and did, then what it
+    /// refused or missed where it refused or missed anything.
     @ViewBuilder
     private func facts(_ source: ManagementCueSource) -> some View {
-        ForEach(CueSourceProjection.secrets(source, first: at), id: \.field) { slot in
-            secretRow(slot, of: source)
+        if !source.secrets.isEmpty {
+            Section {
+                ForEach(CueSourceProjection.secrets(source, first: at), id: \.field) { slot in
+                    secretRow(slot, of: source)
+                }
+            }
         }
 
-        LabeledContent(ProductStrings[.cuesSourceKind]) { CueValue(text: source.label) }
-        LabeledContent(ProductStrings[.cuesSourceItemsADay]) {
-            CueValue(text: source.dailyBudget == 0 ? ProductStrings[.cuesNoLimit] : String(source.dailyBudget))
+        Section {
+            LabeledContent(ProductStrings[.cuesSourceKind]) { CueValue(text: source.label) }
+            LabeledContent(ProductStrings[.cuesSourceItemsADay]) {
+                CueValue(text: source.dailyBudget == 0 ? ProductStrings[.cuesNoLimit] : String(source.dailyBudget))
+            }
+            LabeledContent(ProductStrings[.cuesSourceLastDay]) { CueValue(text: CueSourceDetailWords.lastDay(source.counts)) }
+            LabeledContent(ProductStrings[.cuesSourceListening]) {
+                CueValue(text: source.listening.isEmpty ? ProductStrings[.cuesNone] : source.listening.joined(separator: ", "))
+            }
         }
-        LabeledContent(ProductStrings[.cuesSourceLastDay]) { CueValue(text: CueSourceDetailWords.lastDay(source.counts)) }
 
-        if let detail {
-            LabeledContent(ProductStrings[.cuesSourceRefused]) { CueValue(text: CueSourceDetailWords.lines(detail.rejected.map(\.sentence))) }
-            LabeledContent(ProductStrings[.cuesSourceMissed]) { CueValue(text: CueSourceDetailWords.lines(detail.gaps.map(\.sentence))) }
-        }
-
-        LabeledContent(ProductStrings[.cuesSourceListening]) {
-            CueValue(text: source.listening.isEmpty ? ProductStrings[.cuesNone] : source.listening.joined(separator: ", "))
+        if let detail, !detail.rejected.isEmpty || !detail.gaps.isEmpty {
+            Section {
+                if !detail.rejected.isEmpty {
+                    CuesStackedFact(label: ProductStrings[.cuesSourceRefused], text: CueSourceDetailWords.lines(detail.rejected.map(\.sentence)))
+                }
+                if !detail.gaps.isEmpty {
+                    CuesStackedFact(label: ProductStrings[.cuesSourceMissed], text: CueSourceDetailWords.lines(detail.gaps.map(\.sentence)))
+                }
+            }
         }
     }
 
@@ -625,10 +640,10 @@ struct CuesSourceDetailPage: View {
     }
 
     /// The address: whether it is made, and Copy URL where the daemon
-    /// offers it. The address itself is never drawn and never kept.
-    @ViewBuilder
+    /// offers it, with where it goes behind the info. The address itself is
+    /// never drawn and never kept.
     private func addressRow(_ slot: ManagementCueSecretSlot, of source: ManagementCueSource) -> some View {
-        LabeledContent(slot.label) {
+        LabeledContent {
             HStack(spacing: Spacing.xs) {
                 CueValue(text: ProductStrings[source.hasURL ? .cuesSourceAddressMade : .cuesSourceAddressNotMade])
                 if source.actions.contains(.getURL) {
@@ -637,8 +652,9 @@ struct CuesSourceDetailPage: View {
                         .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.cuesSourceCopyURL], ref))
                 }
             }
+        } label: {
+            DescriptorRowLabel(slot.label, info: ProductStrings[.cuesSourceAddressInfo])
         }
-        CueNote(text: ProductStrings[.cuesSourceAddressFooter])
     }
 
     /// `Edit`, `Remove source…` and `Done`; or the removal asked in their
@@ -763,10 +779,10 @@ struct CueTokenBlock: View {
     @State private var copied = CueSecretCopy()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.s) {
+        VStack(alignment: .leading, spacing: SettingsRowMetrics.entryGap) {
+            HStack(spacing: Spacing.s) {
                 Text(token.value)
-                    .monospaced()
+                    .fermixType(Typography.style(.mono))
                     .foregroundStyle(Palette.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -775,13 +791,14 @@ struct CueTokenBlock: View {
                 Button(ProductStrings[.cuesSourceCopyToken]) { copied.copy(token.value, on: .system) }
                     .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.cuesSourceCopyToken], token.ref))
             }
+            .padding(Spacing.xs)
+            .background(Palette.chipFill.color, in: RoundedRectangle(cornerRadius: Radius.controlCompact, style: .continuous))
 
-            CueNote(text: ProductStrings[.cuesSourceTokenOnce])
+            CueNote(text: ProductStrings[.cuesSourceTokenOnce], attention: true)
 
             if let port {
                 Text(String(format: ProductStrings[.cuesSourcePushExampleFormat], port, token.ref, Self.exampleHeader))
-                    .fermixType(Typography.style(.calloutSmall))
-                    .monospaced()
+                    .fermixType(Typography.style(.monoLog))
                     .foregroundStyle(Palette.secondary.color)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
