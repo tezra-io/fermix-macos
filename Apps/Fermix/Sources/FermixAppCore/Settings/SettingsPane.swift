@@ -28,7 +28,7 @@ public enum SettingsPaneGroup: String, CaseIterable, Sendable {
     }
 }
 
-/// The fifteen Settings panes (M34 §5, §3.4).
+/// The sixteen Settings panes (M34 §5, §3.4; Cues, M60 app surface §4.1).
 ///
 /// The raw value is the `fermix://settings/<pane>` slug **and** the wire value
 /// `settings.sections` publishes, so the route family, the sidebar and the
@@ -43,6 +43,9 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
     // Connections
     case channels
     case integrations
+    /// Drawn only where the daemon publishes the `cues` section and lists
+    /// `cues.status` in its `hello` (`SettingsModel.drawsCuesPane`).
+    case cues
 
     // Capabilities
     case voice
@@ -69,7 +72,7 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .providers, .personality, .memory:
             return .assistant
-        case .channels, .integrations:
+        case .channels, .integrations, .cues:
             return .connections
         case .voice, .meetings, .computer, .codingAgents, .search, .images, .browser:
             return .capabilities
@@ -85,6 +88,7 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
         case .memory: return .settingsPaneMemory
         case .channels: return .settingsPaneChannels
         case .integrations: return .settingsPaneIntegrations
+        case .cues: return .settingsPaneCues
         case .voice: return .settingsPaneVoice
         case .meetings: return .settingsPaneMeetings
         case .computer: return .settingsPaneComputer
@@ -107,6 +111,7 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
         case .memory: return "brain"
         case .channels: return "bubble.left.and.bubble.right"
         case .integrations: return "puzzlepiece.extension"
+        case .cues: return "dot.radiowaves.left.and.right"
         case .voice: return "waveform"
         case .meetings: return "video"
         case .computer: return "desktopcomputer"
@@ -130,6 +135,7 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
         case .memory: return .settingsKeywordsMemory
         case .channels: return .settingsKeywordsChannels
         case .integrations: return .settingsKeywordsIntegrations
+        case .cues: return .settingsKeywordsCues
         case .voice: return .settingsKeywordsVoice
         case .meetings: return .settingsKeywordsMeetings
         case .computer: return .settingsKeywordsComputer

@@ -17,6 +17,15 @@ public struct WindowDescriptor: Equatable, Sendable {
     /// own. The primary window sets this and takes the system's unified
     /// titlebar instead (M34 §3.1).
     public let showsTitle: Bool
+    /// Whether the window can be closed from its title bar.
+    ///
+    /// The update window cannot: each of its phases offers its own way out,
+    /// and the ones that offer none are the ones an update may not be walked
+    /// away from, the download being unpacked and the relaunch that finishes
+    /// it. A close button there would be a second answer to a question the
+    /// window is already asking. With nothing to close, minimize or zoom, the
+    /// host draws no window buttons at all, as macOS draws none on an alert.
+    public let closable: Bool
     /// Whether the window carries a minimize button at all.
     ///
     /// Omitted from the style mask rather than disabled, because AppKit draws no
@@ -49,6 +58,7 @@ public struct WindowDescriptor: Equatable, Sendable {
         borderless: Bool,
         floating: Bool,
         showsTitle: Bool = false,
+        closable: Bool = true,
         minimizable: Bool = true,
         zoomable: Bool = true,
         frameAutosaveName: String? = nil,
@@ -76,6 +86,7 @@ public struct WindowDescriptor: Equatable, Sendable {
         self.borderless = borderless
         self.floating = floating
         self.showsTitle = showsTitle
+        self.closable = closable
         self.minimizable = minimizable
         self.zoomable = zoomable
     }
@@ -111,7 +122,8 @@ public protocol WindowHost: AnyObject {
 }
 
 /// One primary window for Home, Setup and Settings, plus an optional floating
-/// pet. Closing every window leaves the menu bar app running.
+/// pet and the update window. Closing every window leaves the menu bar app
+/// running.
 @MainActor
 public final class WindowCoordinator {
     private let host: any WindowHost
@@ -152,6 +164,25 @@ public final class WindowCoordinator {
                 floating: true,
                 minimizable: false,
                 zoomable: false
+            )
+        case .update:
+            // Not restorable: an update's state is the updater's, and a window
+            // macOS put back at login would hold no update at all. Not
+            // minimizable either, because the ready-to-install phase must not
+            // be parked out of sight: quitting from behind it installs the
+            // update.
+            return WindowDescriptor(
+                kind: .update,
+                title: ProductStrings[.updateWindowTitle],
+                size: WindowMetrics.updateWindowSize,
+                minimumSize: nil,
+                resizable: false,
+                borderless: false,
+                floating: false,
+                closable: false,
+                minimizable: false,
+                zoomable: false,
+                restorable: false
             )
         }
     }

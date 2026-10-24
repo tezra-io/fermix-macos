@@ -57,7 +57,7 @@ fact() { printf 'fact|%s|%s\n' "$1" "$(oneline "$2")"; }
 
 require_configuration() {
   local name
-  for name in FX_RUN_ID FX_REPOSITORY FX_ARTIFACT_NAME FX_APP_BUNDLE_NAME FX_BUNDLE_ID \
+  for name in FX_RUN_ID FX_ARTIFACT_NAME FX_APP_BUNDLE_NAME FX_BUNDLE_ID \
     FX_URL_SCHEME FX_GUI_EXECUTABLE FX_AGENT_EXECUTABLE FX_AGENT_LABEL FX_SUPPORT_DIR \
     FX_ENGINE_RELATIVE_PATH FX_PORT FX_LOG_SUBSYSTEM; do
     [ -n "${!name:-}" ] || refuse "$name is not set; this file is run by scripts/cloud_acceptance.sh"
@@ -309,7 +309,7 @@ fetch_release() {
   local tag="$1" version="$2" name dmg base actual expected
   name="$FX_ARTIFACT_NAME-$version.dmg"
   dmg="$ARTIFACTS/$name"
-  base="https://github.com/$FX_REPOSITORY/releases/download/$tag"
+  base="https://download.fermix.ai/macos/$tag"
   curl -fsSL --retry 3 -o "$dmg" "$base/$name" || refuse "could not download $base/$name"
   curl -fsSL --retry 3 -o "$dmg.sha256" "$base/$name.sha256" || refuse "could not download $base/$name.sha256"
   actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"

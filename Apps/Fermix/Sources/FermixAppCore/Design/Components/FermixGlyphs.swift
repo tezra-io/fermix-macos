@@ -141,7 +141,24 @@ struct ChatMark: View {
     }
 
     @MainActor
-    private static let template = stillMark(resourceName, size: size)
+    fileprivate static let template = stillMark(resourceName, size: size)
+}
+
+/// The mark at the head of the update window: the chat's mascot at full ink.
+///
+/// The updater drew the application icon there, a dark tile with its own rim
+/// that read as a border on the dark ground (owner, 2026-10-21). The one-ink
+/// mascot is how every other surface of the app signs itself, so the update
+/// window takes it too, on the window's glass with no tile of its own. The
+/// title beside it says what the window is about, so the mark is decorative.
+struct UpdateMark: View {
+    var body: some View {
+        Image(nsImage: ChatMark.template)
+            .renderingMode(.template)
+            .foregroundStyle(Palette.ink.color)
+            .frame(width: ChatMark.size, height: ChatMark.size)
+            .accessibilityHidden(true)
+    }
 }
 
 /// One still mark from the resource bundle, as a template at its drawn size.

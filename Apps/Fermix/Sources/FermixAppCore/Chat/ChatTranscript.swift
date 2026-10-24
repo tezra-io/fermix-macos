@@ -57,7 +57,12 @@ struct ChatTranscript: View {
                         let previous = index > 0 ? items[index - 1] : nil
                         let opensNewTurn = ChatTimeline.opensNewTurn(after: previous, before: item)
 
-                        ChatItemView(item: item, marked: marked(item), answer: session.answerApproval)
+                        ChatItemView(
+                            item: item,
+                            marked: marked(item),
+                            answer: session.answerApproval,
+                            decide: session.answerProposal
+                        )
                             .padding(.top, opensNewTurn ? ChatMetrics.turnGap - ChatMetrics.rowGap : 0)
                             .id(item.id)
                     }
@@ -113,6 +118,10 @@ struct ChatTranscript: View {
                 revealing = reveal
                 advanceReveal(proxy)
             }
+            // The menu line opens Chat at the oldest proposal waiting: asked
+            // before the transcript appears, or while it is on screen.
+            .onAppear { showProposal(proxy) }
+            .onChange(of: model.proposalReveal) { showProposal(proxy) }
             .onChange(of: appearsActive) {
                 markNewestSeen()
             }
@@ -218,6 +227,22 @@ struct ChatTranscript: View {
             session.pullOlder()
         case .unreachable:
             revealing = nil
+        }
+    }
+
+    /// Scrolls to the proposal card the menu line asked for, once: the request
+    /// is taken back as it is served, so coming back to Chat later does not
+    /// scroll there again. A card no longer held is not scrolled to.
+    private func showProposal(_ proxy: ScrollViewProxy) {
+        guard let asked = model.proposalReveal else { return }
+
+        session.proposalRevealServed()
+        guard items.contains(where: { $0.id == .proposal(asked.proposalId) }) else { return }
+
+        atBottom = false
+        // On appearing the rows are not laid out yet: the scroll waits a turn.
+        Task { @MainActor in
+            proxy.scrollTo(ChatItemID.proposal(asked.proposalId), anchor: .center)
         }
     }
 

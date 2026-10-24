@@ -26,9 +26,12 @@ extension SettingsModel {
     /// Writes the changed keys of one section. Unchanged rows are never sent,
     /// which is what keeps a save from re-submitting a value nobody touched.
     @discardableResult
-    public func apply(section: String, changes: [String: ManagementSettingValue]) async -> Bool {
+    public func apply(section: String, changes asked: [String: ManagementSettingValue]) async -> Bool {
         precondition(!section.isEmpty, "a write names its section")
-        guard !changes.isEmpty else { return true }
+        guard !asked.isEmpty else { return true }
+        // The default filter model's two keys travel together (M60 app
+        // surface §4.6): the daemon refuses either alone.
+        let changes = CueFilterPair.completing(asked, in: section, rows: self.section(section).value?.rows ?? [])
         let keys = changes.keys.map { SettingsDraftKey(section: section, key: $0) }
 
         guard !writesBlocked else {
@@ -274,8 +277,9 @@ extension SettingsModel {
     /// exactly like a write that did nothing: a descriptor row publishes it as a
     /// `secret` row, the two prefixed families — a plugin's own token and a
     /// sign-in client's secret — are published on `plugins.list` instead, where
-    /// no section re-read can reach them, and a value an MCP server declares is
-    /// `present` beside its name on `mcp.servers.list`.
+    /// no section re-read can reach them, a value an MCP server declares is
+    /// `present` beside its name on `mcp.servers.list`, and a cue source's
+    /// secret is `present` on its row and on its detail (M60 app surface §6).
     private func reloadSurfacesHolding(secret id: String) async {
         for section in sectionsHolding(secret: id) {
             await loadSection(section)
@@ -287,6 +291,11 @@ extension SettingsModel {
 
         if id.hasPrefix(MCPSecretId.prefix) {
             await refreshMCPServers()
+        }
+
+        if let ref = CueSecretId.ref(of: id) {
+            await refreshCueSources()
+            await readCueSource(ref)
         }
 
         await refreshSetupState()

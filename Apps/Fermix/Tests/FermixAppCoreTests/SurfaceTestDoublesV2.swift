@@ -467,6 +467,128 @@ extension FakeDaemonGateway {
         return try answer(.mcpServersImport, "mcp_servers_import")
     }
 
+    // MARK: - Cues (M60)
+
+    func cuesStatus() async throws -> ManagementCueStatus {
+        let published: ManagementCueStatus = try answer(.cuesStatus, "cues_status")
+
+        return cueStatusResult ?? published
+    }
+
+    func cueSources() async throws -> ManagementCueSourceList {
+        let published: ManagementCueSourceList = try answer(.cuesSourcesList, "cues_sources_list")
+
+        return cueSourcesResult ?? published
+    }
+
+    func cueSource(ref: String) async throws -> ManagementCueSourceDetail {
+        try answer(.cuesSourcesGet, "cues_sources_get")
+    }
+
+    func cueSourceForm(_ request: ManagementCueFormRequest) async throws -> ManagementCueSourceForm {
+        cueFormRequests.append(request)
+
+        return try answer(.cuesSourcesForm, "cues_sources_form")
+    }
+
+    /// The golden add of the kind asked for, or of the preset's kind.
+    func addCueSource(_ spec: ManagementCueSourceSpec) async throws -> ManagementCueSourceAdded {
+        cueSpecs.append(spec)
+        let golden: String
+        switch spec.kind ?? spec.preset {
+        case "local_push": golden = "cues_sources_add_local_push"
+        case "webhook", "github": golden = "cues_sources_add_webhook"
+        default: golden = "cues_sources_add"
+        }
+
+        return try answer(.cuesSourcesAdd, golden)
+    }
+
+    func updateCueSource(ref: String, values: [String: ManagementCueValue]) async throws -> ManagementCueSourceAnswer {
+        cueSourceUpdates.append(CueValuesWrite(name: ref, values: values))
+
+        return try answer(.cuesSourcesUpdate, "cues_sources_update")
+    }
+
+    func removeCueSource(ref: String) async throws -> ManagementCueSourceRemoved {
+        try answer(.cuesSourcesRemove, "cues_sources_remove")
+    }
+
+    func enableCueSource(ref: String) async throws -> ManagementCueSourceAnswer {
+        try answer(.cuesSourcesEnable, "cues_sources_enable")
+    }
+
+    func disableCueSource(ref: String) async throws -> ManagementCueSourceAnswer {
+        try answer(.cuesSourcesDisable, "cues_sources_disable")
+    }
+
+    func newCueSourceToken(ref: String) async throws -> ManagementCueSourceToken {
+        try answer(.cuesSourcesTokenNew, "cues_sources_token_new")
+    }
+
+    func cueSourceAddress(ref: String) async throws -> ManagementCueSourceAddress {
+        try answer(.cuesSourcesURLGet, "cues_sources_url_get")
+    }
+
+    func cueWatchers() async throws -> ManagementCueWatcherList {
+        try answer(.cuesWatchersList, "cues_watchers_list")
+    }
+
+    func cueWatcher(name: String) async throws -> ManagementCueWatcherAnswer {
+        try answer(.cuesWatchersGet, "cues_watchers_get")
+    }
+
+    func cueMandates() async throws -> ManagementCueMandateList {
+        try answer(.cuesMandatesList, "cues_mandates_list")
+    }
+
+    func cueMandateChoices() async throws -> ManagementCueMandateChoices {
+        try answer(.cuesMandatesChoices, "cues_mandates_choices")
+    }
+
+    func addCueMandate(name: String, values: [String: ManagementCueValue]) async throws -> ManagementCueMandateAnswer {
+        cueMandateWrites.append(CueValuesWrite(name: name, values: values))
+
+        return try answer(.cuesMandatesAdd, "cues_mandates_add")
+    }
+
+    func updateCueMandate(name: String, values: [String: ManagementCueValue]) async throws -> ManagementCueMandateAnswer {
+        cueMandateWrites.append(CueValuesWrite(name: name, values: values))
+
+        return try answer(.cuesMandatesUpdate, "cues_mandates_update")
+    }
+
+    func removeCueMandate(name: String) async throws -> ManagementCueMandateRemoved {
+        try answer(.cuesMandatesRemove, "cues_mandates_remove")
+    }
+
+    func enableCueMandate(name: String) async throws -> ManagementCueMandateAnswer {
+        try answer(.cuesMandatesEnable, "cues_mandates_enable")
+    }
+
+    func disableCueMandate(name: String) async throws -> ManagementCueMandateAnswer {
+        try answer(.cuesMandatesDisable, "cues_mandates_disable")
+    }
+
+    func approveCueMandate(name: String) async throws -> ManagementCueMandateAnswer {
+        try answer(.cuesMandatesApprove, "cues_mandates_approve")
+    }
+
+    func cueProposals(_ filter: ManagementCueProposalFilter) async throws -> ManagementCueProposalList {
+        cueProposalFilters.append(filter)
+        let published: ManagementCueProposalList = try answer(.cuesProposalsList, "cues_proposals_list")
+
+        return cueProposalsResult ?? published
+    }
+
+    func cueProposal(id: String) async throws -> ManagementCueProposalCardAnswer {
+        try answer(.cuesProposalsGet, "cues_proposals_get")
+    }
+
+    func decideCueProposal(id: String, decision: ManagementCueDecision) async throws -> ManagementCueProposalAnswer {
+        try answer(.cuesProposalsDecide, "cues_proposals_decide")
+    }
+
     // MARK: - One answer
 
     /// Record the call, apply the version gate, then decode the named fixture.
@@ -555,6 +677,12 @@ struct MCPToolWrite: Equatable {
     let server: String
     let tool: String
     let enabled: Bool
+}
+
+/// One cue write that names its source or mandate and the values it sends.
+struct CueValuesWrite: Equatable {
+    let name: String
+    let values: [String: ManagementCueValue]
 }
 
 /// One `secret.set` payload. Recorded so a test can prove a blank is never sent

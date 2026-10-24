@@ -85,6 +85,42 @@ enum ManagementV2ResultDecoder {
             try read(ManagementMCPServerAdded.self, payload, identifier, method)
         case .mcpServersRemove:
             try read(ManagementMCPServerRemoved.self, payload, identifier, method)
+        case .cuesStatus:
+            try read(ManagementCueStatus.self, payload, identifier, method)
+        case .cuesSourcesList:
+            try read(ManagementCueSourceList.self, payload, identifier, method)
+        case .cuesSourcesGet:
+            try read(ManagementCueSourceDetail.self, payload, identifier, method)
+        case .cuesSourcesForm:
+            try read(ManagementCueSourceForm.self, payload, identifier, method)
+        case .cuesSourcesAdd:
+            try read(ManagementCueSourceAdded.self, payload, identifier, method)
+        case .cuesSourcesUpdate, .cuesSourcesEnable, .cuesSourcesDisable:
+            try read(ManagementCueSourceAnswer.self, payload, identifier, method)
+        case .cuesSourcesRemove:
+            try read(ManagementCueSourceRemoved.self, payload, identifier, method)
+        case .cuesSourcesTokenNew:
+            try read(ManagementCueSourceToken.self, payload, identifier, method)
+        case .cuesSourcesURLGet:
+            try read(ManagementCueSourceAddress.self, payload, identifier, method)
+        case .cuesWatchersList:
+            try read(ManagementCueWatcherList.self, payload, identifier, method)
+        case .cuesWatchersGet:
+            try read(ManagementCueWatcherAnswer.self, payload, identifier, method)
+        case .cuesMandatesList:
+            try read(ManagementCueMandateList.self, payload, identifier, method)
+        case .cuesMandatesChoices:
+            try read(ManagementCueMandateChoices.self, payload, identifier, method)
+        case .cuesMandatesAdd, .cuesMandatesUpdate, .cuesMandatesEnable, .cuesMandatesDisable, .cuesMandatesApprove:
+            try read(ManagementCueMandateAnswer.self, payload, identifier, method)
+        case .cuesMandatesRemove:
+            try read(ManagementCueMandateRemoved.self, payload, identifier, method)
+        case .cuesProposalsList:
+            try read(ManagementCueProposalList.self, payload, identifier, method)
+        case .cuesProposalsGet:
+            try read(ManagementCueProposalCardAnswer.self, payload, identifier, method)
+        case .cuesProposalsDecide:
+            try read(ManagementCueProposalAnswer.self, payload, identifier, method)
 
         // Every remaining method answers the uniform job view.
         case .providersProbeStart, .jobGet, .jobCancel, .authImportStart, .pluginsInstallStart,

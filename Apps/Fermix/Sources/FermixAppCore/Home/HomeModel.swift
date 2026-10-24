@@ -409,9 +409,9 @@ public final class HomeModel: ObservableObject {
             showInstructions()
         case .revealSettingsFile:
             revealSettingsFile()
-        // The updater's own alert owns Install, Remind Later and Skip
-        // (M34 §6). Asking for a check is what raises it, and what brings one
-        // that is already showing back into focus.
+        // The update window owns Install, Later and Skip (M34 §6). Asking
+        // for a check is what raises it, and what brings one that is already
+        // showing back into focus.
         case .showUpdate:
             updates.checkForUpdates()
         case .openLoginItems:

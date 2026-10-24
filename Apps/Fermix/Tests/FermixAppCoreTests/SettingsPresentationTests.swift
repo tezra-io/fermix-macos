@@ -477,7 +477,7 @@ struct SettingsSourceGateTests {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
 
         #expect(!WindowKind.allCases.contains { $0.rawValue == "settings" })
-        #expect(WindowKind.allCases.count == 2)
+        #expect(WindowKind.allCases.count == 3)
 
         for name in ["struct SettingsWindowView", "WindowKind.settings", "settingsDefaultSize",
                      "settingsMinimumSize", "windowSettingsTitle"] {

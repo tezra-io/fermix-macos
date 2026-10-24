@@ -100,6 +100,10 @@ public enum WindowMetrics {
     /// runs inside this window, so the default is the size that shows a 240 pt
     /// pane column beside a readable content column.
     public static let mainDefaultSize = CGSize(width: 1040, height: 640)
+    /// The update window: one size for every phase, so it never jumps as an
+    /// update moves from offered to downloading to ready. The sheets' width,
+    /// and room for a title, two lines and a progress bar above the buttons.
+    public static let updateWindowSize = CGSize(width: SheetMetrics.credentialWidth, height: 156)
 
     /// The rail: the app sidebar as one fixed column of symbols (redlines §5.7).
     ///

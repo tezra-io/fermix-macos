@@ -49,9 +49,9 @@ public final class CommandRouter: CommandPerforming {
         switch command {
         // The updater's own answer, never a value written here: it stays true
         // while an update is merely being shown, because asking again is what
-        // brings that alert back into focus (M34 §6, R2). A build that runs no
-        // updater at all answers false, and M34 §3.3 publishes the row dimmed
-        // rather than hiding it.
+        // brings the update window back into focus (M34 §6, R2). A build that
+        // runs no updater at all answers false, and M34 §3.3 publishes the row
+        // dimmed rather than hiding it.
         case .checkForUpdates:
             return updates.canCheckForUpdates
         case .runLocalChecks, .runNetworkChecks:

@@ -185,6 +185,16 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// The providers each `auth.start` and `auth.logout` named, in order.
     var signInProviders: [String] = []
     var signOutProviders: [String] = []
+    /// Cues (M60): answers a case needs that the goldens do not publish, and
+    /// what the surfaces asked, in order.
+    var cueStatusResult: ManagementCueStatus?
+    var cueSourcesResult: ManagementCueSourceList?
+    var cueProposalsResult: ManagementCueProposalList?
+    var cueSpecs: [ManagementCueSourceSpec] = []
+    var cueFormRequests: [ManagementCueFormRequest] = []
+    var cueSourceUpdates: [CueValuesWrite] = []
+    var cueMandateWrites: [CueValuesWrite] = []
+    var cueProposalFilters: [ManagementCueProposalFilter] = []
 
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take
