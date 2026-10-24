@@ -54,30 +54,44 @@ public struct CueSourceFormState: Equatable, Sendable {
         presets.filter { $0.kind == kind }
     }
 
-    /// The daemon's form for the request. A value or a secret for a field the
-    /// new form no longer has is dropped with the field.
-    public mutating func take(_ form: ManagementCueSourceForm) {
+    /// The daemon's answer to `asked`. The first answer opens the sheet on the
+    /// first kind with that kind's first preset, the common case and one a
+    /// name and a URL complete. The rows are drawn only from an answer to the
+    /// choice the sheet holds now, so one choice's fields never show under
+    /// another while its own form is asked for. A value or a secret for a
+    /// field the new form no longer has is dropped with the field.
+    public mutating func take(_ form: ManagementCueSourceForm, answering asked: ManagementCueFormRequest) {
         kinds = form.kinds
         presets = form.presets
+        if kind == nil {
+            kind = form.kinds.first?.id
+            preset = firstPreset(of: kind)
+        }
+        guard asked == request else { return }
+
         rows = form.rows
         consent = form.consentSentence
         notes = form.notes
-        if kind == nil { kind = form.kinds.first?.id }
 
         let keys = Set(form.rows.map(\.key))
         values = values.filter { keys.contains($0.key) }
         secrets = secrets.filter { keys.contains($0.key) }
     }
 
-    /// A kind chosen in the segmented control: its own presets, and its own
-    /// check, so neither a preset nor a check of another kind is asked for.
+    /// A kind chosen in the segmented control: its first preset (None stays
+    /// in the menu) and its own check, so neither a preset nor a check of
+    /// another kind is asked for.
     public mutating func choose(kind: String) {
         guard kind != self.kind else { return }
 
         self.kind = kind
-        preset = nil
+        preset = firstPreset(of: kind)
         values[Self.verifyKey] = nil
         refusal = nil
+    }
+
+    private func firstPreset(of kind: String?) -> String? {
+        presets.first { $0.kind == kind }?.id
     }
 
     public mutating func choose(preset: String?) {
@@ -426,10 +440,11 @@ struct CuesSourceFormPage: View {
     /// Asks for the form once changes to the kind, the preset or the check
     /// have rested. A newer request cancels this one while it waits.
     private func askForTheForm() async {
-        guard let answer = await model.cueSourceForm(form.request, pause: CuesSheetMetrics.formPause) else { return }
+        let asked = form.request
+        guard let answer = await model.cueSourceForm(asked, pause: CuesSheetMetrics.formPause) else { return }
 
         switch answer {
-        case .success(let daemonForm): form.take(daemonForm)
+        case .success(let daemonForm): form.take(daemonForm, answering: asked)
         case .failure(let refused): form.refusal = refused
         }
     }

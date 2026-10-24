@@ -422,8 +422,7 @@ struct CuesTests {
 
     @Test("a refusal's field marks the form field it names, and anything else is said under the form")
     func refusalMarksItsField() throws {
-        var form = CueSourceFormState()
-        form.take(try Self.golden("cues_sources_form"))
+        var form = try Self.githubForm(try Self.golden("cues_sources_form"))
 
         form.refusal = CueRefusal(sentence: "That name is taken.", field: "ref")
         #expect(form.refusal(for: "ref") == "That name is taken.")
@@ -441,13 +440,15 @@ struct CuesTests {
 
     @Test("Add sends the name, the preset and only the values changed, and never a secret")
     func addSendsWhatChanged() throws {
+        let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
         var form = CueSourceFormState()
-        form.take(try Self.golden("cues_sources_form"))
+        form.take(golden, answering: form.request)
         #expect(form.kind == "feed", "with no kind asked for, the form is a feed's")
         #expect(form.spec == nil, "nothing to add without a name")
 
         form.choose(kind: "webhook")
         form.choose(preset: "github")
+        form.take(golden, answering: form.request)
         form.set(.text("gh-hooks"), for: "ref")
         form.set(.text("X-Hub-Signature-256"), for: "header")
         form.set(.text("X-Signature"), for: "type_header")
@@ -465,8 +466,7 @@ struct CuesTests {
     func unstorableSecretIsRefused() throws {
         let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
         let renamed = try Self.form(golden, renamingSecretTo: "passphrase")
-        var form = CueSourceFormState()
-        form.take(renamed)
+        var form = try Self.githubForm(renamed)
         form.set(.text("gh-hooks"), for: "ref")
         form.secrets["passphrase"] = "fixture-passphrase"
 
@@ -476,8 +476,7 @@ struct CuesTests {
         #expect(form.refusal(for: "passphrase") == ProductStrings[.cuesSourceSecretUnstorable])
         #expect(ProductStrings[.cuesSourceSecretUnstorable] == "This version of the app cannot store this secret; update the app.")
 
-        var known = CueSourceFormState()
-        known.take(golden)
+        var known = try Self.githubForm(golden)
         known.set(.text("gh-hooks"), for: "ref")
         known.secrets["secret"] = "fixture-signing-secret"
         let preparing = known.prepareAdd()
@@ -489,7 +488,7 @@ struct CuesTests {
     @Test("changing the kind asks for its own form, without the other kind's preset or check")
     func kindChangeAsksAgain() throws {
         var form = CueSourceFormState()
-        form.take(try Self.golden("cues_sources_form"))
+        form.take(try Self.golden("cues_sources_form"), answering: form.request)
         form.choose(preset: "github")
         form.set(.text("standard_webhooks"), for: "verify")
         #expect(form.request == ManagementCueFormRequest(preset: "github", verify: "standard_webhooks"))
@@ -497,6 +496,45 @@ struct CuesTests {
         form.choose(kind: "local_push")
         #expect(form.request == ManagementCueFormRequest(kind: "local_push"))
         #expect(form.kindPresets.isEmpty)
+    }
+
+    @Test("the sheet opens on the first kind with its first preset, and a kind chosen brings its own")
+    func formOpensOnAPreset() throws {
+        var form = CueSourceFormState()
+        form.take(try Self.golden("cues_sources_form"), answering: form.request)
+        #expect(form.kind == "feed" && form.preset == "rss", "a feed opens on RSS, which fills the interval")
+        #expect(form.request == ManagementCueFormRequest(preset: "rss"))
+
+        form.choose(kind: "webhook")
+        #expect(form.preset == "github")
+        form.choose(kind: "local_push")
+        #expect(form.preset == nil, "local push has no preset")
+        #expect(form.request == ManagementCueFormRequest(kind: "local_push"))
+
+        form.choose(kind: "stream")
+        #expect(form.preset == "bluesky_jetstream")
+        form.choose(preset: nil)
+        #expect(form.request == ManagementCueFormRequest(kind: "stream"), "None stays a choice")
+    }
+
+    @Test("an answer to a request the sheet has moved past draws no rows, so one choice's fields never show under another")
+    func staleAnswerDrawsNoRows() throws {
+        let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
+        var form = CueSourceFormState()
+
+        // The first answer is for no choice yet; opening on RSS asks again.
+        form.take(golden, answering: form.request)
+        #expect(form.preset == "rss")
+        #expect(form.rows.isEmpty, "the no-preset rows are not drawn under RSS")
+        #expect(!form.kinds.isEmpty && !form.presets.isEmpty, "the choices are drawn at once")
+
+        let asked = form.request
+        form.choose(kind: "webhook")
+        form.take(golden, answering: asked)
+        #expect(form.rows.isEmpty, "an answer for RSS is not drawn under GitHub")
+
+        form.take(golden, answering: form.request)
+        #expect(form.rows.first?.key == "ref", "the answer for the current choice draws its rows")
     }
 
     @Test("a form request superseded while it rests asks nothing, and one that rests asks once")
@@ -576,6 +614,19 @@ struct CuesTests {
 
         #expect(outcome == .refused(CueRefusal(sentence: "There is no source named home-alerts.", field: "ref")))
         #expect(gateway.storedSecrets.isEmpty)
+    }
+
+    @Test("adding a webhook turns the sheet to its page, where its address is one Copy URL away")
+    func addedWebhookOffersItsAddress() throws {
+        let added: ManagementCueSourceAdded = try Self.golden("cues_sources_add_webhook")
+        var sheet = CuesSheetState(page: .addSource)
+
+        sheet.added(.added(ref: added.source.ref, token: nil, unstored: nil))
+
+        #expect(sheet.page == .source("gh-hooks", at: nil))
+        #expect(!added.source.hasURL, "no address is made by the add itself")
+        #expect(added.source.secrets.contains { $0.field == .pathSecret }, "the page draws the address row")
+        #expect(added.source.actions.contains(.getURL), "and offers Copy URL on it at once")
     }
 
     // MARK: - The token
@@ -840,6 +891,17 @@ struct CuesTests {
         gateway.hello = try golden("hello")
 
         return gateway
+    }
+
+    /// The add form as the sheet has it once the golden form, GitHub's,
+    /// answers the GitHub request: opened, Webhook chosen, then answered.
+    static func githubForm(_ answer: ManagementCueSourceForm) throws -> CueSourceFormState {
+        var form = CueSourceFormState()
+        form.take(answer, answering: form.request)
+        form.choose(kind: "webhook")
+        #expect(form.request == ManagementCueFormRequest(preset: "github"))
+        form.take(answer, answering: form.request)
+        return form
     }
 
     static func harness() throws -> SettingsHarness {

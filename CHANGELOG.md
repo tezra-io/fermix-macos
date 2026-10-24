@@ -6,7 +6,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 - Updates: finding, downloading and installing an update now happens in one window drawn like the rest of Fermix, with the Fermix mascot rather than the app icon on a tile, the app's glass and its black and white buttons, in light and dark. It stays the same size from the offer to the relaunch, says plainly which version is available and which one you have, and an update you did not ask for waits until Fermix is in front instead of interrupting what you are doing. You see it from the update after the one that brings it, since the version you are updating from draws the window.
 - Chat: when a task asks to act under your mandate, decide on a card in Chat.
-- Settings: set up cues in a new Cues pane: sources, the filter model (your main model unless you choose another from the providers you have set up), and the mandates you approve, in compact rows with a status dot and explanations behind info, with no terminal needed.
+- Settings: set up cues in a new Cues pane: sources, starting from the kind with its first preset chosen and a line saying where its items come from, the filter model (your main model unless you choose another from the providers you have set up), and the mandates you approve, in compact rows with a status dot and explanations behind info, with no terminal needed.
 
 ## 0.6.0 (2026-10-21)
 
