@@ -79,9 +79,60 @@ jobs:
       build_number: ${{ needs.version.outputs.build_number }}
     secrets: inherit
 
+  # Signed once, in a job of its own: a keyless signature and its certificate
+  # differ every time they are made, and download.fermix.ai takes each file
+  # once. Re-running a failed publish job takes these same bytes from the
+  # artifact, so the host accepts them as the files it already holds. Signed in
+  # this workflow, not in notarize.yml, because the certificate names the
+  # workflow that signed: release.yml is the identity people verify against.
+  sign:
+    name: cosign sign-blob (keyless)
+    needs: notarize
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download DMG artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: fermix-dmg
+          path: dist
+
+      - name: Verify DMG sha256 (from the uploaded bytes)
+        env:
+          EXPECTED: ${{ needs.notarize.outputs.dmg_sha256 }}
+        run: |
+          set -euo pipefail
+          dmg="$(ls dist/Fermix-*.dmg)"
+          actual="$(sha256sum "$dmg" | awk '{print $1}')"
+          echo "dmg=$dmg sha256=$actual"
+          [ "$actual" = "$EXPECTED" ] || { echo "::error title=sha mismatch::$actual != $EXPECTED"; exit 1; }
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+
+      - name: cosign sign-blob (keyless)
+        run: |
+          set -euo pipefail
+          dmg="$(ls dist/Fermix-*.dmg)"
+          cosign sign-blob --yes \
+            --output-signature "${dmg}.sig" \
+            --output-certificate "${dmg}.pem" \
+            "$dmg"
+
+      - name: Upload the signature artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fermix-dmg-signature
+          path: |
+            dist/Fermix-*.dmg.sig
+            dist/Fermix-*.dmg.pem
+          if-no-files-found: error
+
   publish:
     name: publish release + cask
-    needs: [version, notarize]
+    needs: [version, notarize, sign]
     # Matches the notarize job's runner: see notarize.yml for why macos-15.
     runs-on: macos-15
     # The download host's write credentials live in the environment, which only
@@ -105,6 +156,12 @@ jobs:
           actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
           echo "dmg=$dmg sha256=$actual"
           [ "$actual" = "$EXPECTED" ] || { echo "::error title=sha mismatch::$actual != $EXPECTED"; exit 1; }
+
+      - name: Download the signature artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: fermix-dmg-signature
+          path: dist
 
       - name: Download appcast item artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -158,18 +215,6 @@ jobs:
       - name: Style-check the cask
         run: brew style Casks/fermix.rb
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
-
-      - name: cosign sign-blob (keyless)
-        run: |
-          set -euo pipefail
-          dmg="$(ls dist/Fermix-*.dmg)"
-          cosign sign-blob --yes \
-            --output-signature "${dmg}.sig" \
-            --output-certificate "${dmg}.pem" \
-            "$dmg"
-
       - name: Write the release notes
         env:
           REF_NAME: ${{ github.ref_name }}
@@ -177,8 +222,9 @@ jobs:
 
       # Before the GitHub Release, so a refusal here leaves no release behind
       # and the cask smoke below installs from the address users download from.
-      # Written once (scripts/publish_downloads.sh): re-running this job accepts
-      # the same bytes, and a DMG rebuilt under the same tag is refused.
+      # Written once (scripts/publish_downloads.sh): re-running this failed job
+      # sends the same artifacts' bytes again, which are accepted, while a full
+      # re-run builds and signs a new DMG, which is refused.
       - name: Publish the files to download.fermix.ai
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
