@@ -1,10 +1,12 @@
 name: release
 
 # Push a tag `vX.Y.Z` to cut a release: build universal2, Developer-ID sign,
-# notarize + staple, DMG, then publish a GitHub Release with the DMG, its
-# sha256, a keyless cosign signature, and the rendered Homebrew cask.
+# notarize + staple, DMG, then publish the DMG, its sha256, a keyless cosign
+# signature and the release notes to download.fermix.ai, and a GitHub Release
+# with the same files and the rendered Homebrew cask.
 #
-# Signing is gated by the protected `release-macos` environment (see notarize.yml).
+# Signing and publishing are gated by the protected `release-macos` environment
+# (see notarize.yml).
 # The `v*` tag namespace is maintainer-only via a protected-tag ruleset, and
 # `--latest=false` keeps this off the repo-wide /releases/latest pointer.
 on:
@@ -82,6 +84,9 @@ jobs:
     needs: [version, notarize]
     # Matches the notarize job's runner: see notarize.yml for why macos-15.
     runs-on: macos-15
+    # The download host's write credentials live in the environment, which only
+    # a job on a `v*` tag can enter.
+    environment: release-macos
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -165,6 +170,27 @@ jobs:
             --output-certificate "${dmg}.pem" \
             "$dmg"
 
+      - name: Write the release notes
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: scripts/changelog_section.sh "${REF_NAME#v}" > dist/RELEASE_NOTES.md
+
+      # Before the GitHub Release, so a refusal here leaves no release behind
+      # and the cask smoke below installs from the address users download from.
+      # Written once (scripts/publish_downloads.sh): re-running this job accepts
+      # the same bytes, and a DMG rebuilt under the same tag is refused.
+      - name: Publish the files to download.fermix.ai
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          dmg="$(ls dist/Fermix-*.dmg)"
+          scripts/publish_downloads.sh "macos/$REF_NAME" \
+            "$dmg" "$dmg.sha256" "$dmg.sig" "$dmg.pem" dist/RELEASE_NOTES.md
+
       - name: Create GitHub Release (not marked latest)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -172,13 +198,11 @@ jobs:
         run: |
           set -euo pipefail
           dmg="$(ls dist/Fermix-*.dmg)"
-          notes="$(mktemp)"
-          scripts/changelog_section.sh "${REF_NAME#v}" > "$notes"
           gh release create "$REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$REF_NAME" \
             --latest=false \
-            --notes-file "$notes" \
+            --notes-file dist/RELEASE_NOTES.md \
             "$dmg" "$dmg.sha256" "$dmg.sig" "$dmg.pem" Casks/fermix.rb
 
       # Both documents become assets of this release: the feed is what the site
@@ -197,11 +221,11 @@ jobs:
           echo "::notice title=Publish the feed::copy this release's appcast.xml to fermix-site public/appcast.xml and deploy the site, otherwise installed clients see no update"
 
       # The real cask integrity gate: install from the cask exactly as a user
-      # would, which exercises the release URL, the sha256 stanza, the DMG mount,
-      # and the app copy. Runs AFTER the release exists (the url must be live) and
-      # BEFORE the tap sees the cask — a failure here fails the job and the cask
-      # never reaches the tap. Bounded retry covers release-asset CDN propagation.
-      - name: Cask install smoke (from the published release)
+      # would, which exercises the download URL, the sha256 stanza, the DMG mount,
+      # and the app copy. Runs AFTER the files are on download.fermix.ai (the
+      # cask's url) and BEFORE the tap sees the cask — a failure here fails the
+      # job and the cask never reaches the tap. Bounded retry covers CDN propagation.
+      - name: Cask install smoke (from download.fermix.ai)
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
@@ -209,9 +233,9 @@ jobs:
           set -euo pipefail
           # Homebrew rejects a loose cask file ("casks must be in a tap"), so stage
           # the rendered cask in a throwaway local tap and install from there —
-          # exercising the real release URL, the sha256, the DMG mount, the app
+          # exercising the real download URL, the sha256, the DMG mount, the app
           # copy, and Gatekeeper exactly as a user would. Install to a temp appdir,
-          # not /Applications. Retry covers release-asset CDN propagation.
+          # not /Applications. Retry covers CDN propagation.
           tapdir="$(brew --repository)/Library/Taps/tezra-io/homebrew-casksmoke"
           brew tap-new tezra-io/casksmoke >/dev/null
           mkdir -p "$tapdir/Casks"
@@ -230,7 +254,7 @@ jobs:
             echo "install attempt $attempt failed; retrying in 15s"
             sleep 15
           done
-          [ -n "$installed" ] || { echo "::error title=Cask install smoke failed::cask does not install from the published release"; exit 1; }
+          [ -n "$installed" ] || { echo "::error title=Cask install smoke failed::cask does not install from download.fermix.ai"; exit 1; }
           test -d "$appdir/Fermix.app"
           spctl -a -t exec -vv "$appdir/Fermix.app"
           brew uninstall --cask --appdir="$appdir" tezra-io/casksmoke/fermix >/dev/null 2>&1 || true
