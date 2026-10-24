@@ -1123,6 +1123,7 @@
 "cues.sources.empty" = "No sources yet.";
 "cues.source.addTitle" = "Add a source";
 "cues.source.kind" = "Kind";
+"cues.source.url" = "URL";
 "cues.source.preset" = "Preset";
 "cues.source.presetNone" = "None";
 "cues.source.copyURL" = "Copy URL";

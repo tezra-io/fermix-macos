@@ -523,9 +523,12 @@ struct CuesWatchersSection: View {
                 }
             }
         } header: {
-            CuesSectionHeader(title: .cuesWatchersTitle, count: model.cueWatchers.value?.watchers.count, action: nil) {}
-        } footer: {
-            CueNote(text: ProductStrings[.cuesWatchersFooter])
+            CuesSectionHeader(
+                title: .cuesWatchersTitle,
+                count: model.cueWatchers.value?.watchers.count,
+                info: .cuesWatchersFooter,
+                action: nil
+            ) {}
         }
     }
 }

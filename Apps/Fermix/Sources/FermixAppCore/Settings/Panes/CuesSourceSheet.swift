@@ -172,6 +172,13 @@ public struct CueSourceFormState: Equatable, Sendable {
         return spec.map { ($0, typedSecrets) }
     }
 
+    /// What the info beside the kind's line holds: the daemon's consent line,
+    /// then its notes, or nil where it published neither.
+    public var about: String? {
+        let lines = ([consent] + notes.map(Optional.some)).compactMap { $0 }.filter { !$0.isEmpty }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n\n")
+    }
+
     /// The daemon's refusal under the field it names.
     public func refusal(for key: String) -> String? {
         refusal?.field == key ? refusal?.sentence : nil
@@ -299,7 +306,7 @@ struct CuesSourceFormPage: View {
                 CuesPageForm { Section { rows } }
             }
 
-            consent
+            formRefusal
             buttons
         }
         .task(id: form.request) {
@@ -382,21 +389,19 @@ struct CuesSourceFormPage: View {
         }
     }
 
-    /// The kind's one line, with the daemon's notes for this choice behind
-    /// the info beside it: a webhook's tunnel, a preset's content type.
+    /// The kind's one line, with what adding it means and the daemon's notes
+    /// for this choice behind the info beside it: the consent line, a
+    /// webhook's tunnel, a preset's content type. The consent line said under
+    /// the form repeated the kind's line in other words.
     private func kindLine(_ kind: ManagementCueSourceForm.Kind) -> some View {
-        DescriptorRowLabel(kind.sentence, info: form.notes.isEmpty ? nil : form.notes.joined(separator: "\n\n"))
+        DescriptorRowLabel(kind.sentence, info: form.about)
             .fermixType(Typography.style(.calloutSmall))
             .foregroundStyle(Palette.secondary.color)
     }
 
-    /// What adding it means, in the daemon's words, and a refusal that names
-    /// no field.
+    /// A refusal that names no field of the form.
     @ViewBuilder
-    private var consent: some View {
-        if let consent = form.consent {
-            CueNote(text: consent)
-        }
+    private var formRefusal: some View {
         if let refused = form.formRefusal {
             CueNote(text: refused, attention: true)
         }
@@ -587,6 +592,16 @@ struct CuesSourceDetailPage: View {
 
         Section {
             LabeledContent(ProductStrings[.cuesSourceKind]) { CueValue(text: source.label) }
+            if let url = source.url, !url.isEmpty {
+                LabeledContent(ProductStrings[.cuesSourceURL]) {
+                    Text(url)
+                        .foregroundStyle(Palette.secondary.color)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(url)
+                }
+            }
             LabeledContent(ProductStrings[.cuesSourceItemsADay]) {
                 CueValue(text: source.dailyBudget == 0 ? ProductStrings[.cuesNoLimit] : String(source.dailyBudget))
             }

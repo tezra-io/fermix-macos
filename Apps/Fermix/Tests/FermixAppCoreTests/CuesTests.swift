@@ -517,6 +517,23 @@ struct CuesTests {
         #expect(form.request == ManagementCueFormRequest(kind: "stream"), "None stays a choice")
     }
 
+    @Test("what adding a source means and the daemon's notes are one explanation behind the kind's info")
+    func formAboutJoinsConsentAndNotes() throws {
+        let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
+        var form = CueSourceFormState()
+        #expect(form.about == nil, "nothing to explain before the daemon answers")
+
+        form.take(golden, answering: form.request)
+        form.choose(kind: "webhook")
+        #expect(form.request == ManagementCueFormRequest(preset: "github"), "the golden answers GitHub's form")
+        form.take(golden, answering: form.request)
+        let about = try #require(form.about)
+        let consent = try #require(golden.consentSentence)
+        #expect(about.hasPrefix(consent), "the consent line leads")
+        #expect(!golden.notes.isEmpty)
+        for note in golden.notes { #expect(about.contains(note)) }
+    }
+
     @Test("an answer to a request the sheet has moved past draws no rows, so one choice's fields never show under another")
     func staleAnswerDrawsNoRows() throws {
         let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")

@@ -1226,6 +1226,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case cuesSourcesEmpty = "cues.sources.empty"
     case cuesSourceAddTitle = "cues.source.addTitle"
     case cuesSourceKind = "cues.source.kind"
+    case cuesSourceURL = "cues.source.url"
     case cuesSourcePreset = "cues.source.preset"
     case cuesSourcePresetNone = "cues.source.presetNone"
     case cuesSourceCopyURL = "cues.source.copyURL"

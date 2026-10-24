@@ -294,12 +294,14 @@ struct CuesStackedFact: View {
 struct CuesSectionHeader: View {
     let title: ProductStringKey
     var count: Int?
+    /// What the section is, behind the info beside its title.
+    var info: ProductStringKey?
     let action: ProductStringKey?
     let perform: () -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-            Text(ProductStrings[title])
+            DescriptorRowLabel(ProductStrings[title], info: info.map { ProductStrings[$0] })
 
             if let count, count > 0 {
                 Text(count, format: .number)
