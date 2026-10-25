@@ -900,6 +900,7 @@
 
 /* MARK: Phone */
 "phone.status.restartToTurnOn" = "Restart to turn on";
+"phone.status.waitsForSetup" = "Starts once setup is finished";
 "phone.status.couldNotStart" = "Could not start";
 "phone.status.noPhone" = "No phone paired";
 "phone.status.countFormat" = "%lld phones";

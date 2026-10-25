@@ -973,6 +973,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     // Phone (M60 §6). The words are the app's over the daemon's facts; every
     // sentence the daemon writes is drawn as written and is not here.
     case phoneStatusRestartToTurnOn = "phone.status.restartToTurnOn"
+    case phoneStatusWaitsForSetup = "phone.status.waitsForSetup"
     case phoneStatusCouldNotStart = "phone.status.couldNotStart"
     case phoneStatusNoPhone = "phone.status.noPhone"
     case phoneStatusCountFormat = "phone.status.countFormat"

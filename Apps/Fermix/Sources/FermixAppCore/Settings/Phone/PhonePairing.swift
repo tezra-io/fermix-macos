@@ -287,9 +287,14 @@ public enum PhonePairing {
     /// Pairing begins on the channel as it stands: Turn on while it is not
     /// running, and the window opening once it is. A switch that is off is
     /// thrown, with a restart unless its row says it starts the channel in
-    /// place; one that is on owes the restart that starts the channel.
+    /// place; one that is on owes the restart that starts the channel. One
+    /// held until setup is finished is owed no restart, which would start
+    /// nothing: the window is asked for, and the daemon's refusal says what
+    /// the channel waits for. A hold this build cannot name is read as a build
+    /// that predates the field reads it.
     private static func opening(_ status: ManagementMobileStatus, switchStartsInPlace: Bool) -> PhoneTransition {
         guard !status.started else { return PhoneTransition(.waiting(session: nil)) }
+        if case .setup = status.hold { return PhoneTransition(.waiting(session: nil)) }
         guard !status.enabled else { return PhoneTransition(.turnOn(PhoneTurnOn(.restart))) }
 
         return PhoneTransition(.turnOn(PhoneTurnOn(switchStartsInPlace ? .switchOn : .switchOnAndRestart)))
@@ -525,6 +530,9 @@ public enum PhoneRowProjection {
         devices: SettingsReadState<ManagementMobileDevices>
     ) -> PhoneRow {
         guard status.enabled else { return PhoneRow(status: ProductStrings[.channelStatusOff], opens: .pair) }
+        if case .setup = status.hold {
+            return PhoneRow(status: ProductStrings[.phoneStatusWaitsForSetup], opens: .pair)
+        }
         guard status.started || status.refused else {
             return PhoneRow(status: ProductStrings[.phoneStatusRestartToTurnOn], opens: .pair)
         }
