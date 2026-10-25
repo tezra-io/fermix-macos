@@ -1127,7 +1127,6 @@
 "cues.source.url" = "URL";
 "cues.source.preset" = "Preset";
 "cues.source.presetNone" = "None";
-"cues.source.presetAnyWebSocket" = "Any WebSocket";
 "cues.source.copyURL" = "Copy URL";
 "cues.source.addressMade" = "Made";
 "cues.source.addressNotMade" = "Not made yet";

@@ -1884,6 +1884,7 @@
         "label",
         "footer",
         "info",
+        "example",
         "advanced",
         "value",
         "present",
@@ -1905,6 +1906,10 @@
         "footer": { "type": ["string", "null"] },
         "info": {
           "description": "A longer explanation a surface keeps behind an info control rather than showing inline; the footer stays the short inline line. Null on every row with nothing more to say.",
+          "type": ["string", "null"]
+        },
+        "example": {
+          "description": "A sample value a surface shows in an empty text or list field in place of its own empty prompt, so the field shows what goes in it. Never a default: nothing is saved from it. Null on every other kind and on every row with nothing to show.",
           "type": ["string", "null"]
         },
         "advanced": {
@@ -3243,7 +3248,6 @@
         "identity",
         "remote",
         "apns",
-        "fcm",
         "paired_devices",
         "protocol_version",
         "pairing"
@@ -3322,18 +3326,6 @@
             "credentials": { "enum": ["ready", "missing"] },
             "delivery": { "enum": ["ready", "degraded", "down"] },
             "reason": { "enum": ["connecting", "connect_failed", "connection_lost", null] }
-          }
-        },
-        "fcm": {
-          "type": "object",
-          "description": "Android push (FCM). It keeps no connection: `delivery` is `degraded` when the last batch could not get an access token from Google (`auth_failed`) or reached FCM for none of its phones (`unreachable`), and `down` when no FCM dispatcher runs. `reason` is null unless degraded.",
-          "required": ["enabled", "credentials", "delivery", "reason"],
-          "additionalProperties": false,
-          "properties": {
-            "enabled": { "type": "boolean" },
-            "credentials": { "enum": ["ready", "missing"] },
-            "delivery": { "enum": ["ready", "degraded", "down"] },
-            "reason": { "enum": ["auth_failed", "unreachable", null] }
           }
         },
         "paired_devices": { "type": "integer", "minimum": 0 },

@@ -41,9 +41,7 @@ public enum ProductCopyRules {
         "Applications", "Library", "Launchpad", "Spotlight", "Messages", "Finder", "Maps",
         "Homebrew", "Homebrew-managed",
         // The apps an MCP import reads, and the store their keys go to (M74).
-        "Cursor", "Windsurf", "Keychain",
-        // The protocol a stream cue source with no preset speaks (M60).
-        "WebSocket"
+        "Cursor", "Windsurf", "Keychain"
     ]
 
     /// Multi-word product names the copy deck spells exactly.

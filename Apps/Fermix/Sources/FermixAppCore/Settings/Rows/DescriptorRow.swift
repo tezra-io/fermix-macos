@@ -96,8 +96,8 @@ struct DescriptorRow: View {
             )
         case .secret(let present):
             SecretRow(label: row.label, identifier: row.key, present: present, model: model, info: info)
-        case .list(let items):
-            DescriptorListRow(label: row.label, items: items, commit: commitList, info: info)
+        case .list(let items, let prompt):
+            DescriptorListRow(label: row.label, items: items, prompt: prompt, commit: commitList, info: info)
         case .readOnly(let value):
             LabeledContent {
                 Text(value).foregroundStyle(Palette.secondary.color)
@@ -543,6 +543,9 @@ struct DescriptorSliderRow: View {
 struct DescriptorListRow: View {
     let label: String
     let items: [String]
+    /// The new entry's prompt: a descriptor row's sample value where its
+    /// daemon publishes one, the shared word otherwise.
+    var prompt = ProductStrings[.settingsListAddPrompt]
     let commit: ([String]) -> Void
     /// The row's longer explanation, drawn behind the (i) beside the label.
     var info: String?
@@ -569,7 +572,7 @@ struct DescriptorListRow: View {
             }
 
             HStack(spacing: Spacing.xs) {
-                TextField(label, text: $entry, prompt: Text(ProductStrings[.settingsListAddPrompt]))
+                TextField(label, text: $entry, prompt: Text(prompt))
                     .labelsHidden()
                     .onSubmit(add)
 

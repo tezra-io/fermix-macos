@@ -54,7 +54,7 @@ struct CuesTests {
 
         let form: ManagementCueSourceForm = try Self.golden("cues_sources_form")
         #expect(form.kinds.map(\.id) == ["feed", "stream", "webhook", "local_push"])
-        #expect(form.presets.map(\.id) == ["bluesky_jetstream", "github", "rss"])
+        #expect(form.presets.map(\.id) == ["github", "rss"], "a stream has no preset")
         #expect(form.rows.first?.key == "ref", "the name comes first")
         #expect(form.rows.last?.kind == .secret && form.rows.last?.present == false)
 
@@ -512,36 +512,33 @@ struct CuesTests {
         #expect(form.request == ManagementCueFormRequest(kind: "local_push"))
 
         form.choose(kind: "stream")
-        #expect(form.preset == "bluesky_jetstream")
-        form.choose(preset: nil)
-        #expect(form.request == ManagementCueFormRequest(kind: "stream"), "None stays a choice")
+        #expect(form.preset == nil && form.kindPresets.isEmpty, "a stream has no preset, so no preset menu")
+        #expect(form.request == ManagementCueFormRequest(kind: "stream"))
     }
 
-    @Test("a stream with no preset is offered as Any WebSocket, every other kind's as None")
-    func noPresetTitles() {
-        #expect(CueSourceProjection.noPresetTitle(for: "stream") == "Any WebSocket")
-        for kind in ["feed", "webhook", "local_push", "a-later-kind"] {
-            #expect(CueSourceProjection.noPresetTitle(for: kind) == "None", "\(kind)")
-        }
-        #expect(CueSourceProjection.noPresetTitle(for: nil) == "None")
-    }
-
-    // The general WebSocket source: its field rows explain themselves behind
-    // info, with no footer under any of them, and it takes two secrets, each
-    // stored under its own row key once the source exists.
-    @Test("a stream with no preset keeps its rows' notes behind info and stores its key and its secret, key first")
+    // A stream is the general WebSocket source: its field rows explain
+    // themselves behind info and show a sample value while empty, its two
+    // secrets come straight after the address, and each is stored under its
+    // own row key once the source exists.
+    @Test("a stream's form shows each field's example, asks for its secrets after the address and stores them key first")
     func webSocketStreamForm() throws {
         let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form_stream")
         var form = CueSourceFormState()
         form.take(golden, answering: form.request)
         form.choose(kind: "stream")
-        form.choose(preset: nil)
         #expect(form.request == ManagementCueFormRequest(kind: "stream"))
         form.take(golden, answering: form.request)
 
         #expect(form.rows.allSatisfy { $0.footer == nil })
         #expect(form.rows.contains { $0.key == "url" && $0.info?.isEmpty == false })
+        #expect(Array(form.rows.map(\.key).prefix(4)) == ["ref", "url", "key", "secret"])
         #expect(form.rows.filter { $0.kind == .secret }.map(\.key) == ["key", "secret"])
+
+        let url = try #require(form.rows.first { $0.key == "url" })
+        #expect(DescriptorRowModel(row: url, value: form.value(of: url)).control == .text(value: "", prompt: "wss://news.example.com/stream"))
+        let kept = try #require(form.rows.first { $0.key == "item_types" })
+        #expect(DescriptorRowModel(row: kept, value: form.value(of: kept)).control == .list(items: [], prompt: "news"))
+        #expect(form.rows.filter { $0.kind == .secret || $0.kind == .number }.allSatisfy { $0.example == nil })
 
         form.set(.text("alpaca-news"), for: "ref")
         form.secrets["key"] = "fixture-key"

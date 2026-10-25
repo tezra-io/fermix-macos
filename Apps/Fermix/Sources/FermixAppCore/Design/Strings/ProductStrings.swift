@@ -1230,7 +1230,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case cuesSourceURL = "cues.source.url"
     case cuesSourcePreset = "cues.source.preset"
     case cuesSourcePresetNone = "cues.source.presetNone"
-    case cuesSourcePresetAnyWebSocket = "cues.source.presetAnyWebSocket"
     case cuesSourceCopyURL = "cues.source.copyURL"
     case cuesSourceAddressMade = "cues.source.addressMade"
     case cuesSourceAddressNotMade = "cues.source.addressNotMade"

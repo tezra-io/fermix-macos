@@ -364,7 +364,7 @@ struct CuesSourceFormPage: View {
     private var rows: some View {
         if form.editing == nil, !form.kindPresets.isEmpty {
             Picker(ProductStrings[.cuesSourcePreset], selection: presetChoice) {
-                Text(CueSourceProjection.noPresetTitle(for: form.kind)).tag("")
+                Text(ProductStrings[.cuesSourcePresetNone]).tag("")
                 ForEach(form.kindPresets, id: \.id) { preset in
                     Text(preset.label).tag(preset.id)
                 }

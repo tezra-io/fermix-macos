@@ -20,7 +20,7 @@ struct DescriptorFormTests {
             ("toggle", "true", .toggle(true)),
             ("text", "\"cedar\"", .text(value: "cedar", prompt: ProductStrings[.settingsTextEmptyPrompt])),
             ("secret", "null", .secret(present: false)),
-            ("list", "[\"a\",\"b\"]", .list(["a", "b"]))
+            ("list", "[\"a\",\"b\"]", .list(items: ["a", "b"], prompt: ProductStrings[.settingsListAddPrompt]))
         ]
 
         for (kind, value, expected) in cases {
@@ -753,6 +753,78 @@ struct DescriptorRowInfoTests {
             for bare in ["Toggle(row.label", "Picker(row.label", "LabeledContent(row.label", "LabeledContent(label)"] {
                 #expect(!text.contains(bare), "\(path) still draws \(bare)")
             }
+        }
+    }
+}
+
+/// A row's sample value: what its empty field shows in place of the shared
+/// empty prompt, so the field shows what goes in it. Never a value.
+@Suite("Descriptor row example")
+struct DescriptorRowExampleTests {
+    @Test("an empty text or list field shows the row's example, and the shared word without one")
+    func exampleIsTheEmptyPrompt() throws {
+        let text = try ManagementValueFixture.settingRow(kind: "text", example: "X-Api-Key", value: "null")
+        #expect(DescriptorRowModel(row: text, value: text.value).control == .text(value: "", prompt: "X-Api-Key"))
+
+        let list = try ManagementValueFixture.settingRow(kind: "list", example: "news", value: "[]")
+        #expect(DescriptorRowModel(row: list, value: list.value).control == .list(items: [], prompt: "news"))
+
+        let plain = try ManagementValueFixture.settingRow(kind: "list", value: "[]")
+        #expect(plain.example == nil, "an engine that predates the field leaves it out")
+        #expect(
+            DescriptorRowModel(row: plain, value: plain.value).control
+                == .list(items: [], prompt: ProductStrings[.settingsListAddPrompt])
+        )
+    }
+
+    /// An example outranks the empty option's label, which names an inherited
+    /// default, only where the daemon publishes one.
+    @Test("a suggestion field shows the example before the empty option's label")
+    func exampleOutranksTheEmptyOption() throws {
+        let options = [(value: "", label: "Use the main model"), (value: "grok-4-6", label: "Grok 4.6")]
+        let inherited = try ManagementValueFixture.settingRow(kind: "choice", value: "null", options: options, suggestions: true)
+        #expect(inherited.emptyValuePrompt == "Use the main model")
+
+        let sampled = try ManagementValueFixture.settingRow(
+            kind: "choice", example: "grok-4-6", value: "null", options: options, suggestions: true
+        )
+        #expect(sampled.emptyValuePrompt == "grok-4-6")
+    }
+
+    /// The schema requires the key on every settings row, wherever a method
+    /// publishes rows: a section, a cue source's form and its values. The
+    /// decoded row says exactly what its golden said.
+    @Test("every vendored settings row carries the example its golden publishes")
+    func vendoredRowsCarryThePublishedExample() throws {
+        var rows: [[String: Any]] = []
+        for fixture in try ManagementFixtures.load(.success, from: .management) {
+            Self.collectRows(in: try fixture.object("response"), into: &rows)
+        }
+        var sampled = 0
+
+        #expect(!rows.isEmpty, "the scan found no vendored rows to check")
+        for raw in rows {
+            let key = try #require(raw["key"] as? String)
+            let row = try JSONDecoder().decode(ManagementSettingRow.self, from: try JSONSerialization.data(withJSONObject: raw))
+            let example = raw["example"] as? String
+
+            #expect(raw.keys.contains("example"), "\(key) omits a key the schema requires")
+            #expect(row.example == example, "\(key)")
+            if example != nil { sampled += 1 }
+        }
+
+        #expect(sampled > 0, "no golden row publishes an example, so the prompt has no contract case")
+    }
+
+    /// A settings row is the one object with these four keys together.
+    private static func collectRows(in value: Any, into rows: inout [[String: Any]]) {
+        if let object = value as? [String: Any] {
+            if ["key", "kind", "label", "read_only"].allSatisfy(object.keys.contains) {
+                rows.append(object)
+            }
+            object.values.forEach { collectRows(in: $0, into: &rows) }
+        } else if let array = value as? [Any] {
+            array.forEach { collectRows(in: $0, into: &rows) }
         }
     }
 }

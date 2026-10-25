@@ -21,16 +21,18 @@ public enum DescriptorControl: Equatable, Sendable {
     /// list is 21 zones and the daemon accepts any of the several hundred this
     /// Mac knows, so the row opens the same searchable sheet About you does.
     case timeZone(String)
-    /// The prompt says the field is empty, and it is the same sentence for
-    /// every text row. The daemon publishes no placeholder, so the alternative
-    /// was the row's own label — which draws it twice, once as the row title
-    /// and once inside the field, so `Zoom account id` reads as its own value.
-    /// One shared empty-state word is not per-field copy.
+    /// The prompt is the daemon's sample value where the row publishes one,
+    /// so the empty field shows what goes in it, and the shared empty-state
+    /// word otherwise. Never the row's own label, which drew it twice, once as
+    /// the row title and once inside the field, so `Zoom account id` read as
+    /// its own value.
     case text(value: String, prompt: String)
     case stepper(value: Double, minimum: Double?, maximum: Double?, step: Double, measure: NumberMeasure)
     case slider(value: Double, minimum: Double, maximum: Double, step: Double, measure: NumberMeasure)
     case secret(present: Bool)
-    case list([String])
+    /// The entries, and the new entry's prompt: the daemon's sample value
+    /// where the row publishes one, as for a text row.
+    case list(items: [String], prompt: String)
     /// A row the daemon publishes but will not take a write for.
     case readOnly(String)
     /// A kind this build does not know, which means the daemon is newer than
@@ -91,13 +93,13 @@ public struct DescriptorRowModel: Identifiable, Equatable, Sendable {
         case .choice:
             return choice(row, value: value)
         case .text:
-            return .text(value: DescriptorValue.text(value), prompt: ProductStrings[.settingsTextEmptyPrompt])
+            return .text(value: DescriptorValue.text(value), prompt: row.emptyValuePrompt)
         case .number:
             return number(row, value: value)
         case .secret:
             return .secret(present: row.present ?? false)
         case .list:
-            return .list(DescriptorValue.list(value))
+            return .list(items: DescriptorValue.list(value), prompt: row.example ?? ProductStrings[.settingsListAddPrompt])
         case .unrecognized(let name):
             return .unsupported(name)
         }
@@ -288,9 +290,11 @@ public enum DescriptorValue {
 }
 
 extension ManagementSettingRow {
-    /// An empty option can name an inherited default without storing an override.
+    /// What an empty field shows: the daemon's sample value, else the label
+    /// of an empty option, which names an inherited default without storing
+    /// an override, else the shared empty-state word.
     var emptyValuePrompt: String {
-        options.first { $0.value.isEmpty }?.label ?? ProductStrings[.settingsTextEmptyPrompt]
+        example ?? options.first { $0.value.isEmpty }?.label ?? ProductStrings[.settingsTextEmptyPrompt]
     }
 
     /// The row's explanation, where it has one worth an info control.
