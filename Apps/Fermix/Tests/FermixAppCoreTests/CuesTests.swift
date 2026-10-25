@@ -526,9 +526,10 @@ struct CuesTests {
         #expect(CueSourceProjection.noPresetTitle(for: nil) == "None")
     }
 
-    // The general WebSocket source: its field rows carry footers, and it takes
-    // two secrets, each stored under its own row key once the source exists.
-    @Test("a stream with no preset draws its rows' footers and stores its key and its secret, key first")
+    // The general WebSocket source: its field rows explain themselves behind
+    // info, with no footer under any of them, and it takes two secrets, each
+    // stored under its own row key once the source exists.
+    @Test("a stream with no preset keeps its rows' notes behind info and stores its key and its secret, key first")
     func webSocketStreamForm() throws {
         let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form_stream")
         var form = CueSourceFormState()
@@ -538,7 +539,8 @@ struct CuesTests {
         #expect(form.request == ManagementCueFormRequest(kind: "stream"))
         form.take(golden, answering: form.request)
 
-        #expect(form.rows.contains { $0.key == "url" && $0.footer?.isEmpty == false })
+        #expect(form.rows.allSatisfy { $0.footer == nil })
+        #expect(form.rows.contains { $0.key == "url" && $0.info?.isEmpty == false })
         #expect(form.rows.filter { $0.kind == .secret }.map(\.key) == ["key", "secret"])
 
         form.set(.text("alpaca-news"), for: "ref")
