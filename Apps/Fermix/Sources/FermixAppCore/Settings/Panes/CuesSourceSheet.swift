@@ -262,17 +262,28 @@ struct CueQuestion: View {
 
 /// The grouped form a page's sections are drawn in, the shape the channel
 /// sheet gives its rows, sized to its content.
+///
+/// As tall as its rows where they fit the sheet, and otherwise as tall as the
+/// sheet leaves it, with its rows scrolling: the sheet stops at the picker's
+/// height (M34 §5.8), and a form the daemon makes long, such as a WebSocket
+/// source's, would otherwise grow it past the window.
 struct CuesPageForm<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
+        ViewThatFits(in: .vertical) {
+            form.fixedSize(horizontal: false, vertical: true)
+            form.scrollIndicators(.never)
+        }
+    }
+
+    private var form: some View {
         Form {
             content
         }
         .formStyle(.grouped)
         .showsAmbientGround()
         .rowActions()
-        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -353,7 +364,7 @@ struct CuesSourceFormPage: View {
     private var rows: some View {
         if form.editing == nil, !form.kindPresets.isEmpty {
             Picker(ProductStrings[.cuesSourcePreset], selection: presetChoice) {
-                Text(ProductStrings[.cuesSourcePresetNone]).tag("")
+                Text(CueSourceProjection.noPresetTitle(for: form.kind)).tag("")
                 ForEach(form.kindPresets, id: \.id) { preset in
                     Text(preset.label).tag(preset.id)
                 }

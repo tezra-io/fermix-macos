@@ -250,6 +250,7 @@ enum ManagementV2Calls {
         "cues_sources_list": { _ = try await $0.cueSources() },
         "cues_sources_get": { _ = try await $0.cueSource(ref: "gh-hooks") },
         "cues_sources_form": { _ = try await $0.cueSourceForm(ManagementCueFormRequest(preset: "github")) },
+        "cues_sources_form_stream": { _ = try await $0.cueSourceForm(ManagementCueFormRequest(kind: "stream")) },
         "cues_sources_add": {
             _ = try await $0.addCueSource(
                 ManagementCueSourceSpec(

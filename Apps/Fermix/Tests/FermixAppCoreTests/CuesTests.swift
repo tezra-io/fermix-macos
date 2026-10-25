@@ -517,6 +517,42 @@ struct CuesTests {
         #expect(form.request == ManagementCueFormRequest(kind: "stream"), "None stays a choice")
     }
 
+    @Test("a stream with no preset is offered as Any WebSocket, every other kind's as None")
+    func noPresetTitles() {
+        #expect(CueSourceProjection.noPresetTitle(for: "stream") == "Any WebSocket")
+        for kind in ["feed", "webhook", "local_push", "a-later-kind"] {
+            #expect(CueSourceProjection.noPresetTitle(for: kind) == "None", "\(kind)")
+        }
+        #expect(CueSourceProjection.noPresetTitle(for: nil) == "None")
+    }
+
+    // The general WebSocket source: its field rows carry footers, and it takes
+    // two secrets, each stored under its own row key once the source exists.
+    @Test("a stream with no preset draws its rows' footers and stores its key and its secret, key first")
+    func webSocketStreamForm() throws {
+        let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form_stream")
+        var form = CueSourceFormState()
+        form.take(golden, answering: form.request)
+        form.choose(kind: "stream")
+        form.choose(preset: nil)
+        #expect(form.request == ManagementCueFormRequest(kind: "stream"))
+        form.take(golden, answering: form.request)
+
+        #expect(form.rows.contains { $0.key == "url" && $0.footer?.isEmpty == false })
+        #expect(form.rows.filter { $0.kind == .secret }.map(\.key) == ["key", "secret"])
+
+        form.set(.text("alpaca-news"), for: "ref")
+        form.secrets["key"] = "fixture-key"
+        form.secrets["secret"] = "fixture-secret"
+        let preparing = form.prepareAdd()
+        let prepared = try #require(preparing)
+        #expect(prepared.spec.kind == "stream" && prepared.spec.preset == nil)
+        #expect(prepared.secrets == [
+            CueTypedSecret(field: .key, value: "fixture-key"),
+            CueTypedSecret(field: .secret, value: "fixture-secret")
+        ])
+    }
+
     @Test("what adding a source means and the daemon's notes are one explanation behind the kind's info")
     func formAboutJoinsConsentAndNotes() throws {
         let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")

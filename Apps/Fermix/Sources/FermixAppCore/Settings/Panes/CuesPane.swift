@@ -492,6 +492,16 @@ public enum CueSourceProjection {
         }
     }
 
+    /// What the preset menu calls its no-preset choice, in the app's words for
+    /// the kind: a stream with no preset is the general WebSocket source, which
+    /// a choice reading None hid.
+    public static func noPresetTitle(for kind: String?) -> String {
+        switch kind.map(ManagementCueSourceKind.init(wireValue:)) {
+        case .stream: return ProductStrings[.cuesSourcePresetAnyWebSocket]
+        default: return ProductStrings[.cuesSourcePresetNone]
+        }
+    }
+
     /// The switch is drawn where the daemon publishes a way to throw it.
     public static func switchShown(_ source: ManagementCueSource) -> Bool {
         source.actions.contains(.enable) || source.actions.contains(.disable)
@@ -695,6 +705,9 @@ struct CuesSheet: View {
         page
             .padding(WindowMetrics.contentPadding)
             .frame(width: CuesSheetMetrics.width)
+            // As tall as its page, up to the picker's height, past which the
+            // page's form scrolls (`CuesPageForm`).
+            .frame(maxHeight: SheetMetrics.pickerSize.height)
             // Escape goes back a page, or closes the sheet from the page it
             // opened on. A field being edited answers it first.
             .onExitCommand(perform: escape)

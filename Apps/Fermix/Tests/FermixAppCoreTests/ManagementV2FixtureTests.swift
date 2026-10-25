@@ -255,7 +255,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 157, "every success record was decoded")
+        #expect(seen.count == 158, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen

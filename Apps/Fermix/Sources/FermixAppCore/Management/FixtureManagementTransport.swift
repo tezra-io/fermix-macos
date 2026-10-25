@@ -72,7 +72,7 @@ struct FixtureManagementTransport: ManagementTransport {
         if method == ManagementMethod.mobileDevicesRevoke.rawValue, let device = params["device_id"] as? String {
             machine.forgetPhone(device)
         }
-        guard let published = candidates(for: method) else {
+        guard let published = candidates(for: method, params: params) else {
             throw Defect.methodHasNoAnswer(method)
         }
         if method == ManagementMethod.jobGet.rawValue,
@@ -121,9 +121,15 @@ struct FixtureManagementTransport: ManagementTransport {
     /// `cues.proposals.get` publishes one proposal in each of its five states
     /// for the same request: the waiting one is the shape a fixture start
     /// draws, so its golden, the first, answers.
-    private func candidates(for method: String) -> [Record]? {
+    ///
+    /// `cues.sources.form` publishes a preset's form and the general WebSocket
+    /// source's, a stream asked for with no preset: that request is answered
+    /// with the second, and every other with the first, the one form the
+    /// fixture has for them.
+    private func candidates(for method: String, params: [String: Any]) -> [Record]? {
         if method == ManagementMethod.mcpServersGet.rawValue { return records[method].map { Array($0.prefix(1)) } }
         if method == ManagementMethod.cuesProposalsGet.rawValue { return records[method].map { Array($0.prefix(1)) } }
+        if method == ManagementMethod.cuesSourcesForm.rawValue { return records[method].map { sourceForm($0, params) } }
         guard method == ManagementMethod.mobilePairStart.rawValue else { return records[method] }
 
         let running = machine.phoneChannel.running
@@ -606,6 +612,17 @@ struct FixtureManagementTransport: ManagementTransport {
         read["kind"] = try presetKind(preset)
         return read
     }
+
+    /// The golden that answers a form request (see `candidates(for:params:)`).
+    private func sourceForm(_ published: [Record], _ params: [String: Any]) -> [Record] {
+        let webSocket = params["kind"] as? String == Self.streamKind && params["preset"] == nil
+        let name = webSocket ? Self.webSocketFormGolden : Self.presetFormGolden
+        return published.filter { $0.name == name }
+    }
+
+    private static let streamKind = "stream"
+    private static let presetFormGolden = "cues_sources_form"
+    private static let webSocketFormGolden = "cues_sources_form_stream"
 
     /// The kind the golden `cues.sources.form` gives a preset.
     private func presetKind(_ preset: String) throws -> String? {
