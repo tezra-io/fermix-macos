@@ -8,6 +8,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 - Chat: when a task asks to act under your mandate, decide on a card in Chat.
 - Settings: set up cues in a new Cues pane: sources, starting from the kind with its first preset chosen and a line saying where its items come from, the filter model (your main model unless you choose another from the providers you have set up), and the mandates you approve, in compact rows with a status dot and explanations behind info, with no terminal needed.
 - Cues: a Stream source connects to any wss:// address with your API key and secret, such as a news feed. It asks for the key and secret right after the address, names each field so no two read alike, and shows a sample value in each empty field, with what each field is for behind info.
+- Cues: a watcher's page shows the words it listens for and how many items reached it in the last day, every watcher's Filter names the one Cues filter model in use, and a watcher that needs an update in chat is marked for attention with what to change.
 - Channels: pairing a phone before setup is finished now says the phone channel starts once setup is finished, instead of asking you to restart Fermix again and again, and once setup is done Settings asks for the one restart that starts it.
 
 ## 0.6.0 (2026-10-21)

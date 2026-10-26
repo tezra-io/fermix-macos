@@ -184,12 +184,16 @@ public enum ManagementCueSecretField: ManagementVocabulary, Hashable {
 public enum ManagementCueWatcherState: ManagementVocabulary, Hashable {
     case on
     case paused
+    /// Saved before a rule every save now keeps, so it gets nothing until it
+    /// is changed in chat; the daemon's sentence says which rule.
+    case needsUpdate
     case held
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
         "on": .on,
         "paused": .paused,
+        "needs_update": .needsUpdate,
         "held": .held
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
@@ -201,7 +205,7 @@ public enum ManagementCueWatcherState: ManagementVocabulary, Hashable {
     /// Whether §4.9 draws this watcher's sentence in the attention style.
     public var drawsAttention: Bool {
         switch self {
-        case .held: return true
+        case .needsUpdate, .held: return true
         case .on, .paused, .unrecognized: return false
         }
     }
@@ -628,6 +632,8 @@ public struct ManagementCueWatcher: Decodable, Equatable, Sendable {
     }
 
     public struct Counts: Decodable, Equatable, Sendable {
+        /// Every item its words to listen for let through, kept or not.
+        public let offered: Int
         public let waiting: Int
         public let passed: Int
         public let dropped: Int
@@ -639,7 +645,8 @@ public struct ManagementCueWatcher: Decodable, Equatable, Sendable {
     public let name: String
     public let enabled: Bool
     public let filter: ManagementCueWatcherFilter
-    /// Null where the watcher uses the default filter model.
+    /// The one Cues filter model every `llm` watcher filters with; null
+    /// where that is the main model.
     public let filterModel: FilterModel?
     public let state: ManagementCueWatcherState
     public let statusSentence: String
@@ -678,8 +685,9 @@ public struct ManagementCueWatcherList: Decodable, Equatable, Sendable {
     }
 }
 
-/// `cues.watchers.get`: the row plus the owner's own words, its purpose and
-/// its instructions, and its examples counted, never shown.
+/// `cues.watchers.get`: the row plus the owner's own words, its purpose, its
+/// words to listen for and its instructions, and its examples counted, never
+/// shown.
 public struct ManagementCueWatcherDetail: Decodable, Equatable, Sendable {
     public struct Instruction: Decodable, Equatable, Sendable {
         public let number: Int
@@ -699,19 +707,23 @@ public struct ManagementCueWatcherDetail: Decodable, Equatable, Sendable {
 
     public let row: ManagementCueWatcher
     public let purpose: String?
+    /// The words and short phrases an item must contain to reach the filter.
+    public let listenFor: [String]
     public let instructions: [Instruction]
     public let examples: Examples
 
     private enum CodingKeys: String, CodingKey {
         case purpose, instructions, examples
+        case listenFor = "listen_for"
     }
 
-    /// The detail is the row's own object with three more fields, so the
-    /// row is read from the same object.
+    /// The detail is the row's own object with four more fields, so the row
+    /// is read from the same object.
     public init(from decoder: any Decoder) throws {
         row = try ManagementCueWatcher(from: decoder)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         purpose = try container.decodeIfPresent(String.self, forKey: .purpose)
+        listenFor = try container.decode([String].self, forKey: .listenFor)
         instructions = try container.decode([Instruction].self, forKey: .instructions)
         examples = try container.decode(Examples.self, forKey: .examples)
     }

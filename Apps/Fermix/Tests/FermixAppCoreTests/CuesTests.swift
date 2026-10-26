@@ -82,6 +82,7 @@ struct CuesTests {
         let detail: ManagementCueWatcherAnswer = try Self.golden("cues_watchers_get")
         #expect(detail.watcher.row.name == "release-watch")
         #expect(detail.watcher.purpose == "A release, an outage or a security advisory for software I run.")
+        #expect(detail.watcher.listenFor == ["release", "outage", "security advisory", "CVE"])
         #expect(detail.watcher.instructions.map(\.number) == [1])
         #expect(detail.watcher.examples.pass == 1 && detail.watcher.examples.drop == 0)
 
@@ -297,10 +298,11 @@ struct CuesTests {
         let detail: ManagementCueWatcherAnswer = try Self.golden("cues_watchers_get")
         let watcher = detail.watcher.row
 
-        #expect(CueWatcherDetailWords.filter(watcher) == "Default")
+        #expect(CueWatcherDetailWords.filter(watcher) == "Your main model")
         #expect(CueWatcherDetailWords.task(watcher) == "Release watch · keeps no notes")
         #expect(CueWatcherDetailWords.dailyLimit(watcher) == "None")
-        #expect(CueWatcherDetailWords.lastDay(watcher.counts) == "0 waiting · 3 passed · 0 dropped · 1 acted · 0 failed")
+        #expect(CueWatcherDetailWords.lastDay(watcher.counts) == "3 offered · 0 waiting · 3 passed · 0 dropped · 1 acted · 0 failed")
+        #expect(CueWatcherDetailWords.listenFor(detail.watcher.listenFor) == "release, outage, security advisory, CVE")
         #expect(CueWatcherDetailWords.examples(detail.watcher.examples) == "1 marked useful · 0 marked not useful")
         #expect(CueWatcherDetailWords.instruction(detail.watcher.instructions[0]) == "1. Ignore opinion pieces and tutorials.")
     }
@@ -404,6 +406,34 @@ struct CuesTests {
             row["approval"] = approval
         })
         #expect(CueMandateDetailWords.approval(detailed) == "Turned off after its skill changed.")
+    }
+
+    /// Every filtering watcher uses the one Cues filter model: the row names
+    /// it where the owner chose one, and the main model where not.
+    @Test("a watcher's Filter row names the Cues filter model in use, the main model, or no filter")
+    func filterNamesTheModelInUse() throws {
+        let chosen = try Self.watcher(editing: { $0["filter_model"] = ["provider": "anthropic", "model": "claude-haiku-5-5"] })
+        #expect(CueWatcherDetailWords.filter(chosen) == "claude-haiku-5-5")
+
+        let passing = try Self.watcher(editing: { $0["filter"] = "none" })
+        #expect(CueWatcherDetailWords.filter(passing) == "No filter")
+    }
+
+    /// Saved before words to listen for were required, a watcher gets nothing
+    /// until it is changed in chat, and its row asks for that as a held one
+    /// does, in the daemon's sentence.
+    @Test("a watcher that needs an update in chat is drawn for attention with the daemon's sentence")
+    func needsUpdateDrawsAttention() throws {
+        let sentence = "Needs words to listen for: update it in chat."
+        let watcher = try Self.watcher(editing: { row in
+            row["state"] = "needs_update"
+            row["status_sentence"] = sentence
+        })
+
+        #expect(watcher.state == .needsUpdate)
+        #expect(watcher.state.drawsAttention)
+        #expect(CueTone.watcher(watcher) == .warn)
+        #expect(watcher.statusSentence == sentence)
     }
 
     @Test("a watcher filter kind this build does not know draws no Filter row")
@@ -963,6 +993,10 @@ struct CuesTests {
     /// The golden feed row, with the fields a case needs changed.
     static func source(editing edit: (inout [String: Any]) -> Void) throws -> ManagementCueSource {
         try edited("cues_sources_list", path: { result in (result["sources"] as? [[String: Any]])?.first }, edit: edit)
+    }
+
+    static func watcher(editing edit: (inout [String: Any]) -> Void) throws -> ManagementCueWatcher {
+        try edited("cues_watchers_list", path: { result in (result["watchers"] as? [[String: Any]])?.first }, edit: edit)
     }
 
     static func mandate(editing edit: (inout [String: Any]) -> Void) throws -> ManagementCueMandate {

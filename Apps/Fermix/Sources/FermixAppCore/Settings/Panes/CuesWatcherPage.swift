@@ -4,15 +4,13 @@ import SwiftUI
 /// and instructions are the owner's own words and are drawn as written;
 /// nothing a watcher read is ever here.
 public enum CueWatcherDetailWords {
-    /// The filter: its own model, the default filter model, or none. A
-    /// filter kind this build does not know is not named at all: it draws no
-    /// Filter row rather than a guess.
+    /// The filter: the Cues filter model it uses, the main model where none
+    /// is chosen, or none. A filter kind this build does not know is not
+    /// named at all: it draws no Filter row rather than a guess.
     public static func filter(_ watcher: ManagementCueWatcher) -> String? {
-        if let own = watcher.filterModel { return own.model }
-
         switch watcher.filter {
         case .none: return ProductStrings[.cuesWatcherFilterNone]
-        case .llm: return ProductStrings[.cuesWatcherFilterDefault]
+        case .llm: return watcher.filterModel?.model ?? ProductStrings[.cuesWatcherFilterMainModel]
         case .unrecognized: return nil
         }
     }
@@ -32,9 +30,10 @@ public enum CueWatcherDetailWords {
         watcher.dailyCap == 0 ? ProductStrings[.cuesNone] : String(format: ProductStrings[.cuesWatcherItemsFormat], watcher.dailyCap)
     }
 
-    /// The day's five counts.
+    /// The day's six counts, from what reached the watcher to what it did.
     public static func lastDay(_ counts: ManagementCueWatcher.Counts) -> String {
         let parts = [
+            String(format: ProductStrings[.cuesWatcherOfferedFormat], counts.offered),
             String(format: ProductStrings[.cuesWatcherWaitingFormat], counts.waiting),
             String(format: ProductStrings[.cuesWatcherPassedFormat], counts.passed),
             String(format: ProductStrings[.cuesWatcherDroppedFormat], counts.dropped),
@@ -52,6 +51,11 @@ public enum CueWatcherDetailWords {
             String(format: ProductStrings[.cuesWatcherUsefulFormat], examples.pass),
             String(format: ProductStrings[.cuesWatcherNotUsefulFormat], examples.drop)
         )
+    }
+
+    /// The words to listen for, as the owner gave them.
+    public static func listenFor(_ words: [String]) -> String {
+        words.joined(separator: ", ")
     }
 
     /// One instruction, its number first.
@@ -110,13 +114,16 @@ struct CuesWatcherPage: View {
     /// watcher runs on and did.
     @ViewBuilder
     private func facts(_ watcher: ManagementCueWatcher) -> some View {
-        if detail?.purpose != nil || detail?.instructions.isEmpty == false {
+        if let detail, detail.purpose != nil || !detail.listenFor.isEmpty || !detail.instructions.isEmpty {
             Section {
-                if let purpose = detail?.purpose {
+                if let purpose = detail.purpose {
                     CuesStackedFact(label: ProductStrings[.cuesWatcherPurpose], text: purpose)
                 }
-                if let instructions = detail?.instructions, !instructions.isEmpty {
-                    instructionRows(instructions)
+                if !detail.listenFor.isEmpty {
+                    CuesStackedFact(label: ProductStrings[.cuesWatcherListenFor], text: CueWatcherDetailWords.listenFor(detail.listenFor))
+                }
+                if !detail.instructions.isEmpty {
+                    instructionRows(detail.instructions)
                 }
             }
         }

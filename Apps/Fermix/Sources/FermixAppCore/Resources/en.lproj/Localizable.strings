@@ -1162,10 +1162,11 @@
 "cues.watchers.openChat" = "Open chat";
 "cues.watcher.purpose" = "Purpose";
 "cues.watcher.instructions" = "Instructions";
+"cues.watcher.listenFor" = "Listens for";
 "cues.watcher.instructionFormat" = "%1$ld. %2$@";
 "cues.watcher.addedFormat" = "added %@";
 "cues.watcher.filter" = "Filter";
-"cues.watcher.filterDefault" = "Default";
+"cues.watcher.filterMainModel" = "Your main model";
 "cues.watcher.filterNone" = "No filter";
 "cues.watcher.sources" = "Sources";
 "cues.watcher.task" = "Task";
@@ -1175,6 +1176,7 @@
 "cues.watcher.dailyLimit" = "Daily limit";
 "cues.watcher.itemsFormat" = "%ld items";
 "cues.watcher.lastDay" = "Last day";
+"cues.watcher.offeredFormat" = "%ld offered";
 "cues.watcher.waitingFormat" = "%ld waiting";
 "cues.watcher.passedFormat" = "%ld passed";
 "cues.watcher.droppedFormat" = "%ld dropped";
