@@ -95,9 +95,8 @@ public final class StatusProposalReader {
         let served = try await gateway.servedMethods()
         guard served.contains(.cuesStatus), served.contains(.cuesProposalsList) else { return nil }
 
-        let status = try await gateway.cuesStatus()
-        let count = status.counts.proposalsWaiting
-        guard status.available, count > 0 else { return nil }
+        let count = try await gateway.cuesStatus().counts.proposalsWaiting
+        guard count > 0 else { return nil }
 
         let oldest = try await gateway.cueProposals(.waiting).proposals.first?.proposalId
         return oldest.map { StatusProposalLine(count: count, oldestProposalId: $0) }

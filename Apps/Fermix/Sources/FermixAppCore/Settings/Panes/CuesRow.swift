@@ -72,7 +72,7 @@ public enum CueTone {
         switch status.state {
         case .running: return .pass
         case .needsRestart, .needsMemory: return .warn
-        case .off, .unavailable, .unrecognized: return .neutral
+        case .off, .unrecognized: return .neutral
         }
     }
 

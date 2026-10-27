@@ -354,7 +354,7 @@ struct ManagementClientErrorTests {
     @Test("every published error code surfaces as a typed failure")
     func errorFixturesSurfaceTyped() async throws {
         let fixtures = try ManagementFixtures.load(.errors)
-        #expect(fixtures.count == 37)
+        #expect(fixtures.count == 36)
 
         for fixture in fixtures {
             let envelope = try fixture.object("response")

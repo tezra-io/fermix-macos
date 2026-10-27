@@ -17,7 +17,7 @@ struct CuesTests {
     @Test("the status and the source list decode in the daemon's words")
     func statusAndSourcesDecode() throws {
         let status: ManagementCueStatus = try Self.golden("cues_status")
-        #expect(status.available && status.enabled && status.running)
+        #expect(status.enabled && status.running)
         #expect(status.state == .running)
         #expect(status.statusSentence == "Cues are running.")
         #expect(status.door.state == .notRunning)
@@ -200,10 +200,10 @@ struct CuesTests {
         #expect(!gateway.calls.contains(.v2(.cuesStatus)))
     }
 
-    @Test("a build that does not admit cues draws no pane, and a restored Cues selection goes back to the first pane")
-    func noPaneWhenUnavailable() async throws {
+    @Test("a daemon whose cues.status fails draws no pane, and a restored Cues selection goes back to the first pane")
+    func noPaneWhenTheStatusFails() async throws {
         let gateway = try Self.gateway()
-        gateway.cueStatusResult = try Self.status(editing: { $0["available"] = false; $0["state"] = "unavailable" })
+        gateway.v2Failures[.cuesStatus] = try ManagementRefusal.published("internal_error")
         let harness = try SettingsHarness(gateway: gateway, store: FakeSettingsPaneStore(lastSettingsPane: "cues"))
         #expect(harness.model.selectedPane == .cues)
 

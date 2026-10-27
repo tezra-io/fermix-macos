@@ -352,7 +352,7 @@ struct ManagementV2FixtureTests {
             carried += 1
         }
 
-        #expect(carried == 16, "the contract publishes a detail sentence on sixteen records")
+        #expect(carried == 15, "the contract publishes a detail sentence on fifteen records")
     }
 
     /// An MCP server form's refusal names the input it is about in the

@@ -113,27 +113,25 @@ extension SettingsModel {
     // MARK: - Whether the pane is drawn
 
     /// The pane is drawn only where the daemon publishes the `cues` section,
-    /// lists `cues.status` in its `hello`, and says cues are part of this
-    /// build. With any of the three missing there is no pane, no row and no
-    /// notice: cues are optional (§4.1).
+    /// lists `cues.status` in its `hello`, and has answered it. With any of
+    /// the three missing there is no pane, no row and no notice: an engine
+    /// from before cues has neither the method nor the section (§4.1).
     public var drawsCuesPane: Bool {
         servedMethods.contains(.cuesStatus)
             && !sections(for: .cues).isEmpty
-            && cueStatus.value?.available == true
+            && cueStatus.value != nil
     }
 
     /// Whether a route to this pane lands on Providers instead: Cues, on a
-    /// daemon this window has read and found without the method, the section
-    /// or cues in its build. Where none of that has been read yet, the gate
-    /// read the window makes as it appears decides (`refreshCueGate`), which
-    /// falls back the same way, so a link opened at launch is not refused on
-    /// a guess.
+    /// daemon this window has read and found without the method or the
+    /// section. Where neither has been read yet, the gate read the window
+    /// makes as it appears decides (`refreshCueGate`), which falls back the
+    /// same way, so a link opened at launch is not refused on a guess.
     public func refusesRoute(to pane: SettingsPane) -> Bool {
         guard pane == .cues else { return false }
 
         if !servedMethods.isEmpty, !servedMethods.contains(.cuesStatus) { return true }
-        if inventory.value != nil, sections(for: .cues).isEmpty { return true }
-        return cueStatus.value?.available == false
+        return inventory.value != nil && sections(for: .cues).isEmpty
     }
 
     /// Reads what the gate needs: the methods `hello` lists, then, where both

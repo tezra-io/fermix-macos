@@ -13,7 +13,6 @@ import Foundation
 
 /// Where the cue subsystem stands, as `cues.status` publishes it.
 public enum ManagementCueState: ManagementVocabulary, Hashable {
-    case unavailable
     case off
     case needsMemory
     case needsRestart
@@ -21,7 +20,6 @@ public enum ManagementCueState: ManagementVocabulary, Hashable {
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
-        "unavailable": .unavailable,
         "off": .off,
         "needs_memory": .needsMemory,
         "needs_restart": .needsRestart,
@@ -387,8 +385,8 @@ public enum ManagementCueProposalFilter: ManagementVocabulary, Hashable {
 // MARK: - Status
 
 /// `cues.status`: the switches, the door, and how many of each thing there
-/// are. Answers on every build; `available` false is a build that does not
-/// admit cues, and Settings then draws no pane.
+/// are. Every build has cues, so the record's `available` is always true and
+/// is not read.
 public struct ManagementCueStatus: Decodable, Equatable, Sendable {
     public struct Door: Decodable, Equatable, Sendable {
         public let state: ManagementCueDoorState
@@ -415,7 +413,6 @@ public struct ManagementCueStatus: Decodable, Equatable, Sendable {
         }
     }
 
-    public let available: Bool
     public let enabled: Bool
     public let running: Bool
     public let memoryEnabled: Bool
@@ -426,7 +423,7 @@ public struct ManagementCueStatus: Decodable, Equatable, Sendable {
     public let counts: Counts
 
     private enum CodingKeys: String, CodingKey {
-        case available, enabled, running, state, door, counts
+        case enabled, running, state, door, counts
         case memoryEnabled = "memory_enabled"
         case mandatesEnabled = "mandates_enabled"
         case statusSentence = "status_sentence"
