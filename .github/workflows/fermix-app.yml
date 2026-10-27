@@ -40,8 +40,11 @@ jobs:
     # kept as the deployment target (M34). The macos-15 image tops out at an
     # older Xcode whose SDK lacks those symbols, which is how the first run on
     # dev failed to compile. The Xcode is pinned by path rather than taken from
-    # the image's default, which GitHub moves without notice.
-    runs-on: macos-26
+    # the image's default, which the image's owner moves without notice. It runs
+    # on Blacksmith's M4 runner, whose minute costs less than GitHub's macOS
+    # minute once the repository is private (CI_COST_AND_RELIABILITY_REVIEW.html,
+    # Runner choice); its macOS 26 image carries the same Xcode_26.6.app.
+    runs-on: blacksmith-6vcpu-macos-26
     # The slowest green run in the 30 days to 2026-10-20 took 19 minutes; a hung
     # step otherwise holds the macOS runner for GitHub's 6-hour default.
     timeout-minutes: 40

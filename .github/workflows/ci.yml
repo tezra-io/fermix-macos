@@ -36,7 +36,9 @@ concurrency:
 jobs:
   cask:
     name: Fermix cask (style)
-    runs-on: macos-15
+    # Blacksmith's M4 runner, as fermix-app.yml's: its minute costs less than
+    # GitHub's macOS minute once the repository is private.
+    runs-on: blacksmith-6vcpu-macos-15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
