@@ -53,42 +53,61 @@ FAKE_APP_ENGINE_PRODUCT_VERSION="9.9.9"
 # code), and a real single-arch Mach-O VM so file/codesign answer truthfully.
 # The protocol block is the shape the daemon's release writes and the shape the
 # release audience reads: `minimum_version` / `maximum_version` /
-# `current_version`, never `minimum` / `maximum`. It is a parameter so a case can
-# stage an engine whose window excludes the version the app speaks.
+# `current_version`, never `minimum` / `maximum`, for each of the five
+# contracts the release publishes. The management window is a parameter so a
+# case can stage an engine whose window excludes the version the app speaks,
+# and so is the companion maximum, the window Chat's hello is refused by. Every
+# other window is the one the staged contract record says the app speaks, so a
+# case that names none stages an engine the app can talk to.
 #
 # The source commit is a parameter for the same reason: the release audience
 # refuses a tree built from a commit the engine pin does not name, so a case has
 # to be able to stage that disagreement.
 fake_app_build_engine_tree() {
   local tree="$1" arch="$2" management_minimum="${3:-1}" management_maximum="${4:-2}"
-  local source_commit="${5:-$FAKE_APP_ENGINE_SOURCE_COMMIT}"
+  local source_commit="${5:-$FAKE_APP_ENGINE_SOURCE_COMMIT}" companion_maximum="${6:-}"
   mkdir -p "$tree/bin" "$tree/lib" "$tree/erts-0.0/bin"
   printf '#!/bin/sh\nexit 0\n' >"$tree/bin/fermix_app_engine"
   chmod 0755 "$tree/bin/fermix_app_engine"
   fake_app_build_stub "$tree/erts-0.0/bin/beam.smp" -arch "$arch"
-  cat >"$tree/engine-manifest.json" <<MANIFEST
-{
-  "schema_version": 1,
-  "identity": {
-    "architecture": "$arch",
-    "distribution_identity": "macos_app",
-    "engine_id": "fermix-core",
-    "product_version": "$FAKE_APP_ENGINE_PRODUCT_VERSION",
-    "source_commit": "$source_commit"
-  },
-  "protocols": {
-    "management": {
-      "current_version": $management_maximum,
-      "minimum_version": $management_minimum,
-      "maximum_version": $management_maximum
+  python3 - "$FAKE_APP_RESOURCES/Contracts/SOURCE.json" "$tree/engine-manifest.json" "$arch" \
+    "$FAKE_APP_ENGINE_PRODUCT_VERSION" "$source_commit" "$management_minimum" "$management_maximum" \
+    "$companion_maximum" <<'MANIFEST'
+import json
+import sys
+
+record, out, arch, version, commit, management_min, management_max, companion_max = sys.argv[1:]
+
+
+def window(minimum, maximum):
+    return {"current_version": maximum, "minimum_version": minimum, "maximum_version": maximum}
+
+
+with open(record, encoding="utf-8") as handle:
+    contracts = {entry["name"]: entry for entry in json.load(handle)["contracts"]}
+
+protocols = {}
+for name in ["realtime", "companion", "browser_host", "native_host"]:
+    spoken = contracts[name]["supported_version_range"]
+    protocols[name] = window(spoken["minimum"], spoken["maximum"])
+protocols["management"] = window(int(management_min), int(management_max))
+if companion_max:
+    maximum = int(companion_max)
+    protocols["companion"] = window(maximum - 1, maximum)
+
+manifest = {
+    "schema_version": 1,
+    "identity": {
+        "architecture": arch,
+        "distribution_identity": "macos_app",
+        "engine_id": "fermix-core",
+        "product_version": version,
+        "source_commit": commit,
     },
-    "realtime": {
-      "current_version": 1,
-      "minimum_version": 1,
-      "maximum_version": 1
-    }
-  }
+    "protocols": protocols,
 }
+with open(out, "w", encoding="utf-8") as handle:
+    json.dump(manifest, handle, indent=2)
 MANIFEST
 }
 

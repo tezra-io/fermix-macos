@@ -86,7 +86,7 @@ python3() {
 # ---- the remote half --------------------------------------------------------
 
 export HOME="$WORK_DIR/home"
-export FX_RUN_ID=run1 FX_REPOSITORY=tezra-io/fermix-macos FX_ARTIFACT_NAME=Fermix \
+export FX_RUN_ID=run1 FX_ARTIFACT_NAME=Fermix \
   FX_APP_BUNDLE_NAME=Fermix.app FX_BUNDLE_ID=io.tezra.FermixPet FX_URL_SCHEME=fermix \
   FX_GUI_EXECUTABLE=Fermix FX_AGENT_EXECUTABLE=FermixAgent FX_AGENT_LABEL=io.tezra.FermixPet.agent \
   FX_SUPPORT_DIR=Fermix FX_ENGINE_RELATIVE_PATH=Contents/Resources/Engine FX_PORT=4030 \
@@ -378,8 +378,8 @@ pass "reset: no resetbtm when nothing is registered"
 
 mac_case
 verb fetch-release v0.2.2 0.2.2 || fail "fetch-release refused: $(cat "$ERR")"
-expect_event "curl https://github.com/tezra-io/fermix-macos/releases/download/v0.2.2/Fermix-0.2.2.dmg" "fetch-release downloads the DMG"
-expect_event "curl https://github.com/tezra-io/fermix-macos/releases/download/v0.2.2/Fermix-0.2.2.dmg.sha256" "fetch-release downloads the sidecar"
+expect_event "curl https://download.fermix.ai/macos/v0.2.2/Fermix-0.2.2.dmg" "fetch-release downloads the DMG"
+expect_event "curl https://download.fermix.ai/macos/v0.2.2/Fermix-0.2.2.dmg.sha256" "fetch-release downloads the sidecar"
 [ -f "$ARTIFACTS/Fermix-0.2.2.dmg" ] || fail "fetch-release left no artifact"
 has_fact artifact_sha256 "$(shasum -a 256 "$CONTROL/fake.dmg" | awk '{print $1}')" "fetch-release"
 pass "fetch-release: the DMG and its sidecar, digest proven"

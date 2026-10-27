@@ -52,6 +52,11 @@ public final class CompanionModel: ObservableObject {
     @Published public private(set) var pending: [CompanionOutboxEntry] = []
     /// Approvals waiting on the owner, in the order they arrived.
     @Published public private(set) var approvals: [CompanionApproval] = []
+    /// Version 4: the proposals the daemon offered, in the order they arrived,
+    /// each with where the owner's answer stands.
+    @Published public private(set) var proposals: [CompanionProposalCard] = []
+    /// The latest request to show a proposal's card.
+    @Published public private(set) var proposalReveal: CompanionProposalReveal?
     @Published public private(set) var search: CompanionSearch?
     /// The latest failure, in a sentence, until the next request.
     @Published public private(set) var lastError: String?
@@ -76,9 +81,17 @@ public final class CompanionModel: ObservableObject {
         publish(\.turn, chat.turn)
         publish(\.pending, chat.pending)
         publish(\.approvals, chat.approvals)
+        publish(\.proposals, chat.proposals)
+        publish(\.proposalReveal, chat.proposalReveal)
         publish(\.search, chat.search)
         publish(\.lastError, chat.lastError)
         publish(\.reshape, chat.reshape)
+    }
+
+    /// The proposals waiting for the owner's decision, oldest first by when
+    /// each was made: the menu line's count, and the card it opens Chat at.
+    public var waitingProposalIds: [String] {
+        CompanionReducer.waiting(proposals).map(\.id)
     }
 
     private func publish<Value: Equatable>(_ field: ReferenceWritableKeyPath<CompanionModel, Value>, _ value: Value) {

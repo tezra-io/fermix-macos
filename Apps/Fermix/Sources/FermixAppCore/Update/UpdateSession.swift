@@ -1,6 +1,6 @@
 import Foundation
 
-/// What the person answered on the updater's own alert (M34 §6).
+/// What the person answered in the update window (M34 §6).
 public enum UpdateUserChoice: String, CaseIterable, Equatable, Sendable {
     case install
     /// Remind me later, and — once the update is staged — the button the
@@ -183,11 +183,13 @@ public protocol UpdaterDriving: AnyObject {
     /// Whether the updater would accept a check right now. The menu row and
     /// Home follow this rather than deciding for themselves.
     var canCheckForUpdates: Bool { get }
-    /// Starts the updater with `coordinator` bound as its delegate, and answers
-    /// what stopped it where it could not start. Called once.
-    func start(_ coordinator: UpdateCoordinator) -> UpdateConfigurationRefusal?
+    /// Starts the updater with `coordinator` bound as its delegate and
+    /// `prompt` as everything it shows, and answers what stopped it where it
+    /// could not start. Called once.
+    func start(_ coordinator: UpdateCoordinator, prompt: UpdatePrompt) -> UpdateConfigurationRefusal?
     /// A check the person asked for. It surfaces releases they skipped, and
-    /// while an update is already showing it brings that alert back into focus.
+    /// while an update is already showing it brings the update window back
+    /// into focus.
     func checkForUpdates()
 }
 
@@ -202,7 +204,9 @@ public final class UnwiredUpdater: UpdaterDriving {
 
     public var canCheckForUpdates: Bool { false }
 
-    public func start(_ coordinator: UpdateCoordinator) -> UpdateConfigurationRefusal? { .feedMissing }
+    public func start(_ coordinator: UpdateCoordinator, prompt: UpdatePrompt) -> UpdateConfigurationRefusal? {
+        .feedMissing
+    }
 
     public func checkForUpdates() {}
 }

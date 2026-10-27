@@ -45,7 +45,8 @@ extension ManagementVocabulary {
 ///
 /// The eleven the engine serves today have a minimum protocol version of 1; the
 /// thirty-one M34 §7.3 adds, the seven the phone channel added, the three the
-/// iMessage channel added and the twelve of MCP servers have a minimum of 2. The
+/// iMessage channel added, the twelve of MCP servers and the twenty-four of
+/// cues have a minimum of 2. The
 /// minimum is read from the contract (`ManagementContract.minimumVersion(for:)`),
 /// never restated here: one fact, in the checksum-pinned artifact.
 public enum ManagementMethod: String, CaseIterable, Sendable {
@@ -121,6 +122,32 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case mcpServersCheckStart = "mcp.servers.check.start"
     case mcpServersImportScan = "mcp.servers.import.scan"
     case mcpServersImport = "mcp.servers.import"
+    // Cues and watchers (M60 app surface §3.3): the subsystem's status, the
+    // sources, watchers and mandates, and the proposals waiting for the owner.
+    case cuesStatus = "cues.status"
+    case cuesSourcesList = "cues.sources.list"
+    case cuesSourcesGet = "cues.sources.get"
+    case cuesSourcesForm = "cues.sources.form"
+    case cuesSourcesAdd = "cues.sources.add"
+    case cuesSourcesUpdate = "cues.sources.update"
+    case cuesSourcesRemove = "cues.sources.remove"
+    case cuesSourcesEnable = "cues.sources.enable"
+    case cuesSourcesDisable = "cues.sources.disable"
+    case cuesSourcesTokenNew = "cues.sources.token.new"
+    case cuesSourcesURLGet = "cues.sources.url.get"
+    case cuesWatchersList = "cues.watchers.list"
+    case cuesWatchersGet = "cues.watchers.get"
+    case cuesMandatesList = "cues.mandates.list"
+    case cuesMandatesChoices = "cues.mandates.choices"
+    case cuesMandatesAdd = "cues.mandates.add"
+    case cuesMandatesUpdate = "cues.mandates.update"
+    case cuesMandatesRemove = "cues.mandates.remove"
+    case cuesMandatesEnable = "cues.mandates.enable"
+    case cuesMandatesDisable = "cues.mandates.disable"
+    case cuesMandatesApprove = "cues.mandates.approve"
+    case cuesProposalsList = "cues.proposals.list"
+    case cuesProposalsGet = "cues.proposals.get"
+    case cuesProposalsDecide = "cues.proposals.decide"
 
     /// The method name in a form the request-id pattern accepts.
     public var identifierSlug: String { rawValue.replacingOccurrences(of: ".", with: "-") }

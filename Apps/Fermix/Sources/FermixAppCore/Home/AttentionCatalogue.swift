@@ -167,10 +167,10 @@ public enum AttentionAction: Equatable, Sendable {
     case showInstructions
     /// Reveals the settings file in the Finder.
     case revealSettingsFile
-    /// Shows the updater's own alert, which owns Install, Remind Later and
-    /// Skip (M34 section 6). Asking for a check again is what brings an alert
-    /// that is already showing back into focus, so the row needs no second way
-    /// to raise it.
+    /// Shows the update window, which owns Install, Later and Skip (M34
+    /// section 6). Asking for a check again is what brings a window that is
+    /// already showing back into focus, so the row needs no second way to
+    /// raise it.
     case showUpdate
     /// Opens System Settings on Login Items, where the background item's
     /// switch is, through the one opener every such button uses.

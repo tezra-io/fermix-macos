@@ -242,6 +242,59 @@ enum ManagementV2Calls {
                 ManagementMCPImportPick(source: .codex, name: "fetch"),
                 ManagementMCPImportPick(source: .claudeCode, name: "linear")
             ])
+        },
+
+        // Cues (M60): the status, the sources with their form and the two
+        // values handed out, the watchers, the mandates and the proposals.
+        "cues_status": { _ = try await $0.cuesStatus() },
+        "cues_sources_list": { _ = try await $0.cueSources() },
+        "cues_sources_get": { _ = try await $0.cueSource(ref: "gh-hooks") },
+        "cues_sources_form": { _ = try await $0.cueSourceForm(ManagementCueFormRequest(preset: "github")) },
+        "cues_sources_form_stream": { _ = try await $0.cueSourceForm(ManagementCueFormRequest(kind: "stream")) },
+        "cues_sources_add": {
+            _ = try await $0.addCueSource(
+                ManagementCueSourceSpec(
+                    ref: "eng-blogs",
+                    choice: .preset("rss"),
+                    values: ["url": .setting(.text("https://example.org/releases.atom"))]
+                )
+            )
+        },
+        "cues_sources_update": { _ = try await $0.updateCueSource(ref: "eng-blogs", values: ["daily_budget": .setting(.number(200))]) },
+        "cues_sources_remove": { _ = try await $0.removeCueSource(ref: "eng-blogs") },
+        "cues_sources_enable": { _ = try await $0.enableCueSource(ref: "home-alerts") },
+        "cues_sources_disable": { _ = try await $0.disableCueSource(ref: "home-alerts") },
+        "cues_sources_token_new": { _ = try await $0.newCueSourceToken(ref: "home-alerts") },
+        "cues_sources_url_get": { _ = try await $0.cueSourceAddress(ref: "gh-hooks") },
+        "cues_watchers_list": { _ = try await $0.cueWatchers() },
+        "cues_watchers_get": { _ = try await $0.cueWatcher(name: "release-watch") },
+        "cues_mandates_list": { _ = try await $0.cueMandates() },
+        "cues_mandates_choices": { _ = try await $0.cueMandateChoices() },
+        "cues_mandates_add": {
+            _ = try await $0.addCueMandate(
+                name: "release-issues",
+                values: [
+                    "approve_within_s": .setting(.number(1800)),
+                    "job": .setting(.text("release_watch_2")),
+                    "max_cue_age_s": .setting(.number(900)),
+                    "mode": .setting(.text("approve")),
+                    "read_tools": .setting(.list(["github_search_issues"])),
+                    "tools": .setting(.list(["github_create_issue"]))
+                ]
+            )
+        },
+        "cues_mandates_update": {
+            _ = try await $0.updateCueMandate(name: "release-issues", values: ["approve_within_s": .setting(.number(3600))])
+        },
+        "cues_mandates_remove": { _ = try await $0.removeCueMandate(name: "release-issues") },
+        "cues_mandates_enable": { _ = try await $0.enableCueMandate(name: "release-issues") },
+        "cues_mandates_disable": { _ = try await $0.disableCueMandate(name: "release-issues") },
+        "cues_mandates_approve": { _ = try await $0.approveCueMandate(name: "release-issues") },
+        // The waiting proposals are the daemon's default, so no state is sent.
+        "cues_proposals_list": { _ = try await $0.cueProposals(.waiting) },
+        "cues_proposals_get": { _ = try await $0.cueProposal(id: "cpr_9f2c41d07a5e6b38c1d2e4f0") },
+        "cues_proposals_decide": {
+            _ = try await $0.decideCueProposal(id: "cpr_9f2c41d07a5e6b38c1d2e4f0", decision: .confirm)
         }
     ]
 

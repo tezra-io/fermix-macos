@@ -134,11 +134,11 @@ public final class UpdateCoordinator: UpdateChecking {
     /// alternative is the framework's own developer-facing alert, which is a
     /// user-visible string this product did not write. The refusal is what the
     /// update surface then states.
-    public func start(_ updater: any UpdaterDriving) {
+    public func start(_ updater: any UpdaterDriving, prompt: UpdatePrompt) {
         precondition(self.updater == nil, "the updater is started once")
 
         self.updater = updater
-        configuration = updater.start(self)
+        configuration = updater.start(self, prompt: prompt)
 
         guard let refusal = configuration else { return }
 
@@ -218,13 +218,18 @@ public final class UpdateCoordinator: UpdateChecking {
         installedRelease = try? UpdateFeedReading.offer(from: mine)
     }
 
+    /// The feed has answered, so the check is over for every surface that
+    /// reads it, even while the update window saying what it found waits for
+    /// the person. The successful-check date still waits for the cycle to end.
     public func found(_ entry: UpdateFeedEntry) {
         offer = try? UpdateFeedReading.offer(from: entry)
         lastCheckFailed = false
+        checking = false
     }
 
     public func foundNothing() {
         offer = nil
+        checking = false
     }
 
     /// The one veto the updater offers before anything is downloaded, shown or
@@ -306,9 +311,9 @@ public final class UpdateCoordinator: UpdateChecking {
     /// fetches a DMG would take the engine away for the length of a download
     /// that can still fail. The transaction begins at the barrier instead.
     ///
-    /// `(dismiss, installing)` is not a cancellation: at that stage the
-    /// updater's own alert re-titles Remind Me Later as `Install on Quit`, and
-    /// the app stays armed whatever the answer was.
+    /// `(dismiss, installing)` is not a cancellation: at that stage the update
+    /// window's Later leaves the update to install the next time Fermix quits,
+    /// and the app stays armed whatever the answer was.
     public func userChose(_ choice: UpdateUserChoice, stage: UpdateUserStage) {
         log.log(
             "the person chose \(choice.rawValue, privacy: .public) at stage \(stage.rawValue, privacy: .public)"

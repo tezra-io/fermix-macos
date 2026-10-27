@@ -20,8 +20,8 @@
       </array>
     </dict>
   </array>
-  <key>CFBundleShortVersionString</key><string>0.6.0</string>
-  <key>CFBundleVersion</key><string>12</string>
+  <key>CFBundleShortVersionString</key><string>0.7.0</string>
+  <key>CFBundleVersion</key><string>13</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <!-- No LSUIElement: FermixApp.main() sets the accessory policy as its first
        AppKit act, and the window host promotes to a Dock app while a real

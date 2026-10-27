@@ -35,7 +35,7 @@ SIGNING_IDENTITY="Developer ID Application: Tezra Labs LLC (ABCDE12345)"
 # of signing, so this harness needs no key and cannot touch the login keychain.
 FAKE_SIGNATURE="c2lnbmF0dXJlLXN0YW5kLWluLW5vdC1hLXJlYWwtb25l"
 FAKE_PRIVATE_KEY="not-a-key-the-stub-only-proves-it-arrives-on-stdin"
-RELEASE_BASE="https://github.com/tezra-io/fermix-macos/releases/download"
+RELEASE_BASE="https://download.fermix.ai/macos"
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -238,7 +238,7 @@ expect_refusal "two engine trees that name different builds are refused" \
 expect_refusal "an enclosure url that is not https is refused" \
   "is not https" \
   appcast_item "$WORK_DIR/bin" "${item_one[@]}" \
-  --release-base "http://github.com/tezra-io/fermix-macos/releases/download"
+  --release-base "http://download.fermix.ai/macos"
 
 expect_refusal "a sign_update that printed no signature is refused" \
   "printed no sparkle:edSignature attribute" \

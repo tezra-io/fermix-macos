@@ -715,8 +715,8 @@ struct HomeSurfaceTests {
         #expect(harness.model.snapshot.attention.displayRows.contains { $0.id == "update_staged" })
     }
 
-    /// Asking for a check is what raises the updater's own alert, and what
-    /// brings one that is already showing back into focus.
+    /// Asking for a check is what raises the update window, and what brings
+    /// one that is already showing back into focus.
     @Test("the update row asks the updater rather than drawing a second alert")
     func updateRowAsksTheUpdater() throws {
         let harness = try HomeHarness()

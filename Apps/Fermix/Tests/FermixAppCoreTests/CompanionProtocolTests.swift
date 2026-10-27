@@ -57,7 +57,9 @@ struct CompanionProtocolTests {
             .historySearch(profileId: main, query: "dentist friday", limit: 20, beforeSeq: 88),
             .readState(profileId: main, readUpToSeq: 13),
             .mediaFetch(profileId: main, ref: "9879f6d3c9efefe8c4f4aabe9d3269762264be52794e96f62ab8ffa53b7fadec"),
-            .mediaRelease(profileId: main, ref: "9879f6d3c9efefe8c4f4aabe9d3269762264be52794e96f62ab8ffa53b7fadec")
+            .mediaRelease(profileId: main, ref: "9879f6d3c9efefe8c4f4aabe9d3269762264be52794e96f62ab8ffa53b7fadec"),
+            .proposalAnswer(clientMsgId: "mac-10", profileId: main, proposalId: "cpr_4f1c2a9b7e3d5a60c8b1f2e3", decision: .confirm),
+            .proposalAnswer(clientMsgId: "mac-11", profileId: main, proposalId: "cpr_9a0b1c2d3e4f5a6b7c8d9e0f", decision: .deny)
         ]
 
         #expect(produced.count == fixtures.count)
@@ -108,7 +110,7 @@ struct CompanionProtocolTests {
             return try CompanionServerEvent.decode(fixture.line)
         }
 
-        #expect(try event("server_hello") == .serverHello(minVersion: 2, maxVersion: 3))
+        #expect(try event("server_hello") == .serverHello(minVersion: 3, maxVersion: 4))
 
         let duplicate = try event("accepted") { $0.object["duplicate"] as? Bool == true }
         #expect(duplicate == .accepted(CompanionAccepted(clientMsgId: "mac-1", duplicate: true, serverSeq: 13)))
@@ -162,8 +164,8 @@ struct CompanionProtocolTests {
         }
         #expect(refusal.reason == "unsupported_protocol_version")
         #expect(refusal.direction == .clientTooNew)
-        #expect(refusal.clientVersion == 4)
-        #expect(refusal.window == CompanionVersionWindow(minimum: 2, maximum: 3))
+        #expect(refusal.clientVersion == 5)
+        #expect(refusal.window == CompanionVersionWindow(minimum: 3, maximum: 4))
     }
 
     /// The contract takes exactly one cursor, and the Swift value is the only

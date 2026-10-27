@@ -131,6 +131,8 @@ public enum CompanionRequest: Equatable, Sendable {
     case message(text: String)
     /// A slash command. An approval's answer is one.
     case command(name: String, args: String?)
+    /// Version 4: the owner's answer to a proposal, by id and word alone.
+    case proposalAnswer(proposalId: String, decision: CompanionProposalDecision)
 }
 
 /// A request the daemon has not yet acknowledged with `accepted`. It is sent
@@ -149,8 +151,57 @@ public struct CompanionOutboxEntry: Equatable, Sendable, Identifiable {
             return .msg(clientMsgId: clientMsgId, profileId: CompanionProtocol.profileId, text: text)
         case .command(let name, let args):
             return .command(clientMsgId: clientMsgId, profileId: CompanionProtocol.profileId, name: name, args: args)
+        case .proposalAnswer(let proposalId, let decision):
+            return .proposalAnswer(
+                clientMsgId: clientMsgId,
+                profileId: CompanionProtocol.profileId,
+                proposalId: proposalId,
+                decision: decision
+            )
         }
     }
+}
+
+/// Where the owner's answer to a proposal stands on this Mac.
+public enum CompanionProposalStanding: Equatable, Sendable {
+    /// Nothing sent: Deny and Confirm.
+    case open
+    /// An answer is on its way or accepted: both buttons wait for the daemon,
+    /// so the card is never answered twice.
+    case answered(CompanionProposalDecision)
+    /// Past its `expires_at` on this Mac's own clock with no answer sent.
+    case expired
+    /// The daemon's last word: `proposal_resolved`'s sentence and what the
+    /// tool answered, or its refusal of this Mac's answer.
+    case resolved(sentence: String, resultText: String?)
+}
+
+/// A proposal as the chat holds it: the daemon's card, and where the owner's
+/// answer stands.
+public struct CompanionProposalCard: Equatable, Sendable, Identifiable {
+    public let proposal: CompanionProposal
+    public internal(set) var standing: CompanionProposalStanding
+
+    public var id: String { proposal.proposalId }
+
+    /// Whether the card asks the owner now: the daemon says it waits, nothing
+    /// was sent, and this Mac's clock has not passed its expiry. Only such a
+    /// card draws Deny and Confirm, and only such cards are counted as
+    /// waiting for a decision.
+    public var awaitsDecision: Bool {
+        proposal.state == .waiting && standing == .open
+    }
+
+    var createdAt: Date? { CompanionTime.date(proposal.createdAt) }
+    var expiresAt: Date? { CompanionTime.date(proposal.expiresAt) }
+}
+
+/// A request to show one proposal's card: the menu line's, which opens Chat
+/// at the oldest card. Each request is a new value, so asking twice for the
+/// same card scrolls twice.
+public struct CompanionProposalReveal: Equatable, Sendable {
+    public let id: Int
+    public let proposalId: String
 }
 
 /// A search of the timeline and what the daemon answered.
@@ -275,6 +326,13 @@ struct CompanionChat: Equatable, Sendable {
     var pending: [CompanionOutboxEntry] = []
     /// Approvals not yet resolved, in the order they arrived.
     var approvals: [CompanionApproval] = []
+    /// Version 4: proposals, keyed by `proposal_id`, in the order they
+    /// arrived. A resolved card stays as a record until the chat is reloaded;
+    /// every other is dropped at each handshake and kept again only as the
+    /// daemon sends it again (M60 §4.7).
+    var proposals: [CompanionProposalCard] = []
+    /// The latest request to show a proposal's card.
+    var proposalReveal: CompanionProposalReveal?
     var search: CompanionSearch?
     /// The latest failure, in a sentence, until the next request.
     var lastError: String?

@@ -37,6 +37,30 @@ struct PhonePairingTests {
             )
         }
 
+        // A channel this boot held until setup is finished: a restart would
+        // start nothing, so the sheet asks for the window and the daemon's
+        // refusal says what the channel waits for. A hold this build cannot
+        // name is read as a build that predates the field reads it.
+        let held = try PairingGolden.status {
+            $0["started"] = false
+            $0["hold"] = "setup"
+        }
+        let later = try PairingGolden.status {
+            $0["started"] = false
+            $0["hold"] = "a-later-hold"
+        }
+        for inPlace in [false, true] {
+            #expect(
+                PhonePairing.reduce(.waiting(session: nil), .status(held, switchStartsInPlace: inPlace)).step
+                    == .waiting(session: nil),
+                "a channel held until setup is finished is offered no restart"
+            )
+            #expect(
+                PhonePairing.reduce(.waiting(session: nil), .status(later, switchStartsInPlace: inPlace)).step
+                    == .turnOn(PhoneTurnOn(.restart))
+            )
+        }
+
         let off = try PairingGolden.status {
             $0["enabled"] = false
             $0["started"] = false
@@ -455,12 +479,13 @@ struct PhonePairingTests {
 
     // MARK: - The row
 
-    @Test("the row says each of the six things the daemon can report")
+    @Test("the row says each of the seven things the daemon can report")
     func rowStatuses() throws {
         let devices = SettingsReadState.loaded(try PairingGolden.devices())
         let cases: [(String, (inout [String: Any]) -> Void, String, PhoneSheetIntent)] = [
             ("off", { $0["enabled"] = false; $0["started"] = false }, ProductStrings[.channelStatusOff], .pair),
             ("owed", { $0["started"] = false; $0["paired_devices"] = 0 }, ProductStrings[.phoneStatusRestartToTurnOn], .pair),
+            ("held", { $0["started"] = false; $0["paired_devices"] = 0; $0["hold"] = "setup" }, ProductStrings[.phoneStatusWaitsForSetup], .pair),
             ("refused", { $0["started"] = false; $0["refused"] = true }, ProductStrings[.phoneStatusCouldNotStart], .pair),
             ("unreachable", { Self.listener(&$0, "unavailable") }, ProductStrings[.phoneStatusCouldNotStart], .pair),
             ("none", { $0["paired_devices"] = 0 }, ProductStrings[.phoneStatusNoPhone], .pair),
@@ -474,6 +499,15 @@ struct PhonePairingTests {
             #expect(row.status == status, "\(name)")
             #expect(row.opens == opens, "\(name)")
         }
+    }
+
+    @Test("the hold decodes as published, nil from an engine that omits it, and unrecognized when unknown")
+    func holdDecodes() throws {
+        #expect(try PairingGolden.status { $0["hold"] = "setup" }.hold == .setup)
+        #expect(try PairingGolden.status { $0["hold"] = NSNull() }.hold == nil)
+        #expect(try PairingGolden.status { $0.removeValue(forKey: "hold") }.hold == nil)
+        #expect(try PairingGolden.status { $0["hold"] = "a-later-hold" }.hold == .unrecognized("a-later-hold"))
+        #expect(ProductStrings[.phoneStatusWaitsForSetup] == "Starts once setup is finished")
     }
 
     /// The listener stays dormant until the first pairing creates the

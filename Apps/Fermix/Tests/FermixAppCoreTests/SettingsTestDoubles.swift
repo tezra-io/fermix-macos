@@ -204,6 +204,9 @@ extension ManagementValueFixture {
         /// entirely, which is the shape an engine that predates the field
         /// publishes, so the default case of every caller here is that engine.
         info: String? = nil,
+        /// The empty field's sample value. Nil leaves the key out, the shape
+        /// an engine that predates the field publishes.
+        example: String? = nil,
         value: String = "true",
         present: Bool? = nil,
         options: [(value: String, label: String)] = [],
@@ -228,6 +231,7 @@ extension ManagementValueFixture {
             .joined(separator: ",")
         let footerField: String = footer.map { "\"\($0)\"" } ?? "null"
         let infoField: String = info.map { "\n  \"info\": \"\($0)\"," } ?? ""
+        let exampleField: String = example.map { "\n  \"example\": \"\($0)\"," } ?? ""
         let presentField: String = present.map { $0 ? "true" : "false" } ?? "null"
         let minField: String = number(min)
         let maxField: String = number(max)
@@ -242,7 +246,7 @@ extension ManagementValueFixture {
               "key": "\(key)",
               "kind": "\(kind)",
               "label": "\(label)",
-              "footer": \(footerField),\(infoField)
+              "footer": \(footerField),\(infoField)\(exampleField)
               "value": \(value),
               "present": \(presentField),
               "options": [\(optionList)],

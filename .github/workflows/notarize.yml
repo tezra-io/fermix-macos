@@ -3,8 +3,11 @@ name: notarize
 # Reusable signing + notarization workflow. The signing steps live here ONCE so a
 # future macOS app under Apps/ calls this with its own package script, with the
 # same `build` and `notarize` phases as scripts/package_release.sh, instead of
-# duplicating the flow. Gated by the protected `release-macos` environment (a
-# required reviewer must approve before the Apple secrets are exposed).
+# duplicating the flow. Gated by the protected `release-macos` environment: it
+# holds the Apple secrets and admits only a job on a `v*` tag, and only the
+# release owners can push one (the protected-tag ruleset), so the tag is the
+# approval. GitHub Team asks the environment's required reviewer only while the
+# repository is public.
 on:
   workflow_call:
     inputs:

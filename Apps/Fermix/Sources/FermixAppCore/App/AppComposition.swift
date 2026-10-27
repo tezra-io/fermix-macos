@@ -46,6 +46,12 @@ final class AppComposition {
     /// The update transaction and the seam every update surface reads
     /// (M34 §6, R2 and R3).
     let updates: UpdateCoordinator
+    /// What the update window shows, which the updater drives and the person
+    /// answers.
+    let updatePrompt: UpdatePrompt
+    /// The prompt's way onto the screen. The prompt holds it weakly, so this is
+    /// what keeps it alive.
+    private let updatePresenter: UpdateWindowPresenter
     let coordinator: AppCoordinator
     let sidebar: SidebarModel
     let router: CommandRouter
@@ -131,6 +137,9 @@ final class AppComposition {
         model = AppModel()
         windowHost = AppKitWindowHost()
         windows = WindowCoordinator(host: windowHost)
+        updatePrompt = UpdatePrompt(installedVersion: environment.appBuild.marketingVersion)
+        updatePresenter = UpdateWindowPresenter(windows: windows, opener: environment.opener)
+        updatePrompt.presenter = updatePresenter
         let companion = Self.buildCompanion(bootstrap: store, lines: environment.companionLines)
         mediaGrants = companion.grants
         player = AppPlayer(engine: AVFoundationPlayback(), facts: AVFoundationMediaFacts(), grants: mediaGrants)
@@ -255,11 +264,11 @@ final class AppComposition {
     /// callbacks into surfaces it created, and the window host's view of the
     /// whole graph — plus the first reads. Everything else points one way.
     private func finishAssembly() {
-        // The updater starts once, with the transaction bound as its delegate.
-        // A bundle whose declared policy is wrong runs none at all, and the
-        // update surface states that rather than the framework's own alert
-        // (M34 §6, R2).
-        updates.start(updater)
+        // The updater starts once, with the transaction bound as its delegate
+        // and the prompt as what it shows. A bundle whose declared policy is
+        // wrong runs none at all, and the update surface states that rather
+        // than the framework's own alert (M34 §6, R2).
+        updates.start(updater, prompt: updatePrompt)
         // The browser host wire is always-on: a task can drive the pane
         // before the person ever opens it, so this asks for the connection
         // once, here, rather than waiting for a surface to ask as chat does.
@@ -286,6 +295,13 @@ final class AppComposition {
         // phone hangs off the settings model, which is built before the
         // coordinator that owns that restart.
         settings.phone.restarter = coordinator
+        // The Cues pane's Show in chat and Open chat open Chat, at a proposal's
+        // card where one is named (M60 §4.2, §4.4); Chat is built after the
+        // settings model, so the way there is handed over here.
+        settings.openChat = { [router, surfaces] proposal in
+            router.perform(.showChat)
+            if let proposal { surfaces.companion.revealProposal(proposal) }
+        }
         // A login launch opens nothing, so Home's own refresh never runs and
         // the menu bar would have no answer to draw.
         coordinator.readDaemonCondition = { [surfaces] in Task { await surfaces.home.refresh() } }
@@ -304,7 +320,8 @@ final class AppComposition {
             browser: browser,
             links: links,
             chatMedia: chatMedia,
-            player: player
+            player: player,
+            updatePrompt: updatePrompt
         )
         // Every report goes through the coordinator, which owns whether a window
         // is on screen; the pet, the browser and the chat's call box read
@@ -321,6 +338,8 @@ final class AppComposition {
                 browser.windowVisibilityChanged(onScreen)
                 voiceCall.mainWindowVisibilityChanged(onScreen)
                 if !windows.isOpen(.main) { player.stop() }
+            case .update:
+                break
             }
         }
 
@@ -709,6 +728,7 @@ final class AppComposition {
         menuBar: MenuBarController,
         updates: any UpdateChecking,
         browser: BrowserCoordinator,
+        proposals: StatusProposalReader,
         commandLine: @escaping () -> CoexistenceInstructions?
     ) -> (router: CommandRouter, mainMenu: MainMenuController, statusMenu: StatusMenuController) {
         let router = CommandRouter(
@@ -728,11 +748,19 @@ final class AppComposition {
             source: StatusMenuSource(
                 model: model,
                 snapshot: { surfaces.home.snapshot },
-                reconcile: { surfaces.home.engineReconcile }
+                reconcile: { surfaces.home.engineReconcile },
+                // The daemon's count of proposals waiting (M60 §4.7).
+                proposals: { proposals.line }
             ),
             // With the window closed nothing else ever reads the daemon, so the
-            // menu asks as it opens (M34 §7.2).
-            refresh: { Task { await surfaces.home.refresh() } }
+            // menu asks as it opens (M34 §7.2), the proposals it waits on too.
+            refresh: {
+                Task {
+                    await surfaces.home.refresh()
+                    await proposals.refresh()
+                }
+            },
+            showProposal: { surfaces.companion.revealProposal($0) }
         )
 
         return (router, MainMenuController(router: router), statusMenu)
@@ -797,6 +825,10 @@ final class AppComposition {
             menuBar: menuBar,
             updates: updates,
             browser: browser,
+            proposals: StatusProposalReader(
+                gateway: gateway,
+                daemonAnswers: { model.daemon != .stopped && !surfaces.home.snapshot.unreachable }
+            ),
             commandLine: { CoexistenceInstructions.commandLine(planner.plan()) }
         )
 

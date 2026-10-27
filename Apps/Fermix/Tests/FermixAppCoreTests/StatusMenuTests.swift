@@ -72,7 +72,199 @@ struct StatusMenuTests {
         #expect(first.identifier == StatusMenuController.stateIdentifier)
         #expect(first.action == nil)
         #expect(first.title == "Running for 8 minutes")
-        #expect(menu.items[1].isSeparatorItem)
+        // The proposal line's place, empty and hidden while nothing waits.
+        #expect(menu.items[1].identifier == StatusMenuController.proposalIdentifier)
+        #expect(menu.items[1].isHidden)
+        #expect(menu.items[2].isSeparatorItem)
+    }
+
+    // MARK: - Proposals waiting (M60 §4.7)
+
+    private func controller(
+        waiting: @escaping () -> [String],
+        router: FakeCommandRouter? = nil,
+        shown: @escaping (String) -> Void = { _ in }
+    ) throws -> StatusMenuController {
+        let model = AppModel()
+        model.daemon = .running
+        let snapshot = HomeSnapshot(
+            hello: try ManagementValueFixture.hello(),
+            overview: try ManagementValueFixture.overview(readiness: "ready", restartRequired: false, uptimeMs: 60_000),
+            attention: .rows([]),
+            update: .unknown
+        )
+
+        return StatusMenuController(
+            router: router ?? FakeCommandRouter(),
+            source: StatusMenuSource(model: model, snapshot: { snapshot }, proposals: { Self.line(waiting()) }),
+            showProposal: shown
+        )
+    }
+
+    /// The line a run of waiting proposals makes: their count, opening at
+    /// the first.
+    private static func line(_ waiting: [String]) -> StatusProposalLine? {
+        waiting.first.map { StatusProposalLine(count: waiting.count, oldestProposalId: $0) }
+    }
+
+    // MARK: - The daemon's count (M60 §4.7)
+
+    @Test("the proposal line is the daemon's count of proposals waiting, opening at the oldest it lists")
+    func proposalLineReadsCueStatus() async throws {
+        let gateway = FakeDaemonGateway()
+        gateway.hello = try FakeDaemonGateway.fixtureResult(named: "hello", as: ManagementHello.self)
+        gateway.cueStatusResult = try Self.cueStatus(waiting: 3)
+        let reader = StatusProposalReader(gateway: gateway, daemonAnswers: { true })
+
+        await reader.refresh()
+
+        let line = try #require(reader.line)
+        #expect(line.count == 3, "the count is the daemon's, not the length of the list it pages")
+        #expect(line.oldestProposalId == "cpr_9f2c41d07a5e6b38c1d2e4f0")
+        #expect(line.text == "3 tasks are waiting for your decision")
+        #expect(gateway.cueProposalFilters == [.waiting])
+    }
+
+    @Test("with the daemon not answering, the reader asks nothing, logs nothing, and draws no line")
+    func proposalLineWhileTheDaemonIsDown() async throws {
+        let gateway = FakeDaemonGateway()
+        gateway.hello = try FakeDaemonGateway.fixtureResult(named: "hello", as: ManagementHello.self)
+        let reader = StatusProposalReader(gateway: gateway, daemonAnswers: { false })
+
+        await reader.refresh()
+
+        #expect(reader.line == nil)
+        #expect(gateway.calls.isEmpty, "a menu opened while Fermix is stopped reads nothing")
+    }
+
+    @Test("with nothing waiting there is no line, and the list is never asked for")
+    func proposalLineNothingWaiting() async throws {
+        let gateway = FakeDaemonGateway()
+        gateway.hello = try FakeDaemonGateway.fixtureResult(named: "hello", as: ManagementHello.self)
+        gateway.cueStatusResult = try Self.cueStatus(waiting: 0)
+        let reader = StatusProposalReader(gateway: gateway, daemonAnswers: { true })
+
+        await reader.refresh()
+
+        #expect(reader.line == nil)
+        #expect(gateway.calls.contains(.v2(.cuesStatus)))
+        #expect(!gateway.calls.contains(.v2(.cuesProposalsList)))
+    }
+
+    @Test("a daemon that does not list cues.status is never asked, and the menu draws no line")
+    func proposalLineWithoutCues() async throws {
+        let gateway = FakeDaemonGateway()
+        gateway.hello = try ManagementValueFixture.hello()
+        let reader = StatusProposalReader(gateway: gateway, daemonAnswers: { true })
+
+        await reader.refresh()
+
+        #expect(reader.line == nil)
+        #expect(!gateway.calls.contains(.v2(.cuesStatus)))
+    }
+
+    @Test("the menu draws the line the reader last read, and picking it opens Chat at that card")
+    func proposalLineFromTheReader() async throws {
+        let gateway = FakeDaemonGateway()
+        gateway.hello = try FakeDaemonGateway.fixtureResult(named: "hello", as: ManagementHello.self)
+        let reader = StatusProposalReader(gateway: gateway, daemonAnswers: { true })
+        await reader.refresh()
+        let router = FakeCommandRouter()
+        var shown: [String] = []
+        let model = AppModel()
+        model.daemon = .running
+        let snapshot = HomeSnapshot(
+            hello: try ManagementValueFixture.hello(),
+            overview: try ManagementValueFixture.overview(readiness: "ready", restartRequired: false, uptimeMs: 60_000),
+            attention: .rows([]),
+            update: .unknown
+        )
+        let controller = StatusMenuController(
+            router: router,
+            source: StatusMenuSource(model: model, snapshot: { snapshot }, proposals: { reader.line }),
+            showProposal: { shown.append($0) }
+        )
+        let row = try proposalRow(controller.menu())
+
+        #expect(row.title == "A task is waiting for your decision")
+        let action = try #require(row.action)
+        _ = (row.target as? NSObject)?.perform(action, with: row)
+        #expect(router.performed == [.showChat])
+        #expect(shown == ["cpr_9f2c41d07a5e6b38c1d2e4f0"])
+    }
+
+    /// The golden status, with the count of proposals waiting a case needs.
+    private static func cueStatus(waiting: Int) throws -> ManagementCueStatus {
+        let fixture = try #require(try ManagementFixtures.load(.success, from: .management).first { $0.name == "cues_status" })
+        var result = try #require(try fixture.object("response")["result"] as? [String: Any])
+        var counts = try #require(result["counts"] as? [String: Any])
+        counts["proposals_waiting"] = waiting
+        result["counts"] = counts
+
+        return try JSONDecoder().decode(ManagementCueStatus.self, from: try JSONSerialization.data(withJSONObject: result))
+    }
+
+    private func proposalRow(_ menu: NSMenu) throws -> NSMenuItem {
+        try #require(menu.items.first { $0.identifier == StatusMenuController.proposalIdentifier })
+    }
+
+    @Test("while nothing waits there is no proposal line to see or pick")
+    func noProposalLine() throws {
+        let controller = try controller(waiting: { [] })
+        let row = try proposalRow(controller.menu())
+
+        #expect(row.isHidden)
+        #expect(row.title.isEmpty)
+        #expect(controller.validateMenuItem(row) == false)
+    }
+
+    @Test("the proposal line says one task is waiting, or how many, and follows as the menu opens")
+    func proposalLineCounts() throws {
+        var waiting = ["prop_old"]
+        let controller = try controller(waiting: { waiting })
+        let menu = controller.menu()
+        let row = try proposalRow(menu)
+
+        #expect(!row.isHidden)
+        #expect(row.title == "A task is waiting for your decision")
+        #expect(controller.validateMenuItem(row))
+
+        waiting = ["prop_old", "prop_mid", "prop_new"]
+        controller.menuNeedsUpdate(menu)
+        #expect(row.title == "3 tasks are waiting for your decision")
+
+        waiting = []
+        controller.menuNeedsUpdate(menu)
+        #expect(row.isHidden)
+    }
+
+    @Test("picking the proposal line opens Chat at the oldest card waiting")
+    func proposalLineOpensChatAtTheOldest() throws {
+        let router = FakeCommandRouter()
+        var shown: [String] = []
+        let controller = try controller(waiting: { ["prop_old", "prop_new"] }, router: router, shown: { shown.append($0) })
+        let row = try proposalRow(controller.menu())
+
+        let action = try #require(row.action)
+        _ = (row.target as? NSObject)?.perform(action, with: row)
+
+        #expect(router.performed == [.showChat])
+        #expect(shown == ["prop_old"])
+    }
+
+    /// M60 §4.8: outside text never reaches a menu line. The line is built
+    /// from a count and an id, and its words are the catalogue's alone.
+    @Test("the proposal line carries no proposal's words, only the catalogue's")
+    func proposalLineCarriesNoOutsideText() {
+        for count in 1...3 {
+            let line = StatusProposalLine(count: count, oldestProposalId: "prop_\(count)")
+            let catalogue = count == 1
+                ? ProductStrings[.menuProposalWaiting]
+                : String(format: ProductStrings[.menuProposalsWaitingFormat], count)
+
+            #expect(line.text == catalogue)
+            #expect(!line.text.contains("prop_"))
+        }
     }
 
     /// Every row after the state line is a command, so the menu cannot grow an
@@ -115,12 +307,16 @@ struct StatusMenuTests {
     /// `Hide Menu Bar Item` was setting that width. The invariant is written
     /// over the whole menu rather than over that one row, so a hint added under
     /// any command later fails here.
-    @Test("no status item row is prose: every row is the state line or a command")
+    ///
+    /// The proposal line (M60 §4.7) is the one other fact row: a status, not
+    /// a hint, there only while a decision waits.
+    @Test("no status item row is prose: every row is the state line, the proposal line or a command")
     func statusRowsCarryNoHints() throws {
         let controller = StatusMenuController(router: FakeCommandRouter(), source: try source())
+        let factRows = [StatusMenuController.stateIdentifier, StatusMenuController.proposalIdentifier]
 
         for item in controller.menu().items where !item.isSeparatorItem {
-            guard item.identifier != StatusMenuController.stateIdentifier else { continue }
+            guard !factRows.contains(where: { $0 == item.identifier }) else { continue }
 
             #expect(MainMenuController.command(of: item) != nil, "\(item.title) is not a command row")
         }
@@ -163,11 +359,20 @@ struct StatusMenuTests {
         for line in lines {
             #expect(line.text.count <= Self.rowCharacterCap, "\(line.text)")
         }
+
+        // The proposal line is M60 §7's sentence, there only while a decision
+        // waits: held to its own cap, at the most tasks it will plausibly say.
+        for count in [1, 2, 99] {
+            let line = StatusProposalLine(count: count, oldestProposalId: "prop_1")
+            #expect(line.text.count <= Self.proposalLineCharacterCap, "\(line.text)")
+        }
     }
 
     /// `Disable Background Service` is 26 characters; the cap leaves room for a
     /// longer row without leaving room for a sentence.
     private static let rowCharacterCap = 34
+    /// "99 tasks are waiting for your decision" is 38 characters.
+    private static let proposalLineCharacterCap = 38
 
     /// Apple's status menus show no shortcut column, and one drawn here would
     /// be a promise the menu cannot keep: a key equivalent fires only while

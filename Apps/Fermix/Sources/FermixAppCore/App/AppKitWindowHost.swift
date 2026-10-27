@@ -38,6 +38,8 @@ struct AppSurfaces {
     let chatMedia: ChatMedia
     /// The app's one player, which the chat's sounds play on.
     let player: AppPlayer
+    /// What the update window shows, between the updater and the person.
+    let updatePrompt: UpdatePrompt
 
     func view(for kind: WindowKind) -> NSView {
         switch kind {
@@ -66,6 +68,13 @@ struct AppSurfaces {
             return view
         case .pet:
             return hosting(PetView(model: surfaces.pet))
+        case .update:
+            let view = hosting(UpdateWindowView(prompt: updatePrompt))
+            // The update window draws no window buttons, so its title bar is
+            // content like the rest: no safe area holds the mark and title
+            // below it.
+            view.safeAreaRegions = []
+            return view
         }
     }
 
@@ -364,6 +373,14 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
             window.standardWindowButton(.zoomButton)?.isEnabled = false
         }
 
+        // A window with none of the three to offer draws none of them, rather
+        // than three dimmed buttons over its content.
+        if !descriptor.closable, !descriptor.minimizable, !descriptor.zoomable {
+            for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                window.standardWindowButton(button)?.isHidden = true
+            }
+        }
+
         return window
     }
 
@@ -443,7 +460,10 @@ final class AppKitWindowHost: NSObject, WindowHost, NSWindowDelegate {
     private func styleMask(_ descriptor: WindowDescriptor) -> NSWindow.StyleMask {
         guard !descriptor.borderless else { return [.borderless, .fullSizeContentView] }
 
-        var mask: NSWindow.StyleMask = [.titled, .closable, .fullSizeContentView]
+        var mask: NSWindow.StyleMask = [.titled, .fullSizeContentView]
+        if descriptor.closable {
+            mask.insert(.closable)
+        }
         if descriptor.minimizable {
             mask.insert(.miniaturizable)
         }

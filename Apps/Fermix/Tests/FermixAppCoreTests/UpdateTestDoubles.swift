@@ -265,7 +265,7 @@ final class FakeUpdater: UpdaterDriving {
 
     var canCheckForUpdates: Bool { accepts }
 
-    func start(_ coordinator: UpdateCoordinator) -> UpdateConfigurationRefusal? {
+    func start(_ coordinator: UpdateCoordinator, prompt: UpdatePrompt) -> UpdateConfigurationRefusal? {
         started = coordinator
         return startRefusal
     }

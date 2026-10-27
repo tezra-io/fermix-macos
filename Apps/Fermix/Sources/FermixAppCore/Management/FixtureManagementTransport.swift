@@ -72,7 +72,7 @@ struct FixtureManagementTransport: ManagementTransport {
         if method == ManagementMethod.mobileDevicesRevoke.rawValue, let device = params["device_id"] as? String {
             machine.forgetPhone(device)
         }
-        guard let published = candidates(for: method) else {
+        guard let published = candidates(for: method, params: params) else {
             throw Defect.methodHasNoAnswer(method)
         }
         if method == ManagementMethod.jobGet.rawValue,
@@ -90,12 +90,16 @@ struct FixtureManagementTransport: ManagementTransport {
         let result = try Self.resolve(
             published,
             method: method,
-            params: Self.selectable(method: method, params: params)
+            params: try cueSelectable(method: method, params: params, Self.selectable(method: method, params: params))
         )
 
         // The daemon commits the shutdown and then answers, in that order.
         if method == ManagementMethod.lifecycleCommit.rawValue {
             machine.shutdownCommitted()
+        }
+        if Self.storesCueValue(method: method, params: params) {
+            let named = try reshape(result, method: method) { Self.naming($0, params: params) }
+            return try Self.envelope(requestId: identifier, result: named)
         }
         let answered = Self.answersFromServers(method: method, params: params)
             ? try reshape(result, method: method) { try mcpAnswer(method, $0, params: params) }
@@ -113,8 +117,19 @@ struct FixtureManagementTransport: ManagementTransport {
     /// `mcp.servers.get` publishes one server in three states for the same
     /// request; the server it answers is the machine's, so the first golden
     /// is the shape and the others are states a fixture start opens on.
-    private func candidates(for method: String) -> [Record]? {
+    ///
+    /// `cues.proposals.get` publishes one proposal in each of its five states
+    /// for the same request: the waiting one is the shape a fixture start
+    /// draws, so its golden, the first, answers.
+    ///
+    /// `cues.sources.form` publishes a preset's form and the general WebSocket
+    /// source's, a stream asked for with no preset: that request is answered
+    /// with the second, and every other with the first, the one form the
+    /// fixture has for them.
+    private func candidates(for method: String, params: [String: Any]) -> [Record]? {
         if method == ManagementMethod.mcpServersGet.rawValue { return records[method].map { Array($0.prefix(1)) } }
+        if method == ManagementMethod.cuesProposalsGet.rawValue { return records[method].map { Array($0.prefix(1)) } }
+        if method == ManagementMethod.cuesSourcesForm.rawValue { return records[method].map { sourceForm($0, params) } }
         guard method == ManagementMethod.mobilePairStart.rawValue else { return records[method] }
 
         let running = machine.phoneChannel.running
@@ -492,6 +507,12 @@ struct FixtureManagementTransport: ManagementTransport {
             guard let job = object?["job_id"] as? String else { return [:] }
             return ["job_id": job]
         }
+        // `cues.sources.add` answers per kind: its answer's row names it, and
+        // the request names it or the preset that implies it.
+        if method == ManagementMethod.cuesSourcesAdd.rawValue {
+            guard let kind = (object?["source"] as? [String: Any])?["kind"] as? String else { return [:] }
+            return ["kind": kind]
+        }
         // `mcp.servers.add` answers per transport: its answer's row names it,
         // and so does the request.
         if method == ManagementMethod.mcpServersAdd.rawValue {
@@ -562,6 +583,61 @@ struct FixtureManagementTransport: ManagementTransport {
         }
 
         return first.result
+    }
+
+    // MARK: - Cues (M60)
+
+    /// The id the contract's `env:` secret goldens answer for. A cue source's
+    /// secret answers the `env:` shape (PROTOCOL.md), so it is answered with
+    /// that golden, naming the id asked.
+    private static let publishedCueValue = "env:ALPACA_API_KEY"
+
+    private static func storesCueValue(method: String, params: [String: Any]) -> Bool {
+        let secretMethods = [ManagementMethod.secretSet.rawValue, ManagementMethod.secretClear.rawValue]
+        return secretMethods.contains(method) && CueSecretId.ref(of: params["id"] as? String ?? "") != nil
+    }
+
+    /// A cue request as a record's selector reads it: a source added by
+    /// preset names the kind the golden form gives that preset, and a cue
+    /// source's secret is the `env:` golden's id.
+    private func cueSelectable(method: String, params: [String: Any], _ selectable: [String: Any]) throws -> [String: Any] {
+        var read = selectable
+        if Self.storesCueValue(method: method, params: params) {
+            read["id"] = Self.publishedCueValue
+        }
+        guard method == ManagementMethod.cuesSourcesAdd.rawValue, read["kind"] == nil,
+              let preset = params["preset"] as? String
+        else { return read }
+
+        read["kind"] = try presetKind(preset)
+        return read
+    }
+
+    /// The golden that answers a form request (see `candidates(for:params:)`).
+    private func sourceForm(_ published: [Record], _ params: [String: Any]) -> [Record] {
+        let webSocket = params["kind"] as? String == Self.streamKind && params["preset"] == nil
+        let name = webSocket ? Self.webSocketFormGolden : Self.presetFormGolden
+        return published.filter { $0.name == name }
+    }
+
+    private static let streamKind = "stream"
+    private static let presetFormGolden = "cues_sources_form"
+    private static let webSocketFormGolden = "cues_sources_form_stream"
+
+    /// The kind the golden `cues.sources.form` gives a preset.
+    private func presetKind(_ preset: String) throws -> String? {
+        guard let form = records[ManagementMethod.cuesSourcesForm.rawValue]?.first,
+              let object = try JSONSerialization.jsonObject(with: form.result) as? [String: Any]
+        else { return nil }
+
+        let presets = object["presets"] as? [[String: Any]] ?? []
+        return presets.first { $0["id"] as? String == preset }?["kind"] as? String
+    }
+
+    private static func naming(_ golden: [String: Any], params: [String: Any]) -> [String: Any] {
+        var answer = golden
+        answer["id"] = params["id"]
+        return answer
     }
 
     // MARK: - MCP servers (M74)

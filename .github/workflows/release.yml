@@ -1,10 +1,12 @@
 name: release
 
 # Push a tag `vX.Y.Z` to cut a release: build universal2, Developer-ID sign,
-# notarize + staple, DMG, then publish a GitHub Release with the DMG, its
-# sha256, a keyless cosign signature, and the rendered Homebrew cask.
+# notarize + staple, DMG, then publish the DMG, its sha256, a keyless cosign
+# signature and the release notes to download.fermix.ai, and a GitHub Release
+# with the same files and the rendered Homebrew cask.
 #
-# Signing is gated by the protected `release-macos` environment (see notarize.yml).
+# Signing and publishing are gated by the protected `release-macos` environment
+# (see notarize.yml).
 # The `v*` tag namespace is maintainer-only via a protected-tag ruleset, and
 # `--latest=false` keeps this off the repo-wide /releases/latest pointer.
 on:
@@ -77,11 +79,65 @@ jobs:
       build_number: ${{ needs.version.outputs.build_number }}
     secrets: inherit
 
+  # Signed once, in a job of its own: a keyless signature and its certificate
+  # differ every time they are made, and download.fermix.ai takes each file
+  # once. Re-running a failed publish job takes these same bytes from the
+  # artifact, so the host accepts them as the files it already holds. Signed in
+  # this workflow, not in notarize.yml, because the certificate names the
+  # workflow that signed: release.yml is the identity people verify against.
+  sign:
+    name: cosign sign-blob (keyless)
+    needs: notarize
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download DMG artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: fermix-dmg
+          path: dist
+
+      - name: Verify DMG sha256 (from the uploaded bytes)
+        env:
+          EXPECTED: ${{ needs.notarize.outputs.dmg_sha256 }}
+        run: |
+          set -euo pipefail
+          dmg="$(ls dist/Fermix-*.dmg)"
+          actual="$(sha256sum "$dmg" | awk '{print $1}')"
+          echo "dmg=$dmg sha256=$actual"
+          [ "$actual" = "$EXPECTED" ] || { echo "::error title=sha mismatch::$actual != $EXPECTED"; exit 1; }
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+
+      - name: cosign sign-blob (keyless)
+        run: |
+          set -euo pipefail
+          dmg="$(ls dist/Fermix-*.dmg)"
+          cosign sign-blob --yes \
+            --output-signature "${dmg}.sig" \
+            --output-certificate "${dmg}.pem" \
+            "$dmg"
+
+      - name: Upload the signature artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fermix-dmg-signature
+          path: |
+            dist/Fermix-*.dmg.sig
+            dist/Fermix-*.dmg.pem
+          if-no-files-found: error
+
   publish:
     name: publish release + cask
-    needs: [version, notarize]
+    needs: [version, notarize, sign]
     # Matches the notarize job's runner: see notarize.yml for why macos-15.
     runs-on: macos-15
+    # The download host's write credentials live in the environment, which only
+    # a job on a `v*` tag can enter.
+    environment: release-macos
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -100,6 +156,12 @@ jobs:
           actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
           echo "dmg=$dmg sha256=$actual"
           [ "$actual" = "$EXPECTED" ] || { echo "::error title=sha mismatch::$actual != $EXPECTED"; exit 1; }
+
+      - name: Download the signature artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: fermix-dmg-signature
+          path: dist
 
       - name: Download appcast item artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -153,17 +215,27 @@ jobs:
       - name: Style-check the cask
         run: brew style Casks/fermix.rb
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - name: Write the release notes
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: scripts/changelog_section.sh "${REF_NAME#v}" > dist/RELEASE_NOTES.md
 
-      - name: cosign sign-blob (keyless)
+      # Before the GitHub Release, so a refusal here leaves no release behind
+      # and the cask smoke below installs from the address users download from.
+      # Written once (scripts/publish_downloads.sh): re-running this failed job
+      # sends the same artifacts' bytes again, which are accepted, while a full
+      # re-run builds and signs a new DMG, which is refused.
+      - name: Publish the files to download.fermix.ai
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           dmg="$(ls dist/Fermix-*.dmg)"
-          cosign sign-blob --yes \
-            --output-signature "${dmg}.sig" \
-            --output-certificate "${dmg}.pem" \
-            "$dmg"
+          scripts/publish_downloads.sh "macos/$REF_NAME" \
+            "$dmg" "$dmg.sha256" "$dmg.sig" "$dmg.pem" dist/RELEASE_NOTES.md
 
       - name: Create GitHub Release (not marked latest)
         env:
@@ -172,13 +244,11 @@ jobs:
         run: |
           set -euo pipefail
           dmg="$(ls dist/Fermix-*.dmg)"
-          notes="$(mktemp)"
-          scripts/changelog_section.sh "${REF_NAME#v}" > "$notes"
           gh release create "$REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$REF_NAME" \
             --latest=false \
-            --notes-file "$notes" \
+            --notes-file dist/RELEASE_NOTES.md \
             "$dmg" "$dmg.sha256" "$dmg.sig" "$dmg.pem" Casks/fermix.rb
 
       # Both documents become assets of this release: the feed is what the site
@@ -197,11 +267,11 @@ jobs:
           echo "::notice title=Publish the feed::copy this release's appcast.xml to fermix-site public/appcast.xml and deploy the site, otherwise installed clients see no update"
 
       # The real cask integrity gate: install from the cask exactly as a user
-      # would, which exercises the release URL, the sha256 stanza, the DMG mount,
-      # and the app copy. Runs AFTER the release exists (the url must be live) and
-      # BEFORE the tap sees the cask — a failure here fails the job and the cask
-      # never reaches the tap. Bounded retry covers release-asset CDN propagation.
-      - name: Cask install smoke (from the published release)
+      # would, which exercises the download URL, the sha256 stanza, the DMG mount,
+      # and the app copy. Runs AFTER the files are on download.fermix.ai (the
+      # cask's url) and BEFORE the tap sees the cask — a failure here fails the
+      # job and the cask never reaches the tap. Bounded retry covers CDN propagation.
+      - name: Cask install smoke (from download.fermix.ai)
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
@@ -209,9 +279,9 @@ jobs:
           set -euo pipefail
           # Homebrew rejects a loose cask file ("casks must be in a tap"), so stage
           # the rendered cask in a throwaway local tap and install from there —
-          # exercising the real release URL, the sha256, the DMG mount, the app
+          # exercising the real download URL, the sha256, the DMG mount, the app
           # copy, and Gatekeeper exactly as a user would. Install to a temp appdir,
-          # not /Applications. Retry covers release-asset CDN propagation.
+          # not /Applications. Retry covers CDN propagation.
           tapdir="$(brew --repository)/Library/Taps/tezra-io/homebrew-casksmoke"
           brew tap-new tezra-io/casksmoke >/dev/null
           mkdir -p "$tapdir/Casks"
@@ -230,7 +300,7 @@ jobs:
             echo "install attempt $attempt failed; retrying in 15s"
             sleep 15
           done
-          [ -n "$installed" ] || { echo "::error title=Cask install smoke failed::cask does not install from the published release"; exit 1; }
+          [ -n "$installed" ] || { echo "::error title=Cask install smoke failed::cask does not install from download.fermix.ai"; exit 1; }
           test -d "$appdir/Fermix.app"
           spctl -a -t exec -vv "$appdir/Fermix.app"
           brew uninstall --cask --appdir="$appdir" tezra-io/casksmoke/fermix >/dev/null 2>&1 || true

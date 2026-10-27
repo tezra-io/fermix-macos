@@ -283,7 +283,6 @@ wait_console() {
 write_remote_env() {
   printf 'export %s=%q\n' \
     FX_RUN_ID "$RUN_ID" \
-    FX_REPOSITORY "$REPOSITORY" \
     FX_ARTIFACT_NAME "$ARTIFACT_NAME" \
     FX_APP_BUNDLE_NAME "$APP_BUNDLE_NAME" \
     FX_BUNDLE_ID "$BUNDLE_ID" \

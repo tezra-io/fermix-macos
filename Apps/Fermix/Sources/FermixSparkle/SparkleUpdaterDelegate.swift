@@ -168,21 +168,4 @@ final class SparkleUpdaterDelegate: NSObject, SPUUpdaterDelegate {
         coordinator?.installOnQuitReached()
         return false
     }
-
-}
-
-/// The two answers the standard user driver needs.
-///
-/// A separate object because `SPUStandardUserDriverDelegate` is not declared on
-/// the main actor, and both answers are constants: nothing here reads state, so
-/// nothing here needs isolation.
-final class SparkleUserDriverDelegate: NSObject, SPUStandardUserDriverDelegate {
-    /// The gentle path is not implemented, so it is not advertised.
-    var supportsGentleScheduledUpdateReminders: Bool { false }
-
-    /// The ready-to-install window may not be parked out of sight. It is not
-    /// closable, but minimizing it hides the one surface that says the app is
-    /// about to replace itself, and quitting from behind it installs the
-    /// update.
-    func standardUserDriverAllowsMinimizableStatusWindow() -> Bool { false }
 }

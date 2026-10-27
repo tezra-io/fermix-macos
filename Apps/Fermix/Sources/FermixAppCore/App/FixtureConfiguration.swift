@@ -67,10 +67,14 @@ enum FixtureStart: Equatable {
     /// sign-in reads signed in or expired. `settings/integrations` itself
     /// carries the golden servers.
     case mcp(FixtureMCPStart)
+    /// The update window on one of its phases, and no primary window: an
+    /// update is shown whether or not a window is open.
+    case update(FixtureUpdateStart)
 
     static let settingsPrefix = "settings/"
     static let assistantPrefix = "assistant/"
     static let phonePrefix = "phone/"
+    static let updatePrefix = "update/"
     static let restartSheetName = "restart-sheet"
     static let approvalStepName = "assistant/approval"
     static let emptyChatName = "chat-empty"
@@ -108,6 +112,9 @@ enum FixtureStart: Equatable {
         } else if let step = name.dropping(prefix: Self.phonePrefix) {
             guard let start = FixturePhoneStart(rawValue: step) else { return nil }
             self = .phone(start)
+        } else if let phase = name.dropping(prefix: Self.updatePrefix) {
+            guard let start = FixtureUpdateStart(rawValue: phase) else { return nil }
+            self = .update(start)
         } else {
             guard let route = AppRoute(rawValue: name) else { return nil }
             self = .surface(route)
@@ -122,6 +129,72 @@ enum FixtureStart: Equatable {
             + [restartSheetName, approvalStepName, emptyChatName, chatRepliesName, browserName, chatCallName, failedChatCallName]
             + FixtureMCPStart.allCases.map(\.rawValue)
             + FixturePhoneStart.allCases.map { phonePrefix + $0.rawValue }
+            + FixtureUpdateStart.allCases.map { updatePrefix + $0.rawValue }
+    }
+}
+
+/// The update window's phases a fixture launch opens on.
+///
+/// Each one reaches its phase through the prompt's own calls, the ones the
+/// updater's driver makes, so the window drawn here is the window an update
+/// draws. The fixture runs no updater, so the window's answers go nowhere.
+enum FixtureUpdateStart: String, CaseIterable {
+    case permission
+    case checking
+    case offered
+    case critical
+    case staged
+    case information
+    case downloading
+    case preparing
+    case ready
+    case installing
+    case current
+    case unavailable
+    case failed
+
+    /// The release the fixture offers, a version after any this app has been.
+    static let offeredVersion = "0.7.0"
+
+    @MainActor
+    func show(on prompt: UpdatePrompt) {
+        switch self {
+        case .permission: prompt.askPermission { _ in }
+        case .checking: prompt.showChecking {}
+        case .offered: prompt.offer(Self.offer(), userInitiated: true) { _ in }
+        case .critical: prompt.offer(Self.offer(isCritical: true), userInitiated: true) { _ in }
+        case .staged: prompt.offer(Self.offer(stage: .installing), userInitiated: true) { _ in }
+        case .information: prompt.offer(Self.offer(isInformationOnly: true), userInitiated: true) { _ in }
+        case .downloading:
+            prompt.showDownloading {}
+            prompt.downloadExpected(132_029_225)
+            prompt.downloadReceived(52_428_800)
+        case .preparing:
+            prompt.showPreparing()
+            prompt.preparingProgress(0.6)
+        case .ready: prompt.showReady {}
+        case .installing: prompt.showInstalling()
+        case .current: prompt.showNotFound(.onLatest) {}
+        case .unavailable: prompt.showNotFound(.systemTooOld) {}
+        case .failed: prompt.showFailure(.downloadFailed) {}
+        }
+        // The phases that follow an Install wait for the app to be in front,
+        // and a fixture launch with no other window may not be yet.
+        prompt.bringForward()
+    }
+
+    private static func offer(
+        isCritical: Bool = false,
+        isInformationOnly: Bool = false,
+        stage: UpdateUserStage = .notDownloaded
+    ) -> UpdatePromptOffer {
+        UpdatePromptOffer(
+            version: offeredVersion,
+            isCritical: isCritical,
+            isInformationOnly: isInformationOnly,
+            infoURL: isInformationOnly ? URL(string: "https://fermix.ai") : nil,
+            stage: stage
+        )
     }
 }
 
@@ -397,6 +470,8 @@ enum FixturePresentation: Equatable {
     case chatWithCall
     /// Settings, Channels, with the Phone sheet up for what it was asked.
     case channelsWithPhone(PhoneSheetIntent)
+    /// The update window alone, on one of its phases.
+    case updateWindow(FixtureUpdateStart)
 }
 
 /// One fixture launch: where it lands, the machine it lands on, and the glass
@@ -430,6 +505,7 @@ struct FixtureLaunch {
         case .chatCall, .failedChatCall: return .chatWithCall
         case .phone(let step): return .channelsWithPhone(step.intent)
         case .mcp: return .settings(.integrations)
+        case .update(let phase): return .updateWindow(phase)
         }
     }
 
@@ -483,6 +559,7 @@ struct FixtureLaunch {
         case .failedChatCall: return FixtureStart.failedChatCallName
         case .phone(let step): return "phone-\(step.rawValue)"
         case .mcp(let servers): return servers.rawValue
+        case .update(let phase): return "update-\(phase.rawValue)"
         }
     }
 }
@@ -910,7 +987,8 @@ extension AppComposition {
             showRestartSheet: { [coordinator] in coordinator.askForRestart() },
             openBrowser: { [browser] in FixtureWebPage.openTabs(in: browser) },
             beginCall: { [voice] in voice.toggleCall() },
-            presentPhone: { [settings] intent in settings.phone.present(intent) }
+            presentPhone: { [settings] intent in settings.phone.present(intent) },
+            showUpdate: { [updatePrompt] phase in phase.show(on: updatePrompt) }
         )
     }
 }
@@ -923,14 +1001,16 @@ extension FixtureLaunch {
     /// closure rather than a second owner of it. The browser pane is the
     /// browser coordinator's, and the call is the voice coordinator's, the one
     /// the Pet page's button asks; both arrive the same way. The Phone sheet
-    /// is the phone model's, the one the Channels row asks.
+    /// is the phone model's, the one the Channels row asks. The update window
+    /// is the update prompt's, the one the updater drives.
     @MainActor
     func present(
         with coordinator: AppCoordinator,
         showRestartSheet: () -> Void,
         openBrowser: () -> Void,
         beginCall: () -> Void,
-        presentPhone: (PhoneSheetIntent) -> Void
+        presentPhone: (PhoneSheetIntent) -> Void,
+        showUpdate: (FixtureUpdateStart) -> Void
     ) {
         switch presentation {
         case .assistant(let stage):
@@ -951,6 +1031,8 @@ extension FixtureLaunch {
         case .channelsWithPhone(let intent):
             coordinator.open(.settings(.channels))
             presentPhone(intent)
+        case .updateWindow(let phase):
+            showUpdate(phase)
         }
     }
 }

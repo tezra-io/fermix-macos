@@ -63,10 +63,12 @@ CHANNEL_TITLE = "Fermix"
 CHANNEL_LINK = "https://fermix.ai"
 CHANNEL_DESCRIPTION = "Updates for the Fermix macOS app."
 
-# Where a release asset lives. An argument rather than a constant because it is
-# the one fact about the enclosure that a caller can get wrong, and the https
+# Where a release's files are downloaded from: the public host the release
+# publishes them to (scripts/publish_downloads.sh), which keeps serving them
+# once the repository is private. An argument rather than a constant because it
+# is the one fact about the enclosure that a caller can get wrong, and the https
 # refusal below has to be reachable.
-DEFAULT_RELEASE_BASE = "https://github.com/tezra-io/fermix-macos/releases/download"
+DEFAULT_RELEASE_BASE = "https://download.fermix.ai/macos"
 
 ENCLOSURE_TYPE = "application/octet-stream"
 

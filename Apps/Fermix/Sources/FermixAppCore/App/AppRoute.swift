@@ -15,10 +15,12 @@ public enum AppRouteError: Error, Equatable, Sendable {
 /// A window this app can put on screen.
 ///
 /// Setup and Settings are presentations of the primary window. The floating
-/// pet is the only auxiliary window.
+/// pet and the update window are the two auxiliary windows: an update can be
+/// found, downloaded and installed with no primary window open.
 public enum WindowKind: String, CaseIterable, Sendable {
     case main
     case pet
+    case update
 }
 
 /// Everywhere the app can be sent, by the user or by the CLI.

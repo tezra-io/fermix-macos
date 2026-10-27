@@ -110,6 +110,13 @@ public struct ManagementSettingRow: Decodable, Equatable, Sendable {
     /// inside the window that predates it omits the key, and that engine's rows
     /// have to decode exactly as they did before.
     public let info: String?
+    /// A sample value an empty text or list field shows in place of its own
+    /// empty prompt, so the field shows what goes in it. Never a default:
+    /// nothing is saved from it and it is never sent back. Null on every other
+    /// kind and on every row with nothing to show. Decoded as an optional for
+    /// the same reason as `info`: an engine inside the window that predates it
+    /// omits the key.
+    public let example: String?
     public let value: ManagementSettingValue
     /// Whether a secret sits at the key's path. Nil on every other kind.
     public let present: Bool?
@@ -149,7 +156,7 @@ public struct ManagementSettingRow: Decodable, Equatable, Sendable {
     public let advanced: Bool
 
     private enum CodingKeys: String, CodingKey {
-        case key, kind, label, footer, info, value, present, options, min, max, step, restart
+        case key, kind, label, footer, info, example, value, present, options, min, max, step, restart
         case suggestions, unit, format, advanced
         case readOnly = "read_only"
     }
@@ -161,6 +168,7 @@ public struct ManagementSettingRow: Decodable, Equatable, Sendable {
         label = try container.decode(String.self, forKey: .label)
         footer = try container.decodeIfPresent(String.self, forKey: .footer)
         info = try container.decodeIfPresent(String.self, forKey: .info)
+        example = try container.decodeIfPresent(String.self, forKey: .example)
         value = try container.decode(ManagementSettingValue.self, forKey: .value)
         present = try container.decodeIfPresent(Bool.self, forKey: .present)
         options = try container.decode([ManagementSettingOption].self, forKey: .options)

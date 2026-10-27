@@ -522,7 +522,7 @@ check_release_promises() {
   require_plist_value "$APP/Contents/Info.plist" CFBundleShortVersionString "$(product_config marketing_version)"
   require_plist_value "$APP/Contents/Info.plist" CFBundleVersion "$(product_config build_number)"
 
-  local resources contracts drafts unpublished speaks entry manifest window status
+  local resources contracts drafts unpublished entry manifest window status
   resources="$(product_config_resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
   contracts="$resources/Contracts"
 
@@ -539,16 +539,17 @@ check_release_promises() {
   [ -z "$unpublished" ] ||
     fail "a release bundle speaks a contract vendored from an uncommitted upstream tree: $unpublished"
 
-  # The version the app speaks, read from the staged record rather than from a
-  # number written here: one fact, in the checksum-pinned artifact.
-  speaks="$(python3 "$ROOT_DIR/scripts/contract_release_facts.py" speaks "$contracts/SOURCE.json")"
-
+  # Every protocol the app speaks, each read from the staged record and held
+  # to the engine manifest's window of the same name, rather than a number
+  # written here: one fact, in the checksum-pinned artifacts. Management alone
+  # was checked once, and a Chat the engine's companion window stops below
+  # passed the gate and could never connect.
   for entry in "$ENGINE_DIR"/*; do
     [ -d "$entry" ] || continue
     manifest="$entry/engine-manifest.json"
-    window="$(python3 "$ROOT_DIR/scripts/contract_release_facts.py" serves "$manifest" "$speaks")"
+    window="$(python3 "$ROOT_DIR/scripts/contract_release_facts.py" serves "$manifest" "$contracts/SOURCE.json")"
     [ "$window" = "ok" ] ||
-      fail "the engine in $(basename "$entry") does not serve management protocol $speaks"
+      fail "the engine in $(basename "$entry") $window"
   done
 
   check_engine_matches_pin

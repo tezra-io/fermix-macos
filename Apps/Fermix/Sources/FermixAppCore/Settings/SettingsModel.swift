@@ -64,6 +64,26 @@ public final class SettingsModel: ObservableObject {
     /// The methods the daemon's `hello` lists, read with the MCP list: the
     /// tab draws each of its verbs only where its method is here.
     @Published public internal(set) var servedMethods: Set<ManagementMethod> = []
+    /// Cues (M60 app surface §4): the subsystem's status, its three lists and
+    /// the proposals waiting, each read only where the daemon serves it
+    /// (`SettingsCues.swift`).
+    @Published public internal(set) var cueStatus: SettingsReadState<ManagementCueStatus> = .unread
+    @Published public internal(set) var cueSources: SettingsReadState<ManagementCueSourceList> = .unread
+    @Published public internal(set) var cueWatchers: SettingsReadState<ManagementCueWatcherList> = .unread
+    @Published public internal(set) var cueMandates: SettingsReadState<ManagementCueMandateList> = .unread
+    @Published public internal(set) var cueProposals: SettingsReadState<ManagementCueProposalList> = .unread
+    /// One source's detail, by ref, as `cues.sources.get` answered: the one
+    /// method that carries its fields, gaps and refusals.
+    @Published public internal(set) var cueSourceDetails: [String: SettingsReadState<ManagementCueSourceDetail>] = [:]
+    /// One watcher's purpose and instructions, by name.
+    @Published public internal(set) var cueWatcherDetails: [String: SettingsReadState<ManagementCueWatcherDetail>] = [:]
+    /// What a mandate form offers, read when the form opens.
+    @Published public internal(set) var cueMandateChoices: SettingsReadState<ManagementCueMandateChoices> = .unread
+    /// Opens Chat, at a proposal's card where one is named (M60 app surface
+    /// §4.2, §4.4). Chat is built after this model, so the composition hands
+    /// it over, as it hands the phone its restart. Settings never writes into
+    /// the composer.
+    public var openChat: ((_ proposalId: String?) -> Void)?
     @Published public internal(set) var restart = ManagementRestartState(required: false, reasons: [])
     @Published public internal(set) var configState: ManagementConfigState = .clear
     /// The one answer to "can the daemon in memory serve this bundle's
@@ -210,9 +230,17 @@ public final class SettingsModel: ObservableObject {
     /// them.
     public func panes(matching query: String, in group: SettingsPaneGroup) -> [SettingsPane] {
         let needle = query.trimmingCharacters(in: .whitespaces)
-        guard !needle.isEmpty else { return group.panes }
+        let drawn = group.panes.filter(draws)
+        guard !needle.isEmpty else { return drawn }
 
-        return group.panes.filter { $0.matches(needle) || rowsMatch(needle, in: $0) }
+        return drawn.filter { $0.matches(needle) || rowsMatch(needle, in: $0) }
+    }
+
+    /// Whether the sidebar lists this pane. Every pane but Cues is always
+    /// there; Cues is there only where the running daemon has cues
+    /// (`drawsCuesPane`), with no row and no notice otherwise.
+    public func draws(_ pane: SettingsPane) -> Bool {
+        pane == .cues ? drawsCuesPane : true
     }
 
     /// Whether any row this pane has read carries the searched text in its
@@ -270,6 +298,7 @@ public final class SettingsModel: ObservableObject {
     public func windowAppeared() async {
         await refreshSetupState()
         if inventory.value == nil { await loadInventory() }
+        await refreshCueGate()
         await paneAppeared(selectedPane)
     }
 
@@ -309,7 +338,11 @@ public final class SettingsModel: ObservableObject {
         sections.removeAll()
         await refreshSetupState()
         await loadInventory()
+        await refreshCueGate()
         await paneAppeared(selectedPane)
+        // A restart is what starts or stops cues, so the pane on screen reads
+        // its lists again: their rows are the restarted daemon's now.
+        if selectedPane == .cues, drawsCuesPane { await refreshCues() }
         await phone.restartCompleted()
     }
 

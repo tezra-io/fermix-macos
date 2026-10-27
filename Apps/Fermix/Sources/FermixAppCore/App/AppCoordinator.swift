@@ -478,7 +478,10 @@ public final class AppCoordinator {
             // is on is recorded before the window opens, so the back control
             // returns to what they left; a launch straight into settings
             // returns to whatever `AppModel` starts on, which is Home.
-            settings.selectedPane = pane
+            // Cues is a pane only where the daemon has cues (M60 app surface
+            // §4.1): a link to it lands on Providers where it is known not
+            // to be drawn, by the gate the sidebar reads.
+            settings.selectedPane = settings.refusesRoute(to: pane) ? .providers : pane
             // The window opens first: entering grows it, and a window that is
             // not on screen yet has no frame to grow.
             windows.show(.main)

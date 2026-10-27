@@ -16,6 +16,11 @@ public struct ManagementMobileStatus: Decodable, Equatable, Sendable {
     public let started: Bool
     /// True when the channel could not start this boot; the daemon log says why.
     public let refused: Bool
+    /// What the channel waits for while it is on and not running, where a
+    /// restart alone would not start it: `setup` while this boot held it for
+    /// setup that is still not finished. Nil otherwise, and from an engine
+    /// older than the field, which publishes no hold.
+    public let hold: ManagementMobileHold?
     public let listener: ManagementMobileListener
     public let mdns: ManagementMobileAnnouncement
     public let tailnet: ManagementMobileTailnet
@@ -30,7 +35,7 @@ public struct ManagementMobileStatus: Decodable, Equatable, Sendable {
     public let pairing: ManagementPairingSummary?
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, started, refused, listener, mdns, tailnet, identity, remote, apns, pairing
+        case enabled, started, refused, hold, listener, mdns, tailnet, identity, remote, apns, pairing
         case pairedDevices = "paired_devices"
         case protocolVersion = "protocol_version"
     }
@@ -366,6 +371,22 @@ public enum ManagementMobileListenerStatus: ManagementVocabulary {
 /// `remote.state`: where the rail stands. `off` is its switch off or the
 /// channel not running, `dormant` no phone paired yet, and `helper_missing`
 /// a build that carries no rail to start.
+/// What an enabled phone channel that is not running waits for
+/// (`mobile.status.hold`).
+public enum ManagementMobileHold: ManagementVocabulary {
+    case setup
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = ["setup": .setup]
+
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+}
+
 public enum ManagementMobileRemoteState: ManagementVocabulary {
     case off
     case dormant

@@ -112,6 +112,27 @@ struct UpdateCoordinatorTests {
         }
     }
 
+    /// The feed has answered once it found something or nothing, so Home and
+    /// the menu stop saying Checking while the update window waits for the
+    /// person, and only the cycle's end stamps the check.
+    @Test("the feed's answer ends the check, before the update window is answered")
+    func feedAnswerEndsTheCheck() throws {
+        let harness = try UpdateHarness()
+        harness.offerAFeed()
+
+        try harness.coordinator.mayCheck()
+        #expect(harness.coordinator.availability() == .checking)
+        harness.coordinator.found(UpdateFeedFixture.offered)
+        guard case .available = harness.coordinator.availability() else {
+            Issue.record("an offer read as \(harness.coordinator.availability())")
+            return
+        }
+
+        try harness.coordinator.mayCheck()
+        harness.coordinator.foundNothing()
+        #expect(harness.coordinator.availability() == .unknown)
+    }
+
     /// A refusal leaves no offer behind: the person is never shown an item the
     /// transaction has already decided it cannot install.
     @Test("a refused update is not left on the update surface")
@@ -856,7 +877,7 @@ final class UpdateHarness {
             sleeper: sleeper,
             now: now
         )
-        coordinator.start(updater)
+        coordinator.start(updater, prompt: UpdatePrompt(installedVersion: UpdateFixture.sourceApp.marketingVersion))
     }
 
     /// The feed both sides of an update come from.
