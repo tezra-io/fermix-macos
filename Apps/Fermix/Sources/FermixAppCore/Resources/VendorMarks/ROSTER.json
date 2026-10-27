@@ -11,7 +11,7 @@
     "channels": {
       "path": "apps/fermix_web/lib/fermix_web_web/live/setup_live.ex",
       "symbol": "the channels form map",
-      "sha256": "3204934f21aaa93b410dae5918de89df4a3f6c757933e4be04592e34c7e21223"
+      "sha256": "72e2fe04e9a6668ca694d608684df5525aba479269e42cafd09e6557e66bb0bb"
     },
     "plugins": {
       "path": "apps/fermix_core/priv/plugins/index.json",
@@ -79,7 +79,8 @@
   ],
   "channel_exclusions": {
     "editing": "The form map's own cursor, not a channel.",
-    "acp": "The ACP agent surface from milestone 29. It is a local agent protocol endpoint, not a messaging vendor, so it has no vendor mark to record."
+    "acp": "The ACP agent surface from milestone 29. It is a local agent protocol endpoint, not a messaging vendor, so it has no vendor mark to record.",
+    "mobile": "The phone channel, which pairs Fermix's own Android app. It is Fermix's own surface, not a messaging vendor, so it has no vendor mark to record."
   },
   "feature_note": "The three native drivers are this build's, not the registry's: they are daemon settings the Integrations page counts under its Features pill. Their keys are the app's own, and only their marks come from the engine, which is why source.features pins files rather than a symbol.",
   "plugin_note": "The plugin roster is the union of two upstream sets, and reading only the first is how the three plugins every install already has came to draw the generic tile. index.json is the static catalog a machine installs FROM; catalog.json names the plugins the engine ships INSIDE itself, which Registry.list unions into every plugins.list answer. Both are pinned, and the drift check compares the roster against their union.",

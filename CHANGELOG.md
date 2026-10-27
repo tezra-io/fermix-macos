@@ -4,12 +4,16 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
-- Updates: finding, downloading and installing an update now happens in one window drawn like the rest of Fermix, with the Fermix mascot rather than the app icon on a tile, the app's glass and its black and white buttons, in light and dark. It stays the same size from the offer to the relaunch, says plainly which version is available and which one you have, and an update you did not ask for waits until Fermix is in front instead of interrupting what you are doing. You see it from the update after the one that brings it, since the version you are updating from draws the window.
-- Chat: when a task asks to act under your mandate, decide on a card in Chat.
+## 0.7.0 (2026-10-27)
+
+- Runs the Fermix engine 0.17.0, which brings cues, so a feed, a WebSocket stream, a webhook or a program on this Mac can hand Fermix items and a watcher you make in chat wakes a task when one matters to you, acting only under a mandate you grant. Reach from anywhere now works with nothing more to install. It also offers GPT-6.1 Terra, moves to your backup provider when your Anthropic credit runs out instead of stopping, gives its model every date and time in your time zone, reads a multi-line secret or a Claude Code login from your Keychain exactly, and leaves a CAPTCHA in a browser task to its own judgment while a two-factor prompt or a payment still stops it. Once a request has read something someone else wrote, such as a web page, an attachment or a forwarded message, starting a coding agent and other access-sensitive actions wait for your yes.
 - Settings: set up cues in a new Cues pane: sources, starting from the kind with its first preset chosen and a line saying where its items come from, the filter model (your main model unless you choose another from the providers you have set up), and the mandates you approve, in compact rows with a status dot and explanations behind info, with no terminal needed.
 - Cues: a Stream source connects to any wss:// address with your API key and secret, such as a news feed. It asks for the key and secret right after the address, names each field so no two read alike, and shows a sample value in each empty field, with what each field is for behind info.
 - Cues: a watcher's page shows the words it listens for and how many items reached it in the last day, every watcher's Filter names the one Cues filter model in use, and a watcher that needs an update in chat is marked for attention with what to change.
+- Chat: when a task asks to act under your mandate, decide on a card in Chat.
 - Channels: pairing a phone before setup is finished now says the phone channel starts once setup is finished, instead of asking you to restart Fermix again and again, and once setup is done Settings asks for the one restart that starts it.
+- Updates: finding, downloading and installing an update now happens in one window drawn like the rest of Fermix, with the Fermix mascot rather than the app icon on a tile, the app's glass and its black and white buttons, in light and dark. It stays the same size from the offer to the relaunch, says plainly which version is available and which one you have, and an update you did not ask for waits until Fermix is in front instead of interrupting what you are doing. You see it from the update after the one that brings it, since the version you are updating from draws the window.
+- The macOS floor stays at 15.0.
 
 ## 0.6.0 (2026-10-21)
 
