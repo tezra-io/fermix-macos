@@ -515,18 +515,32 @@ struct IntegrationDetailSheet: View {
     }
 
     /// The sign-in client this plugin signs in through, where it belongs to a
-    /// sign-in family.
+    /// sign-in family, and the way to its page.
     ///
     /// The tie is the daemon's `auth_provider`, not the plugin's name. Without
     /// it the client's state was readable only at the foot of the page, so a
     /// plugin whose sign-in is waiting on an unregistered client said so in its
     /// status sentence and nowhere the operator could check.
+    ///
+    /// The door is the row's own, as the workspace row's is, and it is there
+    /// whatever the plugin's state. `set_up_client` is published only while
+    /// the client is missing or refused, so a plugin signed in and working read
+    /// `Configured` beside nothing: a client secret rotated at the provider
+    /// could be typed only at the foot of the page, under every plugin row.
     @ViewBuilder
     private func signInClient(_ row: IntegrationRowModel) -> some View {
         if let client = IntegrationRowProjection.client(for: row, in: model.plugins.value) {
             LabeledContent(ProductStrings[.integrationClientRow]) {
-                Text(OAuthClientState.sentence(for: client))
-                    .foregroundStyle(Palette.secondary.color)
+                HStack(spacing: Spacing.xs) {
+                    Text(OAuthClientState.sentence(for: client))
+                        .foregroundStyle(Palette.secondary.color)
+
+                    Button(OAuthClientState.door(for: client)) { page = .client(provider: client.provider) }
+                        .disabled(signInBlock == .waiting)
+                        .accessibilityLabel(
+                            ProductStrings.commaPair(OAuthClientState.door(for: client), row.title)
+                        )
+                }
             }
         }
     }
@@ -938,9 +952,7 @@ struct OAuthClientRow: View {
                 Text(OAuthClientState.sentence(for: client))
                     .foregroundStyle(Palette.secondary.color)
 
-                Button(ProductStrings[client.configured ? .integrationClientEdit : .integrationClientConnect]) {
-                    edit()
-                }
+                Button(OAuthClientState.door(for: client), action: edit)
                 .accessibilityLabel(
                     ProductStrings.commaPair(
                         ProductStrings[.integrationClientRow],
@@ -973,6 +985,12 @@ enum OAuthClientState {
         guard let label = client.regionLabel else { return state }
 
         return ProductStrings.commaPair(state, label)
+    }
+
+    /// The word on the way into a client's editor, wherever that way is drawn:
+    /// changing a client that is set, or connecting one that is not.
+    static func door(for client: ManagementPluginOAuthClient) -> String {
+        ProductStrings[client.configured ? .integrationClientEdit : .integrationClientConnect]
     }
 }
 

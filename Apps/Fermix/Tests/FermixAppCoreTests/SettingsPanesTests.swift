@@ -1261,6 +1261,21 @@ struct SettingsPanesTests {
         #expect(OAuthClientState.sentence(for: quiet) == ProductStrings[.integrationClientUnset])
     }
 
+    /// A client that is set up is changed through the same door that set it
+    /// up: a plugin signed in and working publishes no `set_up_client`, so the
+    /// door's word follows the client and never the plugin's actions.
+    @Test("a sign-in client's door edits one that is set and connects one that is not")
+    func oauthClientDoorFollowsTheClient() throws {
+        let clients = try Self.catalog(try Self.pluginsListResult()).oauthClients
+        let google = try #require(clients.first { $0.provider == "google" })
+        let notion = try #require(clients.first { $0.provider == "notion" })
+
+        #expect(google.configured)
+        #expect(OAuthClientState.door(for: google) == ProductStrings[.integrationClientEdit])
+        #expect(!notion.configured)
+        #expect(OAuthClientState.door(for: notion) == ProductStrings[.integrationClientConnect])
+    }
+
     /// The region reaches the daemon, and only where there is one to send.
     ///
     /// A client whose provider offers regions stays at `needs_client_config`

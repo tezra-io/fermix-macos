@@ -4,6 +4,8 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Integrations: a plugin's page has Edit… beside its sign-in client whether the plugin is on, off or already signed in, so a client ID or a secret you rotate at the provider, such as X's, can be changed from that page instead of only at the foot of the list.
+
 ## 0.7.0 (2026-10-27)
 
 - Runs the Fermix engine 0.17.0, which brings cues, so a feed, a WebSocket stream, a webhook or a program on this Mac can hand Fermix items and a watcher you make in chat wakes a task when one matters to you, acting only under a mandate you grant. Reach from anywhere now works with nothing more to install. It also offers GPT-6.1 Terra, moves to your backup provider when your Anthropic credit runs out instead of stopping, gives its model every date and time in your time zone, reads a multi-line secret or a Claude Code login from your Keychain exactly, and leaves a CAPTCHA in a browser task to its own judgment while a two-factor prompt or a payment still stops it. Once a request has read something someone else wrote, such as a web page, an attachment or a forwarded message, starting a coding agent and other access-sensitive actions wait for your yes.
