@@ -79,8 +79,8 @@ struct AppEnvironment {
     /// The browser host wire's own line socket, the same way.
     let browserHostLines: BrowserHostClient.LineSocket
     /// The website logins the agent signs in with (M84 §7): this Mac's data
-    /// protection keychain on a release whose signature grants the access
-    /// group, no store on any other build (`LoginStoreSelection`). One store,
+    /// protection keychain on a build whose signature grants its access group,
+    /// no store on any other build (`LoginStoreSelection`). One store,
     /// handed to the Settings model and to the browser host.
     let loginStore: any LoginStore
     /// The native host wire's own line socket, the same way.

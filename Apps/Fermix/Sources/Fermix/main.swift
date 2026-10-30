@@ -22,11 +22,16 @@ import Foundation
 // it is built over the website profile on the pane's first tab. So are the
 // pane's viewers and the chat's media reader, which link AVKit, Quick Look and
 // MapKit.
+//
+// Whether the pane's pages offer Web Inspector is read here, once, from this
+// process's signature: the inspector reads a filled password straight out of
+// the page, so a build that can hold website logins never offers it (M84 §7).
 MainActor.assumeIsolated {
+    let inspectable = LoginStoreSelection.allowsWebInspector(grantedGroups: LoginStoreSelection.grantedAccessGroups())
     FermixApp.main(
         updater: SparkleUpdater(),
         mascot: RiveMascotRenderer(),
-        browser: { WebKitBrowserEngine(websiteProfile: $0) },
+        browser: { WebKitBrowserEngine(websiteProfile: $0, inspectable: inspectable) },
         viewers: SystemBrowserViewers(),
         mediaReader: SystemMediaReader()
     )

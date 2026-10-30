@@ -37,14 +37,29 @@ its data are never touched.
 
 You need: a `fermix` checkout, the Developer ID Application identity in your
 login keychain (the loop refuses an ad-hoc signature, because macOS keys the
-background agent on the Team ID), Elixir and Erlang for the engine build, and
-either Xcode or the Command Line Tools with the macOS 26 SDK beside the 27 SDK
-(the loop picks the right one).
+background agent on the Team ID), the development identity's provisioning
+profile (below), Elixir and Erlang for the engine build, and either Xcode or the
+Command Line Tools with the macOS 26 SDK beside the 27 SDK (the loop picks the
+right one).
+
+The dev app keeps website logins in a keychain group of its own
+(`54A57TH9BJ.io.tezra.FermixPet.dev.logins`), never in the released app's, and
+macOS opens that group only to an app that embeds a provisioning profile
+authorizing it. Make the profile once, in the team's developer account under
+Certificates, IDs & Profiles: an explicit App ID `io.tezra.FermixPet.dev`
+(description `Fermix Dev`, no capabilities), then a Developer ID profile for it
+named `Fermix Dev Developer ID`, on the Developer ID Application certificate.
+The loop refuses without it. Because the dev app can hold logins, its browser
+pane offers no Web Inspector, which reads a filled password out of the page.
 
 ```sh
 # Once: give the loop its own engine worktree, on the engine ref you want to run.
 git -C ~/projects/fermix fetch origin
 git -C ~/projects/fermix worktree add ~/.cache/fermix-engine-m34 origin/main
+
+# Once: put the development profile where the loop reads it.
+mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+cp ~/Downloads/Fermix_Dev_Developer_ID.provisionprofile ~/Library/MobileDevice/Provisioning\ Profiles/
 
 # Each time: build the engine as that worktree stands, stage, sign and launch the app.
 scripts/dev_e2e.sh up            # full engine build

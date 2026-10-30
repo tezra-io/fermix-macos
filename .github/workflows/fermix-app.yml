@@ -114,7 +114,7 @@ jobs:
 
       - name: Entitlements lint
         working-directory: Apps/Fermix
-        run: plutil -lint Sources/Fermix/Fermix.entitlements ../../scripts/entitlements/release_keychain.entitlements
+        run: plutil -lint Sources/Fermix/Fermix.entitlements ../../scripts/entitlements/keychain/*.entitlements
 
       # The checked-in Xcode project spec must still generate. This machine's
       # toolchain has no Xcode.app, so the spec plus `xcodegen generate` is what

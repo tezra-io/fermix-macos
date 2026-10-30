@@ -174,6 +174,17 @@ enum SourceTree {
             .appendingPathComponent("Sources/FermixAppCore", isDirectory: true)
     }
 
+    /// The root of this checkout, for the files outside the app's sources that
+    /// a build is signed or staged with.
+    static var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // FermixAppCoreTests
+            .deletingLastPathComponent()  // Tests
+            .deletingLastPathComponent()  // Apps/Fermix
+            .deletingLastPathComponent()  // Apps
+            .deletingLastPathComponent()
+    }
+
     /// Every `.swift` file under the source root, minus one relative path.
     ///
     /// A tree this cannot read is a failure, never a skipped gate: a scan that

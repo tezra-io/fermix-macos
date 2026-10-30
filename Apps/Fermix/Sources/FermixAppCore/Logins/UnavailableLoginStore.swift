@@ -1,7 +1,7 @@
 import Foundation
 
-/// The store of a build that has none: every `DEBUG` build and every build
-/// whose signature grants no keychain access group (`LoginStoreSelection`).
+/// The store of a build that has none: every build whose signature does not
+/// grant its keychain access group (`LoginStoreSelection`).
 /// Every call answers `.unavailable(status: nil)`, which the Settings section
 /// shows as "Website logins need the released Fermix app." and the browser
 /// host answers as `sign_in_store_unavailable`.

@@ -21,7 +21,7 @@ final class BrowserPageHarness: NSObject, WKNavigationDelegate {
     override init() {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        page = WebKitBrowserPage(configuration: configuration, fileRules: nil)
+        page = WebKitBrowserPage(configuration: configuration, fileRules: nil, inspectable: false)
         super.init()
         page.webView.navigationDelegate = self
     }

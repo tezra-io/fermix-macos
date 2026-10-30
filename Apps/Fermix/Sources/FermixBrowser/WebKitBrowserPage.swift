@@ -40,11 +40,15 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     /// Whether the network rule is in the content controller yet: it goes in
     /// once, on the first load, and stays.
     private var rulesInstalled = false
+    /// Whether this page offers Web Inspector, as its engine was told; a
+    /// window the page opens is a page of the same engine and gets the same.
+    private let inspectable: Bool
 
-    init(configuration: WKWebViewConfiguration, fileRules: WebKitFileRules?) {
+    init(configuration: WKWebViewConfiguration, fileRules: WebKitFileRules?, inspectable: Bool) {
         webView = WKWebView(frame: .zero, configuration: configuration)
         contentController = configuration.userContentController
         self.fileRules = fileRules
+        self.inspectable = inspectable
         super.init()
 
         // Link previews are off (plan §4.4): a force click would load the
@@ -52,9 +56,7 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         webView.allowsLinkPreview = false
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
-        #if DEBUG
-        webView.isInspectable = true
-        #endif
+        webView.isInspectable = inspectable
         webView.navigationDelegate = self
         webView.uiDelegate = self
         observe()
@@ -420,7 +422,7 @@ extension WebKitBrowserPage: WKUIDelegate {
             return nil
         }
 
-        let page = WebKitBrowserPage(configuration: configuration, fileRules: nil)
+        let page = WebKitBrowserPage(configuration: configuration, fileRules: nil, inspectable: inspectable)
         guard events?.pageOpened(page) == true else { return nil }
 
         return page.webView

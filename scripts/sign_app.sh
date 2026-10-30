@@ -17,15 +17,16 @@
 #
 # Two declared configurations of the GUI's signature (M84 D6):
 #   without a profile  the base entitlements (Fermix.entitlements) and no
-#                      embedded profile: CI's ad-hoc check, dev_run.sh, and the
-#                      Developer ID dev loop. These builds have no website
-#                      login store.
+#                      embedded profile: CI's ad-hoc check and dev_run.sh.
+#                      These builds have no website login store.
 #   with a profile     a Developer ID identity only: the base entitlements plus
-#                      scripts/entitlements/release_keychain.entitlements (the
-#                      login keychain access group and the identity keys that
-#                      authorize it), and the profile embedded as
-#                      Contents/embedded.provisionprofile. package_release.sh
-#                      is the caller.
+#                      scripts/entitlements/keychain/<bundle identifier>.entitlements
+#                      (that identity's login keychain access group and the
+#                      identity keys that authorize it), and the profile
+#                      embedded as Contents/embedded.provisionprofile. The
+#                      callers are package_release.sh, with the release's
+#                      profile, and dev_e2e.sh, with the development
+#                      identity's.
 # The profile is proven to authorize those entitlements before anything is
 # signed (scripts/provisioning_profile.py), and the signed result is proven
 # again after: keychain entitlements without a matching embedded profile, or a
@@ -63,7 +64,9 @@ TOOLS_RELATIVE_PATH="$(product_config tools_relative_path)"
 SPARKLE_FRAMEWORK="$(product_config frameworks_relative_path)/$SPARKLE_FRAMEWORK_NAME"
 RIVE_FRAMEWORK="$(product_config frameworks_relative_path)/$RIVE_FRAMEWORK_NAME"
 ENTITLEMENTS="$ROOT_DIR/Apps/Fermix/Sources/Fermix/Fermix.entitlements"
-RELEASE_ENTITLEMENTS="$ROOT_DIR/scripts/entitlements/release_keychain.entitlements"
+# Named for the bundle identifier, so each identity is signed with its own
+# group and nothing here names one.
+KEYCHAIN_ENTITLEMENTS="$ROOT_DIR/scripts/entitlements/keychain/$BUNDLE_ID.entitlements"
 ENGINE_ENTITLEMENTS="$ROOT_DIR/scripts/entitlements/engine.entitlements"
 PROFILE_CHECK="$ROOT_DIR/scripts/provisioning_profile.py"
 EMBEDDED_PROFILE="$APP/Contents/embedded.provisionprofile"
@@ -131,15 +134,16 @@ $unexpected"
 refuse_unknown_nested_code
 
 # The GUI's entitlements for this signature, decided and proven before anything
-# is signed, so a profile that cannot authorize the release leaves the bundle
+# is signed, so a profile that cannot authorize the signature leaves the bundle
 # untouched.
 #
 # Without a profile the base set is the whole of it, and a bundle that already
 # embeds a profile is refused: signing over it would seal a profile the
 # signature does not use. With one, the identity must be a Developer ID (an
-# ad-hoc signature has no team for a profile to name), the release-only keys
-# are merged over the base set, the profile must authorize exactly that merged
-# set for this bundle identifier, and only then is it embedded.
+# ad-hoc signature has no team for a profile to name), this bundle
+# identifier's keychain keys are merged over the base set, the profile must
+# authorize exactly that merged set for this bundle identifier, and only then
+# is it embedded.
 prepare_gui_entitlements() {
   if [ -z "$PROFILE" ]; then
     [ ! -e "$EMBEDDED_PROFILE" ] ||
@@ -151,15 +155,16 @@ prepare_gui_entitlements() {
   [ "$IDENTITY" != "-" ] ||
     fail "an ad-hoc signature cannot carry a provisioning profile; the profile authorizes a Developer ID signature only"
   [ -f "$PROFILE" ] || fail "no provisioning profile at $PROFILE"
-  [ -f "$RELEASE_ENTITLEMENTS" ] || fail "release entitlements missing at $RELEASE_ENTITLEMENTS"
+  [ -f "$KEYCHAIN_ENTITLEMENTS" ] ||
+    fail "no keychain entitlements for $BUNDLE_ID at $KEYCHAIN_ENTITLEMENTS; nothing was signed"
 
   GUI_ENTITLEMENTS="$WORK_DIR/gui.entitlements"
   cp "$ENTITLEMENTS" "$GUI_ENTITLEMENTS"
-  /usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$GUI_ENTITLEMENTS" >/dev/null ||
-    fail "could not merge the release entitlements"
+  /usr/libexec/PlistBuddy -c "Merge $KEYCHAIN_ENTITLEMENTS" "$GUI_ENTITLEMENTS" >/dev/null ||
+    fail "could not merge the keychain entitlements"
   python3 "$PROFILE_CHECK" check --profile "$PROFILE" \
     --entitlements "$GUI_ENTITLEMENTS" --bundle-id "$BUNDLE_ID" ||
-    fail "the provisioning profile does not authorize this release's entitlements; nothing was signed"
+    fail "the provisioning profile does not authorize this bundle's keychain entitlements; nothing was signed"
   cp "$PROFILE" "$EMBEDDED_PROFILE"
 }
 

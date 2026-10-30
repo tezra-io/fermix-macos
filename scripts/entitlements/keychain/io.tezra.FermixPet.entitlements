@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- The keychain entitlements of the released app's GUI (M84 D6): the keychain
+     access group the website logins live in, and the two identity keys macOS
+     needs to authorize it. scripts/sign_app.sh merges the file named for the
+     bundle identifier over Apps/Fermix/Sources/Fermix/Fermix.entitlements only
+     when it signs with a Developer ID identity AND is handed that identity's
+     Developer ID provisioning profile, which it embeds as
+     Contents/embedded.provisionprofile after scripts/provisioning_profile.py
+     has proven the profile authorizes exactly these values. Never in any other
+     signature: observed 2026-10-30 on a Developer ID-signed app,
+     keychain-access-groups without an embedded profile is killed at launch
+     (exit 137), and without the group every data protection keychain call
+     answers -34018. The group is the one a release build compiles in
+     (LoginStoreSelection); the dev loop's identity has its own file beside
+     this one. -->
+<dict>
+  <key>com.apple.application-identifier</key>
+  <string>54A57TH9BJ.io.tezra.FermixPet</string>
+  <key>com.apple.developer.team-identifier</key>
+  <string>54A57TH9BJ</string>
+  <key>keychain-access-groups</key>
+  <array>
+    <string>54A57TH9BJ.io.tezra.FermixPet.logins</string>
+  </array>
+</dict>
+</plist>

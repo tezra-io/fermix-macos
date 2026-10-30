@@ -34,7 +34,10 @@ SPARKLE_FRAMEWORK="$(product_config frameworks_relative_path)/$SPARKLE_FRAMEWORK
 RIVE_FRAMEWORK="$(product_config frameworks_relative_path)/$RIVE_FRAMEWORK_NAME"
 
 WORK_DIR="$(mktemp -d)"
-trap 'rm -rf "$WORK_DIR"' EXIT
+# The harness passes only by reaching its end. The bash macOS ships reports 0
+# for a script an unset variable stopped once an EXIT trap has run, even to the
+# trap's own $?, so the trap refuses a run that never finished.
+trap 'rm -rf "$WORK_DIR"; [ "${harness_finished:-}" = 1 ] || exit 1' EXIT
 
 fail() {
   echo "sign_app_test: $*" >&2
@@ -244,28 +247,52 @@ expect_refusal "a missing bundle is refused rather than silently signing nothing
   "no staged bundle at" \
   "$SIGN" "$WORK_DIR/absent.app" -
 
-echo "sign_app_test: the release profile (M84 D6)"
+echo "sign_app_test: the keychain profile (M84 D6)"
 
 # Fake provisioning profiles, CMS-wrapped with a throwaway key so the script
 # decodes them through the same `security cms -D` a real one goes through.
 # Nothing here is Apple-signed and nothing reaches a keychain: openssl writes
 # every key and certificate into the work directory.
 PROFILE_CHECK="$ROOT_DIR/scripts/provisioning_profile.py"
-RELEASE_ENTITLEMENTS="$ROOT_DIR/scripts/entitlements/release_keychain.entitlements"
 # Read with plistlib: plutil's key paths split on the dots these keys contain.
-release_value() {
+entitlement_value() {
   python3 -c 'import plistlib, sys; value = plistlib.load(open(sys.argv[1], "rb"))[sys.argv[2]]; print(value[0] if isinstance(value, list) else value)' \
-    "$RELEASE_ENTITLEMENTS" "$1"
+    "$1" "$2"
 }
-TEAM="$(release_value com.apple.developer.team-identifier)"
-APP_ID="$(release_value com.apple.application-identifier)"
-GROUP="$(release_value keychain-access-groups)"
-# The release entitlements name this product: the app id is the team and the
-# configured bundle identifier, and the group lives under that app id.
-[ "$APP_ID" = "$TEAM.$BUNDLE_ID" ] ||
-  fail "the release entitlements name $APP_ID, and Product.json's bundle is $TEAM.$BUNDLE_ID"
-[ "$GROUP" = "$APP_ID.logins" ] || fail "the release entitlements name the group $GROUP"
-echo "  ok   the release entitlements name $APP_ID and $GROUP"
+# The bundle identifier an overlay names, read through the one reader in a
+# subshell of its own, as each script that is handed the overlay reads it.
+bundle_identifier_with() {
+  (
+    PRODUCT_CONFIG_OVERLAY="$1"
+    # shellcheck source=scripts/product_config.sh
+    source "$ROOT_DIR/scripts/product_config.sh"
+    product_config bundle_identifier
+  )
+}
+
+# Each identity signs with the keychain entitlements named for its bundle
+# identifier: the released app's and the dev loop's. Each names its own app id,
+# the team and that bundle identifier, and a group under that app id, so a login
+# saved under one identity is never in the other's group.
+DEV_OVERLAY="$ROOT_DIR/scripts/product.dev.json"
+for overlay in "" "$DEV_OVERLAY"; do
+  identity="$(bundle_identifier_with "$overlay")"
+  file="$ROOT_DIR/scripts/entitlements/keychain/$identity.entitlements"
+  [ -f "$file" ] || fail "no keychain entitlements for $identity at $file"
+  team="$(entitlement_value "$file" com.apple.developer.team-identifier)"
+  app_id="$(entitlement_value "$file" com.apple.application-identifier)"
+  group="$(entitlement_value "$file" keychain-access-groups)"
+  [ "$app_id" = "$team.$identity" ] || fail "$file names $app_id, and the bundle is $team.$identity"
+  [ "$group" = "$app_id.logins" ] || fail "$file names the group $group"
+  echo "  ok   $identity's keychain entitlements name $app_id and $group"
+done
+DEV_BUNDLE_ID="$(bundle_identifier_with "$DEV_OVERLAY")"
+[ "$DEV_BUNDLE_ID" != "$BUNDLE_ID" ] || fail "the dev overlay does not name another bundle identifier"
+
+KEYCHAIN_ENTITLEMENTS="$ROOT_DIR/scripts/entitlements/keychain/$BUNDLE_ID.entitlements"
+TEAM="$(entitlement_value "$KEYCHAIN_ENTITLEMENTS" com.apple.developer.team-identifier)"
+APP_ID="$(entitlement_value "$KEYCHAIN_ENTITLEMENTS" com.apple.application-identifier)"
+GROUP="$(entitlement_value "$KEYCHAIN_ENTITLEMENTS" keychain-access-groups)"
 
 PROFILES="$WORK_DIR/profiles"
 mkdir -p "$PROFILES"
@@ -316,11 +343,16 @@ PY
   printf '%s\n' "$PROFILES/$name.provisionprofile"
 }
 
-# What the release signs: the base set with the release-only keys merged over
-# it, as sign_app.sh merges them.
-RELEASE_SET="$PROFILES/release.entitlements"
-cp "$ROOT_DIR/Apps/Fermix/Sources/Fermix/Fermix.entitlements" "$RELEASE_SET"
-/usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$RELEASE_SET" >/dev/null
+# What an identity signs: the base set with its keychain keys merged over it,
+# as sign_app.sh merges them.
+signed_set() {
+  local out="$PROFILES/$1.entitlements"
+  cp "$ROOT_DIR/Apps/Fermix/Sources/Fermix/Fermix.entitlements" "$out"
+  /usr/libexec/PlistBuddy -c "Merge $ROOT_DIR/scripts/entitlements/keychain/$1.entitlements" "$out" >/dev/null
+  printf '%s\n' "$out"
+}
+RELEASE_SET="$(signed_set "$BUNDLE_ID")"
+DEV_SET="$(signed_set "$DEV_BUNDLE_ID")"
 
 check_profile() {
   python3 "$PROFILE_CHECK" check --profile "$1" --entitlements "$RELEASE_SET" --bundle-id "$BUNDLE_ID" "${@:2}"
@@ -328,6 +360,12 @@ check_profile() {
 
 good="$(fake_profile good)"
 expect_pass "a Developer ID profile granting the team's groups authorizes the release" check_profile "$good"
+dev_profile="$(fake_profile dev "app_id=$TEAM.$DEV_BUNDLE_ID")"
+expect_pass "the development identity's profile authorizes the dev loop's own set" \
+  python3 "$PROFILE_CHECK" check --profile "$dev_profile" --entitlements "$DEV_SET" --bundle-id "$DEV_BUNDLE_ID"
+expect_refusal "the release's profile does not authorize the dev loop's set" \
+  "the profile is for the app id" \
+  python3 "$PROFILE_CHECK" check --profile "$good" --entitlements "$DEV_SET" --bundle-id "$DEV_BUNDLE_ID"
 expect_pass "a profile granting exactly the group authorizes it too" \
   check_profile "$(fake_profile exact "groups=$GROUP")"
 expect_pass "the profile lists the certificate that signed" \
@@ -374,6 +412,16 @@ expect_profile_refusal "a file that is not a provisioning profile is refused" \
 expect_profile_refusal "a missing profile is refused" \
   "no provisioning profile at" "$PROFILES/absent.provisionprofile"
 
+# An identity with no keychain entitlements of its own is refused before
+# anything is signed, rather than signed with another identity's group.
+printf '{"bundle_identifier": "%s.unlisted"}\n' "$BUNDLE_ID" >"$WORK_DIR/unlisted.json"
+app="$(fresh_bundle unlisted-identity)"
+expect_refusal "a bundle identifier with no keychain entitlements is refused" \
+  "no keychain entitlements for $BUNDLE_ID.unlisted" \
+  env PRODUCT_CONFIG_OVERLAY="$WORK_DIR/unlisted.json" "$SIGN" "$app" "$FAKE_IDENTITY" "$good"
+[ ! -e "$app/Contents/embedded.provisionprofile" ] || fail "an unlisted identity embedded a profile"
+[ ! -d "$app/Contents/_CodeSignature" ] || fail "an unlisted identity was signed"
+
 app="$(fresh_bundle adhoc-with-profile)"
 expect_refusal "an ad-hoc signature with a profile is refused" \
   "an ad-hoc signature cannot carry a provisioning profile" \
@@ -398,4 +446,5 @@ expect_refusal "entitlements claiming another app id are refused against a good 
   "and this bundle is $APP_ID" \
   python3 "$PROFILE_CHECK" check --profile "$good" --entitlements "$RELEASE_SET" --bundle-id "$BUNDLE_ID.dev"
 
+harness_finished=1
 echo "sign_app_test: ok"
