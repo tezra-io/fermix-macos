@@ -937,6 +937,9 @@ extension AppEnvironment {
             identities: FixtureDaemonIdentity(),
             companionLines: FixtureCompanionTransport(timeline: launch.companionTimeline),
             browserHostLines: FixtureBrowserHostTransport(),
+            // Logins in memory, so the Browser pane's section is looked at
+            // with no keychain behind it.
+            loginStore: InMemoryLoginStore(),
             nativeHostLines: FixtureNativeHostTransport(),
             // A scripted daemon on the voice socket and a silent engine under
             // the call, so a call begun from any surface reaches neither the
