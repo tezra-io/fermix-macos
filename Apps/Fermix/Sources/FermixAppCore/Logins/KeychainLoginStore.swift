@@ -112,7 +112,9 @@ public struct KeychainLoginStore: LoginStore {
 
     public func login(forHost host: String) async throws -> SavedLogin? {
         try await run { [self] in
-            try readList().first { LoginSite.matches(savedSite: $0.site, host: host) }
+            let logins = try readList()
+            let site = LoginSite.site(forHost: host, among: logins.map(\.site))
+            return logins.first { $0.site == site }
         }
     }
 

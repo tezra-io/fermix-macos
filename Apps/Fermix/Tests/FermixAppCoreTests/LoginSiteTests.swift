@@ -87,30 +87,54 @@ struct LoginSiteTests {
     }
 
     @Test(
-        "a page matches only the exact saved site, www. folded",
+        "a page uses the site saved for its own host, www. folded",
         arguments: ["github.com", "www.github.com", "GITHUB.COM.", "WWW.github.com"]
     )
-    func matches(host: String) {
-        #expect(LoginSite.matches(savedSite: "github.com", host: host))
+    func ownSite(host: String) {
+        #expect(LoginSite.site(forHost: host, among: ["github.com"]) == "github.com")
     }
 
     @Test(
-        "a subdomain, a look-alike or a suffix trick never matches",
-        arguments: [
-            "gist.github.com", "evilgithub.com", "github.com.evil.example", "github.co",
-            "githubcom", "127.0.0.1", "", "xn--github-.com", "www.www.github.com"
-        ]
+        "with no login for its own host, a page uses the one saved for a domain it is under",
+        arguments: ["identity.walmart.com", "www.identity.walmart.com", "a.b.walmart.com", "IDENTITY.WALMART.COM."]
     )
-    func doesNotMatch(host: String) {
-        #expect(!LoginSite.matches(savedSite: "github.com", host: host))
+    func parentSite(host: String) {
+        #expect(LoginSite.site(forHost: host, among: ["walmart.com", "github.com"]) == "walmart.com")
     }
 
-    @Test("a site saved with www. is stored folded, so both page forms match it")
+    @Test("the page's own site wins over a parent, and the closest parent over a farther one")
+    func closestWins() {
+        let saved = ["walmart.com", "identity.walmart.com", "b.example.com", "example.com"]
+
+        #expect(LoginSite.site(forHost: "identity.walmart.com", among: saved) == "identity.walmart.com")
+        #expect(LoginSite.site(forHost: "www.walmart.com", among: saved) == "walmart.com")
+        #expect(LoginSite.site(forHost: "a.b.example.com", among: saved) == "b.example.com")
+        #expect(LoginSite.site(forHost: "c.example.com", among: saved) == "example.com")
+    }
+
+    @Test(
+        "a look-alike, a suffix trick or a refused host never uses a saved site",
+        arguments: [
+            "evilgithub.com", "github.com.evil.example", "github.co", "githubcom",
+            "127.0.0.1", "", "xn--github-.com", "localhost", "github.localhost"
+        ]
+    )
+    func noSite(host: String) {
+        #expect(LoginSite.site(forHost: host, among: ["github.com"]) == nil)
+    }
+
+    @Test("a parent never uses its subdomain's login, and a sibling never another's")
+    func neverDownOrAcross() {
+        #expect(LoginSite.site(forHost: "github.com", among: ["gist.github.com"]) == nil)
+        #expect(LoginSite.site(forHost: "api.github.com", among: ["gist.github.com"]) == nil)
+    }
+
+    @Test("a site saved with www. is stored folded, so both page forms use it")
     func wwwFoldBothWays() throws {
         let saved = try LoginSite.key("www.example.org").get()
 
         #expect(saved == "example.org")
-        #expect(LoginSite.matches(savedSite: saved, host: "example.org"))
-        #expect(LoginSite.matches(savedSite: saved, host: "www.example.org"))
+        #expect(LoginSite.site(forHost: "example.org", among: [saved]) == saved)
+        #expect(LoginSite.site(forHost: "www.example.org", among: [saved]) == saved)
     }
 }

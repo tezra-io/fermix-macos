@@ -86,7 +86,8 @@ public protocol LoginStore: Sendable {
     /// The site never changes; a nil password keeps the saved one.
     func update(id: UUID, username: String, password: LoginSecret?) async throws -> SavedLogin
     func delete(id: UUID) async throws
-    /// The login whose site matches `host` under D2, attributes only.
+    /// The login `host` uses under D2 (`LoginSite.site(forHost:among:)`): its
+    /// own site's, else the closest parent domain's. Attributes only.
     func login(forHost host: String) async throws -> SavedLogin?
     /// The one secret read.
     func password(for id: UUID) async throws -> LoginSecret

@@ -40,7 +40,8 @@ public actor InMemoryLoginStore: LoginStore {
     }
 
     public func login(forHost host: String) async throws -> SavedLogin? {
-        logins.values.first { LoginSite.matches(savedSite: $0.site, host: host) }
+        let site = LoginSite.site(forHost: host, among: logins.values.map(\.site))
+        return logins.values.first { $0.site == site }
     }
 
     public func password(for id: UUID) async throws -> LoginSecret {

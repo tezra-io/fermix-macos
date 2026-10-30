@@ -171,15 +171,17 @@ struct LoginStoreTests {
         #expect(again.id != saved.id)
     }
 
-    @Test("a page's host finds the login saved for its key, and only that one")
+    @Test("a page's host finds the login saved for its key, else for the closest domain it is under")
     func loginForHost() async throws {
         let store = InMemoryLoginStore()
         let github = try await store.add(site: "github.com", username: "alice", password: password)
+        let gist = try await store.add(site: "gist.github.com", username: "alice-gists", password: password)
         _ = try await store.add(site: "accounts.google.com", username: "alice@gmail.com", password: password)
 
         #expect(try await store.login(forHost: "www.github.com") == github)
         #expect(try await store.login(forHost: "GITHUB.COM.") == github)
-        #expect(try await store.login(forHost: "gist.github.com") == nil)
+        #expect(try await store.login(forHost: "gist.github.com") == gist)
+        #expect(try await store.login(forHost: "api.github.com") == github)
         #expect(try await store.login(forHost: "evilgithub.com") == nil)
         #expect(try await store.login(forHost: "github.com.evil.example") == nil)
         #expect(try await store.login(forHost: "google.com") == nil)

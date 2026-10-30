@@ -1,9 +1,9 @@
 import Foundation
 
 /// The site a website login is saved for, and the one rule for which pages it
-/// belongs to (M84 D2): exact site, one leading `www.` folded, no subdomain
-/// matching. Pure, so the save sheet, the store and the browser host all ask
-/// the same function.
+/// belongs to (M84 D2): a page's own site, one leading `www.` folded, and, when
+/// none is saved for it, the closest saved site it is a subdomain of. Pure, so
+/// the save sheet, the store and the browser host all ask the same function.
 public enum LoginSite {
     /// The key form of a typed host or a pasted http(s) address, or why it is
     /// refused.
@@ -24,9 +24,19 @@ public enum LoginSite {
         return refusal(of: trimmed.lowercased()).map(Result.failure) ?? .success(folded(trimmed.lowercased()))
     }
 
-    /// Whether a page's host belongs to a saved site (D2: key equality).
-    public static func matches(savedSite: String, host: String) -> Bool {
-        key(host) == .success(savedSite)
+    /// Which of the saved sites (keys) a page's host uses, or nil (D2): its own
+    /// key when that is saved; otherwise the longest saved site the key ends
+    /// with after a dot, so `identity.walmart.com` uses `walmart.com` and
+    /// `a.b.example.com` uses `b.example.com` over `example.com`. Many sites
+    /// sign in on a host of their own. A look-alike (`evilwalmart.com`) or a
+    /// suffix trick (`walmart.com.evil.example`) never ends with `.` and a
+    /// saved site, and a domain never uses its subdomain's login. The engine
+    /// asks the owner at the password, naming both sites.
+    public static func site(forHost host: String, among saved: [String]) -> String? {
+        guard case .success(let hostKey) = key(host) else { return nil }
+        if saved.contains(hostKey) { return hostKey }
+
+        return saved.filter { hostKey.hasSuffix("." + $0) }.max { $0.count < $1.count }
     }
 
     private static let schemes: Set<String> = ["http", "https"]

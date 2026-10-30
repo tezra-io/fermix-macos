@@ -610,7 +610,7 @@ struct WebsiteLoginsCopyTests {
             (.settingsBrowserLoginsAdd, "Add login…"),
             (.settingsBrowserLoginsEdit, "Edit…"),
             (.settingsBrowserLoginSite, "Site"),
-            (.settingsBrowserLoginSiteHint, "Use the address of the sign-in page, like accounts.google.com."),
+            (.settingsBrowserLoginSiteHint, "Use the site’s address, like google.com. Its sign-in pages, like accounts.google.com, use it too."),
             (.settingsBrowserLoginUsername, "Username"),
             (.settingsBrowserLoginPassword, "Password"),
             (.settingsBrowserLoginKeepPassword, "Leave empty to keep the saved password."),

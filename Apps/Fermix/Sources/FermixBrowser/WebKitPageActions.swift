@@ -374,7 +374,8 @@ final class WebKitPageActions {
     }
 
     /// `page.login_for`: the tab's top page is `https` and its host is
-    /// `site`'s by key, and the saved login for that key, attributes only.
+    /// `site`'s by key, and the saved login that host uses (its own site's,
+    /// else the closest parent domain's), attributes only.
     /// Answers the top origin too, which the page holds for the
     /// `page.sign_in` that follows.
     func loginFor(site: String, store: any LoginStore) async throws -> (login: SavedLogin, origin: String) {

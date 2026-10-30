@@ -852,7 +852,7 @@
 "settings.browser.loginsAdd" = "Add login…";
 "settings.browser.loginsEdit" = "Edit…";
 "settings.browser.loginSite" = "Site";
-"settings.browser.loginSiteHint" = "Use the address of the sign-in page, like accounts.google.com.";
+"settings.browser.loginSiteHint" = "Use the site’s address, like google.com. Its sign-in pages, like accounts.google.com, use it too.";
 "settings.browser.loginUsername" = "Username";
 "settings.browser.loginPassword" = "Password";
 "settings.browser.loginKeepPassword" = "Leave empty to keep the saved password.";

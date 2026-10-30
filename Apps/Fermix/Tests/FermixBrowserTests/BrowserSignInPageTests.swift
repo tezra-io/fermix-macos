@@ -85,6 +85,31 @@ struct BrowserSignInPageTests {
         #expect(login.site == SignInFixture.site)
     }
 
+    /// A site that signs in on a host of its own (`identity.walmart.com` for
+    /// `walmart.com`) uses the login saved for the domain it is under, and the
+    /// fill types that login: the engine's approval names both sites.
+    @Test("a sign-in page on a subdomain uses the login saved for its parent domain, and fills it")
+    func parentDomainLoginFills() async throws {
+        let harness = BrowserPageHarness()
+        let store = try await SignInFixture.store()
+        let ledger = LoginLedger()
+        try await harness.load(SignInFixture.plainForm, at: "https://gist.github.com/login")
+        let refs = try await harness.fieldRefs()
+
+        let login = try await harness.page.loginFor(site: "gist.github.com", store: store)
+        let outcome = try await harness.page.signIn(
+            BrowserSignInRequest(
+                site: "gist.github.com", loginSite: login.site,
+                usernameRef: refs["Email"], passwordRef: refs["Password"]
+            ),
+            store: store, ledger: ledger, observing: Self.observation
+        )
+
+        #expect(login.site == SignInFixture.site)
+        #expect(outcome.filled == [.username, .password])
+        #expect(try await harness.pageString("document.getElementById('password').value") == SignInFixture.password)
+    }
+
     // MARK: - Refusals before anything is typed
 
     @Test("a page that is not https is refused")
@@ -109,7 +134,7 @@ struct BrowserSignInPageTests {
 
     @Test("evilgithub.com and github.com.evil.example find no login saved for github.com")
     func lookalikesFindNoLogin() async throws {
-        for host in ["evilgithub.com", "github.com.evil.example", "gist.github.com"] {
+        for host in ["evilgithub.com", "github.com.evil.example"] {
             let harness = BrowserPageHarness()
             try await harness.load(SignInFixture.plainForm, at: "https://\(host)/login")
 
