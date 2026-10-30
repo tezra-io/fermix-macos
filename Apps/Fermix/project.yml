@@ -52,6 +52,7 @@ targets:
         excludes:
           - Resources/Contracts
           - Resources/VendorMarks
+          - Resources/Fonts
           # The mark master is a generator input, not a runtime resource.
           # Its three state rasters ship beside it and
           # scripts/check_brand_images.sh keeps them in step with it.
@@ -68,6 +69,9 @@ targets:
       # Same reason: the marks split into providers/ and channels/, and
       # PROVENANCE.json must stay beside the files it describes.
       - path: Sources/FermixAppCore/Resources/VendorMarks
+        type: folder
+      # The reading face keeps its licence and PROVENANCE.json beside it.
+      - path: Sources/FermixAppCore/Resources/Fonts
         type: folder
     settings:
       base:

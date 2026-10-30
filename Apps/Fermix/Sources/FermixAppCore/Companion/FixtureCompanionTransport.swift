@@ -585,7 +585,7 @@ enum FixtureRepliesScript {
         - [A cutting garden in one bed](https://weekendplot.example/2026/03/cutting-garden-in-one-bed) fits both into a small space.
         - The [spring seed list](https://seedswap.example/lists/spring-seeds) has both in stock.
 
-        Start the sunflowers indoors about three weeks before your last frost.
+        Start the sunflowers indoors about three weeks before your last frost, which the county lists at https://extension.example/frost-dates. The swap's newsletter also links an order form as [seedswap.example/order](https://seedswap-orders.example/checkout), which is a different site, so check it before you pay.
         """
 
     static let linkPreviews: [CompanionLinkPreview] = [

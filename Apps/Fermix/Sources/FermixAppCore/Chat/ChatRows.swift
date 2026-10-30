@@ -13,6 +13,8 @@ struct ChatRowContext: Equatable, Sendable {
     let links: ContentLinkOpener
     /// The one place the whole chat shows on a reply's map (M72 §14.1).
     let places: ChatPlaceSelection
+    /// The check every link a reply's words draw opens through.
+    let linkGuard: ChatLinkGuard
     /// The Fermix home as this visit to Chat read it, nil until the surface
     /// has read it.
     let visit: ChatVisit?
@@ -20,12 +22,14 @@ struct ChatRowContext: Equatable, Sendable {
     let columnWidth: Double
 
     /// The media, the player and the opener are each one object for the
-    /// app's life, and the places shown one for the surface's, so two
+    /// app's life, and the places shown and the link check one for the
+    /// surface's, so two
     /// contexts are the same when they, the visit and the column are: a
     /// keystroke that redraws the surface must not redraw every row.
     static func == (lhs: ChatRowContext, rhs: ChatRowContext) -> Bool {
         lhs.media === rhs.media && lhs.player === rhs.player && lhs.links === rhs.links
-            && lhs.places === rhs.places && lhs.visit == rhs.visit && lhs.columnWidth == rhs.columnWidth
+            && lhs.places === rhs.places && lhs.linkGuard === rhs.linkGuard
+            && lhs.visit == rhs.visit && lhs.columnWidth == rhs.columnWidth
     }
 }
 
@@ -80,7 +84,9 @@ struct ChatItemView: View {
 /// name what the strip and the players show. A row with no other words, a
 /// picture Fermix sent to the phone or a reply that only lists what it made,
 /// draws its strip alone. A turn still being written is no row yet, so
-/// nothing here looks at the disk while a reply streams.
+/// nothing here looks at the disk while a reply streams. Under a reply with
+/// words, what can be done with it (`ChatMessageActions`); beside a person's
+/// own message, the same on its leading side.
 ///
 /// It draws again only when what it draws changes: the row, compared whole
 /// so a field the row gains is never missed, and the words a search marks in
@@ -110,9 +116,9 @@ struct ChatRow: View, Equatable {
                 ChatVoiceNote(note: note, transcript: words(strip), speaker: row.role, player: rows.player)
             } else if !strip.text.isEmpty {
                 if user {
-                    ChatUserRow(text: words(strip), sending: false)
+                    ChatUserRow(text: words(strip), sending: false, copying: row.text)
                 } else if let reply = strip.reply {
-                    ChatReplyRow(blocks: reply.blocks, marked: marked, speaker: row.role)
+                    ChatReplyRow(blocks: reply.blocks, marked: marked, titles: ChatLinkTitles(row.linkPreviews), speaker: row.role)
                 }
             }
 
@@ -131,6 +137,7 @@ struct ChatRow: View, Equatable {
             }
         }
         .frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
+        .modifier(ChatReplyActionsRow(row: row))
     }
 
     /// The words as one text, as the strip read them: Fermix's drawn with
@@ -143,23 +150,26 @@ struct ChatRow: View, Equatable {
 }
 
 /// What the owner wrote: on the trailing side, in a soft fill on the ground,
-/// as they typed it. While the daemon has not accepted it, it says so under it.
+/// as they typed it. While the daemon has not accepted it, it says so under
+/// it; once it has, Copy waits beside it, in the room on its leading side,
+/// and shows while the pointer is over it.
 private struct ChatUserRow: View {
     let text: AttributedString
     let sending: Bool
+    /// What Copy writes, nil while the message is still being sent.
+    var copying: String?
+
+    @State private var hovering = false
 
     var body: some View {
         VStack(alignment: .trailing, spacing: Spacing.xxs) {
-            Text(text)
-                .fermixType(Typography.style(.body))
-                .foregroundStyle(Palette.ink.color)
-                .textSelection(.enabled)
-                .padding(ChatMetrics.userChipPadding)
-                .background(
-                    RoundedRectangle(cornerRadius: ChatMetrics.rowRadius, style: .continuous)
-                        .fill(Palette.chipFill.color)
-                )
-                .opacity(sending ? ChatMetrics.sendingStrength : 1)
+            HStack(alignment: .bottom, spacing: Spacing.xxs) {
+                if let copying {
+                    ChatCopyAction(text: copying, shown: hovering)
+                }
+
+                chip
+            }
 
             if sending {
                 Text(ProductStrings[.chatSending])
@@ -168,10 +178,25 @@ private struct ChatUserRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(.leading, ChatMetrics.userRowLeadingRoom)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(ChatSpeaker.name(role: ChatSpeaker.user))
-        .accessibilityValue(sending ? ProductStrings.commaPair(String(text.characters), ProductStrings[.chatSending]) : String(text.characters))
+        .padding(.leading, ChatMetrics.userRowLeadingRoom - (copying == nil ? 0 : ChatMetrics.actionSize + Spacing.xxs))
+        .onHover { hovering = $0 }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var chip: some View {
+        Text(text)
+            .fermixType(ChatMetrics.readingType)
+            .foregroundStyle(Palette.ink.color)
+            .textSelection(.enabled)
+            .padding(ChatMetrics.userChipPadding)
+            .background(
+                RoundedRectangle(cornerRadius: ChatMetrics.rowRadius, style: .continuous)
+                    .fill(Palette.chipFill.color)
+            )
+            .opacity(sending ? ChatMetrics.sendingStrength : 1)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(ChatSpeaker.name(role: ChatSpeaker.user))
+            .accessibilityValue(sending ? ProductStrings.commaPair(String(text.characters), ProductStrings[.chatSending]) : String(text.characters))
     }
 }
 
@@ -185,12 +210,14 @@ private struct ChatReplyRow: View {
     let blocks: [ReplyBlock]
     /// Words to mark, where the reader was sent here by a search.
     let marked: [String]
+    /// The titles of the pages its links go to, where the engine read them.
+    let titles: ChatLinkTitles
     let speaker: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: ChatMetrics.codeBlockGap) {
             ForEach(Array(ChatReplyPart.parts(of: blocks).enumerated()), id: \.offset) { _, part in
-                ChatReplyPartView(part: part, marked: marked, speaker: speaker)
+                ChatReplyPartView(part: part, marked: marked, titles: titles, speaker: speaker)
                     .equatable()
             }
         }
@@ -198,46 +225,38 @@ private struct ChatReplyRow: View {
     }
 }
 
-/// One part of what Fermix wrote, drawn (`ChatText`): a run of paragraphs
-/// straight on the ground as one text, and every other block in its own
-/// view. Compared by what it draws, so its words are coloured once for each
-/// reading of them: a turn still being written colours only the part it is
-/// writing, and a row drawn again for a narrower column colours nothing.
+/// One part of what Fermix wrote: a run of paragraphs straight on the
+/// ground as one text (`ChatProse`), and every other block in its own view.
+/// Compared by what it draws, so its words are drawn once for each reading
+/// of them: a turn still being written draws only the part it is writing,
+/// and a row drawn again for a narrower column draws nothing new.
 struct ChatReplyPartView: View, Equatable {
     let part: ChatReplyPart
     /// Words to mark, where the reader was sent here by a search.
     let marked: [String]
+    let titles: ChatLinkTitles
     let speaker: String?
 
     var body: some View {
         switch part {
         case .paragraphs(let run):
-            words(ChatText.paragraphs(run, marking: marked))
-        case .block(let block):
-            switch ChatText.drawn(block, marking: marked) {
-            case .prose(let paragraph):
-                words(paragraph)
-            case .code(let code):
-                ChatCodeBlock(code: code, marked: marked)
-            case .list(let list):
-                ChatListBlock(list: list)
-            case .table(let table):
-                ChatTableBlock(table: table)
-            case .quote(let quote):
-                ChatQuoteBlock(words: quote)
-            }
+            prose(run)
+        case .block(.prose(let paragraph)):
+            prose([paragraph])
+        case .block(.code(let code)):
+            ChatCodeBlock(code: code, marked: marked)
+        case .block(.list(let list)):
+            ChatListBlock(list: list, marked: marked, titles: titles, speaker: speaker)
+        case .block(.table(let table)):
+            ChatTableBlock(table: ChatText.drawn(table, marking: marked))
+        case .block(.quote(let quote)):
+            ChatQuoteBlock(words: quote, marked: marked, titles: titles, speaker: speaker)
         }
     }
 
-    private func words(_ words: AttributedString) -> some View {
-        Text(words)
-            .fermixType(Typography.style(.body))
-            .foregroundStyle(Palette.ink.color)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(ChatSpeaker.name(role: speaker))
-            .accessibilityValue(String(words.characters))
+    private func prose(_ paragraphs: [AttributedString]) -> some View {
+        ChatProse(paragraphs: paragraphs, marked: marked, titles: titles, speaker: speaker)
+            .equatable()
     }
 }
 
@@ -256,6 +275,7 @@ private struct ChatTurnRow: View {
                 ChatReplyRow(
                     blocks: draft.blocks(turn.text, home: rows.media.userHome),
                     marked: [],
+                    titles: .none,
                     speaker: CompanionProtocol.assistantRole
                 )
             }

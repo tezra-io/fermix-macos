@@ -13,8 +13,7 @@ enum ReplyPaths {
     /// Every path in a parsed reply, as a `file://` link. A bare path is read
     /// in plain text only: inside a link it is part of that link, and inside
     /// code it counts only as the whole span. A markdown link to a path keeps
-    /// its own words; a path written out is marked as written
-    /// (`ReplyWrittenLink`).
+    /// its own words; a path written out is a link to itself.
     static func linked(_ reply: AttributedString, home: String) -> AttributedString {
         var linked = reply
         for run in reply.runs {
@@ -22,13 +21,13 @@ enum ReplyPaths {
                 guard let file = fileLink(link, home: home) else { continue }
                 linked[run.range].link = file
             } else if let file = codePath(run, in: reply, home: home) {
-                linked.linkWritten(run.range, to: file)
+                linked[run.range].link = file
             }
         }
         let text = String(reply.characters)
         for path in barePaths(in: text) {
             guard let range = Range(path, in: reply), reply[range].runs.allSatisfy(isPlain) else { continue }
-            linked.linkWritten(range, to: fileURL(String(withoutLineReference(text[path])), home: home))
+            linked[range].link = fileURL(String(withoutLineReference(text[path])), home: home)
         }
 
         return linked

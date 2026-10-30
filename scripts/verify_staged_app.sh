@@ -396,7 +396,8 @@ check_vendored_contracts() {
 }
 
 # Every mark in the source tree must have reached the bundle, and the record
-# that describes them must travel with them.
+# that describes them must travel with them; so must every file of the
+# reading face.
 check_staged_assets() {
   local resources marks source_marks name record
   resources="$(product_config_resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"
@@ -420,6 +421,13 @@ check_staged_assets() {
   done <<MARKS
 $(cd "$source_marks" && find . -type f ! -name '*.json' | sed 's|^\./||')
 MARKS
+  # The chat's reading face, its licence and its record, every file of them.
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    [ -f "$resources/Fonts/$name" ] || fail "Fonts/$name is not staged"
+  done <<FONTS
+$(cd "$SOURCE_RESOURCES/Fonts" && find . -type f | sed 's|^\./||')
+FONTS
   for asset in "Product.json" "en.lproj/Localizable.strings" "FermixMarkTemplate.png"; do
     [ -f "$resources/$asset" ] || fail "$asset is not staged in the resource bundle"
   done

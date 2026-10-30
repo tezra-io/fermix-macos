@@ -97,19 +97,23 @@ enum ChatText {
         block.mappingWords { marking(terms, in: drawn($0)) }
     }
 
-    /// A run of paragraphs drawn as one text, as a block's words are, with
-    /// a blank line between each two.
-    static func paragraphs(_ run: [AttributedString], marking terms: [String]) -> AttributedString {
-        marking(terms, in: joined(run.map(drawn), by: paragraphBreak))
+    /// A table drawn: each cell's words as a block's are, and a search's
+    /// matches marked.
+    static func drawn(_ table: ReplyTable, marking terms: [String]) -> ReplyTable {
+        guard case .table(let drawn) = drawn(.table(table), marking: terms) else {
+            preconditionFailure("a table's words drawn are a table")
+        }
+
+        return drawn
     }
 
-    /// Words drawn in their links' colours. A markdown link's own words are
-    /// the text blue, `accentText`, which holds §9's floor on the dark
-    /// ground: left to the window's tint they would be the accent, which
-    /// does not. A path or an address written out is the text it is, so it
-    /// keeps the reply's own `ink`, because blue on every path read as noise,
-    /// and is underlined in `faint`, because ink alone passed for plain text
-    /// (owner, 2026-10-04; M66 §3.1). A code span sits on a faint fill
+    /// Words drawn with their links set inline. Every link, a markdown link
+    /// and a path or an address written out alike, keeps the words' own
+    /// `ink` and is underlined in `faint`, as a reply's words in the system's
+    /// text view draw one (`ChatProseText`): links read as part of the
+    /// sentence, as the chat apps people know draw them, and the underline
+    /// says they are links (owner, 2026-10-30; blue on every path read as
+    /// noise, 2026-10-04). A code span sits on a faint fill
     /// (`codeSpanFill`), which marks it as code without changing the line's
     /// height.
     private static func drawn(_ words: AttributedString) -> AttributedString {
@@ -120,12 +124,8 @@ enum ChatText {
             }
             guard run.link != nil else { continue }
 
-            if run[ReplyWrittenLink.self] == true {
-                drawn[run.range].foregroundColor = Palette.ink.color
-                drawn[run.range].underlineStyle = Text.LineStyle(pattern: .solid, color: Palette.faint.color)
-            } else {
-                drawn[run.range].foregroundColor = Palette.accentText.color
-            }
+            drawn[run.range].foregroundColor = Palette.ink.color
+            drawn[run.range].underlineStyle = Text.LineStyle(pattern: .solid, color: Palette.faint.color)
         }
 
         return drawn
@@ -293,5 +293,18 @@ enum ChatTime {
         guard let moment = try? Date(wire, strategy: .iso8601) else { return wire }
 
         return moment.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    /// When a message was written, said short beside it: its time alone on
+    /// the day it is read, its day and time in the year it is read, and its
+    /// whole date and time before that.
+    static func said(_ wire: String, now: Date = .now, calendar: Calendar = .current) -> String {
+        guard let moment = try? Date(wire, strategy: .iso8601) else { return wire }
+        if calendar.isDate(moment, inSameDayAs: now) {
+            return moment.formatted(date: .omitted, time: .shortened)
+        }
+        guard calendar.isDate(moment, equalTo: now, toGranularity: .year) else { return written(wire) }
+
+        return moment.formatted(.dateTime.month(.abbreviated).day().hour().minute())
     }
 }

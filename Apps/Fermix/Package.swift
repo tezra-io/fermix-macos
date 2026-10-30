@@ -63,6 +63,11 @@ let package = Package(
                 // contracts: `.process` would flatten both directories into
                 // the bundle root.
                 .copy("Resources/VendorMarks"),
+                // The chat's reading face, with its licence and its
+                // PROVENANCE.json beside it, registered for this process
+                // alone at first use (`ReadingFace`). `.copy` keeps the
+                // record with the files it describes.
+                .copy("Resources/Fonts"),
                 .process("Resources/AppIcon"),
                 // The templates are processed, not copied: `.process` is what
                 // pairs each state's raster with its @2x sibling for NSImage,

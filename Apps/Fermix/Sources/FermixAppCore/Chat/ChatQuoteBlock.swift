@@ -6,11 +6,15 @@ extension ChatMetrics {
     static let quoteGap: Double = Spacing.s
 }
 
-/// A quote in a reply: its words in the reply's own face and ink, beside a
-/// thin faint bar as tall as they are.
+/// A quote in a reply: its words drawn as a reply's paragraphs are
+/// (`ChatProse`), beside a thin faint bar as tall as they are.
 struct ChatQuoteBlock: View {
-    /// The quote's words, drawn.
+    /// The quote's words as they were parsed.
     let words: AttributedString
+    /// Words to mark, where the reader was sent here by a search.
+    let marked: [String]
+    let titles: ChatLinkTitles
+    let speaker: String?
 
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -20,11 +24,8 @@ struct ChatQuoteBlock: View {
                 .fill(Palette.hairline(.strong, increaseContrast: contrast == .increased).color)
                 .frame(width: ChatMetrics.quoteBarWidth)
 
-            Text(words)
-                .fermixType(Typography.style(.body))
-                .foregroundStyle(Palette.ink.color)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            ChatProse(paragraphs: [words], marked: marked, titles: titles, speaker: speaker)
+                .equatable()
         }
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .ignore)

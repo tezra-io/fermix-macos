@@ -55,7 +55,6 @@ struct ChatTranscript: View {
 
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                         let previous = index > 0 ? items[index - 1] : nil
-                        let opensNewTurn = ChatTimeline.opensNewTurn(after: previous, before: item)
 
                         ChatItemView(
                             item: item,
@@ -63,7 +62,7 @@ struct ChatTranscript: View {
                             answer: session.answerApproval,
                             decide: session.answerProposal
                         )
-                            .padding(.top, opensNewTurn ? ChatMetrics.turnGap - ChatMetrics.rowGap : 0)
+                            .padding(.top, ChatTimeline.turnPadding(after: previous, before: item))
                             .id(item.id)
                     }
                 }

@@ -96,11 +96,17 @@ public struct TypeStyle: Equatable, Sendable {
 
     public var font: Font { font(at: size) }
 
-    /// The rung's face at whatever size the environment scaled it to.
-    public func font(at scaled: Double) -> Font {
-        monospaced
-            ? .system(size: scaled, weight: weight.fontWeight, design: .monospaced)
-            : .system(size: scaled, weight: weight.fontWeight)
+    /// The rung's face at whatever size the environment scaled it to: the
+    /// system's monospaced face for a monospaced rung, and otherwise the face
+    /// the surface sets its words in.
+    public func font(at scaled: Double, face: TypeFace = .system) -> Font {
+        if monospaced {
+            return .system(size: scaled, weight: weight.fontWeight, design: .monospaced)
+        }
+        switch face {
+        case .system: return .system(size: scaled, weight: weight.fontWeight)
+        case .reading: return ReadingFace.font(size: scaled, weight: weight)
+        }
     }
 
     /// How much the environment grew this rung, as a ratio, so the leading and
@@ -178,7 +184,8 @@ public enum Typography {
     }
 }
 
-/// Applies a ramp rung at the size the environment scaled it to.
+/// Applies a ramp rung at the size the environment scaled it to, in the face
+/// the surface sets its words in (`TypeFace`).
 ///
 /// A modifier rather than a chain of view modifiers, because the scaling is a
 /// `@ScaledMetric` and only a view type can hold one. It is the one place a
@@ -187,6 +194,7 @@ public enum Typography {
 struct FermixTypeModifier: ViewModifier {
     private let style: TypeStyle
     @ScaledMetric private var scaled: Double
+    @Environment(\.typeFace) private var face
 
     init(_ style: TypeStyle) {
         self.style = style
@@ -197,7 +205,7 @@ struct FermixTypeModifier: ViewModifier {
         let ratio = style.ratio(at: scaled)
 
         return content
-            .font(style.font(at: scaled))
+            .font(style.font(at: scaled, face: face))
             .tracking(style.tracking * ratio)
             .lineSpacing(style.lineSpacing * ratio)
     }

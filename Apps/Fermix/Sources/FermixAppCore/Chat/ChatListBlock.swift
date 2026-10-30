@@ -9,16 +9,20 @@ extension ChatMetrics {
     static let listIndent: Double = Spacing.l
 }
 
-/// A list in a reply: each item's words in the reply's own face and ink,
-/// hung beside a faint mark, so an item's later lines start under its words
-/// rather than under its mark. A bullet is a dot, a hollow one once nested; a
+/// A list in a reply: each item's words drawn as a reply's paragraphs are
+/// (`ChatProse`), hung beside a faint mark, so an item's later lines start
+/// under its words rather than under its mark. A bullet is a dot, a hollow one once nested; a
 /// number is the one CommonMark gives the item; and a task is a box, ticked
 /// once done. Nothing else changes size or weight. Every mark takes the
 /// width of the list's widest, so the words of its items start on one edge,
 /// and a nested item sits a step in from the one it is nested in.
 struct ChatListBlock: View {
-    /// The list, its words drawn.
+    /// The list, its words as they were parsed.
     let list: ReplyList
+    /// Words to mark, where the reader was sent here by a search.
+    let marked: [String]
+    let titles: ChatLinkTitles
+    let speaker: String?
 
     var body: some View {
         let widest = list.items.map(Self.label).max { $0.count < $1.count } ?? ""
@@ -28,11 +32,8 @@ struct ChatListBlock: View {
                 HStack(alignment: .firstTextBaseline, spacing: ChatMetrics.listMarkGap) {
                     ChatListMark(item: item, widest: widest)
 
-                    Text(item.words)
-                        .fermixType(Typography.style(.body))
-                        .foregroundStyle(Palette.ink.color)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ChatProse(paragraphs: [item.words], marked: marked, titles: titles, speaker: speaker)
+                        .equatable()
                 }
                 .padding(.leading, Double(item.depth) * ChatMetrics.listIndent)
                 .accessibilityElement(children: .combine)
@@ -52,7 +53,8 @@ struct ChatListBlock: View {
 }
 
 /// An item's mark, faint, at the trailing edge of a column the width of the
-/// list's widest mark, its digits all one width.
+/// list's widest mark, its digits all one width. A bullet is the system's
+/// round dot: the reading face draws its own square.
 private struct ChatListMark: View {
     let item: ReplyListItem
     let widest: String
@@ -66,8 +68,9 @@ private struct ChatListMark: View {
             mark
         }
         .monospacedDigit()
-        .fermixType(Typography.style(.body))
+        .fermixType(ChatMetrics.readingType)
         .foregroundStyle(Palette.faint.color)
+        .environment(\.typeFace, item.marker.isNumber ? .reading : .system)
     }
 
     @ViewBuilder

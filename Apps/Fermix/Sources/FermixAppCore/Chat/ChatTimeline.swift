@@ -47,6 +47,14 @@ enum ChatItem: Equatable, Identifiable {
         return false
     }
 
+    /// Whether the item carries a reply's actions under it
+    /// (`ChatMessageActions`).
+    var carriesActions: Bool {
+        guard case .row(let row) = self else { return false }
+
+        return ChatMessageActions.carried(by: row)
+    }
+
     /// Whether the owner, not the daemon, wrote this item: their own row, or
     /// a message not yet accepted. Everything else is what a turn answers
     /// with.
@@ -139,6 +147,16 @@ enum ChatTimeline {
         if case .proposal = current { return true }
 
         return !(previous.isUserAuthored && !current.isUserAuthored)
+    }
+
+    /// The room an item keeps above it on top of the transcript's base
+    /// rhythm: a turn's seam where it opens a new turn, less the room the
+    /// actions of a reply above it already keep, which stand in that seam.
+    static func turnPadding(after previous: ChatItem?, before current: ChatItem) -> Double {
+        guard opensNewTurn(after: previous, before: current) else { return 0 }
+
+        let actions = previous?.carriesActions == true ? ChatMetrics.actionsHeight : 0
+        return max(0, ChatMetrics.turnGap - ChatMetrics.rowGap - actions)
     }
 
     private static func message(_ entry: CompanionOutboxEntry) -> ChatItem? {

@@ -191,6 +191,11 @@ enum ReplyListMarker: Equatable {
     case number(Int)
     /// A task (`- [ ]`), done or not (`- [x]`).
     case task(done: Bool)
+
+    var isNumber: Bool {
+        guard case .number = self else { return false }
+        return true
+    }
 }
 
 /// A table: how each column aligns, its header's cells, and its rows, each
@@ -340,22 +345,6 @@ enum ReplyFences {
         private static func isIndent(_ character: Character) -> Bool {
             character == " " || character == "\t"
         }
-    }
-}
-
-/// Marks a stretch of words that is a path or an address as written, made a
-/// link here rather than by a markdown link's own words: the row draws it as
-/// the text it is, apart from a markdown link (`ChatText.drawn`).
-enum ReplyWrittenLink: AttributedStringKey {
-    typealias Value = Bool
-    static let name = "fermix.replyWrittenLink"
-}
-
-extension AttributedString {
-    /// Makes a stretch a link to what it writes out, marked as written.
-    mutating func linkWritten(_ range: Range<AttributedString.Index>, to destination: URL) {
-        self[range].link = destination
-        self[range][ReplyWrittenLink.self] = true
     }
 }
 

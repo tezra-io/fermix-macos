@@ -545,7 +545,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatKindDocument = "chat.kind.document"
     case chatKindPage = "chat.kind.page"
     case chatKindFile = "chat.kind.file"
-    case chatKindLink = "chat.kind.link"
     /// A reply's code block, as VoiceOver names it, its language after it.
     case chatCode = "chat.code"
     /// The languages a code block's header names (`CodeLanguage`), each as
@@ -602,10 +601,21 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// A task's box, as VoiceOver reads it before the task's words.
     case chatTaskDone = "chat.task.done"
     case chatTaskOpen = "chat.task.open"
-    /// A code block's or a table's Copy, and what it says for a moment once
-    /// pressed.
+    /// A code block's or a table's Copy, and what it, or a message's Copy,
+    /// says for a moment once pressed.
     case chatCodeCopy = "chat.code.copy"
     case chatCodeCopied = "chat.code.copied"
+    /// A message's Copy, which writes its words as they were written.
+    case chatMessageCopy = "chat.message.copy"
+    /// A link that may not go where it seems to (`LinkSafety`): the question
+    /// before it opens, why, in a sentence naming where it really goes, and
+    /// the two answers.
+    case chatLinkHeldTitle = "chat.link.heldTitle"
+    case chatLinkElsewhereFormat = "chat.link.elsewhereFormat"
+    case chatLinkLookalikeFormat = "chat.link.lookalikeFormat"
+    case chatLinkHiddenNameFormat = "chat.link.hiddenNameFormat"
+    case chatLinkOpenAnyway = "chat.link.openAnyway"
+    case chatLinkCancel = "chat.link.cancel"
     /// A reply's places (M72 §8.1): what VoiceOver calls the map, a card's
     /// menu, and the rating and distance on a card, each a number and its
     /// count or units.

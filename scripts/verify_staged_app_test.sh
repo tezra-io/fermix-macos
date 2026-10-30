@@ -661,6 +661,14 @@ expect_refusal "a non-SVG vendor mark that did not reach the bundle is refused" 
   "$raster is not staged" \
   "$VERIFY" "$app" universal unsigned
 
+# The chat's reading face: a font that never reached the bundle would leave
+# every reply in the system's face with nothing said.
+app="$(fresh_bundle no-font)"
+rm "$app/Contents/Resources/$RESOURCE_BUNDLE_NAME/Fonts/HankenGrotesk.ttf"
+expect_refusal "a reading face file that did not reach the bundle is refused" \
+  "Fonts/HankenGrotesk.ttf is not staged" \
+  "$VERIFY" "$app" universal unsigned
+
 app="$(fresh_bundle no-strings)"
 rm "$app/Contents/Resources/$RESOURCE_BUNDLE_NAME/en.lproj/Localizable.strings"
 expect_refusal "a bundle shipping no product copy is refused" \

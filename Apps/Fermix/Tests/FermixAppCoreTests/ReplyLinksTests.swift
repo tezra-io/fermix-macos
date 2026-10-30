@@ -50,9 +50,10 @@ struct ReplyLinksTests {
     }
 
     /// A markdown link with words of its own is the reply's: it keeps its
-    /// blue, and the address inside its words is part of it, not a second
-    /// link. Its destination is an address the reply links to all the same.
-    @Test("a markdown link keeps its words and its blue, and its destination is listed")
+    /// words, drawn inline as every link is, and the address inside its
+    /// words is part of it, not a second link. Its destination is an address
+    /// the reply links to all the same.
+    @Test("a markdown link keeps its words, inline as every link, and its destination is listed")
     func markdownLinks() throws {
         let text = "See [the report](https://example.com/r) and [see https://a.com/x here](https://b.com/y)."
         let reply = Self.reply(text)
@@ -61,7 +62,7 @@ struct ReplyLinksTests {
             "the report": "https://example.com/r",
             "see https://a.com/x here": "https://b.com/y",
         ])
-        #expect(Self.run(of: "the report", in: reply)?.foregroundColor == Palette.accentText.color)
+        #expect(Self.run(of: "the report", in: reply)?.foregroundColor == Palette.ink.color)
         #expect(Self.addresses(text) == ["https://example.com/r", "https://b.com/y"])
     }
 

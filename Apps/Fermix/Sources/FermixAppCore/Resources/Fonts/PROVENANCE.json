@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "recorded_on": "2026-10-30",
+  "policy": "A font ships only as the file its source publishes, byte for byte, under its own licence, which ships beside it. Only the file name is the app's: the source's [wght] suffix is dropped so the bundle path needs no escaping.",
+  "fonts": [
+    {
+      "family": "Hanken Grotesk",
+      "use": "The chat's reading face: replies, the person's own messages, the composer and the greeting (ReadingFace).",
+      "designer": "Alfredo Marco Pradil, Hanken Design Co.",
+      "upstream": "https://github.com/marcologous/hanken-grotesk",
+      "licence": "SIL Open Font License 1.1",
+      "licence_file": "OFL.txt",
+      "source": "https://github.com/google/fonts/tree/c1eda9233c33ad7775b27efd794f931095cf6133/ofl/hankengrotesk",
+      "files": [
+        {
+          "file": "HankenGrotesk.ttf",
+          "source_file": "HankenGrotesk[wght].ttf",
+          "sha256": "813b3f8fa0965405669a89b38e51bbefd95eef6b8e20d1cb2d8c10cce062662f"
+        },
+        {
+          "file": "HankenGrotesk-Italic.ttf",
+          "source_file": "HankenGrotesk-Italic[wght].ttf",
+          "sha256": "ae5731726ff75301a3cb63f2e98d1babc77d55ab09fb8e229ca75f5bd46fbe32"
+        },
+        {
+          "file": "OFL.txt",
+          "source_file": "OFL.txt",
+          "sha256": "e02ccb89a86839b22feff7872ff5cc355cc0f58318d29eee20e2cf83a612f16d"
+        }
+      ]
+    }
+  ]
+}

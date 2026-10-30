@@ -15,21 +15,13 @@ struct ChatStripTests {
         _ text: String,
         plain: Bool = false,
         refs: [CompanionMediaRef] = [],
-        previews: [CompanionLinkPreview] = [],
-        blocks: [CompanionBlock] = [],
         home: ChatHome? = home
     ) -> ChatStrip {
-        ChatStrip(text: text, plain: plain, mediaRefs: refs, linkPreviews: previews, blocks: blocks, userHome: "/Users/me", home: home)
+        ChatStrip(text: text, plain: plain, mediaRefs: refs, userHome: "/Users/me", home: home)
     }
 
     private static func ref(_ name: String, kind: String = "image", mime: String = "image/png") -> CompanionMediaRef {
         CompanionMediaRef(ref: String(repeating: String(name.prefix(1)), count: 64), kind: kind, mime: mime, sizeBytes: 10, sha256: nil, filename: name, caption: nil)
-    }
-
-    /// A stored preview of `url`, read for `link`, or stored before links were
-    /// kept where it has none.
-    private static func preview(_ url: String, link: String? = nil, title: String = "Title") -> CompanionLinkPreview {
-        CompanionLinkPreview(link: link, url: url, site: "Site", title: title, description: nil, imageRef: nil)
     }
 
     /// Each item as one short line, so a whole strip reads as a list.
@@ -42,7 +34,6 @@ struct ChatStripTests {
             switch item {
             case .media(let ref): return "ref \(ref.filename ?? "")"
             case .file(let file): return "file \(file.path)"
-            case .link(let link): return "link \(link.address.absoluteString)" + (link.preview.map { " = \($0.url)" } ?? "")
             }
         }
     }
@@ -50,16 +41,13 @@ struct ChatStripTests {
     // MARK: - Order and membership
 
     /// A phone-side picture and a page Fermix made draw their content, so
-    /// they lead, refs first; then the other files' cards; then the links,
-    /// where a preview that is no address's stands on its own before the
-    /// addresses, and an address's own preview is drawn at the address's
-    /// place.
-    @Test("previews lead; then the files' cards; then loose previews and addresses, each once")
+    /// they lead, refs first; then the other files' cards. A web address is
+    /// never a tile: it stays a link in the text.
+    @Test("previews lead; then the files' cards, each once; an address is no tile")
     func order() {
         let strip = Self.strip(
             "See https://b.com/x and /Users/me/.fermix/workspace/report.pdf, then https://b.com/x and ~/notes.pdf again.",
-            refs: [Self.ref("photo.png"), Self.ref("log.txt", kind: "document", mime: "text/plain")],
-            previews: [Self.preview("https://b.com/x"), Self.preview("https://c.com/z")]
+            refs: [Self.ref("photo.png"), Self.ref("log.txt", kind: "document", mime: "text/plain")]
         )
 
         #expect(Self.described(strip) == [
@@ -67,15 +55,14 @@ struct ChatStripTests {
             "file /Users/me/.fermix/workspace/report.pdf",
             "ref log.txt",
             "file /Users/me/notes.pdf",
-            "link https://c.com/z = https://c.com/z",
-            "link https://b.com/x = https://b.com/x",
         ])
+        #expect(strip.reply?.addresses.map(\.absoluteString) == ["https://b.com/x", "https://b.com/x"])
     }
 
     /// A tile's kind is read from its path, before the disk is asked, so it
     /// keeps its shape whatever the file turns out to be: a preview only for
     /// what is drawn by its content, and only inside the home.
-    @Test("a preview is a path inside the home to a picture, a video, a PDF or a document; other files are cards, addresses links")
+    @Test("a preview is a path inside the home to a picture, a video, a PDF or a document; other files are cards")
     func previewsAndCards() {
         let strip = Self.strip(
             "Made /Users/me/.fermix/w/shot.png, /Users/me/.fermix/w/clip.mov, /Users/me/.fermix/w/q3.docx and "
@@ -97,20 +84,6 @@ struct ChatStripTests {
             "file /Users/me/.fermix/w/table.csv",
             "file /Users/me/Desktop/far.png",
         ])
-        #expect(strip.links.map(\.address.absoluteString) == ["https://a.com/x"])
-    }
-
-    /// The engine reads code too: a preview of an address the text has in
-    /// code stands as its own item, the text's address being no link, and
-    /// opens the address it was read for, less the code's closing mark.
-    @Test("a preview of an address in code stands on its own and opens that address")
-    func previewOfCode() {
-        let strip = Self.strip(
-            "Fetched `https://c.com/y` for you",
-            previews: [Self.preview("https://www.c.com/y", link: "https://c.com/y`")]
-        )
-
-        #expect(Self.described(strip) == ["link https://c.com/y = https://www.c.com/y"])
     }
 
     /// A phone-side file is drawn by the type its row names, through the same
@@ -196,101 +169,26 @@ struct ChatStripTests {
     /// read without regard to case.
     @Test("two fragments, a trailing slash and two queries stay distinct; case in the scheme and host does not")
     func destinations() {
-        let strip = Self.strip(
-            "https://a.com/doc#one https://a.com/doc#two https://a.com/report https://a.com/report/ "
-                + "https://a.com/q?x=1 https://a.com/q?x=2 HTTPS://A.COM/report https://a.com/Report"
-        )
+        let addresses = [
+            "https://a.com/doc#one", "https://a.com/doc#two", "https://a.com/report", "https://a.com/report/",
+            "https://a.com/q?x=1", "https://a.com/q?x=2", "https://a.com/Report",
+        ]
+        let keys = Set(addresses.compactMap(URL.init(string:)).map(ChatDestination.init))
 
-        #expect(Self.described(strip) == [
-            "link https://a.com/doc#one", "link https://a.com/doc#two",
-            "link https://a.com/report", "link https://a.com/report/",
-            "link https://a.com/q?x=1", "link https://a.com/q?x=2",
-            "link https://a.com/Report",
-        ])
+        #expect(keys.count == addresses.count)
         #expect(ChatDestination(URL(string: "HTTPS://A.COM/report")!) == ChatDestination(URL(string: "https://a.com/report")!))
-    }
-
-    // MARK: - Stored previews
-
-    /// The engine stores a preview under the address it reached and keeps
-    /// the link it read it for, so a preview pairs with that link whatever
-    /// the redirect did, in the text's order, and a click opens the address
-    /// the text wrote.
-    @Test("a preview stored under a redirected address pairs with the link it was read for")
-    func redirectedPreviews() {
-        let strip = Self.strip(
-            "Old http://a.com/x and short https://t.co/abc",
-            previews: [
-                Self.preview("https://www.example.com/article", link: "https://t.co/abc"),
-                Self.preview("https://a.com/x", link: "http://a.com/x"),
-            ]
-        )
-
-        #expect(Self.described(strip) == [
-            "link http://a.com/x = https://a.com/x",
-            "link https://t.co/abc = https://www.example.com/article",
-        ])
-    }
-
-    @Test("a host gaining www pairs by its link too, and the click keeps the address as written")
-    func hostGainingWWW() throws {
-        let strip = Self.strip(
-            "Read https://example.com/news.",
-            previews: [Self.preview("https://www.example.com/news", link: "https://example.com/news")]
-        )
-        let item = try #require(strip.items.first)
-
-        #expect(strip.items.count == 1)
-        guard case .link(let link) = item else {
-            Issue.record("the address is not a link")
-            return
-        }
-        #expect(link.address.absoluteString == "https://example.com/news")
-        #expect(link.preview?.url == "https://www.example.com/news")
     }
 
     /// The strip's own rule, each destination once (M66 §3.1), is an item's
     /// identity: one is equal to another, and hashes with it, when the two
-    /// name one destination, whatever preview either carries.
+    /// name one destination.
     @Test("two items naming one destination are one item")
     func itemsByDestination() {
-        let address = URL(string: "https://a.com/x")!
-        let bare = ChatStripItem.link(ChatStripLink(address: address, preview: nil))
-        let previewed = ChatStripItem.link(ChatStripLink(address: URL(string: "HTTPS://A.com/x")!, preview: Self.preview("https://a.com/x")))
+        let file = ChatStripItem.file(URL(fileURLWithPath: "/a/../a/b.png"))
 
-        #expect(bare == previewed)
-        #expect(Set([bare, previewed]).count == 1)
-        #expect(bare != .link(ChatStripLink(address: URL(string: "https://a.com/x/")!, preview: nil)))
-        #expect(ChatStripItem.file(URL(fileURLWithPath: "/a/../a/b.png")) == .file(URL(fileURLWithPath: "/a/b.png")))
-    }
-
-    /// A preview stored before links were kept carries only the address it
-    /// was stored under: it belongs to a link only when the two are the
-    /// same destination, and otherwise stands on its own.
-    @Test("a preview with no link pairs only with an address of its own destination")
-    func previewWithoutLink() {
-        let equal = Self.strip("https://a.com/x and https://b.com/y", previews: [Self.preview("https://B.com/y")])
-        #expect(Self.described(equal) == ["link https://a.com/x", "link https://b.com/y = https://B.com/y"])
-
-        let unequal = Self.strip("https://a.com/x and https://b.com/y", previews: [Self.preview("https://www.b.com/y")])
-        #expect(Self.described(unequal) == [
-            "link https://www.b.com/y = https://www.b.com/y",
-            "link https://a.com/x",
-            "link https://b.com/y",
-        ])
-    }
-
-    /// The engine reads a markdown link's target to its first closing
-    /// bracket, a page's own among them; the text's link keeps it, and the
-    /// two are still one address.
-    @Test("a link the engine read short of its own bracket pairs with the text's link")
-    func engineReadsShort() {
-        let strip = Self.strip(
-            "Read [Foo](https://w.org/Foo_(bar)).",
-            previews: [Self.preview("https://w.org/Foo_(bar)", link: "https://w.org/Foo_(bar")]
-        )
-
-        #expect(Self.described(strip) == ["link https://w.org/Foo_(bar) = https://w.org/Foo_(bar)"])
+        #expect(file == .file(URL(fileURLWithPath: "/a/b.png")))
+        #expect(Set([file, .file(URL(fileURLWithPath: "/a/b.png"))]).count == 1)
+        #expect(file != .file(URL(fileURLWithPath: "/a/c.png")))
     }
 
     /// Every reader of a reply's words composes its marks from one set.
@@ -396,21 +294,25 @@ struct ChatStripTests {
     // MARK: - The text
 
     /// A reply that only lists what it made says nothing the strip does not:
-    /// its text goes, and the row draws its strip alone.
-    @Test("a reply that is only a list of what it made draws no text")
+    /// its text goes, and the row draws its strip alone. A list of web
+    /// addresses is the reply's own words and stays.
+    @Test("a reply that is only a list of what it made draws no text, and a list of addresses stays")
     func onlyAList() {
-        let strip = Self.strip(
-            "- /Users/me/.fermix/w/shot.png\n* `~/.fermix/w/report.pdf`\n• [clip.mov](/Users/me/.fermix/w/clip.mov)\n"
-                + "1. https://a.com/x\n2) <https://b.com/y>\n  [https://c.com/z](https://c.com/z)."
+        let files = Self.strip(
+            "- /Users/me/.fermix/w/shot.png\n* `~/.fermix/w/report.pdf`\n• [clip.mov](/Users/me/.fermix/w/clip.mov)"
         )
+        let addresses = "1. https://a.com/x\n2) <https://b.com/y>\n  [https://c.com/z](https://c.com/z)."
 
-        #expect(strip.items.count == 6)
-        #expect(strip.text.isEmpty)
+        #expect(files.items.count == 3)
+        #expect(files.text.isEmpty)
+        #expect(Self.strip(addresses).items.isEmpty)
+        #expect(Self.strip(addresses).text == addresses)
     }
 
     /// Only a line that names one thing the strip shows, and nothing more,
-    /// goes. A link inside a sentence, a markdown link with words of its own
-    /// and a path with no tile all stay, and the gap the list left closes.
+    /// goes. A link inside a sentence, a markdown link with words of its own,
+    /// a web address and a path with no tile all stay, and the gap the list
+    /// left closes.
     @Test("prose stays, and a line that only names a tile goes, its gap closing")
     func mixedProse() {
         let text = """
@@ -433,6 +335,8 @@ struct ChatStripTests {
             Files:
             - /etc/hosts
             - [the report](/Users/me/.fermix/w/report.pdf)
+
+            - https://a.com/x
 
             See [the docs](https://a.com/docs) too.
             """)
@@ -491,9 +395,9 @@ struct ChatStripTests {
     func plainScan() {
         let text = "See [the shot](~/Desktop/a.png), `~/Desktop/b.png`, ~/Desktop/c.png and [x](https://a.com/y)"
 
-        #expect(Self.described(Self.strip(text, plain: true)) == ["file /Users/me/Desktop/c.png", "link https://a.com/y"])
+        #expect(Self.described(Self.strip(text, plain: true)) == ["file /Users/me/Desktop/c.png"])
         #expect(Self.described(Self.strip(text)) == [
-            "file /Users/me/Desktop/a.png", "file /Users/me/Desktop/b.png", "file /Users/me/Desktop/c.png", "link https://a.com/y",
+            "file /Users/me/Desktop/a.png", "file /Users/me/Desktop/b.png", "file /Users/me/Desktop/c.png",
         ])
         #expect(Self.strip(text, plain: true).reply == nil)
     }

@@ -533,9 +533,9 @@ struct FixtureConfigurationTests {
                 && place.priceRange != nil && place.categories != nil && place.openingHours != nil && place.distance != nil
         })
 
-        let linked = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)).map(ChatPlaceLink.init) }
+        let linked = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)).map(Self.placeLink) }
         let named = places.map { place in
-            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(ChatPlaceLink.init) }
+            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(Self.placeLink) }
         }
         #expect(named.map { $0.first(where: linked.contains) } == linked.map(Optional.some))
 
@@ -573,29 +573,51 @@ struct FixtureConfigurationTests {
 
         let addresses = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)) }
         let named = places.map { place in
-            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(ChatPlaceLink.init) }
+            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(Self.placeLink) }
         }
-        let linked = addresses.map(ChatPlaceLink.init).filter { named.joined().contains($0) }
+        let linked = addresses.map(Self.placeLink).filter { named.joined().contains($0) }
         #expect(named.map { $0.first(where: linked.contains) } == linked.map(Optional.some))
-
-        let menu = try #require(addresses.first { !named.joined().contains(ChatPlaceLink($0)) })
-        #expect(ChatPlaceLinks(reply.blocks).covers(menu))
     }
 
-    /// Then a reply that links four pages (M72): the engine's previews of
-    /// three of them, two with a picture the fixture daemon grants from a
-    /// sample photo, one whose page gave none, and the fourth left with no
-    /// preview, as a page the engine could not read is.
+    /// An address as the engine matches a reply's link to a place it found
+    /// (M72 §8.4): the scheme and host lowercased, without the fragment and a
+    /// trailing slash.
+    private static func placeLink(_ address: URL) -> String {
+        guard var parts = URLComponents(url: address, resolvingAgainstBaseURL: false) else { return address.absoluteString }
+
+        parts.scheme = parts.scheme?.lowercased()
+        parts.percentEncodedHost = parts.percentEncodedHost?.lowercased()
+        parts.fragment = nil
+        while parts.percentEncodedPath.hasSuffix("/") {
+            parts.percentEncodedPath.removeLast()
+        }
+        return parts.string ?? address.absoluteString
+    }
+
+    /// Then a reply that links its pages inline (M72; owner, 2026-10-30):
+    /// four by markdown links, the engine's previews of three of them, two
+    /// with a picture the fixture daemon grants from a sample photo, one
+    /// whose page gave none, and the fourth left with no preview, as a page
+    /// the engine could not read is; then an address written out, and a
+    /// link whose words name another site than the one it opens, which the
+    /// chat's link check holds (`LinkSafety`).
     @MainActor
-    @Test("the replies timeline then holds a reply linking four pages, three of them previewed")
+    @Test("the replies timeline then holds a reply linking pages inline, three of them previewed and one naming another site")
     func linkedPagesArrive() throws {
         let session = fixtureChat(.replies)
         session.connect()
 
         let reply = try #require(session.model.rows.first { $0.serverSeq == 12 })
-        let addresses = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).map { String($0.output.1) }
-        #expect(addresses.count == 4)
+        let markdown = reply.text.matches(of: #/\[([^\]]+)\]\((https://[^)]+)\)/#).map { (String($0.output.1), String($0.output.2)) }
+        let addresses = markdown.map(\.1)
+        #expect(addresses.count == 5)
         #expect(reply.linkPreviews.map(\.url) == Array(addresses.prefix(3)))
+        #expect(ReplyLinks.addresses(inText: reply.text).map(\.url.absoluteString).contains("https://extension.example/frost-dates"))
+
+        let cautioned = markdown.filter { words, address in
+            URL(string: address).flatMap { LinkSafety.caution(words: words, url: $0) } != nil
+        }
+        #expect(cautioned.map(\.1) == ["https://seedswap-orders.example/checkout"])
 
         let pictures = reply.linkPreviews.compactMap(\.imageRef)
         #expect(pictures.count == 2)

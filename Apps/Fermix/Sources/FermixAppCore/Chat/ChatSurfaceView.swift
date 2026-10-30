@@ -174,6 +174,9 @@ struct ChatSurfaceView: View {
     /// The one place the chat shows on a reply's map, forgotten with the
     /// surface as the visit is.
     @StateObject private var places: ChatPlaceSelection
+    /// The check every link in the chat opens through, and the link it holds
+    /// back while the chat asks about it.
+    @StateObject private var linkGuard: ChatLinkGuard
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -199,6 +202,7 @@ struct ChatSurfaceView: View {
         self.router = router
         _draft = State(initialValue: session.draft)
         _places = StateObject(wrappedValue: ChatPlaceSelection(links: links))
+        _linkGuard = StateObject(wrappedValue: ChatLinkGuard(links: links))
     }
 
     var body: some View {
@@ -213,9 +217,14 @@ struct ChatSurfaceView: View {
                 player: player,
                 links: links,
                 places: places,
+                linkGuard: linkGuard,
                 visit: visit,
                 columnWidth: ChatMetrics.column(inBody: bodyWidth)
             ))
+            // A conversation is set in the reading face, its code in the
+            // system's monospaced one; the toolbar and its search field stay
+            // the system's.
+            .environment(\.typeFace, .reading)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onGeometryChange(for: Double.self) { proxy in
                 proxy.size.width
@@ -256,11 +265,25 @@ struct ChatSurfaceView: View {
             .onAppear { visit = media.surfaceEntered() }
             // A link in a reply opens where the person's preference says,
             // through the one content link opener, never through SwiftUI's own
-            // hop to the default browser.
+            // hop to the default browser, and only once the chat's check has
+            // passed it (`ChatLinkGuard`).
             .environment(\.openURL, OpenURLAction { url in
-                links.open(url)
+                linkGuard.open(url)
                 return .handled
             })
+            .alert(
+                ProductStrings[.chatLinkHeldTitle],
+                isPresented: Binding(get: { linkGuard.held != nil }, set: { if !$0 { linkGuard.dismiss() } }),
+                presenting: linkGuard.held
+            ) { _ in
+                // Return keeps the link closed: opening it is the choice
+                // made on purpose.
+                Button(ProductStrings[.chatLinkOpenAnyway]) { linkGuard.openHeld() }
+                Button(ProductStrings[.chatLinkCancel], role: .cancel) { linkGuard.dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            } message: { held in
+                Text(ChatLinkCautionWords.sentence(held.caution))
+            }
             .toolbar {
                 SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router, follows: gate)
             }

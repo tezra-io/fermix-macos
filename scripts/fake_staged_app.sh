@@ -279,6 +279,7 @@ fake_app_build_bundle() {
   mkdir -p "$resources/en.lproj"
   cp -R "$FAKE_APP_RESOURCES/Contracts" "$resources/Contracts"
   cp -R "$FAKE_APP_RESOURCES/VendorMarks" "$resources/VendorMarks"
+  cp -R "$FAKE_APP_RESOURCES/Fonts" "$resources/Fonts"
   # The configuration these scripts read, exactly as stage_app.sh stages it:
   # the fixture bundle is the identity the harness is running under, so a
   # development-identity case gets a coherent bundle rather than one whose

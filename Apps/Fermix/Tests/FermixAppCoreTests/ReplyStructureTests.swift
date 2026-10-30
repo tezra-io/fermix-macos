@@ -235,7 +235,8 @@ struct ReplyStructureTests {
         }
         let link = try #require(list.items.first?.words.runs.first { $0.link != nil })
 
-        #expect(link.foregroundColor == Palette.accentText.color)
+        #expect(link.foregroundColor == Palette.ink.color)
+        #expect(link.underlineStyle == Text.LineStyle(pattern: .solid, color: Palette.faint.color))
         #expect(quote.runs.contains { $0.inlinePresentationIntent == .stronglyEmphasized })
         #expect(table.header.first?.runs.first?.inlinePresentationIntent == .stronglyEmphasized)
     }

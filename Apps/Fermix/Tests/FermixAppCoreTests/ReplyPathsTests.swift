@@ -31,8 +31,10 @@ struct ReplyPathsTests {
         ReplyPaths.barePaths(in: text).map { String(text[$0]) }
     }
 
-    private static func linksAreTextBlue(_ reply: AttributedString) -> Bool {
-        reply.runs.filter { $0.link != nil }.allSatisfy { $0.foregroundColor == Palette.accentText.color }
+    /// Every link drawn inline: the words' own ink, underlined in the
+    /// fainter grey.
+    private static func linksAreInline(_ reply: AttributedString) -> Bool {
+        reply.runs.filter { $0.link != nil }.allSatisfy { $0.foregroundColor == Palette.ink.color && $0.underlineStyle == pathUnderline }
     }
 
     /// The colour the linked stretch with this text is drawn in.
@@ -45,7 +47,7 @@ struct ReplyPathsTests {
         reply.runs.first { $0.link != nil && String(reply[$0.range].characters) == text }?.underlineStyle
     }
 
-    /// A path's underline: thin, solid, in the fainter grey under its ink.
+    /// A link's underline: thin, solid, in the fainter grey under its ink.
     private static let pathUnderline = Text.LineStyle(pattern: .solid, color: Palette.faint.color)
 
     // MARK: - Markdown links
@@ -70,7 +72,7 @@ struct ReplyPathsTests {
             "notes": "notes/a.md",
             "the copy": "//example.com/a/b",
         ])
-        #expect(Self.linksAreTextBlue(reply))
+        #expect(Self.linksAreInline(reply))
     }
 
     // MARK: - Code spans
@@ -166,11 +168,11 @@ struct ReplyPathsTests {
             "/Users/me/a.png": "file:///Users/me/a.png",
         ])
         #expect(Self.colour(of: "https://example.com/a/b", in: reply) == Palette.ink.color)
-        #expect(Self.colour(of: "see /a/b/c here", in: reply) == Palette.accentText.color)
+        #expect(Self.colour(of: "see /a/b/c here", in: reply) == Palette.ink.color)
         #expect(Self.colour(of: "/Users/me/a.png", in: reply) == Palette.ink.color)
         #expect(Self.underline(of: "/Users/me/a.png", in: reply) == Self.pathUnderline)
         #expect(Self.underline(of: "https://example.com/a/b", in: reply) == Self.pathUnderline)
-        #expect(Self.underline(of: "see /a/b/c here", in: reply) == nil)
+        #expect(Self.underline(of: "see /a/b/c here", in: reply) == Self.pathUnderline)
     }
 
     /// The text before the path is not all ASCII either, so the path's place

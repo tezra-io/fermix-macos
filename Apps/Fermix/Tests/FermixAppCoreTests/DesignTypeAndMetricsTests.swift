@@ -106,26 +106,29 @@ struct DesignTypeAndMetricsTests {
         #expect(ramp.text.contains("@ScaledMetric"), "the ramp draws at a size nothing scales")
     }
 
-    /// The whole product draws with the system font, and no font ships.
+    /// The product draws with the system font, but for the chat's reading
+    /// face, which ships once and is reached in one place (`ReadingFace`).
     ///
-    /// The ramp resolves through `TypeStyle.font`, which is `.system` and
-    /// nothing else, so this is the half a value assertion cannot see: a view
-    /// that reached past the ramp for a face of its own, or a face bundled as a
-    /// resource. Both are how a "we use the system font" claim stops being
-    /// true without any table changing.
-    @Test("no surface loads a font of its own, and none is bundled")
-    func everyFaceIsTheSystemFace() throws {
+    /// The ramp resolves through `TypeStyle.font`, which is `.system` or the
+    /// reading face and nothing else, so this is the half a value assertion
+    /// cannot see: a view that reached past the ramp for a face of its own,
+    /// or another face bundled as a resource. Both are how a "two faces, each
+    /// in its place" claim stops being true without any table changing.
+    @Test("no surface loads a font of its own, and only the reading face is bundled")
+    func everyFaceIsTheSystemOrReadingFace() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
-        let forbidden = ["Font.custom(", ".custom(", "NSFont(name:", "CTFontCreateWithName"]
+        let forbidden = ["Font.custom(", ".custom(", "NSFont(name:", "CTFontCreateWithName", "CTFontManagerRegister"]
+        let owner = "Design/Tokens/ReadingFace.swift"
 
-        for file in files {
+        for file in files where !file.path.hasSuffix(owner) {
             for needle in forbidden {
                 #expect(!file.text.contains(needle), "\(file.path) reaches for \(needle)")
             }
         }
 
-        // Nothing under Resources may be a font file: a bundled face would be
-        // loadable by name even with no call site above.
+        // Nothing under Resources may be a font file but the reading face's
+        // own: another bundled face would be loadable by name even with no
+        // call site above.
         let resources = SourceTree.root.appendingPathComponent("Resources", isDirectory: true)
         let enumerator = try #require(FileManager.default.enumerator(atPath: resources.path))
         var faces: [String] = []
@@ -134,7 +137,7 @@ struct DesignTypeAndMetricsTests {
             if ["ttf", "otf", "ttc", "woff", "woff2"].contains(suffix) { faces.append(name) }
         }
 
-        #expect(faces.isEmpty, "\(faces)")
+        #expect(Set(faces) == Set(ReadingFace.files.map { ReadingFace.folder + "/" + $0 }), "\(faces)")
     }
 
     /// A settings row is one grouped-form row however many lines it draws, so

@@ -44,25 +44,29 @@ struct ChatReplyRowTests {
         }
 
         #expect(parts == ["One.+Two.", "list • three", "Four.", "code - five", "Six."])
-        #expect(String(ChatText.paragraphs(blocks.prefix(2).compactMap(\.prose), marking: []).characters) == "One.\n\nTwo.")
     }
 
-    @Test("a part is drawn again only when its words or the words a search marks in it change")
+    @Test("a part is drawn again only when its words, the words a search marks in it or its links' titles change")
     func partEquality() {
         let parts = ChatReplyPart.parts(of: ReplyText(markdown: "One.\n\nTwo.\n- three", home: "/Users/me").blocks)
-        let part = ChatReplyPartView(part: parts[0], marked: [], speaker: nil)
+        let part = ChatReplyPartView(part: parts[0], marked: [], titles: .none, speaker: nil)
         let again = ChatReplyPart.parts(of: ReplyText(markdown: "One.\n\nTwo.", home: "/Users/me").blocks)
+        let titled = ChatLinkTitles([CompanionLinkPreview(link: "https://a.example", url: "https://a.example", site: "A", title: "A", description: nil, imageRef: nil)])
 
-        #expect(part == ChatReplyPartView(part: again[0], marked: [], speaker: nil))
-        #expect(part != ChatReplyPartView(part: parts[1], marked: [], speaker: nil))
-        #expect(part != ChatReplyPartView(part: parts[0], marked: ["one"], speaker: nil))
+        #expect(part == ChatReplyPartView(part: again[0], marked: [], titles: .none, speaker: nil))
+        #expect(part != ChatReplyPartView(part: parts[1], marked: [], titles: .none, speaker: nil))
+        #expect(part != ChatReplyPartView(part: parts[0], marked: ["one"], titles: .none, speaker: nil))
+        #expect(part != ChatReplyPartView(part: parts[0], marked: [], titles: titled, speaker: nil))
     }
 
-    @Test("the transcript draws each finished row, and each part of a reply, through its equality")
+    @Test("the transcript draws each finished row, each part of a reply and each run of its words through its equality")
     func drawnThroughEquality() throws {
-        let text = try #require(SourceTree.swiftFiles(matching: "Chat/ChatRows.swift").first?.text)
+        let rows = try #require(SourceTree.swiftFiles(matching: "Chat/ChatRows.swift").first?.text)
+        let prose = try #require(SourceTree.swiftFiles(matching: "Chat/ChatProse.swift").first?.text)
 
-        #expect(text.contains("ChatRow(row: row, marked: marked)\n                .equatable()"))
-        #expect(text.contains("ChatReplyPartView(part: part, marked: marked, speaker: speaker)\n                    .equatable()"))
+        #expect(rows.contains("ChatRow(row: row, marked: marked)\n                .equatable()"))
+        #expect(rows.contains("ChatReplyPartView(part: part, marked: marked, titles: titles, speaker: speaker)\n                    .equatable()"))
+        #expect(rows.contains("ChatProse(paragraphs: paragraphs, marked: marked, titles: titles, speaker: speaker)\n            .equatable()"))
+        #expect(prose.contains("static func == (lhs: ChatProse, rhs: ChatProse) -> Bool"))
     }
 }

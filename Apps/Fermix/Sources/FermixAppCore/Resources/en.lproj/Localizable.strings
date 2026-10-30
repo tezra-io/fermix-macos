@@ -475,7 +475,6 @@
 "chat.kind.document" = "Document";
 "chat.kind.page" = "Page";
 "chat.kind.file" = "File";
-"chat.kind.link" = "Link";
 "chat.code" = "Code";
 "chat.code.language.shell" = "Shell";
 "chat.code.language.powerShell" = "PowerShell";
@@ -528,6 +527,13 @@
 "chat.task.open" = "Not done";
 "chat.code.copy" = "Copy";
 "chat.code.copied" = "Copied";
+"chat.message.copy" = "Copy message";
+"chat.link.heldTitle" = "This link may not go where it seems to";
+"chat.link.elsewhereFormat" = "Its words say %@, but it opens %@.";
+"chat.link.lookalikeFormat" = "Its address uses letters that pass for others. It opens %@.";
+"chat.link.hiddenNameFormat" = "Its address puts a name in front of the site it opens, %@.";
+"chat.link.openAnyway" = "Open anyway";
+"chat.link.cancel" = "Cancel";
 "chat.places.map" = "Map of the places";
 "chat.place.openInMaps" = "Open in Maps";
 "chat.place.showOnMap" = "Shows the place on the map.";

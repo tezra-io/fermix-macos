@@ -5,6 +5,10 @@ The release notes, kept as the work lands. One line per change a person sees or 
 ## Unreleased
 
 - Integrations: a plugin's page has Edit… beside its sign-in client whether the plugin is on, off or already signed in, so a client ID or a secret you rotate at the provider, such as X's, can be changed from that page instead of only at the foot of the list.
+- Chat: replies, your messages and the message field are set in Hanken Grotesk, a typeface made for reading on screen, with more room between lines and a calmer gap between paragraphs, so long answers are easier to read.
+- Chat: links stay in the sentence, underlined, instead of as cards under the reply. Resting the pointer on one shows its whole address, under the page's title where Fermix read the page, and you can select across a reply's paragraphs and use Copy Link from a link's menu.
+- Chat: a link whose words name one site but that opens another, whose address uses letters from another alphabet that pass for familiar ones, or that puts a name in front of its real site carries a small warning mark, and Fermix asks before opening it.
+- Chat: Copy sits under each reply, with the time it was written, and beside each of your own messages while the pointer is over them.
 
 ## 0.7.0 (2026-10-27)
 
