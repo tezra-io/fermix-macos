@@ -362,6 +362,119 @@ final class WebKitPageActions {
         }
     }
 
+    // MARK: - Sign-in (M84 §8)
+
+    /// The tab's top page as a sign-in checks it: `https`, on `site` by key,
+    /// and the origin the checks were made on.
+    private struct SecureTop {
+        let url: URL
+        let host: String
+        let key: String
+        let origin: String
+    }
+
+    /// `page.login_for`: the tab's top page is `https` and its host is
+    /// `site`'s by key, and the saved login for that key, attributes only.
+    /// Answers the top origin too, which the page holds for the
+    /// `page.sign_in` that follows.
+    func loginFor(site: String, store: any LoginStore) async throws -> (login: SavedLogin, origin: String) {
+        try await waitUntilReady()
+        let top = try secureTop(site: site)
+        let found = try await Self.storeRead(missing: .noLogin(host: top.key)) { try await store.login(forHost: top.host) }
+        guard let login = found else { throw BrowserLoginRefusal.noLogin(host: top.key) }
+
+        return (login, top.origin)
+    }
+
+    /// `page.sign_in`: the `page.login_for` checks again, the same origin and
+    /// the same login as then, the password read only for a `passwordRef` and
+    /// handed to the ledger before the page has it, then one `fillLogin`.
+    func signIn(
+        _ request: BrowserSignInRequest,
+        expectedOrigin: String?,
+        store: any LoginStore,
+        ledger: LoginLedger,
+        observing observation: BrowserSnapshotRequest
+    ) async throws -> BrowserSignInOutcome {
+        try await waitUntilReady()
+        let top = try secureTop(site: request.site)
+        guard top.origin == expectedOrigin else { throw BrowserLoginRefusal.pageMoved(.origin) }
+        let found = try await Self.storeRead(missing: .pageMoved(.login)) { try await store.login(forHost: top.host) }
+        guard let login = found, login.site == request.loginSite else { throw BrowserLoginRefusal.pageMoved(.login) }
+
+        let fill = try await loginFill(request, login: login, topURL: top.url, store: store, ledger: ledger)
+        let before = try await fingerprint()
+        try await fillLogin(fill)
+        let (effect, url) = await settle(from: before, observing: observation)
+
+        return BrowserSignInOutcome(filled: fill.fields, effect: effect, url: url)
+    }
+
+    private func secureTop(site: String) throws -> SecureTop {
+        guard
+            let url = webView.url, url.scheme?.lowercased() == "https",
+            let host = url.host(percentEncoded: false)?.lowercased(), !host.isEmpty
+        else {
+            throw BrowserLoginRefusal.insecurePage
+        }
+        guard
+            case .success(let siteKey) = LoginSite.key(site),
+            case .success(let hostKey) = LoginSite.key(host),
+            siteKey == hostKey
+        else {
+            throw BrowserLoginRefusal.wrongSite(site: site)
+        }
+
+        let port = url.port.flatMap { $0 == 443 ? nil : $0 }
+        return SecureTop(url: url, host: host, key: hostKey, origin: "https://\(host)" + (port.map { ":\($0)" } ?? ""))
+    }
+
+    /// The values the fill types. The keychain's secret is read only when a
+    /// password field is named, and the ledger holds it from that moment.
+    private func loginFill(
+        _ request: BrowserSignInRequest,
+        login: SavedLogin,
+        topURL: URL,
+        store: any LoginStore,
+        ledger: LoginLedger
+    ) async throws -> BrowserLoginFill {
+        var password: LoginSecret?
+        if request.passwordRef != nil {
+            let secret = try await Self.storeRead(missing: .pageMoved(.login)) { try await store.password(for: login.id) }
+            ledger.add(secret)
+            password = secret
+        }
+
+        return BrowserLoginFill(
+            topURL: topURL,
+            usernameRef: request.usernameRef,
+            username: request.usernameRef == nil ? nil : login.username,
+            passwordRef: request.passwordRef,
+            password: password
+        )
+    }
+
+    private func fillLogin(_ fill: BrowserLoginFill) async throws {
+        let answer: FillAnswer = try await script.call("fillLogin", [fill.scriptArgument()])
+        try answer.check()
+    }
+
+    /// A store read in the host's vocabulary: a login that is not there is
+    /// `missing`, and the keychain's own refusals are `store_unavailable`.
+    private static func storeRead<Value>(
+        missing: BrowserLoginRefusal,
+        _ read: () async throws -> Value
+    ) async throws -> Value {
+        do {
+            return try await read()
+        } catch let error as LoginStoreError {
+            switch error {
+            case .notFound, .site: throw missing
+            default: throw BrowserLoginRefusal.storeUnavailable(error)
+            }
+        }
+    }
+
     // MARK: - Settling
 
     private func fingerprint() async throws -> BrowserPageFingerprint {
@@ -453,4 +566,38 @@ private struct RectGetAnswer: Decodable {
 
 private struct WaitAnswer: Decodable {
     let done: Bool
+}
+
+/// `fillLogin`'s answer: `{ok: true}`, or the one word it refused with, the
+/// ref it was about and what was wrong.
+private struct FillAnswer: Decodable {
+    let ok: Bool?
+    let error: String?
+    let ref: Int?
+    let detail: String?
+
+    func check() throws {
+        switch error {
+        case nil where ok == true:
+            return
+        case "stale":
+            guard let ref else { break }
+            throw BrowserPageDriveError.staleRef(ref)
+        case "field":
+            guard let problem = Self.problems[detail ?? ""] else { break }
+            throw BrowserLoginRefusal.field(ref: ref, problem)
+        case "moved":
+            throw BrowserLoginRefusal.pageMoved(.documentOrigin)
+        default:
+            break
+        }
+        throw BrowserPageDriveError.script("fillLogin answered \(error ?? "no word")")
+    }
+
+    private static let problems: [String: BrowserLoginFieldProblem] = [
+        "username": .notUsername,
+        "password": .notPassword,
+        "documents": .twoDocuments,
+        "focus": .focus
+    ]
 }

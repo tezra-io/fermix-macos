@@ -83,6 +83,13 @@ public final class BrowserHostClient {
     private let coordinator: any BrowserHostCoordinating
     private let deadlines: any DeadlineScheduling
     private let protocolVersion: Int
+    /// The website logins a sign-in reads (M84 §7), created once at the
+    /// composition root.
+    private let loginStore: any LoginStore
+    /// Every password a sign-in typed since the app started. It lives as long
+    /// as this client, which the composition root makes once per process, and
+    /// scrubs every line the client sends while it holds an entry.
+    let ledger = LoginLedger()
     private let log = AppLog.logger(.browserHost)
 
     private var phase: Phase = .idle
@@ -105,6 +112,7 @@ public final class BrowserHostClient {
         hostVersion: String,
         coordinator: any BrowserHostCoordinating,
         deadlines: any DeadlineScheduling,
+        loginStore: any LoginStore,
         protocolVersion: Int = BrowserHostProtocol.version
     ) {
         self.lines = lines
@@ -115,6 +123,7 @@ public final class BrowserHostClient {
         self.hostVersion = hostVersion
         self.coordinator = coordinator
         self.deadlines = deadlines
+        self.loginStore = loginStore
         self.protocolVersion = protocolVersion
 
         lines.onMessage = { [weak self] inbound in
@@ -343,28 +352,23 @@ public final class BrowserHostClient {
     // MARK: - Sending
 
     private func send(_ event: BrowserHostEvent) {
-        lines.send(Self.line(for: event))
+        lines.send(outgoingLine(describing: "event \(event.wireType)") { try event.encoded() })
     }
 
     private func respond(_ response: BrowserHostResponse) {
-        lines.send(Self.line(for: response))
+        lines.send(outgoingLine(describing: "response \(response.id)") { try response.encoded() })
     }
 
-    /// Every event this build ever sends fits the contract's own cap; a line
+    /// The one way out for every line: encoded, scrubbed of every password the
+    /// ledger holds, so a password a sign-in typed never reaches the daemon in
+    /// an answer, an event or an error whatever the page did with it, then
+    /// held to the contract's cap. Every line this build sends fits it; one
     /// that does not is a programming defect rather than a wire condition.
-    private static func line(for event: BrowserHostEvent) -> Data {
+    private func outgoingLine(describing what: String, _ encode: () throws -> Data) -> Data {
         do {
-            return try event.line()
+            return try BrowserHostProtocol.bounded(ledger.scrub(encode()))
         } catch {
-            preconditionFailure("browser host event \(event.wireType) could not be encoded: \(error)")
-        }
-    }
-
-    private static func line(for response: BrowserHostResponse) -> Data {
-        do {
-            return try response.line()
-        } catch {
-            preconditionFailure("browser host response \(response.id) could not be encoded: \(error)")
+            preconditionFailure("browser host \(what) could not be encoded: \(error)")
         }
     }
 
@@ -424,6 +428,10 @@ public final class BrowserHostClient {
             dispatchHostStatus(id: id)
         case .hostStopAck(let id):
             dispatchHostStopAck(id: id)
+        case .pageLoginFor(let id, let payload):
+            dispatchPageLoginFor(id: id, payload: payload)
+        case .pageSignIn(let id, let payload):
+            dispatchPageSignIn(id: id, payload: payload)
         }
     }
 
@@ -618,6 +626,7 @@ public final class BrowserHostClient {
             guard let self else { return }
             do {
                 guard let capturing = tab.capturing else { throw BrowserPageDriveError.notDrivable }
+                try await self.refuseShownSecrets(on: tab)
                 let capture = try await capturing.screenshot(fullPage: payload.fullPage)
                 try capture.data.write(to: URL(fileURLWithPath: payload.path))
                 self.respond(BrowserHostResponse(id: id, result: .pageScreenshot(BrowserHostScreenshotResult(
@@ -644,6 +653,7 @@ public final class BrowserHostClient {
             guard let self else { return }
             do {
                 guard let capturing = tab.capturing else { throw BrowserPageDriveError.notDrivable }
+                try await self.refuseShownSecrets(on: tab)
                 let data = try await capturing.pdf()
                 try data.write(to: URL(fileURLWithPath: path))
                 self.respond(BrowserHostResponse(id: id, result: .pagePdf(BrowserHostPdfResult(
@@ -697,6 +707,65 @@ public final class BrowserHostClient {
 
         coordinator.answer(Self.dialogAnswer(accept: accept, text: text))
         respond(BrowserHostResponse(id: id, result: .dialogResolve(tabId: tabId)))
+    }
+
+    /// `page.login_for`: the saved login for the tab's page, attributes only.
+    private func dispatchPageLoginFor(id: Int, payload: BrowserHostPageLoginForRequest) {
+        guard let tab = requiredTab(id: id, wireTabID: payload.tabId) else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let page = tab.signingIn else { throw BrowserPageDriveError.notDrivable }
+                let login = try await page.loginFor(site: payload.site, store: self.loginStore)
+                self.respond(BrowserHostResponse(id: id, result: .pageLoginFor(loginSite: login.site, username: login.username)))
+            } catch {
+                self.respond(BrowserHostResponse(id: id, error: self.wireError(for: error)))
+            }
+        }
+    }
+
+    /// `page.sign_in`: the page's own handler checks, reads and fills; the
+    /// answer names the fields it typed and never a value.
+    private func dispatchPageSignIn(id: Int, payload: BrowserHostPageSignInRequest) {
+        guard let tab = requiredTab(id: id, wireTabID: payload.tabId) else { return }
+        guard payload.usernameRef != nil || payload.passwordRef != nil else {
+            respond(BrowserHostResponse(
+                id: id,
+                error: BrowserHostError(reason: .invalidRequest, message: "page.sign_in names neither username_ref nor password_ref")
+            ))
+            return
+        }
+
+        let request = BrowserSignInRequest(
+            site: payload.site,
+            loginSite: payload.loginSite,
+            usernameRef: payload.usernameRef,
+            passwordRef: payload.passwordRef
+        )
+        let observation = payload.snapshot
+            .map { BrowserSnapshotRequest(mode: $0.mode, maxChars: $0.maxChars, depth: $0.depth) } ?? Self.noObservation
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let page = tab.signingIn else { throw BrowserPageDriveError.notDrivable }
+                let outcome = try await page.signIn(request, store: self.loginStore, ledger: self.ledger, observing: observation)
+                self.respond(BrowserHostResponse(id: id, result: .pageSignIn(Self.signInResult(outcome, title: tab.title, observe: payload.observe))))
+            } catch {
+                self.respond(BrowserHostResponse(id: id, error: self.wireError(for: error)))
+            }
+        }
+    }
+
+    /// The capture guard (M84 §9): while the ledger holds a password, no
+    /// screenshot or PDF is taken of a page that shows one as text. A page
+    /// that cannot be checked is not captured.
+    private func refuseShownSecrets(on tab: BrowserTab) async throws {
+        guard !ledger.isEmpty else { return }
+        guard let page = tab.signingIn else { throw BrowserLoginRefusal.secretUncheckable }
+
+        try await page.refuseShownSecrets(ledger.fingerprints)
     }
 
     private func dispatchHostStatus(id: Int) {
@@ -774,9 +843,12 @@ public final class BrowserHostClient {
     }
 
     /// A screenshot or a PDF that could not be captured or written; the
-    /// contract's one reason for both (`write_failed`).
+    /// contract's one reason for both (`write_failed`), unless the capture
+    /// guard refused it (`secret_on_screen`).
     private func captureError(for error: Error) -> BrowserHostError {
-        BrowserHostError(reason: .writeFailed, message: "\(error)")
+        if let refusal = error as? BrowserLoginRefusal { return Self.wireError(for: refusal) }
+
+        return BrowserHostError(reason: .writeFailed, message: "\(error)")
     }
 
     private static func wireCookie(_ cookie: BrowserCookie) -> BrowserHostCookie {
@@ -824,6 +896,7 @@ public final class BrowserHostClient {
     }
 
     private func wireError(for error: Error) -> BrowserHostError {
+        if let refusal = error as? BrowserLoginRefusal { return Self.wireError(for: refusal) }
         guard let drive = error as? BrowserPageDriveError else {
             return BrowserHostError(reason: .actFailed, message: "\(error)")
         }
@@ -866,6 +939,67 @@ public final class BrowserHostClient {
         case .invalidRequest(let message):
             return BrowserHostError(reason: .invalidRequest, message: message)
         }
+    }
+
+    /// A sign-in's refusal in the host's protocol 2 vocabulary. Each message
+    /// names a host, a ref or a status, and never a username or a password.
+    private static func wireError(for refusal: BrowserLoginRefusal) -> BrowserHostError {
+        switch refusal {
+        case .insecurePage:
+            return BrowserHostError(reason: .signInInsecurePage, message: "the page is not served over https")
+        case .wrongSite(let site):
+            return BrowserHostError(reason: .signInWrongSite, message: "the tab's page is not on \(site)")
+        case .noLogin(let host):
+            return BrowserHostError(reason: .signInNoLogin, message: "no login is saved for \(host)")
+        case .field(let ref, let problem):
+            return BrowserHostError(reason: .signInField, message: fieldMessage(ref: ref, problem))
+        case .pageMoved(let change):
+            return BrowserHostError(reason: .signInPageMoved, message: movedMessage(change))
+        case .storeUnavailable(let error):
+            return BrowserHostError(reason: .signInStoreUnavailable, message: storeMessage(error))
+        case .secretOnScreen:
+            return BrowserHostError(reason: .secretOnScreen, message: "a filled password shows as text on the page")
+        case .secretUncheckable:
+            return BrowserHostError(reason: .secretOnScreen, message: "the page is too large to check for a filled password")
+        }
+    }
+
+    private static func fieldMessage(ref: Int?, _ problem: BrowserLoginFieldProblem) -> String {
+        let field = ref.map { "ref \($0)" } ?? "the field"
+        switch problem {
+        case .notUsername: return "\(field) is not a text, email or phone input"
+        case .notPassword: return "\(field) is not a password field"
+        case .twoDocuments: return "the username and password fields are in different documents"
+        case .focus: return "\(field) did not take and keep the focus"
+        }
+    }
+
+    private static func movedMessage(_ change: BrowserLoginChange) -> String {
+        switch change {
+        case .origin: return "the page moved to another origin"
+        case .documentOrigin: return "the page or a field's document moved to another origin"
+        case .login: return "the login saved for this site changed"
+        }
+    }
+
+    private static func storeMessage(_ error: LoginStoreError) -> String {
+        switch error {
+        case .unavailable(status: let status?): return "the keychain refused (OSStatus \(status))"
+        case .unavailable(status: nil): return "this build of the app has no login store"
+        case .timedOut: return "the keychain did not answer within 5 seconds"
+        default: return "the login store answered \(error)"
+        }
+    }
+
+    private static func signInResult(_ outcome: BrowserSignInOutcome, title: String, observe: Bool) -> BrowserHostSignInResult {
+        let page: BrowserHostPage?
+        if observe, case .changed(let snapshot) = outcome.effect {
+            page = wirePage(snapshot, isLoading: false)
+        } else {
+            page = nil
+        }
+
+        return BrowserHostSignInResult(url: outcome.url, title: title, filled: outcome.filled.map(\.rawValue), page: page)
     }
 
     private static func action(for payload: BrowserHostPageActRequest) -> BrowserPageAction? {

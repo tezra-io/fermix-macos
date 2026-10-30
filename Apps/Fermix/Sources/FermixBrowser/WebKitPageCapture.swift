@@ -43,6 +43,26 @@ final class WebKitPageCapture {
         try await webView.pdf(configuration: WKPDFConfiguration())
     }
 
+    /// The capture guard (M84 §9), run before every screenshot and PDF while
+    /// the ledger holds a password: one script call hashes every text field
+    /// whose length is a filled password's and compares it with the ledger's
+    /// digests. A page too large to check is refused rather than captured.
+    func refuseShownSecrets(_ fingerprints: [BrowserSecretFingerprint]) async throws {
+        guard !fingerprints.isEmpty else { return }
+
+        let answer = try await script.call(
+            "secretOnScreen",
+            [fingerprints.map(\.utf16Length), fingerprints.map(\.sha256)],
+            as: BrowserScriptAnswer<ShownAnswer>.self
+        )
+        switch answer {
+        case .value(let shown) where shown.shown: throw BrowserLoginRefusal.secretOnScreen
+        case .value: return
+        case .refused("too_large"): throw BrowserLoginRefusal.secretUncheckable
+        case .refused(let word): throw BrowserPageDriveError.script(word)
+        }
+    }
+
     private func documentHeight() async throws -> Double {
         let answer: DocumentHeight = try await script.call("documentHeight", [])
         return answer.value
@@ -57,4 +77,8 @@ final class WebKitPageCapture {
 
 private struct DocumentHeight: Decodable {
     let value: Double
+}
+
+private struct ShownAnswer: Decodable {
+    let shown: Bool
 }

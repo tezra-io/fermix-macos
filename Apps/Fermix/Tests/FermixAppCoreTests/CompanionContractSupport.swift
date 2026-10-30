@@ -322,7 +322,8 @@ enum CompanionServerWire {
             "site": preview.site,
             "title": preview.title,
             "description": preview.description,
-            "image_ref": preview.imageRef
+            "image_ref": preview.imageRef,
+            "icon_ref": preview.iconRef
         ])
     }
 

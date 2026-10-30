@@ -8,11 +8,12 @@ import Foundation
 /// one sending requests with an `id`, this build answers each with `ok` or
 /// `error`, and it sends its own news as events that carry no `id`.
 public enum BrowserHostProtocol {
-    /// Wire protocol version this build declares in `client_hello`.
-    public static let version = 1
+    /// Wire protocol version this build declares in `client_hello`. Version 2
+    /// adds `page.login_for` and `page.sign_in` (M84), and nothing else.
+    public static let version = 2
 
     /// The daemon's window at the pinned contract, which `version` sits inside.
-    public static let supportedWindow = BrowserHostVersionWindow(minimum: 1, maximum: 1)
+    public static let supportedWindow = BrowserHostVersionWindow(minimum: 1, maximum: 2)
 
     /// The longest line the daemon reads from this build (`x-max-line-bytes`).
     /// A response or event longer than this is refused by the daemon with
@@ -43,6 +44,52 @@ public enum BrowserHostProtocol {
         maximumLineBytes: 16_777_216,
         maximumBufferedBytes: 33_554_432
     )
+
+    /// The one encoder every line this build sends is written with. The
+    /// login ledger's scrub matches each password in the form this same
+    /// encoder writes it (`LoginLedger`), so the two never disagree on how a
+    /// quote, a backslash or a slash is spelled on the wire.
+    public static func lineEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
+        return encoder
+    }
+
+    /// A line this build sends, refused when it is longer than the daemon
+    /// reads (`line_too_large` would close the connection). Every line is held
+    /// to it last, after the login ledger's scrub.
+    public static func bounded(_ line: Data) throws -> Data {
+        guard line.count <= maximumLineBytes else {
+            throw BrowserHostEncodeFailure.lineTooLarge(bytes: line.count)
+        }
+        return line
+    }
+
+    /// Every place in a frame this build sends whose string the schema closes
+    /// to a fixed set (an `enum` or a `const`), by frame: `response`, or an
+    /// event's own `type`. Keys run from the frame down, `*` standing for any
+    /// element of an array. The login ledger's scrub leaves these whole, as it
+    /// leaves every key: everything else this build sends is free text.
+    /// `BrowserHostClosedPathTests` holds the table to the schema both ways.
+    public static let closedPaths: [String: Set<[String]>] = [
+        "response": [
+            ["error", "reason"],
+            ["result", "ready_state"],
+            ["result", "page", "ready_state"],
+            ["result", "mime_type"],
+            ["result", "filled", "*"]
+        ],
+        "client_hello": [["type"]],
+        "attached": [["type"]],
+        "availability": [["type"]],
+        "tab.closed": [["type"], ["by"]],
+        "dialog.opened": [["type"], ["kind"]],
+        "download.began": [["type"]],
+        "download.progress": [["type"]],
+        "download.finished": [["type"], ["state"]],
+        "task.cancel": [["type"]],
+        "host_stopping": [["type"]]
+    ]
 }
 
 /// The version window a daemon advertised.
@@ -239,6 +286,62 @@ public struct BrowserHostPageActRequest: Equatable, Sendable, Decodable {
     }
 }
 
+/// `page.login_for` (protocol 2): which saved login fits the tab's page. No
+/// secret is asked for or answered.
+public struct BrowserHostPageLoginForRequest: Equatable, Sendable, Decodable {
+    public let tabId: String
+    public let site: String
+
+    private enum CodingKeys: String, CodingKey {
+        case site
+        case tabId = "tab_id"
+    }
+
+    public init(tabId: String, site: String) {
+        self.tabId = tabId
+        self.site = site
+    }
+}
+
+/// `page.sign_in` (protocol 2): type the login `login_site` names into the
+/// fields the refs name, after the owner's yes. It carries no secret: the
+/// password is read here, from this Mac's keychain, and never crosses the wire.
+public struct BrowserHostPageSignInRequest: Equatable, Sendable, Decodable {
+    public let tabId: String
+    public let site: String
+    public let loginSite: String
+    public let observe: Bool
+    public let usernameRef: Int?
+    public let passwordRef: Int?
+    public let snapshot: BrowserHostSnapshotOptions?
+
+    private enum CodingKeys: String, CodingKey {
+        case site, observe, snapshot
+        case tabId = "tab_id"
+        case loginSite = "login_site"
+        case usernameRef = "username_ref"
+        case passwordRef = "password_ref"
+    }
+
+    public init(
+        tabId: String,
+        site: String,
+        loginSite: String,
+        observe: Bool,
+        usernameRef: Int?,
+        passwordRef: Int?,
+        snapshot: BrowserHostSnapshotOptions?
+    ) {
+        self.tabId = tabId
+        self.site = site
+        self.loginSite = loginSite
+        self.observe = observe
+        self.usernameRef = usernameRef
+        self.passwordRef = passwordRef
+        self.snapshot = snapshot
+    }
+}
+
 /// Every request the daemon may send, each carrying the `id` it must be
 /// answered by.
 public enum BrowserHostRequest: Equatable, Sendable {
@@ -258,6 +361,8 @@ public enum BrowserHostRequest: Equatable, Sendable {
     case cookiesClear(id: Int, tabId: String)
     case hostStatus(id: Int)
     case hostStopAck(id: Int)
+    case pageLoginFor(id: Int, BrowserHostPageLoginForRequest)
+    case pageSignIn(id: Int, BrowserHostPageSignInRequest)
 
     public var id: Int {
         switch self {
@@ -265,7 +370,7 @@ public enum BrowserHostRequest: Equatable, Sendable {
              .tabClose(let id, _), .taskRelease(let id, _), .pageSnapshot(let id, _), .pageScreenshot(let id, _),
              .pagePdf(let id, _, _), .pageAct(let id, _), .pageUpload(let id, _, _, _),
              .dialogResolve(let id, _, _, _), .cookiesGet(let id, _), .cookiesClear(let id, _),
-             .hostStatus(let id), .hostStopAck(let id):
+             .hostStatus(let id), .hostStopAck(let id), .pageLoginFor(let id, _), .pageSignIn(let id, _):
             return id
         }
     }
@@ -288,6 +393,8 @@ public enum BrowserHostRequest: Equatable, Sendable {
         case .cookiesClear: return "cookies.clear"
         case .hostStatus: return "host.status"
         case .hostStopAck: return "host.stop_ack"
+        case .pageLoginFor: return "page.login_for"
+        case .pageSignIn: return "page.sign_in"
         }
     }
 }
@@ -444,6 +551,10 @@ extension BrowserHostInbound: Decodable {
             return .hostStatus(id: id)
         case "host.stop_ack":
             return .hostStopAck(id: id)
+        case "page.login_for":
+            return .pageLoginFor(id: id, try BrowserHostPageLoginForRequest(from: decoder))
+        case "page.sign_in":
+            return .pageSignIn(id: id, try BrowserHostPageSignInRequest(from: decoder))
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
@@ -615,13 +726,13 @@ extension BrowserHostEvent: Encodable {
     /// line the daemon would refuse for its length throws `lineTooLarge`
     /// instead.
     public func line() throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .withoutEscapingSlashes
-        let line = try encoder.encode(self)
-        guard line.count <= BrowserHostProtocol.maximumLineBytes else {
-            throw BrowserHostEncodeFailure.lineTooLarge(bytes: line.count)
-        }
-        return line
+        try BrowserHostProtocol.bounded(encoded())
+    }
+
+    /// The event encoded, not yet held to the line cap: the wire client
+    /// scrubs it first and bounds what it sends.
+    public func encoded() throws -> Data {
+        try BrowserHostProtocol.lineEncoder().encode(self)
     }
 }
 
@@ -642,6 +753,14 @@ public enum BrowserHostErrorReason: String, Error, Equatable, Sendable, Encodabl
     case uploadFailed = "upload_failed"
     case invalidRequest = "invalid_request"
     case hostUnavailable = "host_unavailable"
+    // Protocol 2 (M84): a sign-in's refusals and the capture guard's.
+    case signInInsecurePage = "sign_in_insecure_page"
+    case signInWrongSite = "sign_in_wrong_site"
+    case signInNoLogin = "sign_in_no_login"
+    case signInField = "sign_in_field"
+    case signInPageMoved = "sign_in_page_moved"
+    case signInStoreUnavailable = "sign_in_store_unavailable"
+    case secretOnScreen = "secret_on_screen"
 }
 
 /// A refusal of one request. Never closes the connection by itself.
@@ -928,6 +1047,22 @@ public struct BrowserHostActResult: Equatable, Sendable, Encodable {
     }
 }
 
+/// `page.sign_in`'s answer: where the page is and which fields were typed
+/// into, in order. Never a value.
+public struct BrowserHostSignInResult: Equatable, Sendable, Encodable {
+    public let url: String
+    public let title: String
+    public let filled: [String]
+    public let page: BrowserHostPage?
+
+    public init(url: String, title: String, filled: [String], page: BrowserHostPage? = nil) {
+        self.url = url
+        self.title = title
+        self.filled = filled
+        self.page = page
+    }
+}
+
 public struct BrowserHostStatusResult: Equatable, Sendable, Encodable {
     public let hostVersion: String
     public let profileId: String
@@ -971,6 +1106,9 @@ public enum BrowserHostResult: Equatable, Sendable {
     case cookiesClear(cleared: Int)
     case hostStatus(BrowserHostStatusResult)
     case hostStopAck
+    /// The saved login's site and username, never its password.
+    case pageLoginFor(loginSite: String, username: String)
+    case pageSignIn(BrowserHostSignInResult)
 }
 
 extension BrowserHostResult: Encodable {
@@ -981,6 +1119,11 @@ extension BrowserHostResult: Encodable {
 
     private enum CookiesKeys: String, CodingKey {
         case url, cookies
+    }
+
+    private enum LoginKeys: String, CodingKey {
+        case username
+        case loginSite = "login_site"
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -1022,6 +1165,12 @@ extension BrowserHostResult: Encodable {
             try result.encode(to: encoder)
         case .hostStopAck:
             _ = encoder.container(keyedBy: SimpleKeys.self)
+        case .pageLoginFor(let loginSite, let username):
+            var container = encoder.container(keyedBy: LoginKeys.self)
+            try container.encode(loginSite, forKey: .loginSite)
+            try container.encode(username, forKey: .username)
+        case .pageSignIn(let result):
+            try result.encode(to: encoder)
         }
     }
 }
@@ -1071,12 +1220,12 @@ extension BrowserHostResponse: Encodable {
     /// line the daemon would refuse for its length throws `lineTooLarge`
     /// instead.
     public func line() throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .withoutEscapingSlashes
-        let line = try encoder.encode(self)
-        guard line.count <= BrowserHostProtocol.maximumLineBytes else {
-            throw BrowserHostEncodeFailure.lineTooLarge(bytes: line.count)
-        }
-        return line
+        try BrowserHostProtocol.bounded(encoded())
+    }
+
+    /// The response encoded, not yet held to the line cap: the wire client
+    /// scrubs it first and bounds what it sends.
+    public func encoded() throws -> Data {
+        try BrowserHostProtocol.lineEncoder().encode(self)
     }
 }

@@ -473,7 +473,7 @@
 
   function embeddedValue(element) {
     const tag = element.localName;
-    if (isTextField(element) && (tag === "input" || tag === "textarea")) return element.value;
+    if (isTextField(element) && (tag === "input" || tag === "textarea")) return fieldText(element);
     if (tag === "select") {
       return Array.from(element.selectedOptions).map((option) => option.label || option.text).join(" ");
     }
@@ -666,8 +666,7 @@
       const inner = this.add(placed.parent, { ...context, depth: placed.depth },
         { role: "generic", properties, ref: key });
       if (!inner) return;
-      const shownValue = inputType(element) === "password" ? "•".repeat(element.value.length) : element.value;
-      this.editableText(inner.parent, { ...context, depth: inner.depth }, collapse(shownValue), key, "plaintext");
+      this.editableText(inner.parent, { ...context, depth: inner.depth }, collapse(fieldText(element)), key, "plaintext");
     }
 
     // An input button shows its label as a static text child.
@@ -925,7 +924,7 @@
       } catch {
         element.select?.();
       }
-      return { value: element.value };
+      return { value: readValue(element) };
     }
     if (element.isContentEditable) {
       const selection = element.ownerDocument.getSelection();
@@ -965,7 +964,18 @@
   }
 
   function readValue(element) {
-    return element.isContentEditable ? element.textContent : element.value;
+    return element.isContentEditable ? element.textContent : fieldText(element);
+  }
+
+  // A field's value as every read of the page answers it: a password field's
+  // as one bullet per character, the way the snapshot draws it, so no act,
+  // name or snapshot ever carries what a password field holds.
+  function fieldText(element) {
+    return isPasswordField(element) ? "•".repeat(element.value.length) : element.value;
+  }
+
+  function isPasswordField(element) {
+    return element.localName === "input" && inputType(element) === "password";
   }
 
   function valueOf(key) {
@@ -1078,9 +1088,22 @@
   }
 
   function getHtml(selector) {
-    if (!selector) return { value: document.documentElement ? document.documentElement.outerHTML : "" };
+    if (!selector) return { value: document.documentElement ? serialized(document.documentElement) : "" };
     const element = document.querySelector(selector);
-    return element ? { value: element.outerHTML } : { error: "no_box" };
+    return element ? { value: serialized(element) } : { error: "no_box" };
+  }
+
+  // The markup of a copy with no `value` attribute on any password field,
+  // which frameworks such as React copy a controlled input's value into. The
+  // copy is made in a document of its own, with no window, so none of the
+  // page's custom elements is constructed for it.
+  function serialized(element) {
+    const copy = document.implementation.createHTMLDocument("").importNode(element, true);
+    const inputs = copy.localName === "input" ? [copy] : Array.from(copy.querySelectorAll("input"));
+    for (const input of inputs) {
+      if (isPasswordField(input)) input.removeAttribute("value");
+    }
+    return copy.outerHTML;
   }
 
   function getRect(selector) {
@@ -1123,8 +1146,242 @@
     return { value: root ? root.scrollHeight : window.innerHeight };
   }
 
+  // ------------------------------------------------------------------- sign-in
+
+  // A saved login typed into the page in one call (M84 §8): every check
+  // before anything is set, then the values through each input's own setter,
+  // username first. The page cannot come between the checks and the write,
+  // because one script call runs to its end before the page runs again. The
+  // answer is `{ok: true}` and nothing else: no value ever comes back.
+  const USERNAME_TYPES = new Set(["", "text", "email", "tel"]);
+  const filledPasswords = new WeakSet();
+  const guardedRoots = new WeakSet();
+
+  function fillLogin(request) {
+    const fields = loginFields(request);
+    if (fields.error) return fields;
+    const origin = new URL(request.topURL).origin;
+    if (originOf(document) !== origin) return { error: "moved", detail: "top" };
+    if (fields.list.some(({ element }) => originOf(element.ownerDocument) !== origin)) {
+      return { error: "moved", detail: "frame" };
+    }
+    for (const { element, key } of fields.list) {
+      if (!keepsFocus(element)) return { error: "field", ref: key, detail: "focus" };
+    }
+    for (const { element } of fields.list) guardRootsOf(element);
+    for (const { element, value } of fields.list) typeInto(element, value);
+    if (fields.password) pinDots(fields.password);
+    for (const { element } of fields.list) stripPasswordValues(element.getRootNode());
+    return { ok: true };
+  }
+
+  // The refs resolved and their kinds checked: a password field for the
+  // password, a plain text, email or phone input for the username, both in
+  // one document. Username first, the order they are typed in.
+  function loginFields(request) {
+    const list = [];
+    if (request.usernameRef !== null) {
+      const element = nodeFor(request.usernameRef);
+      if (!element) return { error: "stale", ref: request.usernameRef };
+      if (element.localName !== "input" || !USERNAME_TYPES.has(inputType(element))) {
+        return { error: "field", ref: request.usernameRef, detail: "username" };
+      }
+      list.push({ element, key: request.usernameRef, value: request.username });
+    }
+    let password = null;
+    if (request.passwordRef !== null) {
+      password = nodeFor(request.passwordRef);
+      if (!password) return { error: "stale", ref: request.passwordRef };
+      if (!isPasswordField(password)) return { error: "field", ref: request.passwordRef, detail: "password" };
+      list.push({ element: password, key: request.passwordRef, value: request.password });
+    }
+    if (list.length === 2 && list[0].element.ownerDocument !== list[1].element.ownerDocument) {
+      return { error: "field", detail: "documents" };
+    }
+    return { list, password };
+  }
+
+  // A document's own origin, as its window holds it: a frame the page wrote
+  // itself carries its creator's origin, and a sandboxed one an opaque one.
+  function originOf(doc) {
+    return doc.defaultView ? doc.defaultView.origin : null;
+  }
+
+  // Whether the field takes the focus and still holds it once every focus
+  // handler the page attached has run.
+  function keepsFocus(element) {
+    element.focus({ preventScroll: true });
+    return element.getRootNode().activeElement === element;
+  }
+
+  function typeInto(element, value) {
+    element.focus({ preventScroll: true });
+    nativeSetValue(element, value);
+    element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    if (isPasswordField(element)) filledPasswords.add(element);
+  }
+
+  // The input's own value setter, from its own window's prototype: a value
+  // set this way is the one a person's typing leaves.
+  function nativeSetValue(element, value) {
+    const prototype = element.ownerDocument.defaultView.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value").set.call(element, value);
+  }
+
+  // The field's dots as an important inline style, which outranks any rule a
+  // stylesheet or a class can bring.
+  function pinDots(element) {
+    const style = element.style;
+    if (style.getPropertyValue("-webkit-text-security") === "disc"
+      && style.getPropertyPriority("-webkit-text-security") === "important") return;
+    style.setProperty("-webkit-text-security", "disc", "important");
+  }
+
+  function stripPasswordValues(root) {
+    for (const input of root.querySelectorAll("input[value]")) {
+      if (isPasswordField(input)) input.removeAttribute("value");
+    }
+  }
+
+  // ------------------------------------------------------------ the guard
+
+  // One guard per document and per shadow root holding a filled field,
+  // installed once each: an observer that undoes every way a page reveals a
+  // filled password through its attributes, and a capture-phase listener
+  // that keeps a GET form from putting it in the address. Observer callbacks
+  // run as microtasks, after the page's own change and before anything
+  // renders or another script call reads the page.
+  function guardRootsOf(element) {
+    guardRoot(element.ownerDocument);
+    const root = element.getRootNode();
+    if (root !== element.ownerDocument) guardRoot(root);
+  }
+
+  function guardRoot(root) {
+    if (guardedRoots.has(root)) return;
+    guardedRoots.add(root);
+    const view = (root.ownerDocument ?? root).defaultView;
+    new view.MutationObserver(guardMutations).observe(root, {
+      subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["type", "value", "style"]
+    });
+    root.addEventListener("submit", guardSubmit, true);
+  }
+
+  function guardMutations(records) {
+    for (const record of records) {
+      const element = record.target;
+      if (element.localName !== "input") continue;
+      if (record.attributeName === "type") clearRevealed(element, record.oldValue);
+      else if (record.attributeName === "value" && isPasswordField(element)) element.removeAttribute("value");
+      else if (record.attributeName === "style" && filledPasswords.has(element)) pinDots(element);
+    }
+  }
+
+  // A field that stopped being a password field (a show-password button) is
+  // emptied before it can render or be read as text.
+  function clearRevealed(element, oldType) {
+    if ((oldType || "").toLowerCase() !== "password" || isPasswordField(element)) return;
+    nativeSetValue(element, "");
+    element.removeAttribute("value");
+    filledPasswords.delete(element);
+  }
+
+  // A submission that would send a filled password by GET loses its default
+  // action, so the password never reaches an address. The page's own
+  // handlers still run: most login forms send with `fetch` and cancel the
+  // default themselves.
+  function guardSubmit(event) {
+    const form = event.target;
+    if (!form || form.localName !== "form") return;
+    const submitter = event.submitter;
+    const method = submitter && submitter.hasAttribute("formmethod") ? submitter.formMethod : form.method;
+    if (method !== "get") return;
+    const sendsPassword = Array.from(form.elements).some((control) => filledPasswords.has(control) && control.value);
+    if (sendsPassword) event.preventDefault();
+  }
+
+  // ------------------------------------------------------- the capture guard
+
+  // Whether a filled password shows as text anywhere a capture would see it:
+  // the value of every connected input and textarea that is not a password
+  // field and whose length is one the app filled, hashed and compared with
+  // the app's own digests. The passwords themselves never come here.
+  const MAX_GUARDED_ROOTS = 1000;
+
+  function secretOnScreen(lengths, digests) {
+    const wantedLengths = new Set(lengths);
+    const known = new Set(digests);
+    const roots = [document];
+    for (let index = 0; index < roots.length; index += 1) {
+      if (roots.length > MAX_GUARDED_ROOTS) return { error: "too_large" };
+      for (const element of roots[index].querySelectorAll("*")) {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+        if ((element.localName === "iframe" || element.localName === "frame") && element.contentDocument) {
+          roots.push(element.contentDocument);
+        }
+        if (showsText(element, wantedLengths) && known.has(sha256Hex(element.value))) return { shown: true };
+      }
+    }
+    return { shown: false };
+  }
+
+  function showsText(element, wantedLengths) {
+    const tag = element.localName;
+    if (tag !== "textarea" && (tag !== "input" || isPasswordField(element))) return false;
+    return element.isConnected && wantedLengths.has(element.value.length);
+  }
+
+  // SHA-256 of a string's UTF-8 bytes, as lowercase hex (FIPS 180-4). The
+  // script carries its own because `crypto.subtle` is asynchronous and absent
+  // from a page that is not a secure context.
+  const SHA256_K = new Uint32Array([
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ]);
+
+  function sha256Hex(text) {
+    const bytes = new TextEncoder().encode(text);
+    const padded = new Uint8Array((((bytes.length + 8) >> 6) + 1) << 6);
+    padded.set(bytes);
+    padded[bytes.length] = 0x80;
+    const view = new DataView(padded.buffer);
+    view.setUint32(padded.length - 8, Math.floor(bytes.length / 0x20000000));
+    view.setUint32(padded.length - 4, (bytes.length * 8) >>> 0);
+    const hash = new Uint32Array([0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+      0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]);
+    const words = new Uint32Array(64);
+    for (let offset = 0; offset < padded.length; offset += 64) sha256Block(view, offset, words, hash);
+    return Array.from(hash, (word) => word.toString(16).padStart(8, "0")).join("");
+  }
+
+  function sha256Block(view, offset, words, hash) {
+    const rotate = (value, by) => (value >>> by) | (value << (32 - by));
+    for (let i = 0; i < 16; i += 1) words[i] = view.getUint32(offset + i * 4);
+    for (let i = 16; i < 64; i += 1) {
+      const s0 = rotate(words[i - 15], 7) ^ rotate(words[i - 15], 18) ^ (words[i - 15] >>> 3);
+      const s1 = rotate(words[i - 2], 17) ^ rotate(words[i - 2], 19) ^ (words[i - 2] >>> 10);
+      words[i] = (words[i - 16] + s0 + words[i - 7] + s1) >>> 0;
+    }
+    let [a, b, c, d, e, f, g, h] = hash;
+    for (let i = 0; i < 64; i += 1) {
+      const t1 = (h + (rotate(e, 6) ^ rotate(e, 11) ^ rotate(e, 25)) + ((e & f) ^ (~e & g)) + SHA256_K[i] + words[i]) >>> 0;
+      const t2 = ((rotate(a, 2) ^ rotate(a, 13) ^ rotate(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
+      [h, g, f, e, d, c, b, a] = [g, f, e, (d + t1) >>> 0, c, b, a, (t1 + t2) >>> 0];
+    }
+    const next = [a, b, c, d, e, f, g, h];
+    for (let i = 0; i < 8; i += 1) hash[i] = (hash[i] + next[i]) >>> 0;
+  }
+
   globalThis.__fermixPage = Object.freeze({
     snapshot, locate, viewport: viewportInfo, prepareTyping, setValue, valueOf, selectOption,
-    submitControl, scrollBy, openChooser, files, fingerprint, get, waitCondition, documentHeight
+    submitControl, scrollBy, openChooser, files, fingerprint, get, waitCondition, documentHeight,
+    fillLogin, secretOnScreen
   });
 })();

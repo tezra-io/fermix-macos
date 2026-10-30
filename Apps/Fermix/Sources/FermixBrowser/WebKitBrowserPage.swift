@@ -20,6 +20,10 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     /// The path an in-flight `upload` action expects the next open panel to
     /// answer with; `runOpenPanelWith` below is the one reader.
     var pendingUploadPath: String?
+    /// The top origin the last `page.login_for` answered for, which the next
+    /// `page.sign_in` must still find and consumes
+    /// (`WebKitBrowserPage+SigningIn.swift` is the one reader and writer).
+    var signInOrigin: String?
     /// Every call parked in `waitUntilReady()` for the navigation in flight
     /// when it was made; `didFinish` and `didFail` are what resolve them
     /// (`WebKitBrowserPage+Driving.swift` is the one caller).

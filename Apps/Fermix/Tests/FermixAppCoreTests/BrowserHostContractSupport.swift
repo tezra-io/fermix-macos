@@ -182,6 +182,18 @@ enum BrowserHostDaemonWire {
             return ["tab_id": tabId]
         case .hostStatus, .hostStopAck:
             return [:]
+        case .pageLoginFor(_, let payload):
+            return ["tab_id": payload.tabId, "site": payload.site]
+        case .pageSignIn(_, let payload):
+            return present([
+                "tab_id": payload.tabId,
+                "site": payload.site,
+                "login_site": payload.loginSite,
+                "observe": payload.observe,
+                "username_ref": payload.usernameRef,
+                "password_ref": payload.passwordRef,
+                "snapshot": payload.snapshot.map(snapshotObject)
+            ])
         }
     }
 

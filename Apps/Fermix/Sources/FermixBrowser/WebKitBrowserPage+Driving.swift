@@ -10,14 +10,17 @@ extension WebKitBrowserPage: BrowserPageDriving {
     }
 
     func act(_ action: BrowserPageAction, observing request: BrowserSnapshotRequest) async throws -> BrowserActOutcome {
-        let actions = WebKitPageActions(
+        try await pageActions().perform(action, observing: request)
+    }
+
+    /// The page's act kinds and its sign-in handlers, on one script.
+    func pageActions() throws -> WebKitPageActions {
+        WebKitPageActions(
             webView: webView,
             script: try pageScript(),
             expectUpload: { [weak self] path in self?.pendingUploadPath = path },
             waitUntilReady: { [weak self] in try await self?.waitUntilReady() }
         )
-
-        return try await actions.perform(action, observing: request)
     }
 
     /// Waits for the navigation `webView.isLoading` reports in flight to

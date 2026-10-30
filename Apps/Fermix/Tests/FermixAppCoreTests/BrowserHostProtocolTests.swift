@@ -73,7 +73,7 @@ struct BrowserHostProtocolTests {
             return
         }
         #expect(minVersion == 1)
-        #expect(maxVersion == 1)
+        #expect(maxVersion == 2)
 
         guard case .tabOpen(1, let opened) = try request(1) else {
             Issue.record("id 1 is not tab.open")
@@ -108,6 +108,17 @@ struct BrowserHostProtocolTests {
             return
         }
 
+        #expect(try request(28) == .pageLoginFor(id: 28, BrowserHostPageLoginForRequest(tabId: "t1", site: "example.com")))
+        #expect(try request(29) == .pageSignIn(id: 29, BrowserHostPageSignInRequest(
+            tabId: "t1", site: "example.com", loginSite: "example.com", observe: false,
+            usernameRef: 11, passwordRef: 12, snapshot: nil
+        )))
+        #expect(try request(30) == .pageSignIn(id: 30, BrowserHostPageSignInRequest(
+            tabId: "t1", site: "www.example.com", loginSite: "example.com", observe: true,
+            usernameRef: 11, passwordRef: nil,
+            snapshot: BrowserHostSnapshotOptions(mode: .interactive, maxChars: 50_000, depth: 5)
+        )))
+
         // The unsupported_protocol_version fixture carries no id, so it is
         // found by its own reason among the fourteen daemon-error lines.
         let refusals = try fixtures
@@ -118,8 +129,8 @@ struct BrowserHostProtocolTests {
             }
         let versionRefusal = try #require(refusals.first { $0.reason == "unsupported_protocol_version" })
         #expect(versionRefusal.direction == .clientTooNew)
-        #expect(versionRefusal.clientVersion == 2)
-        #expect(versionRefusal.window == BrowserHostVersionWindow(minimum: 1, maximum: 1))
+        #expect(versionRefusal.clientVersion == 3)
+        #expect(versionRefusal.window == BrowserHostVersionWindow(minimum: 1, maximum: 2))
 
         let untrustedHost = try #require(refusals.first { $0.reason == "untrusted_host" })
         #expect(untrustedHost.message?.contains("daemon did not start") == true)
@@ -304,6 +315,36 @@ struct BrowserHostProtocolTests {
         ]
     )
 
+    /// A two-step site's first page, after the username was typed: the
+    /// email field's own value is the username, which a snapshot shows.
+    static let usernameStepPage = BrowserHostPage(
+        url: "https://www.example.com/login",
+        title: "Sign in",
+        readyState: "complete",
+        nodes: [
+            BrowserHostNode(
+                nodeId: .integer(1),
+                role: BrowserHostAXValue("RootWebArea"),
+                name: BrowserHostAXValue("Sign in"),
+                childIds: [.integer(2), .integer(3)]
+            ),
+            BrowserHostNode(
+                nodeId: .integer(2),
+                role: BrowserHostAXValue("textbox"),
+                name: BrowserHostAXValue("Email"),
+                value: BrowserHostAXValue("person@example.com"),
+                properties: [BrowserHostAXProperty(name: "editable", value: BrowserHostAXValue("plaintext"))],
+                backendDOMNodeId: 11
+            ),
+            BrowserHostNode(
+                nodeId: .integer(3),
+                role: BrowserHostAXValue("button"),
+                name: BrowserHostAXValue("Next"),
+                backendDOMNodeId: 13
+            )
+        ]
+    )
+
     private static let accountPage = BrowserHostPage(
         url: "https://example.com/account",
         title: "Your account",
@@ -311,8 +352,8 @@ struct BrowserHostProtocolTests {
         nodes: exampleDomainPage.nodes
     )
 
-    /// The 40 responses `responses.jsonl` pins, in file order: 27 successes
-    /// answering the 27 numbered requests, then 13 host errors, one per
+    /// The 50 responses `responses.jsonl` pins, in file order: 30 successes
+    /// answering the 30 numbered requests, then 20 host errors, one per
     /// enumerated reason.
     private static let responseFixtures: [BrowserHostResponse] = [
         BrowserHostResponse(
@@ -419,6 +460,17 @@ struct BrowserHostProtocolTests {
         BrowserHostResponse(id: 25, result: .taskRelease(["t1", "t3"])),
         BrowserHostResponse(id: 26, result: .hostStopAck),
         BrowserHostResponse(id: 27, result: .pageAct(BrowserHostActResult(url: "https://example.com/login", title: "Sign in"))),
+        BrowserHostResponse(id: 28, result: .pageLoginFor(loginSite: "example.com", username: "person@example.com")),
+        BrowserHostResponse(
+            id: 29,
+            result: .pageSignIn(BrowserHostSignInResult(url: "https://example.com/login", title: "Sign in", filled: ["username", "password"]))
+        ),
+        BrowserHostResponse(
+            id: 30,
+            result: .pageSignIn(BrowserHostSignInResult(
+                url: "https://www.example.com/login", title: "Sign in", filled: ["username"], page: usernameStepPage
+            ))
+        ),
         BrowserHostResponse(id: 5, error: BrowserHostError(reason: .tabNotFound, message: "no tab t9 in this host")),
         BrowserHostResponse(id: 1, error: BrowserHostError(reason: .capReached, message: "task task-9f2c1a7e4b0d already owns 10 tabs")),
         BrowserHostResponse(id: 5, error: BrowserHostError(reason: .notOwner, message: "tab t4 is the person's")),
@@ -431,7 +483,14 @@ struct BrowserHostProtocolTests {
         BrowserHostResponse(id: 8, error: BrowserHostError(reason: .writeFailed, message: "the disk is full")),
         BrowserHostResponse(id: 20, error: BrowserHostError(reason: .uploadFailed, message: "the element is not a file input")),
         BrowserHostResponse(id: 12, error: BrowserHostError(reason: .invalidRequest, message: "fields must name inputs")),
-        BrowserHostResponse(id: 10, error: BrowserHostError(reason: .hostUnavailable, message: "the Mac is locked"))
+        BrowserHostResponse(id: 10, error: BrowserHostError(reason: .hostUnavailable, message: "the Mac is locked")),
+        BrowserHostResponse(id: 28, error: BrowserHostError(reason: .signInInsecurePage, message: "the page is not served over https")),
+        BrowserHostResponse(id: 28, error: BrowserHostError(reason: .signInWrongSite, message: "the tab's page is not on example.com")),
+        BrowserHostResponse(id: 28, error: BrowserHostError(reason: .signInNoLogin, message: "no login is saved for example.com")),
+        BrowserHostResponse(id: 29, error: BrowserHostError(reason: .signInField, message: "ref 12 is not a password field")),
+        BrowserHostResponse(id: 29, error: BrowserHostError(reason: .signInPageMoved, message: "the page moved to another origin")),
+        BrowserHostResponse(id: 29, error: BrowserHostError(reason: .signInStoreUnavailable, message: "the keychain refused (OSStatus -34018)")),
+        BrowserHostResponse(id: 8, error: BrowserHostError(reason: .secretOnScreen, message: "a filled password shows as text on the page"))
     ]
 
     // MARK: - Failure shapes
@@ -499,12 +558,12 @@ struct BrowserHostProtocolTests {
 
     @Test("a version window names the side that must update")
     func windowNamesTheOutdatedSide() {
-        let window = BrowserHostVersionWindow(minimum: 2, maximum: 3)
+        let window = BrowserHostVersionWindow(minimum: 3, maximum: 4)
 
-        #expect(window.contains(2))
+        #expect(window.contains(3))
         #expect(!window.contains(BrowserHostProtocol.version))
-        #expect(window.direction(for: 1) == .clientTooOld)
-        #expect(window.direction(for: 4) == .clientTooNew)
+        #expect(window.direction(for: 2) == .clientTooOld)
+        #expect(window.direction(for: 5) == .clientTooNew)
     }
 
     /// An error's `message` never sends the daemon a line past its own bound,

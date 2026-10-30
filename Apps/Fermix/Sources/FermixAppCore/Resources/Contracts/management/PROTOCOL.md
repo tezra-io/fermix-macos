@@ -432,11 +432,14 @@ Notes that the shapes alone do not carry:
   `.update`, `.remove`, `.enable`, `.disable`, `.approve` and
   `cues.proposals.decide` answer `unavailable` {`capability`: `cues`,
   `sentence`: "Only the owner can change cues: use the Fermix app or your own
-  terminal."} to the same callers. The capability and the sentence are the
-  method's family's. This raises the bar and authenticates nobody: it stops a
-  model's own command from approving a mandate or answering a proposal. Every
-  cue read stays open, and `settings.apply` on the `cues` section is not an
-  owner decision: its switches narrow or stop.
+  terminal."} to the same callers. So do the two cue writes that ride a
+  generic method: `secret.set` and `secret.clear` on a `cue_source:` id, and
+  `settings.apply` on the `cues` section, whatever its values, since turning
+  `cues_mandates_enabled` back on undoes the owner's stop of every mandate. The
+  capability and the sentence are the request's family's. This raises the bar
+  and authenticates nobody: it stops a model's own command from approving a
+  mandate, answering a proposal or switching mandates back on. Every cue read
+  stays open, and so does every other secret and settings section.
 - **`channels.mobile` is the phone channel's settings section**: the enable
   switch and the remote-reach switch `mobile_iroh` (on by default), each
   applied the moment it is written (their rows' `restart` is false), and the
@@ -496,7 +499,9 @@ Notes that the shapes alone do not carry:
 - **A live model listing never degrades to the catalog.** The two answer
   different questions, so a live fetch that fails answers `unavailable`
   {`capability`: `model_listing`} and `source` always names where the rows on
-  the wire came from.
+  the wire came from. A provider with no live listing of its own, whose models
+  ship in the catalog, answers `live` true with that catalog and `source`
+  `catalog`, since there is no live fetch to fail.
 - **`default_model` is the model in force, never the config value alone.** A
   provider row in `setup.state.get`, the Model row of that provider's settings
   section and `provider.model` in `overview.get` carry the model the daemon
@@ -765,7 +770,12 @@ Notes that the shapes alone do not carry:
   `cue_source:<ref>:path_secret` are Fermix's to make and are refused with
   `invalid_params` and a sentence: a new token comes from
   `cues.sources.token.new`, an address from `cues.sources.url.get`. On a build
-  without cues the family answers `unavailable` {`capability`: `cues`}.
+  without cues the family answers `unavailable` {`capability`: `cues`}. Both
+  methods on this family are the owner's decisions, as every cue write is: a
+  caller the daemon does not place as the owner (a process it started, a
+  detached one, or one it cannot place) is answered `unavailable`
+  {`capability`: `cues`, `sentence`: "Only the owner can change cues: use the
+  Fermix app or your own terminal."}, and nothing is stored or cleared.
 - **A plugin row is one shape for two halves.** An installed plugin and a
   catalog entry that has never been fetched publish the same fields, so a client
   decodes one record rather than two. `installed` is what separates them.
@@ -999,9 +1009,10 @@ Notes that the shapes alone do not carry:
   home-alerts.").
 - **`cues` is the cue section**, under pane `cues`: `cues_enabled` (the cue tree
   starts at boot, so `restart` is true), `cues_mandates_enabled` (read at every
-  mandate call), `filter_provider` and `filter_model` (the Cues filter model,
-  the one every watcher's filter uses, read at every filter call) and
-  `cues_door_port` (`advanced`, 1024 to 65535, always on 127.0.0.1). The rows
+  mandate call), `cues_screen_provider` (how items are screened, read at every
+  accept and filter call), `filter_provider` and `filter_model` (the Cues
+  filter model, the one every watcher's filter uses, read at every filter call)
+  and `cues_door_port` (`advanced`, 1024 to 65535, always on 127.0.0.1). The rows
   carry their explanations in `info` and no `footer`; the filter model's says
   a smaller, faster model works well. `filter_provider` offers `""`, the
   default, labelled with the main model it resolves to ("Default: your main
@@ -1011,7 +1022,15 @@ Notes that the shapes alone do not carry:
   catalog as suggestions. With neither set, every filter runs on the main
   model. The two are applied together in one `settings.apply`, both or `""`
   for both; either alone is refused with "Pick a provider and a model, or
-  clear both."
+  clear both." `cues_screen_provider` is how items are screened before the
+  filter model reads them: `""` ("Words"), the watcher's words to listen for,
+  then one option for the decision model of each provider that is set up and
+  serves one ("OpenAI · gpt-6-luna", "OpenRouter · Jev", "Venice · Jev"). A
+  decision model checks each item by meaning, with the watcher's purpose,
+  instructions and words as hints, and only an item it lets through reaches
+  the filter model. A saved provider that is no longer set up stays, disabled
+  with its hint, and its watchers are held until it is set up again or
+  another screen is picked.
 - **Every cue write goes through the setup page's own path**, so the outside
   edit refusal (`external_change`), the baseline re-record, the secret
   take-back and the source workers' reconcile apply identically from either
@@ -1182,9 +1201,12 @@ one, is `details.sentence`. Three codes carry one:
   id.", and every settings validation refusal. A refusal with nothing to
   add carries `field` alone.
 - `config_unreadable` — `details.sentence` is the parser's own message.
-- `unavailable` — only when the phone channel refuses a pairing or forgetting
-  decision from a caller that is not the owner: "Only the owner can pair or
-  forget a phone; run this from your own terminal."
+- `unavailable` — when a caller that is not the owner asks for an owner's
+  decision: the phone's, "Only the owner can pair or forget a phone; run this
+  from your own terminal.", and the cues', "Only the owner can change cues:
+  use the Fermix app or your own terminal." And when the cues cannot reach
+  their records, with the cues' sentence for why: memory is off, or the
+  records could not be read.
 
 **A client that renders `message` alone renders "Request parameters are
 invalid." for that whole family**, which is the one sentence in the catalog that

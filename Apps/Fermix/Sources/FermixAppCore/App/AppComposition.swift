@@ -461,7 +461,8 @@ final class AppComposition {
             browserRoot: { try store.browserDirectoryURL() },
             hostVersion: configuration.marketingVersion,
             coordinator: browser,
-            deadlines: MainQueueDeadlineScheduler()
+            deadlines: MainQueueDeadlineScheduler(),
+            loginStore: environment.loginStore
         )
     }
 

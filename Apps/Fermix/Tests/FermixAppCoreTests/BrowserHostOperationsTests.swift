@@ -330,7 +330,199 @@ struct BrowserHostOperationsTests {
         _ = client
     }
 
+    // MARK: - Sign-in (protocol 2)
+
+    @Test("page.login_for answers the saved login's site and username and nothing else")
+    func loginForAnswersTheLogin() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        tab.page.loginForResult = .success(SavedLogin(id: UUID(), site: "example.com", username: "person@example.com"))
+
+        let response = try await Self.send(
+            transport,
+            .pageLoginFor(id: 28, BrowserHostPageLoginForRequest(tabId: tab.wireID, site: "www.example.com"))
+        )
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(NSDictionary(dictionary: result).isEqual(to: ["login_site": "example.com", "username": "person@example.com"]))
+        #expect(tab.page.loginForSites == ["www.example.com"])
+        _ = client
+    }
+
+    @Test("page.sign_in answers the fields it typed, the page when observed, and never a value or a username")
+    func signInAnswersTheFields() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        tab.page.signInResult = .success(BrowserSignInOutcome(filled: [.username, .password], effect: .unchanged, url: "https://example.com/login"))
+
+        let response = try await Self.send(transport, .pageSignIn(id: 29, Self.signInRequest(tab.wireID)))
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(Set(result.keys) == ["url", "title", "filled"])
+        #expect(result["filled"] as? [String] == ["username", "password"])
+        #expect(result["url"] as? String == "https://example.com/login")
+        #expect(tab.page.signInRequests == [
+            BrowserSignInRequest(site: "example.com", loginSite: "example.com", usernameRef: 11, passwordRef: 12)
+        ])
+        _ = client
+    }
+
+    @Test("page.sign_in observed on a page that changed carries the page back")
+    func signInCarriesTheChangedPage() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        let snapshot = BrowserPageSnapshot(
+            title: "Welcome", url: "https://example.com/home", nodes: [BrowserPageNode(id: 0, role: "RootWebArea")],
+            elements: 1, crossOriginFrames: 0, closedShadowRoots: false, evaluateMilliseconds: 1
+        )
+        tab.page.signInResult = .success(BrowserSignInOutcome(filled: [.password], effect: .changed(snapshot), url: "https://example.com/home"))
+
+        let response = try await Self.send(
+            transport,
+            .pageSignIn(id: 29, Self.signInRequest(tab.wireID, usernameRef: nil, observe: true))
+        )
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["filled"] as? [String] == ["password"])
+        #expect((result["page"] as? [String: Any])?["url"] as? String == "https://example.com/home")
+        _ = client
+    }
+
+    @Test("page.sign_in naming neither field is refused before the page is asked")
+    func signInWithNoFieldRefused() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+
+        let response = try await Self.send(
+            transport,
+            .pageSignIn(id: 29, Self.signInRequest(tab.wireID, usernameRef: nil, passwordRef: nil))
+        )
+
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["reason"] as? String == "invalid_request")
+        #expect(tab.page.signInRequests.isEmpty)
+        _ = client
+    }
+
+    @Test("each sign-in refusal answers its own reason, and no message names the username")
+    func signInRefusalsAnswerTheirReasons() async throws {
+        let cases: [(BrowserLoginRefusal, String)] = [
+            (.insecurePage, "sign_in_insecure_page"),
+            (.wrongSite(site: "example.com"), "sign_in_wrong_site"),
+            (.noLogin(host: "example.com"), "sign_in_no_login"),
+            (.field(ref: 12, .notPassword), "sign_in_field"),
+            (.field(ref: 11, .notUsername), "sign_in_field"),
+            (.field(ref: nil, .twoDocuments), "sign_in_field"),
+            (.field(ref: 12, .focus), "sign_in_field"),
+            (.pageMoved(.origin), "sign_in_page_moved"),
+            (.pageMoved(.documentOrigin), "sign_in_page_moved"),
+            (.pageMoved(.login), "sign_in_page_moved"),
+            (.storeUnavailable(.unavailable(status: -34018)), "sign_in_store_unavailable"),
+            (.storeUnavailable(.unavailable(status: nil)), "sign_in_store_unavailable"),
+            (.storeUnavailable(.timedOut), "sign_in_store_unavailable")
+        ]
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+
+        var messages: Set<String> = []
+        for (refusal, reason) in cases {
+            tab.page.signInResult = .failure(refusal)
+            let response = try await Self.send(transport, .pageSignIn(id: 29, Self.signInRequest(tab.wireID)))
+
+            let error = try #require(response["error"] as? [String: Any])
+            #expect(error["reason"] as? String == reason, "\(refusal)")
+            let message = try #require(error["message"] as? String)
+            #expect(!message.isEmpty && !message.contains("person@example.com"))
+            messages.insert(message)
+        }
+        #expect(messages.count == cases.count, "every refusal has its own sentence")
+        #expect(messages.contains("the keychain refused (OSStatus -34018)"))
+        _ = client
+    }
+
+    @Test("while the ledger holds a password, a screenshot the page refuses answers secret_on_screen and writes nothing")
+    func screenshotRefusedWhileASecretShows() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        client.ledger.add(LoginSecret("correct-horse-battery"))
+        tab.page.shownSecretsResult = .failure(BrowserLoginRefusal.secretOnScreen)
+        let path = try tab.capturePath("screenshots/2.png")
+
+        let response = try await Self.send(
+            transport,
+            .pageScreenshot(id: 8, BrowserHostPageScreenshotRequest(tabId: tab.wireID, fullPage: false, path: path))
+        )
+
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["reason"] as? String == "secret_on_screen")
+        #expect(tab.page.guardedFingerprints.map(\.count) == [1])
+        #expect(tab.page.screenshotFullPageRequests.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: path))
+        _ = client
+    }
+
+    @Test("while the ledger holds a password, a pdf the page refuses answers secret_on_screen")
+    func pdfRefusedWhileASecretShows() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        client.ledger.add(LoginSecret("correct-horse-battery"))
+        tab.page.shownSecretsResult = .failure(BrowserLoginRefusal.secretOnScreen)
+        let path = try tab.capturePath("pdfs/2.pdf")
+
+        let response = try await Self.send(transport, .pagePdf(id: 9, tabId: tab.wireID, path: path))
+
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["reason"] as? String == "secret_on_screen")
+        #expect(!FileManager.default.fileExists(atPath: path))
+        _ = client
+    }
+
+    @Test("with nothing in the ledger, a capture never asks the page for the guard")
+    func emptyLedgerSkipsTheGuard() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        let path = try tab.capturePath("screenshots/3.png")
+
+        _ = try await Self.send(
+            transport,
+            .pageScreenshot(id: 8, BrowserHostPageScreenshotRequest(tabId: tab.wireID, fullPage: false, path: path))
+        )
+
+        #expect(tab.page.guardedFingerprints.isEmpty)
+        #expect(tab.page.screenshotFullPageRequests == [false])
+        _ = client
+    }
+
+    @Test("every line the client sends while the ledger holds a password is scrubbed: an answer and an event")
+    func clientScrubsAnswersAndEvents() async throws {
+        let password = LedgerForms.awkward
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        client.ledger.add(LoginSecret(password))
+        tab.page.actResult = .success(
+            BrowserActOutcome(effect: .unobserved, input: .scripted, url: "https://example.com/", read: .text("echo \(password) end"))
+        )
+
+        let response = try await Self.send(transport, .pageAct(id: 10, Self.actRequest(tab.wireID, kind: .get, field: .text)))
+        let before = transport.sent.count
+        client.downloadRefused(UUID(), tab: try #require(tab.coordinator.model.tabs.first).id, filename: password, reason: "refused")
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["value"] as? String == "echo \(LoginLedger.hidden) end")
+        let events = try transport.sentObjects().dropFirst(before)
+        #expect(events.count == 2)
+        #expect(events.first?["filename"] as? String == LoginLedger.hidden)
+        for line in transport.sent {
+            #expect(!String(decoding: line, as: UTF8.self).contains("w<o>rd"))
+        }
+        _ = client
+    }
+
     // MARK: - Mechanics
+
+    private static func signInRequest(
+        _ tabId: String,
+        usernameRef: Int? = 11,
+        passwordRef: Int? = 12,
+        observe: Bool = false
+    ) -> BrowserHostPageSignInRequest {
+        BrowserHostPageSignInRequest(
+            tabId: tabId, site: "example.com", loginSite: "example.com", observe: observe,
+            usernameRef: usernameRef, passwordRef: passwordRef,
+            snapshot: observe ? BrowserHostSnapshotOptions(mode: .interactive, maxChars: 50_000, depth: 5) : nil
+        )
+    }
 
     private static func actRequest(
         _ tabId: String,
@@ -376,7 +568,8 @@ struct BrowserHostOperationsTests {
             browserRoot: { coordinator.browserDirectory },
             hostVersion: "0.2.0",
             coordinator: coordinator,
-            deadlines: ManualDeadlineScheduler()
+            deadlines: ManualDeadlineScheduler(),
+            loginStore: InMemoryLoginStore()
         )
         client.connect()
         return client
@@ -385,7 +578,7 @@ struct BrowserHostOperationsTests {
     private static func attachedClient(coordinator: FakeHostCoordinator) -> (client: BrowserHostClient, transport: Transport) {
         let transport = Transport()
         let client = Self.makeClient(coordinator: coordinator, transport: transport)
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
 
         return (client, transport)
     }
@@ -437,7 +630,8 @@ private struct OpenTab {
 /// A page with a web engine, a capture surface and a cookie store behind it,
 /// standing in for `WebKitBrowserPage` in the operations this suite proves.
 @MainActor
-private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, BrowserPageCapturing, BrowserPageCookies {
+private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, BrowserPageCapturing, BrowserPageCookies,
+                                        BrowserPageSigningIn {
     weak var events: (any BrowserPageEvents)?
     lazy var view = NSView()
 
@@ -486,6 +680,33 @@ private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, Browser
     func clearCookies() async throws -> Int {
         clearCalls += 1
         return try clearCookiesResult.get()
+    }
+
+    var loginForResult: Result<SavedLogin, any Error> = .failure(BrowserLoginRefusal.noLogin(host: "example.com"))
+    private(set) var loginForSites: [String] = []
+    var signInResult: Result<BrowserSignInOutcome, any Error> = .failure(BrowserLoginRefusal.pageMoved(.origin))
+    private(set) var signInRequests: [BrowserSignInRequest] = []
+    var shownSecretsResult: Result<Void, any Error> = .success(())
+    private(set) var guardedFingerprints: [[BrowserSecretFingerprint]] = []
+
+    func loginFor(site: String, store: any LoginStore) async throws -> SavedLogin {
+        loginForSites.append(site)
+        return try loginForResult.get()
+    }
+
+    func signIn(
+        _ request: BrowserSignInRequest,
+        store: any LoginStore,
+        ledger: LoginLedger,
+        observing observation: BrowserSnapshotRequest
+    ) async throws -> BrowserSignInOutcome {
+        signInRequests.append(request)
+        return try signInResult.get()
+    }
+
+    func refuseShownSecrets(_ fingerprints: [BrowserSecretFingerprint]) async throws {
+        guardedFingerprints.append(fingerprints)
+        try shownSecretsResult.get()
     }
 }
 

@@ -54,7 +54,7 @@ struct CuesTests {
 
         let form: ManagementCueSourceForm = try Self.golden("cues_sources_form")
         #expect(form.kinds.map(\.id) == ["feed", "stream", "webhook", "local_push"])
-        #expect(form.presets.map(\.id) == ["github", "rss"], "a stream has no preset")
+        #expect(form.presets.map(\.id) == ["github", "rss", "x_accounts"], "a stream has no preset")
         #expect(form.rows.first?.key == "ref", "the name comes first")
         #expect(form.rows.last?.kind == .secret && form.rows.last?.present == false)
 

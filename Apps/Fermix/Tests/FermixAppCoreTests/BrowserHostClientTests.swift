@@ -28,7 +28,7 @@ struct BrowserHostClientTests {
         #expect(hello[0]["type"] as? String == "client_hello")
         #expect(hello[0]["protocol_version"] as? Int == BrowserHostProtocol.version)
 
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
 
         let sent = try transport.sentObjects()
         #expect(sent.count == 3)
@@ -204,7 +204,7 @@ struct BrowserHostClientTests {
         // yet when `serverHello` arrives, so nothing else is holding this
         // client alive until it does.
         let client = Self.makeClient(harness: harness, transport: transport, deadlines: deadlines)
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
         #expect(transport.closeCount == 0)
 
         transport.fail(.peerClosed)
@@ -228,12 +228,12 @@ struct BrowserHostClientTests {
         let deadlines = ManualDeadlineScheduler()
         let client = Self.makeClient(harness: harness, transport: transport, deadlines: deadlines)
 
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
         transport.fail(.peerClosed)
         #expect(deadlines.scheduledDelays == [1])
 
         deadlines.fireAll()
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
         transport.fail(.peerClosed)
         #expect(deadlines.scheduledDelays == [2])
         _ = client
@@ -247,13 +247,13 @@ struct BrowserHostClientTests {
         let client = Self.makeClient(harness: harness, transport: transport, deadlines: deadlines)
 
         // One quick loss first, so the backoff has already grown.
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
         transport.fail(.peerClosed)
         #expect(deadlines.scheduledDelays == [1])
 
         // Attach again, and this time let the grace elapse before any loss.
         deadlines.fireAll()
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
         #expect(deadlines.scheduledDelays == [ReconnectBackoff.grace])
         deadlines.fireAll()
 
@@ -283,7 +283,7 @@ struct BrowserHostClientTests {
         let deadlines = ManualDeadlineScheduler()
         let client = Self.makeClient(harness: harness, transport: transport, deadlines: deadlines)
 
-        transport.deliver(.serverHello(minVersion: 2, maxVersion: 2))
+        transport.deliver(.serverHello(minVersion: 3, maxVersion: 3))
 
         #expect(transport.closeCount == 1)
         #expect(deadlines.liveCount == 0)
@@ -344,7 +344,8 @@ struct BrowserHostClientTests {
             browserRoot: { URL(fileURLWithPath: "/tmp/fermix-test/browser", isDirectory: true) },
             hostVersion: hostVersion,
             coordinator: harness.coordinator,
-            deadlines: deadlines ?? ManualDeadlineScheduler()
+            deadlines: deadlines ?? ManualDeadlineScheduler(),
+            loginStore: InMemoryLoginStore()
         )
         client.connect()
         return client
@@ -358,7 +359,7 @@ struct BrowserHostClientTests {
     ) -> (client: BrowserHostClient, transport: Transport) {
         let transport = Transport()
         let client = Self.makeClient(harness: harness, transport: transport)
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
 
         return (client, transport)
     }

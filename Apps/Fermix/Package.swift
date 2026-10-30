@@ -184,6 +184,13 @@ let package = Package(
             // a test input too: it is the engine's own record, read off disk
             // beside the test that replays it.
             exclude: ["WebSetup", "Fixtures"]
+        ),
+        // The browser pane's page script and its WebKit half, on real web
+        // views loaded from strings: the one test target that links WebKit,
+        // so `FermixAppCoreTests` stays as free of a web engine as the core.
+        .testTarget(
+            name: "FermixBrowserTests",
+            dependencies: ["FermixBrowser", "FermixAppCore"]
         )
     ],
     swiftLanguageModes: [.v5]
