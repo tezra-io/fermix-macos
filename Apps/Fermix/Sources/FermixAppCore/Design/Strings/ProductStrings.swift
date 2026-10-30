@@ -902,6 +902,38 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsMeetingsGoogleAccountLabel = "settings.meetings.googleAccountLabel"
     case settingsMeetingsSignInNotice = "settings.meetings.signInNotice"
 
+    // Settings: Browser, website logins (M84 §11 and D8)
+    case settingsBrowserLoginsSection = "settings.browser.loginsSection"
+    case settingsBrowserLoginsFooter = "settings.browser.loginsFooter"
+    case settingsBrowserLoginsUnavailable = "settings.browser.loginsUnavailable"
+    case settingsBrowserLoginsEmpty = "settings.browser.loginsEmpty"
+    case settingsBrowserLoginsAdd = "settings.browser.loginsAdd"
+    case settingsBrowserLoginsEdit = "settings.browser.loginsEdit"
+    case settingsBrowserLoginSite = "settings.browser.loginSite"
+    case settingsBrowserLoginSiteHint = "settings.browser.loginSiteHint"
+    case settingsBrowserLoginUsername = "settings.browser.loginUsername"
+    case settingsBrowserLoginPassword = "settings.browser.loginPassword"
+    case settingsBrowserLoginKeepPassword = "settings.browser.loginKeepPassword"
+    case settingsBrowserLoginDeleteTitle = "settings.browser.loginDeleteTitle"
+    case settingsBrowserLoginDeleteBody = "settings.browser.loginDeleteBody"
+    case settingsBrowserLoginSiteRefused = "settings.browser.loginSiteRefused"
+    case settingsBrowserLoginSiteTaken = "settings.browser.loginSiteTaken"
+    case settingsBrowserLoginUsernameRequired = "settings.browser.loginUsernameRequired"
+    case settingsBrowserLoginTooShort = "settings.browser.loginTooShort"
+    case settingsBrowserLoginStoreUnavailable = "settings.browser.loginStoreUnavailable"
+    /// The sheet's own words, which §11's table does not list: its two
+    /// titles, the add verb (M34 §6 forbids a control labelled Save; the edit
+    /// sheet's verb is `settings.sheet.done`), the delete door and its
+    /// confirmation, and the store refusals that are not a field's.
+    case settingsBrowserLoginAddTitle = "settings.browser.loginAddTitle"
+    case settingsBrowserLoginEditTitle = "settings.browser.loginEditTitle"
+    case settingsBrowserLoginAddAction = "settings.browser.loginAddAction"
+    case settingsBrowserLoginDelete = "settings.browser.loginDelete"
+    case settingsBrowserLoginDeleteAction = "settings.browser.loginDeleteAction"
+    case settingsBrowserLoginStoreTimedOut = "settings.browser.loginStoreTimedOut"
+    case settingsBrowserLoginsFullFormat = "settings.browser.loginsFullFormat"
+    case settingsBrowserLoginGone = "settings.browser.loginGone"
+
     // Providers
     case providerVerbSignIn = "provider.verb.signIn"
     case providerVerbContinueWithChatGPT = "provider.verb.continueWithChatGPT"

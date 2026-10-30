@@ -844,6 +844,34 @@
 "settings.meetings.googleAccountLabel" = "Google account";
 "settings.meetings.signInNotice" = "A browser window opens. Sign in there with the account the notetaker should use.";
 
+/* MARK: Settings, Browser: website logins (M84) */
+"settings.browser.loginsSection" = "Website logins";
+"settings.browser.loginsFooter" = "The agent signs in with these after you approve each one. It never sees the passwords.";
+"settings.browser.loginsUnavailable" = "Website logins need the released Fermix app.";
+"settings.browser.loginsEmpty" = "No logins yet. Add the sites you want the agent to sign in to.";
+"settings.browser.loginsAdd" = "Add login…";
+"settings.browser.loginsEdit" = "Edit…";
+"settings.browser.loginSite" = "Site";
+"settings.browser.loginSiteHint" = "Use the address of the sign-in page, like accounts.google.com.";
+"settings.browser.loginUsername" = "Username";
+"settings.browser.loginPassword" = "Password";
+"settings.browser.loginKeepPassword" = "Leave empty to keep the saved password.";
+"settings.browser.loginDeleteTitle" = "Delete the login for %@?";
+"settings.browser.loginDeleteBody" = "The agent can no longer sign in there.";
+"settings.browser.loginSiteRefused" = "Use a site’s address, like github.com.";
+"settings.browser.loginSiteTaken" = "You already have a login for this site. Edit that one.";
+"settings.browser.loginUsernameRequired" = "Enter the username you sign in with.";
+"settings.browser.loginTooShort" = "Fermix needs a password of at least 8 characters.";
+"settings.browser.loginStoreUnavailable" = "The keychain did not answer (%@).";
+"settings.browser.loginAddTitle" = "Add login";
+"settings.browser.loginEditTitle" = "Edit login";
+"settings.browser.loginAddAction" = "Add";
+"settings.browser.loginDelete" = "Delete…";
+"settings.browser.loginDeleteAction" = "Delete";
+"settings.browser.loginStoreTimedOut" = "The keychain did not answer in time.";
+"settings.browser.loginsFullFormat" = "Fermix keeps up to %lld logins. Delete one to add another.";
+"settings.browser.loginGone" = "This login is no longer saved.";
+
 /* MARK: Providers */
 "provider.verb.signIn" = "Sign in";
 "provider.verb.continueWithChatGPT" = "Continue with ChatGPT";

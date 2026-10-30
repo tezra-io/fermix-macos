@@ -142,6 +142,11 @@ public final class SettingsModel: ObservableObject {
     /// the one sheet, so there is one instance for both.
     public private(set) lazy var phone = PhonePairingModel(settings: self, sleeper: sleeper)
 
+    /// The website logins the Browser pane lists and edits (M84 §11), over the
+    /// one store the composition built. The store is the app's, not the
+    /// daemon's, so nothing here reaches `gateway`.
+    let logins: WebsiteLoginsModel
+
     /// Each write the daemon accepted: a row, a secret, the primary provider.
     /// The overview reader reads after every one, since a save is what sets
     /// voice up (M56 §4.1). Not published state: a save is an event, not a
@@ -161,13 +166,15 @@ public final class SettingsModel: ObservableObject {
         store: any SettingsPaneStoring,
         sleeper: any Sleeping,
         opener: any ExternalOpening,
-        permissions: PermissionLedger
+        permissions: PermissionLedger,
+        logins: any LoginStore
     ) {
         self.gateway = gateway
         self.store = store
         self.sleeper = sleeper
         self.opener = opener
         self.permissions = permissions
+        self.logins = WebsiteLoginsModel(store: logins)
         self.selectedPane = store.lastSettingsPane.flatMap(SettingsPane.init(rawValue:)) ?? .providers
     }
 

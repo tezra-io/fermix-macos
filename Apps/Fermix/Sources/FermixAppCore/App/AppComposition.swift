@@ -526,7 +526,9 @@ final class AppComposition {
                 services: services,
                 microphone: environment.microphone,
                 notifications: notifications
-            )
+            ),
+            // The same one store the browser host reads (M84 §7).
+            logins: environment.loginStore
         )
 
         return (gateway, settings)

@@ -64,8 +64,9 @@ enum EngineReconcilerFixture {
 ///
 /// Every seam is a double: the gateway is the fixture daemon, the store is in
 /// memory, the sleeper consumes its wait instantly, the browser records rather
-/// than opens, System Settings records the panes it was asked for, and the
-/// microphone and the notification center are scripted.
+/// than opens, System Settings records the panes it was asked for, the
+/// microphone and the notification center are scripted, and the website
+/// logins are in memory.
 @MainActor
 enum SettingsFixture {
     static func model(
@@ -76,7 +77,8 @@ enum SettingsFixture {
         microphone: StubMicrophoneAuthorization = StubMicrophoneAuthorization(),
         notifications: MacNotifications? = nil,
         loginItems: FakeLoginItemService = FakeLoginItemService(),
-        sleeper: any Sleeping = NoWaitSleeper()
+        sleeper: any Sleeping = NoWaitSleeper(),
+        logins: any LoginStore = InMemoryLoginStore()
     ) -> SettingsModel {
         SettingsModel(
             gateway: gateway,
@@ -89,7 +91,8 @@ enum SettingsFixture {
                 microphone: microphone,
                 notifications: notifications ?? Self.notifications(),
                 settingsOpener: settingsOpener
-            )
+            ),
+            logins: logins
         )
     }
 

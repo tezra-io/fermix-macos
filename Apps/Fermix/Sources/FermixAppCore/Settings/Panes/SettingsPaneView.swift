@@ -33,7 +33,9 @@ struct SettingsPaneView: View {
             MeetingsPane(model: model)
         case .codingAgents:
             CodingAgentsPane(model: model)
-        case .personality, .memory, .search, .images, .browser, .sandbox, .secrets:
+        case .browser:
+            BrowserPane(model: model)
+        case .personality, .memory, .search, .images, .sandbox, .secrets:
             DescriptorPane(pane: pane, model: model)
         }
     }
@@ -41,10 +43,15 @@ struct SettingsPaneView: View {
 
 /// A pane that is exactly its daemon-published sections, plus whatever the
 /// surface adds after them.
-struct DescriptorPane<Extra: View>: View {
+///
+/// `extra` is drawn with the daemon's sections, so a daemon too old to serve
+/// them hides it too. `appOwned` is what this app answers for itself, with no
+/// daemon at all, so it is drawn whatever the daemon's state (M84 D7).
+struct DescriptorPane<Extra: View, AppOwned: View>: View {
     let pane: SettingsPane
     @ObservedObject var model: SettingsModel
     @ViewBuilder var extra: Extra
+    @ViewBuilder var appOwned: AppOwned
 
     var body: some View {
         SettingsPaneForm(title: pane.title) {
@@ -54,13 +61,48 @@ struct DescriptorPane<Extra: View>: View {
                 DescriptorForm(model: model, sections: model.sections(for: pane))
                 extra
             }
+
+            appOwned
         }
     }
 }
 
-extension DescriptorPane where Extra == EmptyView {
+extension DescriptorPane where AppOwned == EmptyView {
+    init(pane: SettingsPane, model: SettingsModel, @ViewBuilder extra: () -> Extra) {
+        self.init(pane: pane, model: model, extra: extra, appOwned: { EmptyView() })
+    }
+}
+
+extension DescriptorPane where Extra == EmptyView, AppOwned == EmptyView {
     init(pane: SettingsPane, model: SettingsModel) {
-        self.init(pane: pane, model: model, extra: { EmptyView() })
+        self.init(pane: pane, model: model, extra: { EmptyView() }, appOwned: { EmptyView() })
+    }
+}
+
+/// Browser: its descriptor sections, then the website logins (M84 §11).
+///
+/// The logins are the app's own store, not the daemon's, so they ride the
+/// app-owned slot and work while the daemon is stopped or too old. They are
+/// read each time the pane appears. The pane presents their sheet, as every
+/// pane presents its own, so there is one at a time.
+struct BrowserPane: View {
+    @ObservedObject var model: SettingsModel
+    @State private var loginSheet: LoginSheetMode?
+
+    var body: some View {
+        DescriptorPane(
+            pane: .browser,
+            model: model,
+            extra: { EmptyView() },
+            appOwned: {
+                WebsiteLoginsSection(model: model.logins) { loginSheet = $0 }
+            }
+        )
+        .sheet(item: $loginSheet) { mode in
+            LoginSheet(mode: mode, model: model.logins) { loginSheet = nil }
+                .sheetGround()
+        }
+        .task { await model.logins.refresh() }
     }
 }
 

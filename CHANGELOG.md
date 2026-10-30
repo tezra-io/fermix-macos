@@ -4,6 +4,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Settings: Browser has a Website logins section where you add, edit and delete the sites the agent may sign in to, kept in this Mac's keychain where only the signed Fermix app can read them. When a task needs to sign in, the agent fills the login in Fermix's browser after you approve the password in the chat, on this Mac or your phone, and it never sees the passwords; a dev build says logins need the released app.
 - Integrations: a plugin's page has Edit… beside its sign-in client whether the plugin is on, off or already signed in, so a client ID or a secret you rotate at the provider, such as X's, can be changed from that page instead of only at the foot of the list.
 - Chat: replies, your messages and the message field are set in Hanken Grotesk, a typeface made for reading on screen, with more room between lines and a calmer gap between paragraphs, so long answers are easier to read.
 - Chat: links stay in the sentence, underlined, instead of as cards under the reply. Resting the pointer on one shows its whole address, under the page's title where Fermix read the page, and you can select across a reply's paragraphs and use Copy Link from a link's menu.
