@@ -59,14 +59,26 @@ expect_refusal "notarize without its stage directory" "usage:" \
 expect_refusal "build without the signing identity" "MACOS_DEVELOPER_ID is required" \
   package "$PACKAGE" build 0.3.0 5 "$WORK_DIR/stage"
 
+# A release embeds the Developer ID provisioning profile (M84 D6), so build
+# refuses before any download or compile without one, or with a path that
+# names nothing. Whether the profile matches is sign_app.sh's question,
+# proven in sign_app_test.sh.
+expect_refusal "build without the provisioning profile" "MACOS_PROVISIONING_PROFILE is required" \
+  package MACOS_DEVELOPER_ID=- "$PACKAGE" build 0.3.0 5 "$WORK_DIR/stage"
+expect_refusal "build with a provisioning profile path that names nothing" "no provisioning profile at" \
+  package MACOS_DEVELOPER_ID=- MACOS_PROVISIONING_PROFILE="$WORK_DIR/absent.provisionprofile" \
+  "$PACKAGE" build 0.3.0 5 "$WORK_DIR/stage"
+
 # No notary credential is anywhere in this environment, and build still gets
 # past its own credential check to the stage it refuses: it never needs one.
+profile="$WORK_DIR/fixture.provisionprofile"
+touch "$profile"
 stale="$WORK_DIR/stale"
 mkdir -p "$stale"
 touch "$stale/leftover"
 expect_refusal "build needs no notary credential and refuses a stale stage" \
   "the stage directory already holds files" \
-  package MACOS_DEVELOPER_ID=- "$PACKAGE" build 0.3.0 5 "$stale"
+  package MACOS_DEVELOPER_ID=- MACOS_PROVISIONING_PROFILE="$profile" "$PACKAGE" build 0.3.0 5 "$stale"
 
 expect_refusal "notarize without the notary password" "APPLE_APP_PASSWORD is required" \
   package "${NOTARY[@]}" "$PACKAGE" notarize 0.3.0 "$WORK_DIR/stage"

@@ -98,6 +98,17 @@ printf '%s\n' "$agent_signature" | grep -qFx "Identifier=$AGENT_LABEL" ||
   fail "the signed agent does not carry the configured identifier $AGENT_LABEL"
 echo "  ok   the agent carries the stable configured identifier $AGENT_LABEL"
 
+# A signature without a profile is the dev and CI configuration: it embeds no
+# profile and claims none of the keys only a profile can authorize (M84 D6).
+[ ! -e "$app/Contents/embedded.provisionprofile" ] ||
+  fail "an ad-hoc signature embedded a provisioning profile"
+for key in keychain-access-groups com.apple.application-identifier com.apple.developer.team-identifier; do
+  if printf '%s' "$gui_entitlements" | grep -qF "$key"; then
+    fail "an ad-hoc signature carries $key"
+  fi
+done
+echo "  ok   a signature without a profile carries no keychain entitlements and embeds no profile"
+
 # The two updater lists have to agree, and nothing else compares them: one
 # names the Mach-O programs the framework must carry, the other the bundles and
 # executables codesign is handed, deepest first. A Sparkle upgrade that added a
@@ -232,5 +243,159 @@ expect_refusal "a bundle with no animation runtime to sign is refused" \
 expect_refusal "a missing bundle is refused rather than silently signing nothing" \
   "no staged bundle at" \
   "$SIGN" "$WORK_DIR/absent.app" -
+
+echo "sign_app_test: the release profile (M84 D6)"
+
+# Fake provisioning profiles, CMS-wrapped with a throwaway key so the script
+# decodes them through the same `security cms -D` a real one goes through.
+# Nothing here is Apple-signed and nothing reaches a keychain: openssl writes
+# every key and certificate into the work directory.
+PROFILE_CHECK="$ROOT_DIR/scripts/provisioning_profile.py"
+RELEASE_ENTITLEMENTS="$ROOT_DIR/scripts/entitlements/release_keychain.entitlements"
+# Read with plistlib: plutil's key paths split on the dots these keys contain.
+release_value() {
+  python3 -c 'import plistlib, sys; value = plistlib.load(open(sys.argv[1], "rb"))[sys.argv[2]]; print(value[0] if isinstance(value, list) else value)' \
+    "$RELEASE_ENTITLEMENTS" "$1"
+}
+TEAM="$(release_value com.apple.developer.team-identifier)"
+APP_ID="$(release_value com.apple.application-identifier)"
+GROUP="$(release_value keychain-access-groups)"
+# The release entitlements name this product: the app id is the team and the
+# configured bundle identifier, and the group lives under that app id.
+[ "$APP_ID" = "$TEAM.$BUNDLE_ID" ] ||
+  fail "the release entitlements name $APP_ID, and Product.json's bundle is $TEAM.$BUNDLE_ID"
+[ "$GROUP" = "$APP_ID.logins" ] || fail "the release entitlements name the group $GROUP"
+echo "  ok   the release entitlements name $APP_ID and $GROUP"
+
+PROFILES="$WORK_DIR/profiles"
+mkdir -p "$PROFILES"
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=fake profile signer" \
+  -keyout "$PROFILES/signer.key" -out "$PROFILES/signer.pem" >/dev/null 2>&1
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=Developer ID Application: Fixture (TEAMID0000)" \
+  -keyout "$PROFILES/developer.key" -outform DER -out "$PROFILES/developer.der" >/dev/null 2>&1
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=Developer ID Application: Other (TEAMID0000)" \
+  -keyout "$PROFILES/other.key" -outform DER -out "$PROFILES/other.der" >/dev/null 2>&1
+
+# fake_profile <name> [field=value ...]: a Developer ID profile for this
+# product, expiring in a year and listing developer.der, with any field
+# replaced: team, app_id, groups (comma-separated), all_devices, platform,
+# expires_days.
+fake_profile() {
+  local name="$1"
+  shift
+  python3 - "$PROFILES/$name.plist" "$TEAM" "$APP_ID" "$GROUP" "$PROFILES/developer.der" "$@" <<'PY'
+import datetime
+import plistlib
+import sys
+
+out, team, app_id, group, certificate = sys.argv[1:6]
+fields = dict(argument.split("=", 1) for argument in sys.argv[6:])
+team = fields.get("team", team)
+expires = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) + datetime.timedelta(days=int(fields.get("expires_days", "365")))
+with open(certificate, "rb") as handle:
+    der = handle.read()
+profile = {
+    "Name": "Fermix Developer ID fixture",
+    "UUID": "00000000-0000-4000-8000-000000000000",
+    "TeamIdentifier": [team],
+    "Platform": [fields.get("platform", "OSX")],
+    "ProvisionsAllDevices": fields.get("all_devices", "true") == "true",
+    "ExpirationDate": expires,
+    "DeveloperCertificates": [der],
+    "Entitlements": {
+        "com.apple.application-identifier": fields.get("app_id", app_id),
+        "com.apple.developer.team-identifier": team,
+        "keychain-access-groups": fields.get("groups", f"{team}.*").split(","),
+    },
+}
+with open(out, "wb") as handle:
+    plistlib.dump(profile, handle)
+PY
+  openssl smime -sign -binary -nodetach -outform DER -signer "$PROFILES/signer.pem" \
+    -inkey "$PROFILES/signer.key" -in "$PROFILES/$name.plist" -out "$PROFILES/$name.provisionprofile"
+  printf '%s\n' "$PROFILES/$name.provisionprofile"
+}
+
+# What the release signs: the base set with the release-only keys merged over
+# it, as sign_app.sh merges them.
+RELEASE_SET="$PROFILES/release.entitlements"
+cp "$ROOT_DIR/Apps/Fermix/Sources/Fermix/Fermix.entitlements" "$RELEASE_SET"
+/usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$RELEASE_SET" >/dev/null
+
+check_profile() {
+  python3 "$PROFILE_CHECK" check --profile "$1" --entitlements "$RELEASE_SET" --bundle-id "$BUNDLE_ID" "${@:2}"
+}
+
+good="$(fake_profile good)"
+expect_pass "a Developer ID profile granting the team's groups authorizes the release" check_profile "$good"
+expect_pass "a profile granting exactly the group authorizes it too" \
+  check_profile "$(fake_profile exact "groups=$GROUP")"
+expect_pass "the profile lists the certificate that signed" \
+  check_profile "$good" --certificate "$PROFILES/developer.der"
+
+expect_refusal "a profile that does not list the signing certificate is refused" \
+  "does not list the certificate that signed" \
+  check_profile "$good" --certificate "$PROFILES/other.der"
+
+# Each mismatch, through sign_app.sh itself. The identity is a Developer ID
+# name no keychain holds, which is safe because the profile is judged before
+# codesign is ever asked to sign: every case below must refuse with the
+# profile's reason and leave the bundle unsigned with no profile embedded.
+FAKE_IDENTITY="Developer ID Application: Fixture ($TEAM)"
+expect_profile_refusal() {
+  local what="$1" expected="$2" profile="$3" app
+  app="$(fresh_bundle "profile-$(printf '%s' "$what" | tr -c 'a-z0-9' '-')")"
+  expect_refusal "$what" "$expected" "$SIGN" "$app" "$FAKE_IDENTITY" "$profile"
+  [ ! -e "$app/Contents/embedded.provisionprofile" ] || fail "$what: a refused profile was embedded"
+  # A sealed bundle carries _CodeSignature; the stand-in executables are
+  # linker-signed on their own, so codesign -dv would answer for them instead.
+  [ ! -d "$app/Contents/_CodeSignature" ] ||
+    fail "$what: the bundle was signed although its profile was refused"
+}
+
+expect_profile_refusal "a profile for another team is refused" \
+  "the profile is for team" "$(fake_profile team team=OTHERTEAM1)"
+expect_profile_refusal "a profile for another app id is refused" \
+  "the profile is for the app id" "$(fake_profile app "app_id=$TEAM.io.tezra.FermixPet.dev")"
+expect_profile_refusal "a profile that does not grant the logins group is refused" \
+  "does not authorize the keychain access group $GROUP" "$(fake_profile groups "groups=$TEAM.io.tezra.other")"
+expect_profile_refusal "a profile with no keychain group at all is refused" \
+  "does not authorize the keychain access group" "$(fake_profile nogroups groups=)"
+expect_profile_refusal "an expired profile is refused" \
+  "the profile expired on" "$(fake_profile expired expires_days=-1)"
+expect_profile_refusal "a development profile, which lists its Macs, is refused" \
+  "not a Developer ID profile" "$(fake_profile development all_devices=false)"
+expect_profile_refusal "a profile for another platform is refused" \
+  "not macOS" "$(fake_profile ios platform=iOS)"
+
+printf 'not a profile\n' >"$PROFILES/garbage.provisionprofile"
+expect_profile_refusal "a file that is not a provisioning profile is refused" \
+  "is not a provisioning profile" "$PROFILES/garbage.provisionprofile"
+expect_profile_refusal "a missing profile is refused" \
+  "no provisioning profile at" "$PROFILES/absent.provisionprofile"
+
+app="$(fresh_bundle adhoc-with-profile)"
+expect_refusal "an ad-hoc signature with a profile is refused" \
+  "an ad-hoc signature cannot carry a provisioning profile" \
+  "$SIGN" "$app" - "$good"
+[ ! -e "$app/Contents/embedded.provisionprofile" ] || fail "an ad-hoc signature embedded a profile"
+
+app="$(fresh_bundle stale-profile)"
+cp "$good" "$app/Contents/embedded.provisionprofile"
+expect_refusal "a bundle that already embeds a profile is refused when none is given" \
+  "already embeds a provisioning profile" \
+  "$SIGN" "$app" -
+
+# The other half of the match: a signature carrying the keychain entitlements
+# without an embedded profile is refused after signing, whatever put them
+# there. The base set, as every profile-less signature carries it, passes.
+expect_refusal "keychain entitlements without a profile are refused" \
+  "embeds no provisioning profile" \
+  python3 "$PROFILE_CHECK" absent --entitlements "$RELEASE_SET"
+expect_pass "the base entitlements need no profile" \
+  python3 "$PROFILE_CHECK" absent --entitlements "$ROOT_DIR/Apps/Fermix/Sources/Fermix/Fermix.entitlements"
+expect_refusal "entitlements claiming another app id are refused against a good profile" \
+  "and this bundle is $APP_ID" \
+  python3 "$PROFILE_CHECK" check --profile "$good" --entitlements "$RELEASE_SET" --bundle-id "$BUNDLE_ID.dev"
 
 echo "sign_app_test: ok"

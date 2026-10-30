@@ -15,13 +15,35 @@
 # is valid and carries the right entitlements, while the verifier proves the
 # whole bundle is the product the configuration declares.
 #
-# Usage: sign_app.sh <app-path> <identity>
+# Two declared configurations of the GUI's signature (M84 D6):
+#   without a profile  the base entitlements (Fermix.entitlements) and no
+#                      embedded profile: CI's ad-hoc check, dev_run.sh, and the
+#                      Developer ID dev loop. These builds have no website
+#                      login store.
+#   with a profile     a Developer ID identity only: the base entitlements plus
+#                      scripts/entitlements/release_keychain.entitlements (the
+#                      login keychain access group and the identity keys that
+#                      authorize it), and the profile embedded as
+#                      Contents/embedded.provisionprofile. package_release.sh
+#                      is the caller.
+# The profile is proven to authorize those entitlements before anything is
+# signed (scripts/provisioning_profile.py), and the signed result is proven
+# again after: keychain entitlements without a matching embedded profile, or a
+# profile without them, ship an app macOS kills at launch.
+#
+# Usage: sign_app.sh <app-path> <identity> [<provisioning-profile>]
 #   <identity>  "Developer ID Application: <Name> (<TEAMID>)" for release,
 #               or "-" for an ad-hoc signature (CI structure check).
+#   <provisioning-profile>
+#               the Developer ID provisioning profile for the product's bundle
+#               identifier; refused with the ad-hoc identity.
 set -euo pipefail
 
-APP="${1:?usage: sign_app.sh <app-path> <identity>}"
-IDENTITY="${2:?usage: sign_app.sh <app-path> <identity>}"
+USAGE="usage: sign_app.sh <app-path> <identity> [<provisioning-profile>]"
+APP="${1:?$USAGE}"
+IDENTITY="${2:?$USAGE}"
+PROFILE="${3:-}"
+[ "$#" -le 3 ] || { echo "sign_app: unexpected arguments ($USAGE)" >&2; exit 1; }
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/product_config.sh
@@ -41,7 +63,15 @@ TOOLS_RELATIVE_PATH="$(product_config tools_relative_path)"
 SPARKLE_FRAMEWORK="$(product_config frameworks_relative_path)/$SPARKLE_FRAMEWORK_NAME"
 RIVE_FRAMEWORK="$(product_config frameworks_relative_path)/$RIVE_FRAMEWORK_NAME"
 ENTITLEMENTS="$ROOT_DIR/Apps/Fermix/Sources/Fermix/Fermix.entitlements"
+RELEASE_ENTITLEMENTS="$ROOT_DIR/scripts/entitlements/release_keychain.entitlements"
 ENGINE_ENTITLEMENTS="$ROOT_DIR/scripts/entitlements/engine.entitlements"
+PROFILE_CHECK="$ROOT_DIR/scripts/provisioning_profile.py"
+EMBEDDED_PROFILE="$APP/Contents/embedded.provisionprofile"
+
+# The GUI's entitlements and the post-sign evidence are written here, and the
+# directory goes on every exit path.
+WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "$WORK_DIR"' EXIT
 
 fail() {
   echo "sign_app: $*" >&2
@@ -99,6 +129,41 @@ $unexpected"
 }
 
 refuse_unknown_nested_code
+
+# The GUI's entitlements for this signature, decided and proven before anything
+# is signed, so a profile that cannot authorize the release leaves the bundle
+# untouched.
+#
+# Without a profile the base set is the whole of it, and a bundle that already
+# embeds a profile is refused: signing over it would seal a profile the
+# signature does not use. With one, the identity must be a Developer ID (an
+# ad-hoc signature has no team for a profile to name), the release-only keys
+# are merged over the base set, the profile must authorize exactly that merged
+# set for this bundle identifier, and only then is it embedded.
+prepare_gui_entitlements() {
+  if [ -z "$PROFILE" ]; then
+    [ ! -e "$EMBEDDED_PROFILE" ] ||
+      fail "the bundle already embeds a provisioning profile and none was given; stage a fresh bundle"
+    GUI_ENTITLEMENTS="$ENTITLEMENTS"
+    return 0
+  fi
+
+  [ "$IDENTITY" != "-" ] ||
+    fail "an ad-hoc signature cannot carry a provisioning profile; the profile authorizes a Developer ID signature only"
+  [ -f "$PROFILE" ] || fail "no provisioning profile at $PROFILE"
+  [ -f "$RELEASE_ENTITLEMENTS" ] || fail "release entitlements missing at $RELEASE_ENTITLEMENTS"
+
+  GUI_ENTITLEMENTS="$WORK_DIR/gui.entitlements"
+  cp "$ENTITLEMENTS" "$GUI_ENTITLEMENTS"
+  /usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$GUI_ENTITLEMENTS" >/dev/null ||
+    fail "could not merge the release entitlements"
+  python3 "$PROFILE_CHECK" check --profile "$PROFILE" \
+    --entitlements "$GUI_ENTITLEMENTS" --bundle-id "$BUNDLE_ID" ||
+    fail "the provisioning profile does not authorize this release's entitlements; nothing was signed"
+  cp "$PROFILE" "$EMBEDDED_PROFILE"
+}
+
+prepare_gui_entitlements
 
 # A secure timestamp needs Apple's timestamp server, which rejects the ad-hoc
 # identity; only request it for a real Developer ID signature.
@@ -206,11 +271,36 @@ codesign --force "${timestamp[@]}" --options runtime \
   --identifier "$AGENT_LABEL" --sign "$IDENTITY" "$agent"
 
 codesign --force "${timestamp[@]}" --options runtime \
-  --entitlements "$ENTITLEMENTS" \
+  --entitlements "$GUI_ENTITLEMENTS" \
   --identifier "$BUNDLE_ID" \
   --sign "$IDENTITY" "$APP"
 
 codesign --verify --deep --strict --verbose=2 "$APP"
+
+# The signature as macOS will judge it at launch: the entitlements it actually
+# carries against the profile actually embedded, and, with a profile, the
+# certificate that made it. Read off the signed bundle rather than the inputs,
+# so a merge, a copy or a codesign that did something else is caught here and
+# not by the first person who opens the app.
+check_signed_profile_match() {
+  local signed="$WORK_DIR/signed.entitlements"
+  codesign -d --entitlements - --xml "$APP" >"$signed" 2>/dev/null ||
+    fail "could not read the signed entitlements"
+  if [ ! -e "$EMBEDDED_PROFILE" ]; then
+    python3 "$PROFILE_CHECK" absent --entitlements "$signed" >/dev/null ||
+      fail "the signature carries keychain entitlements without an embedded provisioning profile"
+    return 0
+  fi
+  codesign -d --extract-certificates="$WORK_DIR/certificate" "$APP" 2>/dev/null ||
+    fail "could not read the signing certificate"
+  [ -f "$WORK_DIR/certificate0" ] ||
+    fail "the bundle embeds a provisioning profile and its signature carries no certificate"
+  python3 "$PROFILE_CHECK" check --profile "$EMBEDDED_PROFILE" --entitlements "$signed" \
+    --bundle-id "$BUNDLE_ID" --certificate "$WORK_DIR/certificate0" ||
+    fail "the signed entitlements and the embedded provisioning profile do not match"
+}
+
+check_signed_profile_match
 
 agent_signature="$(codesign -dv "$agent" 2>&1)"
 printf '%s\n' "$agent_signature" | grep -qFx "Identifier=$AGENT_LABEL" ||

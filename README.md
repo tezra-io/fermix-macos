@@ -117,6 +117,8 @@ brew install --cask tezra-io/tap/fermix
 ## Required repo secrets (release only)
 
 `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `MACOS_KEYCHAIN_PASSWORD`,
-`MACOS_DEVELOPER_ID`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`, scoped to
-the `release-macos` environment. `HOMEBREW_TAP_TOKEN` lets the rail open the
+`MACOS_DEVELOPER_ID`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`,
+`MACOS_PROVISIONING_PROFILE_BASE64` (the Developer ID provisioning profile for
+`io.tezra.FermixPet`, base64-encoded, which authorizes the website logins'
+keychain access group), scoped to the `release-macos` environment. `HOMEBREW_TAP_TOKEN` lets the rail open the
 cask PR on `tezra-io/homebrew-tap`.
