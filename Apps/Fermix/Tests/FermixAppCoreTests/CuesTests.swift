@@ -56,14 +56,15 @@ struct CuesTests {
         #expect(form.kinds.map(\.id) == ["feed", "stream", "webhook", "local_push"])
         #expect(form.presets.map(\.id) == ["github", "rss", "x_accounts"], "a stream has no preset")
         #expect(form.rows.first?.key == "ref", "the name comes first")
-        #expect(form.rows.last?.kind == .secret && form.rows.last?.present == false)
+        #expect(!form.rows.contains { $0.kind == .secret }, "Fermix makes GitHub's secret, so its form asks for none")
 
         let feed: ManagementCueSourceAdded = try Self.golden("cues_sources_add")
         #expect(feed.token == nil)
         let push: ManagementCueSourceAdded = try Self.golden("cues_sources_add_local_push")
         #expect(push.token?.isEmpty == false, "a new local push source's first token is handed out")
         let webhook: ManagementCueSourceAdded = try Self.golden("cues_sources_add_webhook")
-        #expect(webhook.source.primaryAction == .setSecret && webhook.source.missingSecret == .secret)
+        #expect(webhook.source.missingSecret == nil, "a GitHub source never waits for its secret")
+        #expect(webhook.source.secrets.first { $0.field == .secret }?.present == true)
 
         let removed: ManagementCueSourceRemoved = try Self.golden("cues_sources_remove")
         #expect(removed.removed && removed.left.isEmpty && removed.watchers == ["release-watch"])
@@ -265,9 +266,26 @@ struct CuesTests {
             .source("eng-blogs", at: nil), .source("gh-hooks", at: nil), .source("home-alerts", at: nil)
         ])
 
-        let waiting: ManagementCueSourceAdded = try Self.golden("cues_sources_add_webhook")
-        #expect(CuesSheetPage.opening(waiting.source) == .source("gh-hooks", at: .secret))
-        #expect(CueSourceProjection.secrets(waiting.source, first: .pathSecret).map(\.field) == [.pathSecret, .secret])
+        // A webhook source waiting for its signing secret, as one of any
+        // service still does: GitHub's own never waits, Fermix makes its
+        // secret.
+        let waiting: ManagementCueSource = try Self.edited(
+            "cues_sources_add_webhook",
+            path: { $0["source"] as? [String: Any] },
+            edit: { row in
+                row["ref"] = "gh-hooks"
+                row["state"] = "needs_secret"
+                row["primary_action"] = "set_secret"
+                row["actions"] = ["disable", "set_secret", "get_url"]
+                row["missing_secret"] = "secret"
+                row["secrets"] = [
+                    ["field": "secret", "label": "Signing secret", "present": false],
+                    ["field": "path_secret", "label": "Address", "present": false]
+                ]
+            }
+        )
+        #expect(CuesSheetPage.opening(waiting) == .source("gh-hooks", at: .secret))
+        #expect(CueSourceProjection.secrets(waiting, first: .pathSecret).map(\.field) == [.pathSecret, .secret])
 
         let tokenless = try Self.source(editing: { row in
             row["ref"] = "home-alerts"
@@ -470,7 +488,7 @@ struct CuesTests {
 
     @Test("Add sends the name, the preset and only the values changed, and never a secret")
     func addSendsWhatChanged() throws {
-        let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
+        let golden = try Self.form(try Self.golden("cues_sources_form"), addingSecret: "secret")
         var form = CueSourceFormState()
         form.take(golden, answering: form.request)
         #expect(form.kind == "feed", "with no kind asked for, the form is a feed's")
@@ -495,7 +513,7 @@ struct CuesTests {
     @Test("a typed value for a secret this app cannot store is refused under its row, and Add sends nothing")
     func unstorableSecretIsRefused() throws {
         let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
-        let renamed = try Self.form(golden, renamingSecretTo: "passphrase")
+        let renamed = try Self.form(golden, addingSecret: "passphrase")
         var form = try Self.githubForm(renamed)
         form.set(.text("gh-hooks"), for: "ref")
         form.secrets["passphrase"] = "fixture-passphrase"
@@ -506,7 +524,7 @@ struct CuesTests {
         #expect(form.refusal(for: "passphrase") == ProductStrings[.cuesSourceSecretUnstorable])
         #expect(ProductStrings[.cuesSourceSecretUnstorable] == "This version of the app cannot store this secret; update the app.")
 
-        var known = try Self.githubForm(golden)
+        var known = try Self.githubForm(try Self.form(golden, addingSecret: "secret"))
         known.set(.text("gh-hooks"), for: "ref")
         known.secrets["secret"] = "fixture-signing-secret"
         let preparing = known.prepareAdd()
@@ -705,7 +723,7 @@ struct CuesTests {
 
         sheet.added(.added(ref: added.source.ref, token: nil, unstored: nil))
 
-        #expect(sheet.page == .source("gh-hooks", at: nil))
+        #expect(sheet.page == .source("github", at: nil), "the name Fermix made for it")
         #expect(!added.source.hasURL, "no address is made by the add itself")
         #expect(added.source.secrets.contains { $0.field == .pathSecret }, "the page draws the address row")
         #expect(added.source.actions.contains(.getURL), "and offers Copy URL on it at once")
@@ -956,7 +974,7 @@ struct CuesTests {
         let push = try await ask(.cuesSourcesAdd, ["ref": "home-alerts", "kind": "local_push", "values": [String: Any]()])
         #expect(push?["token"] as? String != nil)
         let webhook = try await ask(.cuesSourcesAdd, ["ref": "gh-hooks", "preset": "github", "values": [String: Any]()])
-        #expect((webhook?["source"] as? [String: Any])?["state"] as? String == "needs_secret")
+        #expect(webhook?["secret"] as? String != nil, "Fermix makes a GitHub source's secret")
 
         let card = try await ask(.cuesProposalsGet, ["proposal_id": "cpr_9f2c41d07a5e6b38c1d2e4f0"])
         #expect((card?["proposal"] as? [String: Any])?["state"] as? String == "waiting")
@@ -1008,13 +1026,22 @@ struct CuesTests {
     }
 
     /// The golden form with its secret row under another key.
-    static func form(_ golden: ManagementCueSourceForm, renamingSecretTo key: String) throws -> ManagementCueSourceForm {
+    /// The golden webhook form with a secret row added under `key`, as a
+    /// webhook's form for any service carries one: GitHub's own asks for no
+    /// secret, since Fermix makes it, so these cases add the row to prove the
+    /// form's handling of a typed secret.
+    static func form(_ golden: ManagementCueSourceForm, addingSecret key: String) throws -> ManagementCueSourceForm {
         let fixture = try #require(try ManagementFixtures.load(.success, from: .management).first { $0.name == "cues_sources_form" })
         var result = try #require(try fixture.object("response")["result"] as? [String: Any])
         var rows = try #require(result["rows"] as? [[String: Any]])
-        for index in rows.indices where rows[index]["kind"] as? String == "secret" {
-            rows[index]["key"] = key
-        }
+        var secret = try #require(rows.first)
+        secret["key"] = key
+        secret["kind"] = "secret"
+        secret["label"] = "Signing secret"
+        secret["info"] = NSNull()
+        secret["present"] = false
+        secret["value"] = NSNull()
+        rows.append(secret)
         result["rows"] = rows
 
         return try JSONDecoder().decode(ManagementCueSourceForm.self, from: try JSONSerialization.data(withJSONObject: result))

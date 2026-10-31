@@ -62,6 +62,18 @@ public final class CompanionSession {
     private var onScreen: Set<Int> = []
     /// The handshake deadline or the reconnect timer; never both.
     private var deadline: DeadlineToken?
+    /// The daemon's sentence while the server this desktop reaches is away
+    /// or its home is moving (M75): every failed attempt after it says it
+    /// again, since the engine restarting for a move is part of the same
+    /// wait, until a handshake succeeds or the daemon refuses for good.
+    private var serverAway: String?
+    /// The socket the attempt in flight connects to, resolved at the attempt.
+    private var connectionPath = ""
+    /// The highest primary epoch a primary has shown at each socket (M75),
+    /// kept for the session's life and sent in every hello there: a primary
+    /// below it is an older copy of a home that moved. Another socket is
+    /// another home, with an epoch of its own.
+    private var seenEpochs: [String: Int] = [:]
     private var consecutiveFailures = 0
     /// The next proposal expiry this Mac's clock is waiting for, and its
     /// timer: one at a time, set again only when the next expiry moves.
@@ -198,6 +210,7 @@ public final class CompanionSession {
         }
 
         phase = .connecting
+        connectionPath = path
         transport.connect(path: path) { [weak self] result in
             self?.connected(result)
         }
@@ -209,7 +222,7 @@ public final class CompanionSession {
         switch result {
         case .success:
             phase = .handshaking
-            transport.send(.clientHello(protocolVersion: protocolVersion))
+            transport.send(.clientHello(protocolVersion: protocolVersion, primaryEpoch: seenEpochs[connectionPath]))
             deadline = deadlines.schedule(after: CompanionProtocol.handshakeTimeout) { [weak self] in
                 self?.handshakeExpired()
             }
@@ -243,8 +256,8 @@ public final class CompanionSession {
 
     private func handshake(_ event: CompanionServerEvent) {
         switch event {
-        case .serverHello(let minimum, let maximum):
-            negotiate(CompanionVersionWindow(minimum: minimum, maximum: maximum))
+        case .serverHello(let minimum, let maximum, let primaryEpoch, let role):
+            negotiate(CompanionVersionWindow(minimum: minimum, maximum: maximum), primaryEpoch: primaryEpoch, role: role)
         case .error(let refusal):
             refusedDuringHandshake(refusal)
         default:
@@ -252,32 +265,66 @@ public final class CompanionSession {
         }
     }
 
-    private func negotiate(_ window: CompanionVersionWindow) {
+    private func negotiate(_ window: CompanionVersionWindow, primaryEpoch: Int?, role: CompanionEngineRole?) {
         cancelDeadline()
 
         guard window.contains(protocolVersion) else {
             refuse(window.direction(for: protocolVersion))
             return
         }
+        guard admits(primaryEpoch: primaryEpoch, role: role) else {
+            stalePrimary()
+            return
+        }
 
         phase = .connected
         consecutiveFailures = 0
+        serverAway = nil
         model.show(.connected)
         reduce { [onScreen] in CompanionReducer.negotiated(&$0, onScreen: onScreen) }
         grants.negotiated()
     }
 
-    /// A refusal that names a direction is the version window's, which no retry
-    /// changes; any other is the daemon's own reason, and the connection is
-    /// tried again.
-    private func refusedDuringHandshake(_ refusal: CompanionServerError) {
-        guard let direction = refusal.direction else {
-            log.error("companion daemon refused the handshake: \(refusal.reason, privacy: .public)")
-            drop(showing: .disconnected(String(format: ProductStrings[.companionErrorRefusedFormat], refusal.reason)))
-            return
-        }
+    /// Keeps a primary's epoch as the highest seen at this socket, and says
+    /// whether its hello may connect: a primary below the highest, or with
+    /// none once one was seen, is an older copy of a home that moved. A
+    /// device's epoch, or one from a role this build does not know, is
+    /// neither compared nor kept. A hello with no role comes from a daemon
+    /// older than the field, which is a primary.
+    private func admits(primaryEpoch: Int?, role: CompanionEngineRole?) -> Bool {
+        guard role == nil || role == .primary else { return true }
 
-        refuse(direction)
+        let seen = seenEpochs[connectionPath]
+        if let seen, (primaryEpoch ?? 0) < seen { return false }
+
+        if let primaryEpoch {
+            seenEpochs[connectionPath] = max(seen ?? primaryEpoch, primaryEpoch)
+        }
+        return true
+    }
+
+    /// A refusal that names a direction is the version window's, which no retry
+    /// changes. A desktop whose home moved refuses for its own reasons: its
+    /// server no longer knows it, its server is out of reach, or this app has
+    /// seen a later primary. Any other is the daemon's own reason, said in its
+    /// own sentence where it sent one, and the connection is tried again.
+    private func refusedDuringHandshake(_ refusal: CompanionServerError) {
+        switch refusal.reason {
+        case CompanionProtocol.desktopRevokedReason:
+            desktopRevoked(Self.sentence(for: refusal))
+        case CompanionProtocol.primaryUnreachableReason:
+            serverUnreachable(Self.sentence(for: refusal))
+        case CompanionProtocol.stalePrimaryReason:
+            stalePrimary()
+        default:
+            guard let direction = refusal.direction else {
+                log.error("companion daemon refused the handshake: \(refusal.reason, privacy: .public)")
+                drop(showing: .disconnected(Self.sentence(for: refusal)))
+                return
+            }
+
+            refuse(direction)
+        }
     }
 
     private func route(_ event: CompanionServerEvent) {
@@ -298,9 +345,18 @@ public final class CompanionSession {
         }
     }
 
-    /// A refusal naming a media ref answers that ref's fetch; any other is the
-    /// chat's.
+    /// A refusal naming a media ref answers that ref's fetch; the server out
+    /// of reach or no longer knowing this desktop ends the connection; any
+    /// other is the chat's.
     private func routeRefusal(_ refusal: CompanionServerError) {
+        if refusal.reason == CompanionProtocol.desktopRevokedReason {
+            desktopRevoked(Self.sentence(for: refusal))
+            return
+        }
+        if refusal.reason == CompanionProtocol.primaryUnreachableReason {
+            serverUnreachable(Self.sentence(for: refusal))
+            return
+        }
         guard let ref = refusal.ref else {
             reduce { CompanionReducer.receive(.error(refusal), into: &$0) }
             return
@@ -314,12 +370,60 @@ public final class CompanionSession {
 
     private func refuse(_ direction: CompanionVersionDirection) {
         log.error("companion versions do not overlap: \(direction.rawValue, privacy: .public)")
+        stop(showing: Self.sentence(for: direction)) { CompanionReducer.disconnected(&$0) }
+    }
+
+    /// The engine answering is an older copy of a home that moved (M75): it
+    /// said so, or its hello showed a lower epoch than one seen here. Nothing
+    /// more is sent to it and nothing is retried; the outbox is kept, and
+    /// asking for chat again tries once more.
+    private func stalePrimary() {
+        log.error("companion: the engine is an older copy of a home that moved")
+        stop(showing: ProductStrings[.companionConnectionStalePrimary]) { CompanionReducer.disconnected(&$0) }
+    }
+
+    /// The engine here is a desktop its server no longer knows (M75): every
+    /// connection is refused until the engine restarts, so the session stops
+    /// as for a version refusal, the outbox is dropped with a line saying so
+    /// rather than kept as sending, and the composer takes nothing. Asking
+    /// for chat again tries once more.
+    private func desktopRevoked(_ sentence: String) {
+        log.error("companion: the server no longer knows this desktop")
+        stop(showing: sentence) { CompanionReducer.revoked(&$0) }
+    }
+
+    /// The engine here is a desktop whose server cannot be reached, or whose
+    /// home is moving (M75), before or after the handshake. The connection
+    /// is ended here, as the daemon is about to end it, so its close is not
+    /// read as a second drop; the outbox is kept and sent at the next
+    /// handshake, the composer keeps taking messages into it, and the chat
+    /// says the daemon's sentence until then.
+    private func serverUnreachable(_ sentence: String) {
+        log.error("companion: the server this desktop reaches is unreachable")
+        serverAway = sentence
+        drop(showing: .waiting(sentence))
+    }
+
+    /// Ends the connection and stops trying: no retry changes what the daemon
+    /// said, until chat is asked for again.
+    private func stop(showing sentence: String, _ change: (inout CompanionChat) -> Void) {
         cancelDeadline()
         transport.close()
         phase = .refused
-        update { CompanionReducer.disconnected(&$0) }
+        serverAway = nil
+        update(change)
         grants.disconnected()
-        model.show(.refused(Self.sentence(for: direction)))
+        model.show(.refused(sentence))
+    }
+
+    /// A refusal in the daemon's own sentence, or, where it sent none, in the
+    /// app's words for its reason.
+    private static func sentence(for refusal: CompanionServerError) -> String {
+        guard let message = refusal.message, !message.isEmpty else {
+            return String(format: ProductStrings[.companionErrorRefusedFormat], refusal.reason)
+        }
+
+        return message
     }
 
     private func transportFailed(_ failure: CompanionTransportFailure) {
@@ -343,7 +447,7 @@ public final class CompanionSession {
         consecutiveFailures += 1
 
         phase = .waiting
-        model.show(connection)
+        model.show(serverAway.map(CompanionConnection.waiting) ?? connection)
         deadline = deadlines.schedule(after: delay) { [weak self] in
             self?.reconnectDue()
         }

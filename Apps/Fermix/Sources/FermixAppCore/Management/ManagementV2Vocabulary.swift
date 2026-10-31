@@ -30,6 +30,8 @@ public enum ManagementSettingsPane: ManagementVocabulary {
     case sandbox
     case secrets
     case permissions
+    /// Always On (M75): where the home runs, and its recovery snapshots.
+    case alwaysOn
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -48,7 +50,8 @@ public enum ManagementSettingsPane: ManagementVocabulary {
         "browser": .browser,
         "sandbox": .sandbox,
         "secrets": .secrets,
-        "permissions": .permissions
+        "permissions": .permissions,
+        "always_on": .alwaysOn
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
     public var unrecognizedValue: String? {

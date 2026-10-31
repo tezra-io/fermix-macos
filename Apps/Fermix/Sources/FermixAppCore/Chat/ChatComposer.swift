@@ -12,7 +12,10 @@ import SwiftUI
 ///
 /// Not connected, the whole composer is unavailable and the connection's own
 /// sentence stands over it. A request made then would wait in the outbox, but
-/// the owner could not see it go.
+/// the owner could not see it go. The one exception is a desktop whose server
+/// is away or whose home is moving (M75): the daemon's sentence says the
+/// message is kept, so the composer takes it into the outbox, where it shows
+/// as sending until the next connection carries it.
 struct ChatComposer: View {
     @Binding var draft: String
     let connection: CompanionConnection
@@ -38,11 +41,11 @@ struct ChatComposer: View {
             .padding(ChatMetrics.composerInset)
             .background(shape.fill(Palette.chipFill.color))
             .overlay(shape.strokeBorder(Palette.hairline(.standard).color, lineWidth: Stroke.hairline))
-            .disabled(connection != .connected)
+            .disabled(!connection.acceptsMessages)
         }
         .onAppear { focused = true }
         .onChange(of: connection) { _, now in
-            guard now == .connected else { return }
+            guard now.acceptsMessages else { return }
 
             focused = true
         }

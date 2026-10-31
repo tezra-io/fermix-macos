@@ -464,8 +464,13 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case companionConnectionUpdateApp = "companion.connection.updateApp"
     /// The daemon's window ends below this build: the engine is out of date.
     case companionConnectionUpdateEngine = "companion.connection.updateEngine"
+    /// The engine answering is an older copy of a home that moved (M75): a
+    /// primary at a lower epoch than one this app has seen.
+    case companionConnectionStalePrimary = "companion.connection.stalePrimary"
     case companionErrorRefusedFormat = "companion.error.refusedFormat"
     case companionErrorMessageTooLong = "companion.error.messageTooLong"
+    /// What waited in the outbox when the server stopped knowing this desktop.
+    case companionErrorNotSentRevoked = "companion.error.notSentRevoked"
     case companionErrorReplyStopped = "companion.error.replyStopped"
     case companionErrorReplyInterrupted = "companion.error.replyInterrupted"
     case companionErrorReplyFailedFormat = "companion.error.replyFailedFormat"
@@ -501,6 +506,14 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case proposalWaitsUntilFormat = "proposal.waitsUntilFormat"
     /// Told to VoiceOver a minute before the card expires.
     case proposalLastMinute = "proposal.lastMinute"
+    /// A watcher's follow-up on its card (companion version 5): the owner's
+    /// instructions, its tools, where it reports, and for an automatic one its
+    /// cap and what sets it off, each Fermix's or the owner's words.
+    case proposalFollowUpInstructionsFormat = "proposal.followUp.instructionsFormat"
+    case proposalFollowUpToolsFormat = "proposal.followUp.toolsFormat"
+    case proposalFollowUpReportsToFormat = "proposal.followUp.reportsToFormat"
+    case proposalFollowUpDailyCapFormat = "proposal.followUp.dailyCapFormat"
+    case proposalFollowUpSetOffByFormat = "proposal.followUp.setOffByFormat"
     // Outside text (M60 §4.8): the headers say, in Fermix's voice, where the
     // text under them came from.
     case outsideCall = "outside.call"
@@ -509,6 +522,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// An item's header where Fermix's record names no source or time for it.
     case outsideItemUnsourced = "outside.itemUnsourced"
     case outsideResult = "outside.result"
+    /// The filter's sentence on why the item passed, which a model wrote.
+    case outsideReason = "outside.reason"
     case outsideShowAll = "outside.showAll"
     /// An item's own fields, each labelled, the values as the item wrote them.
     case outsideTypeFormat = "outside.typeFormat"
@@ -782,6 +797,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsPaneSearch = "settings.pane.search"
     case settingsPaneImages = "settings.pane.images"
     case settingsPaneBrowser = "settings.pane.browser"
+    case settingsPaneAlwaysOn = "settings.pane.alwaysOn"
     case settingsPaneSecrets = "settings.pane.secrets"
     case settingsPaneSandbox = "settings.pane.sandbox"
     case settingsPanePermissions = "settings.pane.permissions"
@@ -800,6 +816,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsKeywordsSearch = "settings.keywords.search"
     case settingsKeywordsImages = "settings.keywords.images"
     case settingsKeywordsBrowser = "settings.keywords.browser"
+    case settingsKeywordsAlwaysOn = "settings.keywords.alwaysOn"
     case settingsKeywordsSecrets = "settings.keywords.secrets"
     case settingsKeywordsSandbox = "settings.keywords.sandbox"
     case settingsKeywordsPermissions = "settings.keywords.permissions"

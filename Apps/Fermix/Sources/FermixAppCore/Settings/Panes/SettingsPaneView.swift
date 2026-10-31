@@ -35,14 +35,15 @@ struct SettingsPaneView: View {
             CodingAgentsPane(model: model)
         case .browser:
             BrowserPane(model: model)
-        case .personality, .memory, .search, .images, .sandbox, .secrets:
+        case .personality, .memory, .search, .images, .alwaysOn, .sandbox, .secrets:
             DescriptorPane(pane: pane, model: model)
         }
     }
 }
 
 /// A pane that is exactly its daemon-published sections, plus whatever the
-/// surface adds after them.
+/// surface adds after them. On a desktop whose server's sections are missing
+/// (M75), a pane left with none says the daemon's sentence for why.
 ///
 /// `extra` is drawn with the daemon's sections, so a daemon too old to serve
 /// them hides it too. `appOwned` is what this app answers for itself, with no
@@ -58,6 +59,9 @@ struct DescriptorPane<Extra: View, AppOwned: View>: View {
             if model.requiresNewerEngine {
                 NewerEngineSection(sentence: model.newerEngineSentence)
             } else {
+                if let missing = model.primaryMissing, model.sections(for: pane).isEmpty {
+                    Section { CueNote(text: missing, attention: true) }
+                }
                 DescriptorForm(model: model, sections: model.sections(for: pane))
                 extra
             }

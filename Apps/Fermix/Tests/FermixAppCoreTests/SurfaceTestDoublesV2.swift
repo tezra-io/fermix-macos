@@ -589,6 +589,40 @@ extension FakeDaemonGateway {
         try answer(.cuesProposalsDecide, "cues_proposals_decide")
     }
 
+    // MARK: - The home (M75)
+
+    func homeStatus() async throws -> ManagementHomeStatus {
+        try answer(.homeStatus, "home_status")
+    }
+
+    func openEnrollment() async throws -> ManagementEnrollmentCode {
+        try answer(.homeEnrollOpen, "home_enroll_open")
+    }
+
+    func candidates() async throws -> ManagementCandidates {
+        try answer(.homeCandidatesList, "home_candidates_list")
+    }
+
+    func moveReadiness(candidateId: String) async throws -> ManagementMoveReadiness {
+        try answer(.homeMoveReadiness, "home_move_readiness")
+    }
+
+    func startMove(candidateId: String, passphrase: String, keepAsDesktop: Bool) async throws -> ManagementMoveStarted {
+        try answer(.homeMoveStart, "home_move_start")
+    }
+
+    func snapshotsStatus() async throws -> ManagementHomeSnapshots {
+        try answer(.homeSnapshotsStatus, "home_snapshots_status")
+    }
+
+    func runSnapshot() async throws -> ManagementSnapshotsStarted {
+        try answer(.homeSnapshotsRun, "home_snapshots_run")
+    }
+
+    func setRecoveryPassphrase(_ passphrase: String) async throws -> ManagementRecoveryKey {
+        try answer(.homeSnapshotsPassphrase, "home_snapshots_passphrase")
+    }
+
     // MARK: - One answer
 
     /// Record the call, apply the version gate, then decode the named fixture.

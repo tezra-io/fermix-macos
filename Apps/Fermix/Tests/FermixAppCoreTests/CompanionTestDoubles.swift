@@ -29,12 +29,15 @@ enum CompanionEvents {
     static let profile = CompanionProtocol.profileId
 
     /// The daemon's hello, with the window this build speaks unless a case
-    /// names another.
+    /// names another, and the home's epoch and the engine's role where a case
+    /// names them (M75).
     static func hello(
         _ minimum: Int = CompanionProtocol.supportedWindow.minimum,
-        _ maximum: Int = CompanionProtocol.supportedWindow.maximum
+        _ maximum: Int = CompanionProtocol.supportedWindow.maximum,
+        epoch: Int? = nil,
+        role: CompanionEngineRole? = nil
     ) -> CompanionServerEvent {
-        .serverHello(minVersion: minimum, maxVersion: maximum)
+        .serverHello(minVersion: minimum, maxVersion: maximum, primaryEpoch: epoch, role: role)
     }
 
     /// A live row, as announced outside a turn's completion.

@@ -45,8 +45,8 @@ extension ManagementVocabulary {
 ///
 /// The eleven the engine serves today have a minimum protocol version of 1; the
 /// thirty-one M34 §7.3 adds, the seven the phone channel added, the three the
-/// iMessage channel added, the twelve of MCP servers and the twenty-four of
-/// cues have a minimum of 2. The
+/// iMessage channel added, the twelve of MCP servers, the twenty-four of cues
+/// and the eight of the home have a minimum of 2. The
 /// minimum is read from the contract (`ManagementContract.minimumVersion(for:)`),
 /// never restated here: one fact, in the checksum-pinned artifact.
 public enum ManagementMethod: String, CaseIterable, Sendable {
@@ -148,6 +148,16 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case cuesProposalsList = "cues.proposals.list"
     case cuesProposalsGet = "cues.proposals.get"
     case cuesProposalsDecide = "cues.proposals.decide"
+    // The home (M75): the one picture of where it runs, its recovery
+    // snapshots, enrolling a server and moving the home to it.
+    case homeStatus = "home.status"
+    case homeEnrollOpen = "home.enroll.open"
+    case homeCandidatesList = "home.candidates.list"
+    case homeMoveReadiness = "home.move.readiness"
+    case homeMoveStart = "home.move.start"
+    case homeSnapshotsStatus = "home.snapshots.status"
+    case homeSnapshotsRun = "home.snapshots.run"
+    case homeSnapshotsPassphrase = "home.snapshots.passphrase"
 
     /// The method name in a form the request-id pattern accepts.
     public var identifierSlug: String { rawValue.replacingOccurrences(of: ".", with: "-") }
@@ -178,6 +188,16 @@ public enum ManagementErrorCode: ManagementVocabulary {
     /// The pairing session is not retained by this daemon. Added with the phone
     /// channel.
     case unknownPairingSession
+    /// After a move, the server this Mac forwards to cannot be reached, or
+    /// did not answer in time (M75). `details.sentence` names it.
+    case primaryUnreachable
+    /// The server refused a request that configures the computer that
+    /// forwarded it (M75). `details.sentence` says why.
+    case deviceClassMethod
+    /// After a move, the server had a forwarded request whose answer did not
+    /// arrive (`home.move.start`), so its outcome is not known yet. Not a
+    /// failure: `details.sentence` says where it shows, which is `home.status`.
+    case unconfirmed
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -197,7 +217,10 @@ public enum ManagementErrorCode: ManagementVocabulary {
         "unknown_job": .unknownJob,
         "external_change": .externalChange,
         "config_unreadable": .configUnreadable,
-        "unknown_pairing_session": .unknownPairingSession
+        "unknown_pairing_session": .unknownPairingSession,
+        "primary_unreachable": .primaryUnreachable,
+        "device_class_method": .deviceClassMethod,
+        "unconfirmed": .unconfirmed
     ]
 
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }

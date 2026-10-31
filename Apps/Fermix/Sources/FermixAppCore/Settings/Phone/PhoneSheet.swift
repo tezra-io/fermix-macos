@@ -442,9 +442,10 @@ private struct PhonePhonesStep: View {
         }
     }
 
-    /// Another phone once one is paired, and a phone while none is.
+    /// Another phone once one is paired, and a phone while none is. A desktop
+    /// a move paired is no phone.
     private var pairTitle: ProductStringKey {
-        model.devices.value?.devices.isEmpty == false ? .phonePairAnother : .phonePair
+        model.devices.value?.phones.isEmpty == false ? .phonePairAnother : .phonePair
     }
 
     /// The one row drawn with more than the renderer gives it: Reach from
@@ -481,8 +482,11 @@ private struct PhoneRemoteRow: View {
     }
 }
 
-/// One paired phone: its name, its model and when it was last seen, and
-/// Forget, which asks in the row before it forgets anything.
+/// One paired device: its name, its model and when it was last seen, and for
+/// a phone Forget, which asks in the row before it forgets anything. A
+/// desktop a move paired (M75) is listed with no Forget: it is the computer
+/// the home moved from, which the server keeps linked; a refusal the daemon
+/// sends for any row is still said under it.
 private struct PhoneDeviceRow: View {
     let device: ManagementMobileDevice
     let forgetting: PhoneForgetting
@@ -493,18 +497,20 @@ private struct PhoneDeviceRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
             LabeledContent {
-                HStack(spacing: Spacing.xs) {
-                    if forgetting.asking == device.deviceId {
-                        Button(ProductStrings[.phoneForgetConfirm], action: forget)
-                            .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.phoneForgetConfirm], device.name))
+                if device.isPhone {
+                    HStack(spacing: Spacing.xs) {
+                        if forgetting.asking == device.deviceId {
+                            Button(ProductStrings[.phoneForgetConfirm], action: forget)
+                                .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.phoneForgetConfirm], device.name))
 
-                        Button(ProductStrings[.settingsSheetCancel], action: withdraw)
-                    } else {
-                        Button(ProductStrings[.phoneForget], action: ask)
-                            .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.phoneForget], device.name))
+                            Button(ProductStrings[.settingsSheetCancel], action: withdraw)
+                        } else {
+                            Button(ProductStrings[.phoneForget], action: ask)
+                                .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.phoneForget], device.name))
+                        }
                     }
+                    .disabled(forgetting.forgetting != nil)
                 }
-                .disabled(forgetting.forgetting != nil)
             } label: {
                 VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
                     Text(device.name)

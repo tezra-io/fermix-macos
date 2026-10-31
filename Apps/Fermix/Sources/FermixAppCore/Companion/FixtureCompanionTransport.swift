@@ -453,11 +453,10 @@ enum FixtureProposalScript {
         .proposal(profileId: CompanionProtocol.profileId, proposal: CompanionProposal(
             proposalId: proposalId,
             state: .waiting,
-            mandate: "release-issues",
+            ask: .call(mandate: "release-issues", tool: tool),
             task: CompanionProposalTask(jobId: "fixture-job-release-watch", name: "Release watch"),
             watcher: watcher,
             sourceRef: "eng-blogs",
-            tool: tool,
             createdAt: String(format: "2026-09-25T09:%02d:30Z", minute),
             expiresAt: expiresAt.formatted(.iso8601),
             receivedAt: String(format: "2026-09-25T09:%02d:00Z", minute),
@@ -466,7 +465,7 @@ enum FixtureProposalScript {
             resultStatus: nil,
             statusSentence: "Waiting for your answer; it runs only if you confirm.",
             summary: "A task wants to run \(tool) under your mandate release-issues. It runs only if you confirm.",
-            outside: CompanionProposalOutside(argsText: arguments, cue: cue)
+            outside: CompanionProposalOutside(argsText: arguments, args: nil, reason: nil, cue: cue)
         ))
     }
 

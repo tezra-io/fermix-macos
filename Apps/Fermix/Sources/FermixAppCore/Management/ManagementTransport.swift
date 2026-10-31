@@ -45,6 +45,11 @@ public struct DefaultManagementTimeoutPolicy: ManagementTimeoutPolicy {
     /// way (M74 §5); its reads, its scan and its check, which is a job,
     /// answer at once.
     public static let write: Duration = .seconds(20)
+    /// A move's readiness report and its start walk the whole home before
+    /// they answer, and a desktop forwarding either waits 60 s for its server
+    /// (management PROTOCOL.md, *Forward deadlines*): the client waits longer
+    /// than that on every engine.
+    public static let move: Duration = .seconds(65)
 
     public init() {}
 
@@ -56,6 +61,8 @@ public struct DefaultManagementTimeoutPolicy: ManagementTimeoutPolicy {
              .mcpServersAdd, .mcpServersUpdate, .mcpServersRemove,
              .mcpServersEnable, .mcpServersDisable, .mcpServersToolSet, .mcpServersImport:
             return Self.write
+        case .homeMoveReadiness, .homeMoveStart:
+            return Self.move
         default:
             return Self.standard
         }

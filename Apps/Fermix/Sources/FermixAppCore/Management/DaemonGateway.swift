@@ -141,6 +141,17 @@ public protocol DaemonQuerying: Sendable {
     func cueProposals(_ filter: ManagementCueProposalFilter) async throws -> ManagementCueProposalList
     func cueProposal(id: String) async throws -> ManagementCueProposalCardAnswer
     func decideCueProposal(id: String, decision: ManagementCueDecision) async throws -> ManagementCueProposalAnswer
+
+    // The home (M75). Found in `servedMethods()`: they arrived inside
+    // protocol 2.
+    func homeStatus() async throws -> ManagementHomeStatus
+    func openEnrollment() async throws -> ManagementEnrollmentCode
+    func candidates() async throws -> ManagementCandidates
+    func moveReadiness(candidateId: String) async throws -> ManagementMoveReadiness
+    func startMove(candidateId: String, passphrase: String, keepAsDesktop: Bool) async throws -> ManagementMoveStarted
+    func snapshotsStatus() async throws -> ManagementHomeSnapshots
+    func runSnapshot() async throws -> ManagementSnapshotsStarted
+    func setRecoveryPassphrase(_ passphrase: String) async throws -> ManagementRecoveryKey
 }
 
 /// The production gateway: one negotiated client, shared by every surface.
@@ -265,15 +276,18 @@ public enum ManagementMessage {
 
     /// The daemon's own words for a structured refusal.
     ///
-    /// `message` is fixed per code. Three codes cover a whole family of distinct
+    /// `message` is fixed per code. Six codes cover a whole family of distinct
     /// refusals and carry the sentence that separates them in `details.sentence`
     /// — `invalid_params` (`This provider has no browser sign-in.`, `A secret
-    /// cannot be empty.`, every settings validation) and `config_unreadable`
-    /// (the parser's own line). For those, the detail sentence IS the message
-    /// the operator has to read; everywhere else `message` already is.
+    /// cannot be empty.`, every settings validation), `config_unreadable`
+    /// (the parser's own line), `unavailable`, and after a move
+    /// `primary_unreachable` (the server named), `device_class_method` and
+    /// `unconfirmed` (where a lost answer's outcome shows). For those, the
+    /// detail sentence IS the message the operator has to read; everywhere
+    /// else `message` already is.
     private static func daemonSentence(_ failure: ManagementFailure) -> String {
         switch failure.code {
-        case .invalidParams, .configUnreadable, .unavailable:
+        case .invalidParams, .configUnreadable, .unavailable, .primaryUnreachable, .deviceClassMethod, .unconfirmed:
             guard let sentence = failure.details.sentence, !sentence.isEmpty else {
                 return failure.message
             }

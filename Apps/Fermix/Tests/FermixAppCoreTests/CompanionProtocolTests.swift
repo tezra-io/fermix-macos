@@ -43,6 +43,7 @@ struct CompanionProtocolTests {
         let main = CompanionProtocol.profileId
         let produced: [CompanionClientEvent] = [
             .clientHello(protocolVersion: CompanionProtocol.version),
+            .clientHello(protocolVersion: CompanionProtocol.version, primaryEpoch: 2),
             .msg(clientMsgId: "mac-1", profileId: main, text: "What is on my calendar today?"),
             .command(clientMsgId: "mac-2", profileId: main, name: "confirm", args: "opaque-token"),
             .cancel(profileId: main, clientMsgId: "mac-3"),
@@ -110,7 +111,7 @@ struct CompanionProtocolTests {
             return try CompanionServerEvent.decode(fixture.line)
         }
 
-        #expect(try event("server_hello") == .serverHello(minVersion: 3, maxVersion: 4))
+        #expect(try event("server_hello") == .serverHello(minVersion: 4, maxVersion: 5, primaryEpoch: 2, role: .primary))
 
         let duplicate = try event("accepted") { $0.object["duplicate"] as? Bool == true }
         #expect(duplicate == .accepted(CompanionAccepted(clientMsgId: "mac-1", duplicate: true, serverSeq: 13)))
@@ -164,8 +165,56 @@ struct CompanionProtocolTests {
         }
         #expect(refusal.reason == "unsupported_protocol_version")
         #expect(refusal.direction == .clientTooNew)
-        #expect(refusal.clientVersion == 5)
-        #expect(refusal.window == CompanionVersionWindow(minimum: 3, maximum: 4))
+        #expect(refusal.clientVersion == 6)
+        #expect(refusal.window == CompanionVersionWindow(minimum: 4, maximum: 5))
+    }
+
+    /// Version 5: a watcher's follow-up asks on a proposal's card, naming the
+    /// follow-up in place of a call, and a mandate's card gains its compact
+    /// lines. Every one is decoded from the contract's own goldens.
+    @Test("the golden follow-up cards and a mandate's compact lines decode under the Swift names")
+    func followUpCardFixtures() throws {
+        let fixtures = try CompanionFixtures.load(.serverEvents)
+        func card(_ prefix: String) throws -> CompanionProposal {
+            let line = try #require(fixtures.first { fixture in
+                ((fixture.object["proposal"] as? [String: Any])?["proposal_id"] as? String)?.hasPrefix(prefix) == true
+            })
+            guard case .proposal(_, let proposal) = try CompanionServerEvent.decode(line.line) else {
+                throw CompanionFixtureDefect.recordHasNoType(file: prefix, line: 0)
+            }
+            return proposal
+        }
+
+        let run = try card("cft_")
+        #expect(run.ask == .followUp(CompanionFollowUp(
+            asks: .run,
+            name: "Codex review",
+            instructions: "Use Codex in ~/projects/fermix to review the last day's commits on dev and report the findings.",
+            tools: ["codex_run"],
+            reportsTo: "Telegram (owner-1)",
+            dailyCap: nil,
+            setOffBy: nil
+        )))
+        #expect(run.outside.argsText == nil && run.outside.args == nil, "a follow-up's card carries no call")
+        #expect(run.outside.reason == "The post says usage limits reset.")
+        #expect(run.outside.cue?.subject == "@limits_bot")
+
+        let approval = try card("cfa_")
+        guard case .followUp(let automatic) = approval.ask else {
+            Issue.record("the approval's prompt did not decode as a follow-up")
+            return
+        }
+        #expect(automatic.asks == .automatic)
+        #expect(automatic.dailyCap == 5)
+        #expect(automatic.setOffBy == "x-feed; listens for reset, limits, usage")
+        #expect(approval.outside == CompanionProposalOutside(argsText: nil, args: nil, reason: nil, cue: nil))
+
+        let mandate = try card("cpr_4f1c")
+        #expect(mandate.ask == .call(mandate: "release-issues", tool: "github_create_issue"))
+        #expect(mandate.outside.args?.first == CompanionProposalArg(name: "labels", value: "[\"cue\"]"))
+        #expect(mandate.outside.args?.map(\.name) == ["labels", "owner", "repo", "title"])
+        #expect(mandate.outside.reason == "A Phoenix release.")
+        #expect(mandate.outside.argsText?.isEmpty == false)
     }
 
     /// The contract takes exactly one cursor, and the Swift value is the only

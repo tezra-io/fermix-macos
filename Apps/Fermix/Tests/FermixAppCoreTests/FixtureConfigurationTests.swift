@@ -1173,11 +1173,11 @@ struct FixtureConfigurationTests {
     func forgottenPhoneLeaves() async throws {
         let machine = FixtureMachine(daemonUp: true, phone: FixturePhoneStart.phones.channel)
         let client = try await Self.negotiatedClient(machine: machine)
-        let phone = try #require(try await client.mobileDevices().devices.first)
+        let phone = try #require(try await client.mobileDevices().phones.first)
 
         _ = try await client.revokeMobileDevice(id: phone.deviceId)
 
-        #expect(try await client.mobileDevices().devices.isEmpty)
+        #expect(try await client.mobileDevices().phones.isEmpty)
         #expect(try await client.mobileStatus().pairedDevices == 0)
     }
 

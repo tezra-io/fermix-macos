@@ -206,10 +206,19 @@ public struct ManagementPairingFailure: Decodable, Equatable, Sendable {
     public let sentence: String
 }
 
+/// A paired device: a phone, or a desktop engine a move paired (M75), which
+/// has no platform, signer, boot state or push registration of its own.
 public struct ManagementMobileDevice: Decodable, Equatable, Sendable {
     public let deviceId: String
     public let name: String
     public let model: String
+    /// Nil from an engine older than desktops, which pairs only phones.
+    public let kind: ManagementMobileDeviceKind?
+
+    /// Whether this is a phone: one the daemon names so, or any device of an
+    /// engine older than desktops. A desktop, or a kind this build does not
+    /// know, is not one.
+    public var isPhone: Bool { kind == nil || kind == .phone }
     public let platform: String?
     public let signerRole: ManagementMobileSignerRole?
     public let bootState: ManagementMobileBootState?
@@ -218,7 +227,7 @@ public struct ManagementMobileDevice: Decodable, Equatable, Sendable {
     public let lastSeen: String?
 
     private enum CodingKeys: String, CodingKey {
-        case name, model, platform
+        case name, model, kind, platform
         case deviceId = "device_id"
         case signerRole = "signer_role"
         case bootState = "boot_state"
@@ -228,10 +237,15 @@ public struct ManagementMobileDevice: Decodable, Equatable, Sendable {
     }
 }
 
-/// `mobile.devices.list`: every paired phone, oldest first, at most 64. Empty
-/// whenever the channel is not running.
+/// `mobile.devices.list`: every paired device, oldest first, at most 64.
 public struct ManagementMobileDevices: Decodable, Equatable, Sendable {
     public let devices: [ManagementMobileDevice]
+
+    /// The phones alone, which the Phone sheet lists and forgets. A desktop
+    /// a move paired is no phone, by the kind the daemon publishes.
+    public var phones: [ManagementMobileDevice] {
+        devices.filter(\.isPhone)
+    }
 }
 
 /// `mobile.devices.revoke`: the id forgotten, and `revoked`, which the schema
@@ -441,6 +455,25 @@ public enum ManagementMobileCredentials: ManagementVocabulary {
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = ["ready": .ready, "missing": .missing]
+
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+}
+
+/// What a paired device is: a phone, or a desktop engine in the device role.
+public enum ManagementMobileDeviceKind: ManagementVocabulary, Hashable {
+    case phone
+    case desktop
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = [
+        "phone": .phone,
+        "desktop": .desktop
+    ]
 
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
 

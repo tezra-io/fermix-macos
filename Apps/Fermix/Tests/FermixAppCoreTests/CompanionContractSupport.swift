@@ -99,8 +99,13 @@ enum CompanionServerWire {
 
     private static func fields(_ event: CompanionServerEvent) -> [String: Any] {
         switch event {
-        case .serverHello(let minVersion, let maxVersion):
-            return ["min_version": minVersion, "max_version": maxVersion]
+        case .serverHello(let minVersion, let maxVersion, let primaryEpoch, let role):
+            return present([
+                "min_version": minVersion,
+                "max_version": maxVersion,
+                "primary_epoch": primaryEpoch,
+                "role": role.map(word)
+            ])
         case .accepted(let accepted):
             return present([
                 "client_msg_id": accepted.clientMsgId,
@@ -177,16 +182,16 @@ enum CompanionServerWire {
         }
     }
 
-    /// A proposal's card. A field that does not apply is absent, never null.
+    /// A proposal's card. A field that does not apply is absent, never null:
+    /// a mandate's card names its mandate and tool, a follow-up's its
+    /// follow-up.
     private static func proposalFields(_ proposal: CompanionProposal) -> [String: Any] {
         present([
             "proposal_id": proposal.proposalId,
             "state": word(proposal.state),
-            "mandate": proposal.mandate,
             "task": present(["job_id": proposal.task.jobId, "name": proposal.task.name]),
             "watcher": proposal.watcher,
             "source_ref": proposal.sourceRef,
-            "tool": proposal.tool,
             "created_at": proposal.createdAt,
             "expires_at": proposal.expiresAt,
             "received_at": proposal.receivedAt,
@@ -197,9 +202,44 @@ enum CompanionServerWire {
             "summary": proposal.summary,
             "outside": present([
                 "args_text": proposal.outside.argsText,
+                "args": proposal.outside.args.map { $0.map { ["name": $0.name, "value": $0.value] } },
+                "reason": proposal.outside.reason,
                 "cue": proposal.outside.cue.map(cueFields)
             ])
-        ])
+        ]).merging(askFields(proposal.ask)) { _, ask in ask }
+    }
+
+    private static func askFields(_ ask: CompanionProposalAsk) -> [String: Any] {
+        switch ask {
+        case .call(let mandate, let tool):
+            return ["mandate": mandate, "tool": tool]
+        case .followUp(let followUp):
+            return ["follow_up": present([
+                "asks": word(followUp.asks),
+                "name": followUp.name,
+                "instructions": followUp.instructions,
+                "tools": followUp.tools,
+                "reports_to": followUp.reportsTo,
+                "daily_cap": followUp.dailyCap,
+                "set_off_by": followUp.setOffBy
+            ])]
+        }
+    }
+
+    private static func word(_ asks: CompanionFollowUpAsks) -> String {
+        switch asks {
+        case .run: return "run"
+        case .automatic: return "automatic"
+        case .unrecognized(let word): return word
+        }
+    }
+
+    private static func word(_ role: CompanionEngineRole) -> String {
+        switch role {
+        case .primary: return "primary"
+        case .device: return "device"
+        case .unrecognized(let word): return word
+        }
     }
 
     private static func cueFields(_ cue: CompanionProposalCue) -> [String: Any] {

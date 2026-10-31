@@ -94,7 +94,10 @@ struct ManagementNegotiationTests {
         let requests = try ManagementFixtures.load(.requests, from: .management)
         var refused: Set<String> = []
 
-        for fixture in requests where !v1.contains(try fixture.string("method")) {
+        // A golden this client makes no call for is refused through the
+        // call for its method's other goldens.
+        for fixture in requests
+        where !v1.contains(try fixture.string("method")) && !ManagementV2Calls.unexercised.contains(fixture.name) {
             let method = try #require(ManagementMethod(rawValue: try fixture.string("method")))
             let invoke = try #require(ManagementV2Calls.byFixture[fixture.name])
             let client = try Self.client(window: (minimum: 1, maximum: 1))
@@ -116,7 +119,7 @@ struct ManagementNegotiationTests {
         // A gate that never fires is not a gate: the loop has to have covered
         // every method the v1 catalog does not carry.
         #expect(refused == Set(contract.methods).subtracting(v1))
-        #expect(refused.count == 78)
+        #expect(refused.count == 86)
     }
 
     /// The refusal happens before a byte is written: a daemon that has already
@@ -271,7 +274,9 @@ struct ManagementNegotiationTests {
             seen.insert(method.rawValue)
         }
 
-        #expect(seen == ["settings.get", "plugins.list", "mobile.pair.start", "browser.install.start", "cues.status"])
+        #expect(
+            seen == ["settings.get", "plugins.list", "mobile.pair.start", "browser.install.start", "cues.status", "home.status"]
+        )
     }
 
     // MARK: - The double

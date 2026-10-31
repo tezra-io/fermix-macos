@@ -2,10 +2,15 @@ import SwiftUI
 
 /// A cue proposal waiting on the owner (M60 §4.7): a task under a mandate in
 /// approve mode wants to run one call, and runs it only if the owner confirms.
+/// Since companion version 5 a watcher's follow-up asks on the same card, to
+/// run once or to run on its own from now on, and names the follow-up in
+/// place of a call.
 ///
-/// Fermix's lines (the summary, the task, the watcher and the expiry) are
-/// drawn as Fermix's. What a model or a stranger wrote, the call's arguments
-/// and the item that led to it, is drawn only by `OutsideTextBlock`.
+/// Fermix's lines (the summary, the task, the watcher, the expiry, and a
+/// follow-up's instructions, tools, where it reports and its cap, which are
+/// the owner's own words) are drawn as Fermix's. What a model or a stranger
+/// wrote, the call's arguments, the filter's reason and the item that led to
+/// it, is drawn only by `OutsideTextBlock`.
 ///
 /// Deny and Confirm are drawn alike, and neither is the default button, so
 /// Return does nothing on the card: an answer takes a click or a keypress on
@@ -15,9 +20,9 @@ import SwiftUI
 /// outside text. At its expiry on this Mac's clock the buttons go and the
 /// card says nothing ran, until the daemon's resolution replaces that too.
 ///
-/// VoiceOver reads the card as one group: the summary, the call, the item,
-/// the expiry, then the buttons. The expiry is told when the card appears and
-/// a minute before it, never every second.
+/// VoiceOver reads the card as one group: the summary, the call or the
+/// follow-up, the reason, the item, the expiry, then the buttons. The expiry
+/// is told when the card appears and a minute before it, never every second.
 struct ChatProposalCard: View {
     let card: CompanionProposalCard
     let decide: (String, CompanionProposalDecision) -> Void
@@ -28,8 +33,20 @@ struct ChatProposalCard: View {
         VStack(alignment: .leading, spacing: Spacing.s) {
             lead
 
-            OutsideTextBlock(header: ProductStrings[.outsideCall], facts: [], text: proposal.outside.argsText, face: .code)
-                .accessibilitySortPriority(4)
+            if case .followUp(let followUp) = proposal.ask {
+                followUpLines(followUp)
+                    .accessibilitySortPriority(4)
+            }
+
+            if let argsText = proposal.outside.argsText {
+                OutsideTextBlock(header: ProductStrings[.outsideCall], facts: [], text: argsText, face: .code)
+                    .accessibilitySortPriority(4)
+            }
+
+            if let reason = proposal.outside.reason {
+                OutsideTextBlock(header: ProductStrings[.outsideReason], facts: [], text: reason, face: .item)
+                    .accessibilitySortPriority(3.5)
+            }
 
             if let cue = proposal.outside.cue {
                 OutsideTextBlock(header: Self.itemHeader(of: proposal), facts: Self.facts(of: cue), text: cue.text ?? "", face: .item)
@@ -79,6 +96,24 @@ struct ChatProposalCard: View {
                 .foregroundStyle(Palette.secondary.color)
                 .accessibilitySortPriority(2)
         }
+    }
+
+    /// A follow-up in the owner's words: what it will do, then where it
+    /// reports, its tools, and for an automatic one its cap and what sets it
+    /// off.
+    private func followUpLines(_ followUp: CompanionFollowUp) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+            Text(String(format: ProductStrings[.proposalFollowUpInstructionsFormat], followUp.instructions))
+                .fermixType(Typography.style(.body))
+                .foregroundStyle(Palette.ink.color)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(Self.facts(of: followUp))
+                .fermixType(Typography.style(.calloutSmall))
+                .foregroundStyle(Palette.secondary.color)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private var shape: RoundedRectangle {
@@ -172,6 +207,20 @@ struct ChatProposalCard: View {
         )
 
         return [watcher, waits].compactMap { $0 }.reduce(task) { ProductStrings.middot($0, $1) }
+    }
+
+    /// Where a follow-up reports, its tools, and for an automatic one at most
+    /// how many a day and what sets it off: Fermix's and the owner's words,
+    /// never the item's.
+    static func facts(of followUp: CompanionFollowUp) -> String {
+        let reports = String(format: ProductStrings[.proposalFollowUpReportsToFormat], followUp.reportsTo)
+        let tools = followUp.tools.isEmpty
+            ? nil
+            : String(format: ProductStrings[.proposalFollowUpToolsFormat], followUp.tools.joined(separator: ", "))
+        let cap = followUp.dailyCap.map { String(format: ProductStrings[.proposalFollowUpDailyCapFormat], $0) }
+        let setOff = followUp.setOffBy.map { String(format: ProductStrings[.proposalFollowUpSetOffByFormat], $0) }
+
+        return [tools, cap, setOff].compactMap { $0 }.reduce(reports) { ProductStrings.middot($0, $1) }
     }
 
     /// The item's header: the source Fermix received it from, and when, or,

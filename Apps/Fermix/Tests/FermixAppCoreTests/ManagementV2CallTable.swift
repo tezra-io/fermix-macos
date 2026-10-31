@@ -20,7 +20,11 @@ enum ManagementV2Calls {
     /// door and has no app caller since the hosted Setup pane was deleted
     /// (M34 §8). It is declared rather than dropped, so a method that loses its
     /// caller by accident still fails the coverage assertion.
-    static let unexercised: Set<String> = ["setup_session_create"]
+    ///
+    /// `cues_sources_add_webhook` adds a source with no name, which Fermix
+    /// names; this app's add form always names the source it adds until its
+    /// add form starts from what to watch.
+    static let unexercised: Set<String> = ["setup_session_create", "cues_sources_add_webhook"]
 
     /// Each golden request, mapped to the call that must produce it.
     static let byFixture: [String: @Sendable (ManagementClient) async throws -> Void] = [
@@ -251,6 +255,9 @@ enum ManagementV2Calls {
         "cues_sources_get": { _ = try await $0.cueSource(ref: "gh-hooks") },
         "cues_sources_form": { _ = try await $0.cueSourceForm(ManagementCueFormRequest(preset: "github")) },
         "cues_sources_form_stream": { _ = try await $0.cueSourceForm(ManagementCueFormRequest(kind: "stream")) },
+        "cues_sources_form_x_accounts": {
+            _ = try await $0.cueSourceForm(ManagementCueFormRequest(preset: "x_accounts"))
+        },
         "cues_sources_add": {
             _ = try await $0.addCueSource(
                 ManagementCueSourceSpec(
@@ -295,7 +302,28 @@ enum ManagementV2Calls {
         "cues_proposals_get": { _ = try await $0.cueProposal(id: "cpr_9f2c41d07a5e6b38c1d2e4f0") },
         "cues_proposals_decide": {
             _ = try await $0.decideCueProposal(id: "cpr_9f2c41d07a5e6b38c1d2e4f0", decision: .confirm)
-        }
+        },
+
+        // The home (M75): the picture, the recovery snapshots, enrolling a
+        // server and moving to it.
+        "home_status": { _ = try await $0.homeStatus() },
+        "home_enroll_open": { _ = try await $0.openEnrollment() },
+        "home_candidates_list": { _ = try await $0.candidates() },
+        "home_move_readiness": { _ = try await $0.moveReadiness(candidateId: "cand-5e2a9c1f7b3d4086") },
+        "home_move_start": {
+            _ = try await $0.startMove(candidateId: "cand-5e2a9c1f7b3d4086", passphrase: "invented-harbor-juniper-lantern")
+        },
+        // A desktop replacing its server: the server moves and is not kept.
+        "home_move_start_replacing_the_server": {
+            _ = try await $0.startMove(
+                candidateId: "cand-5e2a9c1f7b3d4086",
+                passphrase: "invented-harbor-juniper-lantern",
+                keepAsDesktop: false
+            )
+        },
+        "home_snapshots_status": { _ = try await $0.snapshotsStatus() },
+        "home_snapshots_run": { _ = try await $0.runSnapshot() },
+        "home_snapshots_passphrase": { _ = try await $0.setRecoveryPassphrase("invented-lighthouse-meridian") }
     ]
 
 }

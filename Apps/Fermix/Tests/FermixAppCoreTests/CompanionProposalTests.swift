@@ -45,6 +45,41 @@ enum ProposalLines {
         ])
     }
 
+    static let followUpInstructions = "Use Codex in ~/projects/example-app to review the day's commits and report what it finds."
+
+    /// A watcher's follow-up card, as the engine writes it at version 5: the
+    /// follow-up in place of the mandate, the tool and the call's arguments.
+    static func followUpCardObject(
+        _ id: String = "cft_01",
+        asks: String = "run",
+        outside: [String: Any] = ["reason": "The post says the limits reset.", "cue": cueObject()]
+    ) -> [String: Any] {
+        var followUp: [String: Any] = [
+            "asks": asks,
+            "name": "Daily review",
+            "instructions": followUpInstructions,
+            "tools": ["codex_run"],
+            "reports_to": "Telegram (owner-1)"
+        ]
+        if asks == "automatic" {
+            followUp["daily_cap"] = 3
+            followUp["set_off_by"] = "eng-blogs; listens for reset"
+        }
+
+        return [
+            "proposal_id": id,
+            "state": "waiting",
+            "task": ["job_id": "job_9b2c", "name": "Daily review"],
+            "watcher": "limits-watch",
+            "created_at": "2026-10-22T14:02:30Z",
+            "expires_at": "2026-10-22T14:32:30Z",
+            "status_sentence": "Waiting for your answer; it runs only if you confirm.",
+            "summary": "Watcher limits-watch wants to run its follow-up \"Daily review\". It runs only if you confirm.",
+            "outside": outside,
+            "follow_up": followUp
+        ]
+    }
+
     static func cueObject(subject: String? = nil, occurredAt: String? = "2026-10-22T13:58:00Z") -> [String: Any] {
         present(["type": "feed.item", "subject": subject, "text": itemText, "occurred_at": occurredAt])
     }
@@ -129,10 +164,55 @@ private func moment(_ value: String) throws -> Date {
 
 @Suite("Companion proposals: the wire")
 struct CompanionProposalWireTests {
-    @Test("this build speaks version 4 on the 3 to 4 window, the version that carries proposals")
-    func declaresVersionFour() {
-        #expect(CompanionProtocol.version == 4)
-        #expect(CompanionProtocol.supportedWindow == CompanionVersionWindow(minimum: 3, maximum: 4))
+    @Test("this build speaks version 5 on the 4 to 5 window, the version that carries a follow-up's card")
+    func declaresVersionFive() {
+        #expect(CompanionProtocol.version == 5)
+        #expect(CompanionProtocol.supportedWindow == CompanionVersionWindow(minimum: 4, maximum: 5))
+    }
+
+    @Test("a follow-up's card decodes with its follow-up and no call, and writes back as itself")
+    func followUpCardRoundTrips() throws {
+        let object = ProposalLines.eventObject(ProposalLines.followUpCardObject())
+        let event = try CompanionServerEvent.decode(ProposalLines.line(object))
+        guard case .proposal(_, let proposal) = event else {
+            Issue.record("the follow-up's card did not decode as a proposal")
+            return
+        }
+
+        guard case .followUp(let followUp) = proposal.ask else {
+            Issue.record("the card did not decode as a follow-up's")
+            return
+        }
+        #expect(followUp.asks == .run)
+        #expect(followUp.instructions == ProposalLines.followUpInstructions)
+        #expect(followUp.dailyCap == nil && followUp.setOffBy == nil)
+        #expect(proposal.outside.argsText == nil)
+        #expect(proposal.outside.reason == "The post says the limits reset.")
+        #expect(CompanionServerWire.object(event) as NSDictionary == object as NSDictionary)
+
+        let automatic = try ProposalLines.proposal(ProposalLines.followUpCardObject("cfa_01", asks: "automatic", outside: [:]))
+        guard case .followUp(let approval) = automatic.ask else {
+            Issue.record("the approval's prompt did not decode as a follow-up's")
+            return
+        }
+        #expect(approval.asks == .automatic && approval.dailyCap == 3)
+
+        let unknown = try ProposalLines.proposal(ProposalLines.followUpCardObject(asks: "later"))
+        guard case .followUp(let later) = unknown.ask else {
+            Issue.record("a follow-up asking in a word this build does not know did not decode")
+            return
+        }
+        #expect(later.asks == .unrecognized("later"))
+    }
+
+    @Test("a card that names neither a follow-up nor its mandate is refused by the field's path")
+    func cardWithoutAnAskIsRefused() throws {
+        var card = ProposalLines.cardObject()
+        card["mandate"] = nil
+
+        #expect(throws: CompanionDecodeFailure.missingField("proposal.mandate")) {
+            _ = try CompanionServerEvent.decode(ProposalLines.line(ProposalLines.eventObject(card)))
+        }
     }
 
     @Test("a proposal decodes under the Swift names and writes back as itself")
@@ -583,18 +663,39 @@ struct CompanionProposalSessionTests {
         #expect(harness.model.proposals.first?.standing == .answered(.confirm))
     }
 
-    /// A version 3 connection never carries a proposal, so this build never
-    /// sits on one waiting for a card: a daemon whose window ends at 3 is
-    /// told to update.
-    @Test("a daemon whose window ends at version 3 is refused rather than waited on for proposals")
-    func versionThreeDaemonIsRefused() throws {
+    /// A version 4 connection never carries a follow-up's card, so this
+    /// build never sits on one waiting for it: a daemon whose window ends at
+    /// 4 is told to update.
+    @Test("a daemon whose window ends at version 4 is refused rather than waited on for follow-ups")
+    func versionFourDaemonIsRefused() throws {
         let harness = try ProposalHarness()
 
         harness.session.connect()
-        harness.socket.deliver(E.hello(2, 3))
+        harness.socket.deliver(E.hello(3, 4))
 
         #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
-        #expect(try harness.socket.sentObjects() == [wireObject(companion: .clientHello(protocolVersion: 4))])
+        #expect(try harness.socket.sentObjects() == [wireObject(companion: .clientHello(protocolVersion: 5))])
+    }
+
+    @Test("a follow-up's card is held, answered by its id and word alone, and resolved like any proposal")
+    func followUpCardTakesTheProposalPath() throws {
+        let harness = try ProposalHarness()
+        harness.connected()
+        harness.socket.deliver(try ProposalLines.event(ProposalLines.followUpCardObject("cft_5d2e")))
+
+        #expect(harness.model.waitingProposalIds == ["cft_5d2e"])
+
+        harness.session.answerProposal("cft_5d2e", decision: .confirm)
+        #expect(try harness.socket.sentObjects().last == wireObject(companion: .proposalAnswer(
+            clientMsgId: "mac-1", profileId: "main", proposalId: "cft_5d2e", decision: .confirm
+        )))
+
+        harness.socket.deliver(ProposalLines.resolved("cft_5d2e", sentence: "Confirmed; the follow-up is starting.", resultText: nil))
+        #expect(
+            harness.model.proposals.first?.standing
+                == .resolved(sentence: "Confirmed; the follow-up is starting.", resultText: nil)
+        )
+        #expect(harness.model.waitingProposalIds.isEmpty)
     }
 
     @Test("the menu line's request to show a card is published once and taken back when served")
@@ -748,6 +849,24 @@ struct OutsideTextTests {
         #expect(ChatProposalCard.facts(of: bare) == ["Type: feed.item", "Dated: 2026-10-22T13:58:00Z"])
         #expect(ChatProposalCard.facts(of: full) == ["Type: feed.item", "Subject: Lantern 4.2", "Dated: yesterday-ish"])
         #expect(OutsideText.facts(ChatProposalCard.facts(of: full)) == "Type: feed.item · Subject: Lantern 4.2 · Dated: yesterday-ish")
+    }
+
+    @Test("a follow-up's lines are its owner's words and Fermix's, and none of the item's")
+    func followUpLines() throws {
+        let run = try ProposalLines.proposal(ProposalLines.followUpCardObject())
+        let automatic = try ProposalLines.proposal(ProposalLines.followUpCardObject("cfa_01", asks: "automatic", outside: [:]))
+        guard case .followUp(let once) = run.ask, case .followUp(let always) = automatic.ask else {
+            Issue.record("the cards did not decode as follow-ups")
+            return
+        }
+
+        #expect(ChatProposalCard.facts(of: once) == "Reports to Telegram (owner-1) · Tools: codex_run")
+        #expect(
+            ChatProposalCard.facts(of: always)
+                == "Reports to Telegram (owner-1) · Tools: codex_run · At most 3 a day · Set off by eng-blogs; listens for reset"
+        )
+        #expect(!ChatProposalCard.facts(of: once).contains("Lantern"))
+        #expect(ChatProposalCard.facts(of: run).hasPrefix("Task: Daily review · Watcher: limits-watch · Waits until "))
     }
 
     @Test("the card's own lines are Fermix's record and none of the outside text")

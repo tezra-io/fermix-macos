@@ -11,11 +11,13 @@ public enum CompanionProtocol {
     /// Wire protocol version this build speaks, declared in `client_hello` and
     /// validated against the window the daemon advertises in `server_hello`.
     /// Version 4 adds a cue proposal's card, its answer and its resolution
-    /// (M60 §3.7).
-    public static let version = 4
+    /// (M60 §3.7). Version 5 adds a watcher's follow-up card, which names the
+    /// follow-up in place of a call and is answered and resolved as a
+    /// proposal is.
+    public static let version = 5
 
     /// The daemon's window at the pinned contract, which `version` sits inside.
-    public static let supportedWindow = CompanionVersionWindow(minimum: 3, maximum: 4)
+    public static let supportedWindow = CompanionVersionWindow(minimum: 4, maximum: 5)
 
     /// The longest client line the daemon reads. A longer one is refused with
     /// `line_too_large` and closes the connection, so `line()` refuses it first.
@@ -31,6 +33,19 @@ public enum CompanionProtocol {
     /// A file's `kind` for a sound: on the person's row, a voice note the
     /// phone recorded.
     public static let audioKind = "audio"
+    /// The refusal an engine in the device role sends while its server cannot
+    /// be reached, or while its home is moving (M75): its `message` names the
+    /// server, and the connection closes. The chat says that sentence, keeps
+    /// its outbox and connects again as after any drop.
+    public static let primaryUnreachableReason = "primary_unreachable"
+    /// The refusal an engine in the device role sends, to every connection,
+    /// once its server no longer knows this computer (M75): nothing waiting
+    /// can be sent, and nothing new is taken, until the engine restarts.
+    public static let desktopRevokedReason = "desktop_revoked"
+    /// The refusal a primary sends a hello whose `primary_epoch` is higher
+    /// than its own (M75): this client has seen a later primary, so this one
+    /// is an older copy of a home that moved.
+    public static let stalePrimaryReason = "stale_primary"
 
     /// Whether `ref` is one the daemon takes: 64 lowercase hex digits, a
     /// sha256. Any other is `invalid_field`, which closes the connection, so a
@@ -91,6 +106,28 @@ public struct CompanionVersionWindow: Equatable, Sendable {
     /// Which side is out of date, for a version this window excludes.
     public func direction(for version: Int) -> CompanionVersionDirection {
         version < minimum ? .clientTooOld : .clientTooNew
+    }
+}
+
+/// The engine's role, as `server_hello` names it (M75). A primary's epoch is
+/// compared and kept; a device's, a retired copy of the primary or a home
+/// that never was one, never is. A word this build does not know keeps its
+/// own and, like a device's, is never compared.
+public enum CompanionEngineRole: Equatable, Sendable, Decodable {
+    case primary
+    case device
+    case unrecognized(String)
+
+    public init(wireValue: String) {
+        switch wireValue {
+        case "primary": self = .primary
+        case "device": self = .device
+        default: self = .unrecognized(wireValue)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        self.init(wireValue: try decoder.singleValueContainer().decode(String.self))
     }
 }
 
@@ -155,7 +192,9 @@ public enum CompanionHistoryCursor: Equatable, Sendable {
 /// Everything this client sends. The wire names are the contract's, and a value
 /// is the only way to produce a line: nothing composes a dictionary by hand.
 public enum CompanionClientEvent: Equatable, Sendable, Encodable {
-    case clientHello(protocolVersion: Int)
+    /// `primaryEpoch` is the highest primary epoch this client has seen from
+    /// a primary (M75), absent while it has seen none.
+    case clientHello(protocolVersion: Int, primaryEpoch: Int? = nil)
     /// A message to the agent. This wire carries no attachments in versions 1
     /// to 4, so the line always sends an empty `attach_ids`.
     case msg(clientMsgId: String, profileId: String, text: String)
@@ -202,6 +241,7 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
     private enum CodingKeys: String, CodingKey {
         case type, text, name, args, query, limit, ref, decision
         case protocolVersion = "protocol_version"
+        case primaryEpoch = "primary_epoch"
         case clientMsgId = "client_msg_id"
         case profileId = "profile_id"
         case attachIds = "attach_ids"
@@ -217,8 +257,9 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         try container.encode(wireType, forKey: .type)
 
         switch self {
-        case .clientHello(let version):
+        case .clientHello(let version, let primaryEpoch):
             try container.encode(version, forKey: .protocolVersion)
+            try container.encodeIfPresent(primaryEpoch, forKey: .primaryEpoch)
         case .msg(let clientMsgId, let profileId, let text):
             try container.encode(clientMsgId, forKey: .clientMsgId)
             try container.encode(profileId, forKey: .profileId)
@@ -529,31 +570,97 @@ public struct CompanionProposalCue: Equatable, Sendable, Decodable {
     }
 }
 
+/// One argument of a mandate's call, outside text: a string value as itself,
+/// any other as JSON.
+public struct CompanionProposalArg: Equatable, Sendable, Decodable {
+    public let name: String
+    public let value: String
+}
+
 /// Everything a model or a stranger wrote, kept apart from Fermix's record by
 /// structure (M60 §3.7): drawn only by `OutsideTextBlock`.
 public struct CompanionProposalOutside: Equatable, Sendable, Decodable {
-    /// The recorded call's arguments, pretty JSON, never cut by the daemon.
-    public let argsText: String
+    /// A mandate's recorded call arguments, pretty JSON, never cut by the
+    /// daemon. Nil on a follow-up's card, which carries no call; a mandate's
+    /// card without them is refused when it is decoded.
+    public let argsText: String?
+    /// Version 5: each of a mandate's arguments as name and value, for the
+    /// compact card's lines; absent from an older engine and on a follow-up's
+    /// card.
+    public let args: [CompanionProposalArg]?
+    /// Version 5: the filter's one sentence on why the item passed, absent
+    /// where the watcher has no filter.
+    public let reason: String?
     /// Nil when Fermix no longer keeps the cue.
     public let cue: CompanionProposalCue?
 
     private enum CodingKeys: String, CodingKey {
-        case cue
+        case args, reason, cue
         case argsText = "args_text"
     }
 }
 
+/// Version 5: whether a follow-up asks to run once now, or to run on its own
+/// on every item that passes. A word this build does not know keeps its own.
+public enum CompanionFollowUpAsks: Equatable, Sendable, Decodable {
+    case run
+    case automatic
+    case unrecognized(String)
+
+    public init(wireValue: String) {
+        switch wireValue {
+        case "run": self = .run
+        case "automatic": self = .automatic
+        default: self = .unrecognized(wireValue)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        self.init(wireValue: try decoder.singleValueContainer().decode(String.self))
+    }
+}
+
+/// Version 5: a watcher's follow-up, in Fermix's and the owner's words: the
+/// job an item that passes sets off, which is handed nothing of the item.
+/// `dailyCap` and `setOffBy` come with an automatic one.
+public struct CompanionFollowUp: Equatable, Sendable, Decodable {
+    public let asks: CompanionFollowUpAsks
+    public let name: String
+    public let instructions: String
+    public let tools: [String]
+    public let reportsTo: String
+    public let dailyCap: Int?
+    public let setOffBy: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case asks, name, instructions, tools
+        case reportsTo = "reports_to"
+        case dailyCap = "daily_cap"
+        case setOffBy = "set_off_by"
+    }
+}
+
+/// What a card asks the owner to let run: a task's call under a mandate
+/// (version 4), or a watcher's follow-up (version 5), which carries no call.
+public enum CompanionProposalAsk: Equatable, Sendable {
+    /// The mandate and the tool, Fermix's record; the call's arguments are
+    /// outside text, in `outside.argsText`.
+    case call(mandate: String, tool: String)
+    case followUp(CompanionFollowUp)
+}
+
 /// Version 4: a proposal's card, one shape on every surface (M60 §3.7). Its
 /// record, `statusSentence` and `summary` are Fermix's; `outside` is not. A
-/// field that does not apply is absent.
-public struct CompanionProposal: Equatable, Sendable, Decodable {
+/// field that does not apply is absent. Since version 5 a card names either a
+/// mandate's call or a watcher's follow-up (ids `cft_` and `cfa_`), and both
+/// are answered and resolved by their id alone.
+public struct CompanionProposal: Equatable, Sendable {
     public let proposalId: String
     public let state: CompanionProposalState
-    public let mandate: String
+    public let ask: CompanionProposalAsk
     public let task: CompanionProposalTask
     public let watcher: String?
     public let sourceRef: String?
-    public let tool: String
     /// When the proposal was made, which places its card in the conversation.
     public let createdAt: String
     /// When it stops waiting, which this Mac's own clock counts down to.
@@ -571,7 +678,9 @@ public struct CompanionProposal: Equatable, Sendable, Decodable {
     /// Fermix's sentence, with no outside text in it.
     public let summary: String
     public let outside: CompanionProposalOutside
+}
 
+extension CompanionProposal: Decodable {
     private enum CodingKeys: String, CodingKey {
         case state, mandate, task, watcher, tool, summary, outside
         case proposalId = "proposal_id"
@@ -583,6 +692,44 @@ public struct CompanionProposal: Equatable, Sendable, Decodable {
         case decidedFrom = "decided_from"
         case resultStatus = "result_status"
         case statusSentence = "status_sentence"
+        case followUp = "follow_up"
+    }
+
+    private enum CallKeys: String, CodingKey {
+        case argsText = "args_text"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        proposalId = try fields.decode(String.self, forKey: .proposalId)
+        state = try fields.decode(CompanionProposalState.self, forKey: .state)
+        ask = try Self.ask(in: fields)
+        task = try fields.decode(CompanionProposalTask.self, forKey: .task)
+        watcher = try fields.decodeIfPresent(String.self, forKey: .watcher)
+        sourceRef = try fields.decodeIfPresent(String.self, forKey: .sourceRef)
+        createdAt = try fields.decode(String.self, forKey: .createdAt)
+        expiresAt = try fields.decode(String.self, forKey: .expiresAt)
+        receivedAt = try fields.decodeIfPresent(String.self, forKey: .receivedAt)
+        decidedAt = try fields.decodeIfPresent(String.self, forKey: .decidedAt)
+        decidedFrom = try fields.decodeIfPresent(String.self, forKey: .decidedFrom)
+        resultStatus = try fields.decodeIfPresent(String.self, forKey: .resultStatus)
+        statusSentence = try fields.decodeIfPresent(String.self, forKey: .statusSentence)
+        summary = try fields.decode(String.self, forKey: .summary)
+        outside = try fields.decode(CompanionProposalOutside.self, forKey: .outside)
+    }
+
+    /// A card that names a follow-up asks for it; any other names a call,
+    /// which needs its mandate, its tool and its arguments, each refused by
+    /// its path when it is missing, as the schema's either-or says.
+    private static func ask(in fields: KeyedDecodingContainer<CodingKeys>) throws -> CompanionProposalAsk {
+        if let followUp = try fields.decodeIfPresent(CompanionFollowUp.self, forKey: .followUp) {
+            return .followUp(followUp)
+        }
+
+        let mandate = try fields.decode(String.self, forKey: .mandate)
+        let tool = try fields.decode(String.self, forKey: .tool)
+        _ = try fields.nestedContainer(keyedBy: CallKeys.self, forKey: .outside).decode(String.self, forKey: .argsText)
+        return .call(mandate: mandate, tool: tool)
     }
 }
 
@@ -621,7 +768,10 @@ enum CompanionTime {
 
 /// Everything the daemon sends.
 public enum CompanionServerEvent: Equatable, Sendable {
-    case serverHello(minVersion: Int, maxVersion: Int)
+    /// The window, and from an engine that has them (M75) the home's primary
+    /// epoch and the engine's role. A hello without a role comes from a
+    /// daemon older than the field.
+    case serverHello(minVersion: Int, maxVersion: Int, primaryEpoch: Int? = nil, role: CompanionEngineRole? = nil)
     case accepted(CompanionAccepted)
     case turnStarted(profileId: String, turnId: String, inReplyTo: String)
     /// Text to append to the turn's draft exactly as sent, never trimmed.
@@ -731,9 +881,10 @@ public enum CompanionServerEvent: Equatable, Sendable {
 
 extension CompanionServerEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case type, text, code, message, outcome, ref, blocks, proposal
+        case type, text, code, message, outcome, ref, blocks, proposal, role
         case minVersion = "min_version"
         case maxVersion = "max_version"
+        case primaryEpoch = "primary_epoch"
         case profileId = "profile_id"
         case turnId = "turn_id"
         case inReplyTo = "in_reply_to"
@@ -752,7 +903,9 @@ extension CompanionServerEvent: Decodable {
         case "server_hello":
             self = .serverHello(
                 minVersion: try fields.decode(Int.self, forKey: .minVersion),
-                maxVersion: try fields.decode(Int.self, forKey: .maxVersion)
+                maxVersion: try fields.decode(Int.self, forKey: .maxVersion),
+                primaryEpoch: try fields.decodeIfPresent(Int.self, forKey: .primaryEpoch),
+                role: try fields.decodeIfPresent(CompanionEngineRole.self, forKey: .role)
             )
         case "accepted":
             self = .accepted(try CompanionAccepted(from: decoder))

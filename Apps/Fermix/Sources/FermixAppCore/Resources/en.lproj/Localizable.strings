@@ -422,8 +422,10 @@
 "companion.connection.homeUnavailable" = "Fermix cannot read its home on this Mac";
 "companion.connection.updateApp" = "This app is older than the Fermix engine it talks to. Update the app to chat.";
 "companion.connection.updateEngine" = "The Fermix engine is older than this app. Update the engine to chat.";
+"companion.connection.stalePrimary" = "This Fermix is an older copy of the one that moved, so chat stays closed here";
 "companion.error.refusedFormat" = "The daemon reported: %@";
 "companion.error.messageTooLong" = "The message is too long to send";
+"companion.error.notSentRevoked" = "What was waiting to send was not sent, since the server no longer knows this Mac";
 "companion.error.replyStopped" = "The reply was stopped";
 "companion.error.replyInterrupted" = "The reply was interrupted";
 "companion.error.replyFailedFormat" = "The reply did not finish: %@";
@@ -448,10 +450,16 @@
 "proposal.watcherFormat" = "Watcher: %@";
 "proposal.waitsUntilFormat" = "Waits until %@";
 "proposal.lastMinute" = "One minute left to decide on the task";
+"proposal.followUp.instructionsFormat" = "It will: %@";
+"proposal.followUp.toolsFormat" = "Tools: %@";
+"proposal.followUp.reportsToFormat" = "Reports to %@";
+"proposal.followUp.dailyCapFormat" = "At most %ld a day";
+"proposal.followUp.setOffByFormat" = "Set off by %@";
 "outside.call" = "Written from outside text";
 "outside.item" = "From %1$@, received %2$@";
 "outside.itemUnsourced" = "The item it acted on";
 "outside.result" = "What the tool answered";
+"outside.reason" = "Why the filter passed it";
 "outside.showAll" = "Show all";
 "outside.typeFormat" = "Type: %@";
 "outside.subjectFormat" = "Subject: %@";
@@ -740,6 +748,7 @@
 "settings.pane.search" = "Search";
 "settings.pane.images" = "Images";
 "settings.pane.browser" = "Browser";
+"settings.pane.alwaysOn" = "Always On";
 "settings.pane.secrets" = "Secrets";
 "settings.pane.sandbox" = "Sandbox";
 "settings.pane.permissions" = "Permissions";
@@ -758,6 +767,7 @@
 "settings.keywords.search" = "web places brave tavily duckduckgo";
 "settings.keywords.images" = "picture generation render backend";
 "settings.keywords.browser" = "tabs profile hosts chrome chromium download";
+"settings.keywords.alwaysOn" = "server cloud linux move snapshots recovery backup";
 "settings.keywords.secrets" = "keychain file store password";
 "settings.keywords.sandbox" = "commands environment permissions strict";
 "settings.keywords.permissions" = "microphone screen accessibility login items";
