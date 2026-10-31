@@ -66,6 +66,16 @@ public enum CueTone {
         return .pass
     }
 
+    /// A choice's requirement: met is well, a sign-in owed amber, and a
+    /// state this build does not know quiet.
+    public static func requirement(_ requirement: ManagementCueSourceForm.Requirement) -> StatusTone {
+        switch requirement.state {
+        case .ready: return .pass
+        case .needsSignIn: return .warn
+        case .unrecognized: return .neutral
+        }
+    }
+
     /// The subsystem as `cues.status` publishes it: running is well, a
     /// restart or memory still owed is amber, and off is quiet.
     public static func status(_ status: ManagementCueStatus) -> StatusTone {
@@ -157,12 +167,15 @@ struct CueStatusLine: View {
     }
 }
 
-/// One row of the pane's lists (§4.2 to §4.5): a symbol by kind, the name,
-/// what qualifies it and a tag, then one status line, with the row's own
-/// controls at the trailing edge. A row that opens a page says so with the
-/// chevron and a hover fill; one that opens nothing draws neither.
+/// One row of the pane's lists (§4.2 to §4.5): a symbol by kind or a
+/// vendor's mark, the name, what qualifies it and a tag, then one status
+/// line, with the row's own controls at the trailing edge. A row that opens
+/// a page says so with the chevron and a hover fill; one that opens nothing
+/// draws neither.
 struct CueRow<Trailing: View>: View {
     let symbol: String
+    /// A vendor's mark drawn in place of the symbol, where the row has one.
+    var mark: VendorMark?
     let title: String
     var qualifier: String?
     var tag: CueTagModel?
@@ -204,7 +217,11 @@ struct CueRow<Trailing: View>: View {
 
     private func content(opens: Bool) -> some View {
         HStack(spacing: Spacing.s) {
-            VendorMarkView(symbol: symbol, size: IntegrationMetrics.tileSize)
+            if let mark {
+                VendorMarkView(mark: mark, kind: .plugin, size: IntegrationMetrics.tileSize)
+            } else {
+                VendorMarkView(symbol: symbol, size: IntegrationMetrics.tileSize)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {

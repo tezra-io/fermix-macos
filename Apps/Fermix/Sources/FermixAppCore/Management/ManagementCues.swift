@@ -560,6 +560,42 @@ public struct ManagementCueSourceForm: Decodable, Equatable, Sendable {
         public let kind: String
     }
 
+    /// Something the owner can watch, as the add sheet's first step lists
+    /// it (M60 simpler setup §7): the same list on every answer, featured
+    /// ones first.
+    public struct Choice: Decodable, Equatable, Sendable {
+        public let id: String
+        public let label: String
+        public let sentence: String
+        public let kind: String
+        public let preset: String?
+        public let featured: Bool
+
+        /// The form this choice opens: asked for by its preset where it has
+        /// one, by its kind otherwise.
+        public func request(verify: String?) -> ManagementCueFormRequest {
+            guard let preset else { return ManagementCueFormRequest(kind: kind, verify: verify) }
+
+            return ManagementCueFormRequest(preset: preset, verify: verify)
+        }
+
+        /// What Add names the source by: its preset, or its kind.
+        public var addition: ManagementCueSourceChoice {
+            preset.map(ManagementCueSourceChoice.preset) ?? .kind(kind)
+        }
+    }
+
+    /// What a choice needs set up first, read from the plugin it reads
+    /// with: the X plugin's sign-in for X accounts. It never stops the add.
+    public struct Requirement: Decodable, Equatable, Sendable {
+        public let state: ManagementCueRequirementState
+        public let sentence: String
+        public let plugin: String
+    }
+
+    /// Empty from an engine inside the window that predates the choices.
+    public let choices: [Choice]
+    public let requirement: Requirement?
     public let kinds: [Kind]
     public let presets: [Preset]
     public let rows: [ManagementSettingRow]
@@ -567,16 +603,60 @@ public struct ManagementCueSourceForm: Decodable, Equatable, Sendable {
     public let notes: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case kinds, presets, rows, notes
+        case choices, requirement, kinds, presets, rows, notes
         case consentSentence = "consent_sentence"
+    }
+
+    /// `choices` and `requirement` arrived inside protocol 2 without moving
+    /// a method minimum, so an engine inside the window that predates them
+    /// omits both keys, and its form decodes as it did before (as
+    /// `ManagementSettingRow.info` did).
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        choices = try container.decodeIfPresent([Choice].self, forKey: .choices) ?? []
+        requirement = try container.decodeIfPresent(Requirement.self, forKey: .requirement)
+        kinds = try container.decode([Kind].self, forKey: .kinds)
+        presets = try container.decode([Preset].self, forKey: .presets)
+        rows = try container.decode([ManagementSettingRow].self, forKey: .rows)
+        consentSentence = try container.decode(String.self, forKey: .consentSentence)
+        notes = try container.decode([String].self, forKey: .notes)
     }
 }
 
-/// `cues.sources.add`: the new row, and a new local push source's first
-/// token, handed out once.
+/// Whether a choice's requirement is met: signed in, or a sign-in owed.
+public enum ManagementCueRequirementState: ManagementVocabulary, Hashable {
+    case ready
+    case needsSignIn
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = ["ready": .ready, "needs_sign_in": .needsSignIn]
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+}
+
+/// `cues.sources.add`: the new row under the name in force, a new local
+/// push source's first token, and the secret Fermix made for a new GitHub
+/// source, each handed out once.
 public struct ManagementCueSourceAdded: Decodable, Equatable, Sendable {
     public let source: ManagementCueSource
     public let token: String?
+    /// Absent from an engine inside the window that predates it, as
+    /// `choices` is.
+    public let secret: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case source, token, secret
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decode(ManagementCueSource.self, forKey: .source)
+        token = try container.decodeIfPresent(String.self, forKey: .token)
+        secret = try container.decodeIfPresent(String.self, forKey: .secret)
+    }
 }
 
 /// The answer of `cues.sources.update`, `.enable` and `.disable`.

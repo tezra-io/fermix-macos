@@ -20,11 +20,7 @@ enum ManagementV2Calls {
     /// door and has no app caller since the hosted Setup pane was deleted
     /// (M34 §8). It is declared rather than dropped, so a method that loses its
     /// caller by accident still fails the coverage assertion.
-    ///
-    /// `cues_sources_add_webhook` adds a source with no name, which Fermix
-    /// names; this app's add form always names the source it adds until its
-    /// add form starts from what to watch.
-    static let unexercised: Set<String> = ["setup_session_create", "cues_sources_add_webhook"]
+    static let unexercised: Set<String> = ["setup_session_create"]
 
     /// Each golden request, mapped to the call that must produce it.
     static let byFixture: [String: @Sendable (ManagementClient) async throws -> Void] = [
@@ -266,6 +262,10 @@ enum ManagementV2Calls {
                     values: ["url": .setting(.text("https://example.org/releases.atom"))]
                 )
             )
+        },
+        // Left unnamed, so Fermix names it.
+        "cues_sources_add_webhook": {
+            _ = try await $0.addCueSource(ManagementCueSourceSpec(ref: nil, choice: .preset("github"), values: [:]))
         },
         "cues_sources_update": { _ = try await $0.updateCueSource(ref: "eng-blogs", values: ["daily_budget": .setting(.number(200))]) },
         "cues_sources_remove": { _ = try await $0.removeCueSource(ref: "eng-blogs") },

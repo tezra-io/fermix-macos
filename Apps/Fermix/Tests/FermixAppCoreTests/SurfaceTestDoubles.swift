@@ -190,6 +190,9 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var cueStatusResult: ManagementCueStatus?
     var cueSourcesResult: ManagementCueSourceList?
     var cueProposalsResult: ManagementCueProposalList?
+    /// Holds `cues.sources.list` open, so a case can see what else the pane
+    /// asked while that read is still out.
+    var cueSourcesGate: (@Sendable () async -> Void)?
     var cueSpecs: [ManagementCueSourceSpec] = []
     var cueFormRequests: [ManagementCueFormRequest] = []
     var cueSourceUpdates: [CueValuesWrite] = []

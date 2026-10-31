@@ -1277,18 +1277,31 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// The way from the pane to the cues guide on fermix.ai.
     case cuesLearnMore = "cues.learnMore"
     case cuesGuideOpenFailed = "cues.guideOpenFailed"
+    /// The heading over the Screen and the filter model in the top block
+    /// (simpler setup §4b).
+    case cuesJudgingTitle = "cues.judging.title"
     case cuesWaitingTitle = "cues.waiting.title"
     case cuesWaitingShowInChat = "cues.waiting.showInChat"
     /// A waiting proposal's row: the mandate and the tool, from Fermix's record.
     case cuesWaitingRowFormat = "cues.waiting.rowFormat"
     case cuesSourcesTitle = "cues.sources.title"
     case cuesSourcesAdd = "cues.sources.add"
-    case cuesSourcesEmpty = "cues.sources.empty"
+    /// The first run (simpler setup §4): the card that stands where the lists
+    /// would be while no source exists, its three steps and its one action.
+    case cuesFirstRunTitle = "cues.firstRun.title"
+    case cuesFirstRunSource = "cues.firstRun.source"
+    case cuesFirstRunWatcher = "cues.firstRun.watcher"
+    case cuesFirstRunTask = "cues.firstRun.task"
+    case cuesFirstRunAdd = "cues.firstRun.add"
     case cuesSourceAddTitle = "cues.source.addTitle"
     case cuesSourceKind = "cues.source.kind"
     case cuesSourceURL = "cues.source.url"
-    case cuesSourcePreset = "cues.source.preset"
-    case cuesSourcePresetNone = "cues.source.presetNone"
+    /// The add sheet's first step: the row that shows the choices the
+    /// daemon does not feature, and the second step's way back to them.
+    case cuesSourceSomethingElse = "cues.source.somethingElse"
+    case cuesBack = "cues.back"
+    /// The X accounts requirement's way to the plugin's page.
+    case cuesSourceOpenPlugin = "cues.source.openPlugin"
     case cuesSourceCopyURL = "cues.source.copyURL"
     case cuesSourceAddressMade = "cues.source.addressMade"
     case cuesSourceAddressNotMade = "cues.source.addressNotMade"
@@ -1300,6 +1313,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case cuesSourceCopyToken = "cues.source.copyToken"
     /// The token's accessibility label. The token itself is never its value.
     case cuesSourceTokenAccessibilityFormat = "cues.source.tokenAccessibility"
+    /// GitHub's made secret, handed out as a token is, with its own words.
+    case cuesSourceCopySecret = "cues.source.copySecret"
+    case cuesSourceSecretAccessibilityFormat = "cues.source.secretAccessibility"
     /// A one-line push with curl: the door's port, the source, and the header
     /// with the token left as a placeholder.
     case cuesSourcePushExampleFormat = "cues.source.pushExample"

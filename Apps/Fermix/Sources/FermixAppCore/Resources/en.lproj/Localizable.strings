@@ -1157,20 +1157,26 @@
 "mcp.tool.useFormat" = "Use %@";
 
 /* MARK: Cues (M60 app surface §7) */
-"cues.subtitle" = "Outside items that can wake a task: feeds, streams, webhooks and your scripts.";
+"cues.subtitle" = "Fermix can watch blogs, X accounts, GitHub and your scripts, and wake a task when something matters.";
 "cues.learnMore" = "Learn more";
 "cues.guideOpenFailed" = "The browser could not open the cues guide.";
+"cues.judging.title" = "How watchers judge items";
 "cues.waiting.title" = "Waiting for you";
 "cues.waiting.showInChat" = "Show in chat";
 "cues.waiting.rowFormat" = "%1$@ wants to run %2$@";
 "cues.sources.title" = "Sources";
 "cues.sources.add" = "Add source";
-"cues.sources.empty" = "No sources yet.";
-"cues.source.addTitle" = "Add a source";
+"cues.firstRun.title" = "Nothing is watched yet";
+"cues.firstRun.source" = "Add something to watch: a blog, X accounts, GitHub or your scripts.";
+"cues.firstRun.watcher" = "In chat, tell Fermix what to look for. It makes a watcher.";
+"cues.firstRun.task" = "When something matches, your task runs, and asks you before it acts.";
+"cues.firstRun.add" = "Add a source";
+"cues.source.addTitle" = "What should Fermix watch?";
 "cues.source.kind" = "Kind";
 "cues.source.url" = "URL";
-"cues.source.preset" = "Preset";
-"cues.source.presetNone" = "None";
+"cues.source.somethingElse" = "Something else";
+"cues.back" = "Back";
+"cues.source.openPlugin" = "Open plugin";
 "cues.source.copyURL" = "Copy URL";
 "cues.source.addressMade" = "Made";
 "cues.source.addressNotMade" = "Not made yet";
@@ -1181,6 +1187,8 @@
 "cues.source.tokenOnce" = "Copy it now. Fermix shows it only once.";
 "cues.source.copyToken" = "Copy token";
 "cues.source.tokenAccessibility" = "Token for %@, shown once";
+"cues.source.copySecret" = "Copy secret";
+"cues.source.secretAccessibility" = "Secret for %@, shown once";
 "cues.source.pushExample" = "curl -sS http://127.0.0.1:%1$ld/cues/v1/%2$@ -H %3$@ --data @item.json";
 "cues.source.remove" = "Remove source…";
 "cues.source.removeConfirm" = "Remove %@? Its stored secrets are deleted.";
@@ -1201,12 +1209,12 @@
 "cues.removeDo" = "Remove";
 "cues.moreOptions" = "More options";
 "cues.watchers.title" = "Watchers";
-"cues.watchers.empty" = "No watchers yet.";
+"cues.watchers.empty" = "No watchers yet. Ask Fermix in chat to watch for something.";
 "cues.watchers.footer" = "Watchers are made and changed in chat.";
 "cues.watchers.openChat" = "Open chat";
 "cues.watcher.purpose" = "Purpose";
 "cues.watcher.instructions" = "Instructions";
-"cues.watcher.listenFor" = "Listens for";
+"cues.watcher.listenFor" = "Keywords";
 "cues.watcher.instructionFormat" = "%1$ld. %2$@";
 "cues.watcher.addedFormat" = "added %@";
 "cues.watcher.filter" = "Filter";

@@ -34,7 +34,7 @@ public enum ProductCopyRules {
     public static let properNouns: Set<String> = [
         "Fermix", "Mac", "Terminal",
         "Setup", "Doctor", "Home", "Logs", "Pet",
-        "Telegram", "Slack", "Discord",
+        "Telegram", "Slack", "Discord", "GitHub",
         "ChatGPT", "Claude", "Codex", "OpenAI", "Anthropic", "OpenRouter", "Ollama", "Realtime",
         "Google", "Android",
         "Login", "Items", "System", "Settings", "Permissions",

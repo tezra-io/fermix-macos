@@ -109,20 +109,21 @@ struct StatusMenuTests {
 
     // MARK: - The daemon's count (M60 §4.7)
 
-    @Test("the proposal line is the daemon's count of proposals waiting, opening at the oldest it lists")
-    func proposalLineReadsCueStatus() async throws {
+    @Test("the proposal line is the daemon's count of proposals waiting, read with the list alone, opening at the oldest")
+    func proposalLineReadsTheList() async throws {
         let gateway = FakeDaemonGateway()
         gateway.hello = try FakeDaemonGateway.fixtureResult(named: "hello", as: ManagementHello.self)
-        gateway.cueStatusResult = try Self.cueStatus(waiting: 3)
+        gateway.cueProposalsResult = try Self.proposals(waiting: 3)
         let reader = StatusProposalReader(gateway: gateway, daemonAnswers: { true })
 
         await reader.refresh()
 
         let line = try #require(reader.line)
-        #expect(line.count == 3, "the count is the daemon's, not the length of the list it pages")
+        #expect(line.count == 3, "the count is the list's own, not the length of the page it lists")
         #expect(line.oldestProposalId == "cpr_9f2c41d07a5e6b38c1d2e4f0")
         #expect(line.text == "3 tasks are waiting for your decision")
         #expect(gateway.cueProposalFilters == [.waiting])
+        #expect(!gateway.calls.contains(.v2(.cuesStatus)), "the menu asks nothing of cues.status")
     }
 
     @Test("with the daemon not answering, the reader asks nothing, logs nothing, and draws no line")
@@ -137,21 +138,21 @@ struct StatusMenuTests {
         #expect(gateway.calls.isEmpty, "a menu opened while Fermix is stopped reads nothing")
     }
 
-    @Test("with nothing waiting there is no line, and the list is never asked for")
+    @Test("with nothing waiting there is no line, from the one read of the list")
     func proposalLineNothingWaiting() async throws {
         let gateway = FakeDaemonGateway()
         gateway.hello = try FakeDaemonGateway.fixtureResult(named: "hello", as: ManagementHello.self)
-        gateway.cueStatusResult = try Self.cueStatus(waiting: 0)
+        gateway.cueProposalsResult = ManagementCueProposalList(proposals: [], waiting: 0)
         let reader = StatusProposalReader(gateway: gateway, daemonAnswers: { true })
 
         await reader.refresh()
 
         #expect(reader.line == nil)
-        #expect(gateway.calls.contains(.v2(.cuesStatus)))
-        #expect(!gateway.calls.contains(.v2(.cuesProposalsList)))
+        #expect(gateway.calls.filter { $0 == .v2(.cuesProposalsList) }.count == 1)
+        #expect(!gateway.calls.contains(.v2(.cuesStatus)))
     }
 
-    @Test("a daemon that does not list cues.status is never asked, and the menu draws no line")
+    @Test("a daemon that does not list cues.proposals.list is never asked, and the menu draws no line")
     func proposalLineWithoutCues() async throws {
         let gateway = FakeDaemonGateway()
         gateway.hello = try ManagementValueFixture.hello()
@@ -160,6 +161,7 @@ struct StatusMenuTests {
         await reader.refresh()
 
         #expect(reader.line == nil)
+        #expect(!gateway.calls.contains(.v2(.cuesProposalsList)))
         #expect(!gateway.calls.contains(.v2(.cuesStatus)))
     }
 
@@ -193,15 +195,11 @@ struct StatusMenuTests {
         #expect(shown == ["cpr_9f2c41d07a5e6b38c1d2e4f0"])
     }
 
-    /// The golden status, with the count of proposals waiting a case needs.
-    private static func cueStatus(waiting: Int) throws -> ManagementCueStatus {
-        let fixture = try #require(try ManagementFixtures.load(.success, from: .management).first { $0.name == "cues_status" })
-        var result = try #require(try fixture.object("response")["result"] as? [String: Any])
-        var counts = try #require(result["counts"] as? [String: Any])
-        counts["proposals_waiting"] = waiting
-        result["counts"] = counts
+    /// The golden list of proposals waiting, with the count a case needs.
+    private static func proposals(waiting: Int) throws -> ManagementCueProposalList {
+        let golden = try FakeDaemonGateway.fixtureResult(named: "cues_proposals_list", as: ManagementCueProposalList.self)
 
-        return try JSONDecoder().decode(ManagementCueStatus.self, from: try JSONSerialization.data(withJSONObject: result))
+        return ManagementCueProposalList(proposals: golden.proposals, waiting: waiting)
     }
 
     private func proposalRow(_ menu: NSMenu) throws -> NSMenuItem {

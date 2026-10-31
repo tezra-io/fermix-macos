@@ -1,13 +1,15 @@
 import SwiftUI
 
-/// The add and edit form of a source, as a value (M60 app surface §4.3).
+/// The add and edit form of a source, as a value (M60 app surface §4.3,
+/// simpler setup §3).
 ///
-/// The form is the daemon's: the kinds, the presets and the rows come from
+/// The form is the daemon's: the choices and the rows come from
 /// `cues.sources.form` on an add and from `cues.sources.get`'s `values` on an
-/// edit, and the app writes no field list per kind. What lives here is what
-/// the owner set, what Add sends, which typed secrets are stored after it,
-/// and where a refusal is drawn. A typed secret stays in this value until
-/// Add and is never sent with the source.
+/// edit, and the app writes no field list per kind. An add is two steps:
+/// what to watch, from the daemon's choices, then that choice's own rows.
+/// What lives here is what the owner chose and set, what Add sends, which
+/// typed secrets are stored after it, and where a refusal is drawn. A typed
+/// secret stays in this value until Add and is never sent with the source.
 public struct CueSourceFormState: Equatable, Sendable {
     /// The name row's key, which Add sends as the source's `ref`.
     public static let nameKey = "ref"
@@ -16,11 +18,13 @@ public struct CueSourceFormState: Equatable, Sendable {
 
     /// The source an edit changes; nil on an add.
     public let editing: String?
-    public private(set) var kind: String?
-    public private(set) var preset: String?
-    public private(set) var kinds: [ManagementCueSourceForm.Kind] = []
-    public private(set) var presets: [ManagementCueSourceForm.Preset] = []
+    /// What the owner can watch, as the daemon lists it: nil until it
+    /// answers, and empty from an engine that predates the choices.
+    public private(set) var choices: [ManagementCueSourceForm.Choice]?
+    /// The choice the fields are for: nil while the owner picks one.
+    public private(set) var choice: ManagementCueSourceForm.Choice?
     public private(set) var rows: [ManagementSettingRow] = []
+    public private(set) var requirement: ManagementCueSourceForm.Requirement?
     public private(set) var consent: String?
     public private(set) var notes: [String] = []
     /// What the owner set, by row key. Never a secret.
@@ -40,36 +44,38 @@ public struct CueSourceFormState: Equatable, Sendable {
         rows = detail.values.filter { $0.kind != .secret }
     }
 
-    /// The choice the form is asked for: the preset where one is chosen,
-    /// the kind otherwise, and the check where the owner set one.
+    /// What the form is asked for: no choice for the first step, which
+    /// answers the choices, then the choice's own form with the check where
+    /// the owner set one.
     public var request: ManagementCueFormRequest {
+        guard let choice else { return ManagementCueFormRequest() }
+
         let verify = values[Self.verifyKey].map(DescriptorValue.text).flatMap { $0.isEmpty ? nil : $0 }
-        if let preset { return ManagementCueFormRequest(preset: preset, verify: verify) }
-
-        return ManagementCueFormRequest(kind: kind, verify: verify)
+        return choice.request(verify: verify)
     }
 
-    /// The presets of the kind chosen.
-    public var kindPresets: [ManagementCueSourceForm.Preset] {
-        presets.filter { $0.kind == kind }
+    /// How long a change rests before the form is asked for. The asks that
+    /// open a step, with no rows to show yet, go at once, so it opens on
+    /// what it asks rather than on a spinner.
+    public var askPause: TimeInterval {
+        rows.isEmpty ? 0 : CuesSheetMetrics.formPause
     }
 
-    /// The daemon's answer to `asked`. The first answer opens the sheet on the
-    /// first kind with that kind's first preset, the common case and one a
-    /// name and a URL complete. The rows are drawn only from an answer to the
-    /// choice the sheet holds now, so one choice's fields never show under
-    /// another while its own form is asked for. A value or a secret for a
-    /// field the new form no longer has is dropped with the field.
+    /// The choices drawn first, and the ones under Something else.
+    public var featuredChoices: [ManagementCueSourceForm.Choice] { (choices ?? []).filter(\.featured) }
+    public var otherChoices: [ManagementCueSourceForm.Choice] { (choices ?? []).filter { !$0.featured } }
+
+    /// The daemon's answer to `asked`. Every answer carries the choices. The
+    /// rows are drawn only from an answer to the choice the sheet holds now,
+    /// so one choice's fields never show under another while its own form
+    /// is asked for. A value or a secret for a field the new form no longer
+    /// has is dropped with the field.
     public mutating func take(_ form: ManagementCueSourceForm, answering asked: ManagementCueFormRequest) {
-        kinds = form.kinds
-        presets = form.presets
-        if kind == nil {
-            kind = form.kinds.first?.id
-            preset = firstPreset(of: kind)
-        }
-        guard asked == request else { return }
+        choices = form.choices
+        guard choice != nil, asked == request else { return }
 
         rows = form.rows
+        requirement = form.requirement
         consent = form.consentSentence
         notes = form.notes
 
@@ -78,26 +84,20 @@ public struct CueSourceFormState: Equatable, Sendable {
         secrets = secrets.filter { keys.contains($0.key) }
     }
 
-    /// A kind chosen in the segmented control: its first preset (None stays
-    /// in the menu) and its own check, so neither a preset nor a check of
-    /// another kind is asked for.
-    public mutating func choose(kind: String) {
-        guard kind != self.kind else { return }
-
-        self.kind = kind
-        preset = firstPreset(of: kind)
-        values[Self.verifyKey] = nil
-        refusal = nil
+    /// A choice picked on the first step: its form starts empty.
+    public mutating func choose(_ picked: ManagementCueSourceForm.Choice) {
+        backToChoices()
+        choice = picked
     }
 
-    private func firstPreset(of kind: String?) -> String? {
-        presets.first { $0.kind == kind }?.id
-    }
+    /// Back to the first step, keeping the choices and nothing else, so
+    /// nothing typed for one choice reaches another.
+    public mutating func backToChoices() {
+        precondition(editing == nil, "an edit has no first step")
 
-    public mutating func choose(preset: String?) {
-        self.preset = preset
-        values[Self.verifyKey] = nil
-        refusal = nil
+        let listed = choices
+        self = CueSourceFormState()
+        choices = listed
     }
 
     /// A field changed. Its refusal goes with the value it was about.
@@ -115,21 +115,17 @@ public struct CueSourceFormState: Equatable, Sendable {
         values[Self.nameKey].map(DescriptorValue.text)?.trimmingCharacters(in: .whitespaces) ?? ""
     }
 
-    /// What Add sends, or nil while there is nothing to add: no name yet, or
-    /// no form answered.
+    /// What Add sends, or nil while there is nothing to add: no choice, or
+    /// its form not answered yet. The name is optional: left empty, it is
+    /// not sent and Fermix names the source.
     public var spec: ManagementCueSourceSpec? {
-        guard editing == nil, !name.isEmpty else { return nil }
+        guard editing == nil, let choice, !rows.isEmpty else { return nil }
 
-        let choice: ManagementCueSourceChoice
-        if let preset {
-            choice = .preset(preset)
-        } else if let kind {
-            choice = .kind(kind)
-        } else {
-            return nil
-        }
-
-        return ManagementCueSourceSpec(ref: name, choice: choice, values: changedValues.filter { $0.key != Self.nameKey })
+        return ManagementCueSourceSpec(
+            ref: name.isEmpty ? nil : name,
+            choice: choice.addition,
+            values: changedValues.filter { $0.key != Self.nameKey }
+        )
     }
 
     /// The fields the owner changed from the form's own values, secrets
@@ -172,8 +168,8 @@ public struct CueSourceFormState: Equatable, Sendable {
         return spec.map { ($0, typedSecrets) }
     }
 
-    /// What the info beside the kind's line holds: the daemon's consent line,
-    /// then its notes, or nil where it published neither.
+    /// What the info beside the choice's line holds: the daemon's consent
+    /// line, then its notes, or nil where it published neither.
     public var about: String? {
         let lines = ([consent] + notes.map(Optional.some)).compactMap { $0 }.filter { !$0.isEmpty }
         return lines.isEmpty ? nil : lines.joined(separator: "\n\n")
@@ -187,9 +183,7 @@ public struct CueSourceFormState: Equatable, Sendable {
     /// A refusal that names no row of the form, said under the form.
     public var formRefusal: String? {
         guard let refusal else { return nil }
-        guard let field = refusal.field,
-              rows.contains(where: { $0.key == field }) || field == "kind" || field == "preset"
-        else { return refusal.sentence }
+        guard let field = refusal.field, rows.contains(where: { $0.key == field }) else { return refusal.sentence }
 
         return nil
     }
@@ -287,8 +281,10 @@ struct CuesPageForm<Content: View>: View {
     }
 }
 
-/// The add form and the edit form of a source (§4.3): the deciding control
-/// first, then the daemon's rows, its consent line and its notes.
+/// The add form and the edit form of a source (§4.3, simpler setup §3). An
+/// add asks what to watch first, from the daemon's choices, then only what
+/// that choice needs, with its requirement under its fields; an edit draws
+/// the source's own fields.
 struct CuesSourceFormPage: View {
     /// The section name a held row's Escape is keyed under. No settings
     /// section has it, so nothing is ever applied to it.
@@ -298,25 +294,17 @@ struct CuesSourceFormPage: View {
     @Binding var form: CueSourceFormState
     @ObservedObject var model: SettingsModel
     let added: (CueSourceAddOutcome) -> Void
+    /// Opens the page of the plugin a choice's requirement names.
+    let openPlugin: (String) -> Void
     let back: () -> Void
 
     @State private var sending = false
     @State private var advancedShown = DescriptorRowFold.startsOpen
+    @State private var othersShown = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.m) {
-            heading
-
-            if form.editing == nil {
-                kindPicker
-            }
-
-            if form.rows.isEmpty {
-                ProgressView().controlSize(.small).accessibilityHidden(true)
-            } else {
-                CuesPageForm { Section { rows } }
-            }
-
+            content
             formRefusal
             buttons
         }
@@ -328,52 +316,89 @@ struct CuesSourceFormPage: View {
     }
 
     @ViewBuilder
-    private var heading: some View {
+    private var content: some View {
         if let ref = form.editing {
             IntegrationPageHeader(title: ProductStrings[.cuesEdit], parent: ref, back: back)
+            fields
+        } else if let choice = form.choice {
+            choiceHeading(choice)
+            fields
         } else {
             Text(ProductStrings[.cuesSourceAddTitle])
                 .fermixType(Typography.sheetTitle)
                 .foregroundStyle(Palette.ink.color)
+            choiceList
         }
     }
 
-    private var kindPicker: some View {
-        VStack(spacing: Spacing.xxs) {
-            if !form.kinds.isEmpty {
-                Picker(ProductStrings[.cuesSourceKind], selection: kindChoice) {
-                    ForEach(form.kinds, id: \.id) { kind in
-                        Text(kind.label).tag(kind.id)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
+    /// The first step: the featured choices, then Something else, which
+    /// shows the rest. An engine that publishes no choices says the one
+    /// sentence every surface says about an engine behind the app.
+    @ViewBuilder
+    private var choiceList: some View {
+        if let choices = form.choices {
+            if choices.isEmpty {
+                CueNote(text: model.newerEngineSentence, attention: true)
+            } else {
+                CuesPageForm { Section { choiceRows } }
             }
-            if let kind = form.kinds.first(where: { $0.id == form.kind }) {
-                kindLine(kind)
-            }
-            if let refused = form.refusal(for: "kind") ?? form.refusal(for: "preset") {
-                CueNote(text: refused, attention: true)
-            }
+        } else if form.refusal == nil {
+            ProgressView().controlSize(.small).accessibilityHidden(true)
         }
-        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
-    private var rows: some View {
-        if form.editing == nil, !form.kindPresets.isEmpty {
-            Picker(ProductStrings[.cuesSourcePreset], selection: presetChoice) {
-                Text(ProductStrings[.cuesSourcePresetNone]).tag("")
-                ForEach(form.kindPresets, id: \.id) { preset in
-                    Text(preset.label).tag(preset.id)
+    private var choiceRows: some View {
+        ForEach(form.featuredChoices, id: \.id) { choice in
+            CueChoiceRow(choice: choice) { choose(choice) }
+        }
+        if !form.otherChoices.isEmpty {
+            AdvancedRowsToggle(shown: $othersShown, title: .cuesSourceSomethingElse)
+            if othersShown {
+                ForEach(form.otherChoices, id: \.id) { choice in
+                    CueChoiceRow(choice: choice) { choose(choice) }
                 }
             }
         }
+    }
 
+    /// The second step's top: the choice's tile and label, and its line with
+    /// what adding it means and the daemon's notes behind the info beside
+    /// it.
+    private func choiceHeading(_ choice: ManagementCueSourceForm.Choice) -> some View {
+        HStack(alignment: .top, spacing: Spacing.s) {
+            CueChoiceTile(choice: choice)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(choice.label)
+                    .fermixType(Typography.sheetTitle)
+                    .foregroundStyle(Palette.ink.color)
+                DescriptorRowLabel(choice.sentence, info: form.about)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var fields: some View {
+        if form.rows.isEmpty {
+            ProgressView().controlSize(.small).accessibilityHidden(true)
+        } else {
+            CuesPageForm { Section { rows } }
+        }
+    }
+
+    /// The rows the choice opens, its requirement under them, then More
+    /// options with the rest, the name among them.
+    @ViewBuilder
+    private var rows: some View {
         let fold = DescriptorRowFold(form.rows)
         ForEach(fold.open, id: \.key) { row in field(row) }
 
+        if let requirement = form.requirement {
+            CueRequirementLine(requirement: requirement) { openPlugin(requirement.plugin) }
+        }
         if !fold.folded.isEmpty {
             AdvancedRowsToggle(shown: $advancedShown, title: .cuesMoreOptions)
             if advancedShown {
@@ -400,16 +425,6 @@ struct CuesSourceFormPage: View {
         }
     }
 
-    /// The kind's one line, with what adding it means and the daemon's notes
-    /// for this choice behind the info beside it: the consent line, a
-    /// webhook's tunnel, a preset's content type. The consent line said under
-    /// the form repeated the kind's line in other words.
-    private func kindLine(_ kind: ManagementCueSourceForm.Kind) -> some View {
-        DescriptorRowLabel(kind.sentence, info: form.about)
-            .fermixType(Typography.style(.calloutSmall))
-            .foregroundStyle(Palette.secondary.color)
-    }
-
     /// A refusal that names no field of the form.
     @ViewBuilder
     private var formRefusal: some View {
@@ -418,29 +433,37 @@ struct CuesSourceFormPage: View {
         }
     }
 
+    /// Cancel on every step; Back and Add source once a choice is made;
+    /// Done on an edit. Add waits only for the choice's form, not for a
+    /// name.
     private var buttons: some View {
         HStack(spacing: Spacing.s) {
+            if form.editing == nil, form.choice != nil {
+                Button(ProductStrings[.cuesBack]) { form.backToChoices() }
+                    .buttonStyle(SecondaryButtonStyle(.row))
+            }
+
             Spacer(minLength: 0)
 
             Button(ProductStrings[.settingsSheetCancel], action: back)
                 .buttonStyle(SecondaryButtonStyle(.row))
                 .keyboardShortcut(.cancelAction)
 
-            PrimaryAction(
-                ProductStrings[form.editing == nil ? .cuesSourcesAdd : .settingsSheetDone],
-                size: .row,
-                action: send
-            )
-            .disabled(sending || (form.editing == nil && form.spec == nil))
+            if form.editing != nil || form.choice != nil {
+                PrimaryAction(
+                    ProductStrings[form.editing == nil ? .cuesSourcesAdd : .settingsSheetDone],
+                    size: .row,
+                    action: send
+                )
+                .disabled(sending || (form.editing == nil && form.spec == nil))
+            }
         }
     }
 
-    private var kindChoice: Binding<String> {
-        Binding(get: { form.kind ?? "" }, set: { form.choose(kind: $0) })
-    }
-
-    private var presetChoice: Binding<String> {
-        Binding(get: { form.preset ?? "" }, set: { form.choose(preset: $0.isEmpty ? nil : $0) })
+    /// A choice picked: its form starts empty, with More options closed.
+    private func choose(_ choice: ManagementCueSourceForm.Choice) {
+        form.choose(choice)
+        advancedShown = DescriptorRowFold.startsOpen
     }
 
     private func secretBinding(_ key: String) -> Binding<String> {
@@ -453,11 +476,12 @@ struct CuesSourceFormPage: View {
         )
     }
 
-    /// Asks for the form once changes to the kind, the preset or the check
-    /// have rested. A newer request cancels this one while it waits.
+    /// Asks for the choices as the sheet opens and for a choice's form as it
+    /// is picked, each at once, and again once a change to the check has
+    /// rested. A newer request cancels this one while it waits.
     private func askForTheForm() async {
         let asked = form.request
-        guard let answer = await model.cueSourceForm(asked, pause: CuesSheetMetrics.formPause) else { return }
+        guard let answer = await model.cueSourceForm(asked, pause: form.askPause) else { return }
 
         switch answer {
         case .success(let daemonForm): form.take(daemonForm, answering: asked)
@@ -524,6 +548,108 @@ struct CueHeldSecretRow: View {
     }
 }
 
+/// One thing the owner can watch, on the add sheet's first step: its mark
+/// or its kind's symbol, the daemon's label and line, and the chevron to
+/// its fields.
+struct CueChoiceRow: View {
+    let choice: ManagementCueSourceForm.Choice
+    let choose: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: choose) {
+            HStack(spacing: Spacing.s) {
+                CueChoiceTile(choice: choice)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(choice.label)
+                        .fermixType(Typography.style(.callout).weight(.medium))
+                        .foregroundStyle(Palette.ink.color)
+                    CueNote(text: choice.sentence)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.faint.color)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(ProductStrings.commaPair(choice.label, choice.sentence))
+        // The hover fill a list row draws (`CueRow`).
+        .padding(.vertical, Spacing.xxs)
+        .padding(.horizontal, Spacing.xs)
+        .background(
+            hovering ? Palette.chipFill.color : .clear,
+            in: RoundedRectangle(cornerRadius: Radius.controlCompact, style: .continuous)
+        )
+        .padding(.horizontal, -Spacing.xs)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// A choice's 28-point tile: the vendor's mark where the app ships one,
+/// and its kind's symbol otherwise.
+struct CueChoiceTile: View {
+    let choice: ManagementCueSourceForm.Choice
+
+    var body: some View {
+        Group {
+            if let mark = CueChoiceProjection.mark(for: choice) {
+                VendorMarkView(mark: mark, kind: .plugin, size: IntegrationMetrics.tileSize)
+            } else {
+                VendorMarkView(symbol: CueChoiceProjection.symbol(for: choice), size: IntegrationMetrics.tileSize)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// How a choice is drawn: as a source of its preset or kind is.
+public enum CueChoiceProjection {
+    public static func mark(for choice: ManagementCueSourceForm.Choice) -> VendorMark? {
+        CueSourceProjection.mark(forPreset: choice.preset)
+    }
+
+    public static func symbol(for choice: ManagementCueSourceForm.Choice) -> String {
+        CueSourceProjection.symbol(for: ManagementCueSourceKind(wireValue: choice.kind))
+    }
+}
+
+/// What a choice needs set up first, under its fields (simpler setup D4):
+/// the daemon's sentence after its dot, and while a sign-in is owed, the
+/// way to the plugin's page. Add stays open either way.
+struct CueRequirementLine: View {
+    let requirement: ManagementCueSourceForm.Requirement
+    let openPlugin: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.s) {
+            CueStatusLine(text: requirement.sentence, tone: CueTone.requirement(requirement))
+
+            Spacer(minLength: Spacing.s)
+
+            if CueRequirementProjection.offersPlugin(requirement) {
+                Button(ProductStrings[.cuesSourceOpenPlugin], action: openPlugin)
+                    .buttonStyle(SecondaryButtonStyle(.row))
+            }
+        }
+    }
+}
+
+/// What a requirement offers, from its published state.
+public enum CueRequirementProjection {
+    /// The plugin's page, while it asks for a sign-in. A state this build
+    /// does not know offers nothing.
+    public static func offersPlugin(_ requirement: ManagementCueSourceForm.Requirement) -> Bool {
+        requirement.state == .needsSignIn
+    }
+}
+
 /// What a source's detail asks in place.
 enum CueSourceQuestion: Equatable {
     case newToken
@@ -536,7 +662,7 @@ enum CueSourceQuestion: Equatable {
 struct CuesSourceDetailPage: View {
     let ref: String
     let at: ManagementCueSecretField?
-    /// A token handed out on this page, shown once.
+    /// A token or a secret handed out on this page, shown once.
     let token: CueHandedToken?
     /// A secret the add could not store, said under its field.
     let unstored: CueRefusal?
@@ -642,6 +768,7 @@ struct CuesSourceDetailPage: View {
             if let unstored, unstored.field == slot.field.wireValue {
                 CueNote(text: unstored.sentence, attention: true)
             }
+            handed(slot.field)
         case .token:
             tokenRow(slot, of: source)
         case .pathSecret:
@@ -675,7 +802,14 @@ struct CuesSourceDetailPage: View {
                 confirm: newToken
             )
         }
-        if let token, token.ref == ref {
+        handed(.token)
+    }
+
+    /// The value handed out on this page for one of its secrets: a new
+    /// token, or the secret Fermix made for a GitHub source, shown once.
+    @ViewBuilder
+    private func handed(_ field: ManagementCueSecretField) -> some View {
+        if let token, token.ref == ref, token.field == field {
             CueTokenBlock(token: token, port: model.cueStatus.value?.door.port)
         }
     }
@@ -803,12 +937,13 @@ struct CueValue: View {
     }
 }
 
-/// A token handed out, shown once (§4.3, §5.4): in a monospaced field that
-/// is not selectable and is never an accessibility value, with Copy token,
-/// the line that says it is shown once, and a push example that names the
-/// door's port and leaves the token as a placeholder. Copy keeps it to this
-/// Mac and out of clipboard history, and the token is taken back off the
-/// pasteboard when this block leaves the sheet.
+/// A token or a secret handed out, shown once (§4.3, §5.4): in a monospaced
+/// field that is not selectable and is never an accessibility value, with
+/// its Copy and the line that says it is shown once, then for a token a push
+/// example that names the door's port and leaves the token as a placeholder,
+/// and for GitHub's secret the notes of the form it was added from. Copy
+/// keeps it to this Mac and out of clipboard history, and it is taken back
+/// off the pasteboard when this block leaves the sheet.
 struct CueTokenBlock: View {
     /// The header the push example carries, with the token as a placeholder.
     static let exampleHeader = "'Authorization: Bearer <token>'"
@@ -827,24 +962,35 @@ struct CueTokenBlock: View {
                     .foregroundStyle(Palette.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel(String(format: ProductStrings[.cuesSourceTokenAccessibilityFormat], token.ref))
+                    .accessibilityLabel(String(format: ProductStrings[accessibilityFormat], token.ref))
 
-                Button(ProductStrings[.cuesSourceCopyToken]) { copied.copy(token.value, on: .system) }
-                    .accessibilityLabel(ProductStrings.commaPair(ProductStrings[.cuesSourceCopyToken], token.ref))
+                Button(ProductStrings[copyTitle]) { copied.copy(token.value, on: .system) }
+                    .accessibilityLabel(ProductStrings.commaPair(ProductStrings[copyTitle], token.ref))
             }
             .padding(Spacing.xs)
             .background(Palette.chipFill.color, in: RoundedRectangle(cornerRadius: Radius.controlCompact, style: .continuous))
 
             CueNote(text: ProductStrings[.cuesSourceTokenOnce], attention: true)
 
-            if let port {
+            if token.field == .token, let port {
                 Text(String(format: ProductStrings[.cuesSourcePushExampleFormat], port, token.ref, Self.exampleHeader))
                     .fermixType(Typography.style(.monoLog))
                     .foregroundStyle(Palette.secondary.color)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            ForEach(Array(token.notes.enumerated()), id: \.offset) { _, note in
+                CueNote(text: note)
+            }
         }
         .onDisappear { copied.takeBack(on: .system) }
+    }
+
+    private var copyTitle: ProductStringKey {
+        token.field == .secret ? .cuesSourceCopySecret : .cuesSourceCopyToken
+    }
+
+    private var accessibilityFormat: ProductStringKey {
+        token.field == .secret ? .cuesSourceSecretAccessibilityFormat : .cuesSourceTokenAccessibilityFormat
     }
 }

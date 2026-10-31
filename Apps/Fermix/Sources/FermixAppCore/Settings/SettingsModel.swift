@@ -59,6 +59,10 @@ public final class SettingsModel: ObservableObject {
     @Published public internal(set) var sections: [String: SettingsReadState<ManagementSettingsSectionRows>] = [:]
     @Published public internal(set) var detections: SettingsReadState<ManagementDetections> = .unread
     @Published public internal(set) var plugins: SettingsReadState<ManagementPluginCatalog> = .unread
+    /// The plugin whose page Integrations opens as it next reads the
+    /// catalogue: the X plugin, from a Cues source that reads with its
+    /// sign-in (`showPluginPage`).
+    @Published public internal(set) var askedPluginPage: String?
     /// The MCP servers the owner added (M74). `requiresNewerEngine` where the
     /// daemon's `hello` does not list `mcp.servers.list`, which is the state
     /// of that one tab: every other pane is still served.

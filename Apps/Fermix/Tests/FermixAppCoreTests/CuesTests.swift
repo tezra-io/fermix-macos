@@ -55,15 +55,22 @@ struct CuesTests {
         let form: ManagementCueSourceForm = try Self.golden("cues_sources_form")
         #expect(form.kinds.map(\.id) == ["feed", "stream", "webhook", "local_push"])
         #expect(form.presets.map(\.id) == ["github", "rss", "x_accounts"], "a stream has no preset")
+        #expect(form.choices.map(\.id) == ["rss", "x_accounts", "github", "local_push", "feed", "stream", "webhook"])
+        #expect(form.requirement == nil, "only X accounts needs something set up first")
         #expect(form.rows.first?.key == "ref", "the name comes first")
-        #expect(!form.rows.contains { $0.kind == .secret }, "Fermix makes GitHub's secret, so its form asks for none")
+        #expect(form.rows.first?.example == "github", "the name Fermix would make")
+        #expect(form.rows.allSatisfy { $0.advanced }, "GitHub's form has nothing to type")
+        #expect(!form.rows.contains { $0.kind == .secret }, "Fermix makes GitHub's secret")
 
         let feed: ManagementCueSourceAdded = try Self.golden("cues_sources_add")
-        #expect(feed.token == nil)
+        #expect(feed.token == nil && feed.secret == nil)
         let push: ManagementCueSourceAdded = try Self.golden("cues_sources_add_local_push")
         #expect(push.token?.isEmpty == false, "a new local push source's first token is handed out")
+        #expect(push.secret == nil)
         let webhook: ManagementCueSourceAdded = try Self.golden("cues_sources_add_webhook")
-        #expect(webhook.source.missingSecret == nil, "a GitHub source never waits for its secret")
+        #expect(webhook.source.ref == "github", "a source left unnamed is named by Fermix")
+        #expect(webhook.secret?.isEmpty == false && webhook.token == nil, "GitHub's made secret is handed out")
+        #expect(webhook.source.primaryAction == .getURL && webhook.source.missingSecret == nil)
         #expect(webhook.source.secrets.first { $0.field == .secret }?.present == true)
 
         let removed: ManagementCueSourceRemoved = try Self.golden("cues_sources_remove")
@@ -214,14 +221,22 @@ struct CuesTests {
         #expect(harness.model.selectedPane == .providers)
     }
 
-    @Test("the pane reads the status, its three lists and the proposals waiting, each on its own")
+    @Test("the pane reads its three lists and the proposals waiting at once, each on its own")
     func paneReadsItsLists() async throws {
         let gateway = try Self.gateway()
         gateway.v2Failures[.cuesWatchersList] = try ManagementRefusal.published("unavailable_cues_memory_off")
+        let held = AsyncGate()
+        gateway.cueSourcesGate = { await held.wait() }
         let harness = try SettingsHarness(gateway: gateway)
 
-        await harness.model.refreshCues()
+        let refresh = Task { await harness.model.refreshCues() }
+        let others: [FakeDaemonGateway.Call] = [.v2(.cuesWatchersList), .v2(.cuesMandatesList), .v2(.cuesProposalsList)]
+        let askedAtOnce = await yieldUntil { others.allSatisfy(gateway.calls.contains) }
+        held.release()
+        await refresh.value
 
+        #expect(askedAtOnce, "the other reads go out while the sources list is still being read")
+        #expect(!gateway.calls.contains(.v2(.cuesStatus)), "the status is the window's gate read, not the pane's")
         #expect(harness.model.cueSources.value?.sources.count == 3)
         #expect(harness.model.cueMandates.value?.mandates.count == 1)
         #expect(harness.model.cueProposals.value?.waiting == 1)
@@ -247,6 +262,82 @@ struct CuesTests {
         #expect(harness.model.cueSources.value?.sources.count == 3)
     }
 
+    @Test("opening on Cues reads cues.status once: the window's gate read is the one the pane draws")
+    func statusReadOncePerEntry() async throws {
+        let gateway = try Self.gateway()
+        let harness = try SettingsHarness(gateway: gateway, store: FakeSettingsPaneStore(lastSettingsPane: "cues"))
+        let statusReads = { gateway.calls.filter { $0 == .v2(.cuesStatus) }.count }
+
+        // The window's entry, then the pane's own task as it appears.
+        await harness.model.windowAppeared()
+        await harness.model.refreshCues()
+        #expect(statusReads() == 1)
+        #expect(harness.model.cueStatus.value?.statusSentence == "Cues are running.")
+
+        await harness.model.restartCompleted()
+        #expect(statusReads() == 2, "a restart reads the status again, once")
+
+        _ = await harness.model.setCueSourceEnabled(false, ref: "eng-blogs")
+        #expect(statusReads() == 3, "a write reads the status again")
+    }
+
+    // MARK: - What the pane lays out (simpler setup §4)
+
+    @Test("the first-run card stands only for a list of sources that is loaded and empty")
+    func firstRunOnlyForALoadedEmptyList() async throws {
+        let golden: ManagementCueSourceList = try Self.golden("cues_sources_list")
+        let empty = ManagementCueSourceList(sources: [], canAdd: true, limits: golden.limits)
+
+        #expect(CuesPaneLayout.firstRun(.loaded(empty)))
+        #expect(!CuesPaneLayout.firstRun(.loaded(golden)))
+        #expect(!CuesPaneLayout.firstRun(.unread))
+        #expect(!CuesPaneLayout.firstRun(.loading))
+        #expect(!CuesPaneLayout.firstRun(.unavailable("The daemon is not answering.")))
+
+        let gateway = try Self.gateway()
+        gateway.cueSourcesResult = empty
+        let harness = try SettingsHarness(gateway: gateway)
+        await harness.model.refreshCues()
+        #expect(CuesPaneLayout.firstRun(harness.model.cueSources))
+    }
+
+    @Test("watchers show once a source or a watcher exists, and mandates once a watcher or a mandate exists")
+    func listsShowOnceTheyMean() throws {
+        let sources: ManagementCueSourceList = try Self.golden("cues_sources_list")
+        let noSources = ManagementCueSourceList(sources: [], canAdd: true, limits: sources.limits)
+        let watchers: ManagementCueWatcherList = try Self.golden("cues_watchers_list")
+        let noWatchers = try Self.noWatchers()
+        let mandates: ManagementCueMandateList = try Self.golden("cues_mandates_list")
+        let noMandates = ManagementCueMandateList(mandates: [], canAdd: true, limits: mandates.limits)
+        let refused = SettingsReadState<ManagementCueWatcherList>.unavailable("Cues keep their records in memory, which is off.")
+
+        #expect(!CuesPaneLayout.drawsWatchers(sources: .loaded(noSources), watchers: .loaded(noWatchers)))
+        #expect(!CuesPaneLayout.drawsWatchers(sources: .loading, watchers: .loading))
+        #expect(CuesPaneLayout.drawsWatchers(sources: .loaded(sources), watchers: .loaded(noWatchers)))
+        #expect(CuesPaneLayout.drawsWatchers(sources: .loaded(noSources), watchers: .loaded(watchers)))
+        #expect(CuesPaneLayout.drawsWatchers(sources: .loaded(sources), watchers: refused), "a refused list says so once a source exists")
+
+        #expect(!CuesPaneLayout.drawsMandates(watchers: .loaded(noWatchers), mandates: .loaded(noMandates)))
+        #expect(!CuesPaneLayout.drawsMandates(watchers: refused, mandates: .loaded(noMandates)))
+        #expect(CuesPaneLayout.drawsMandates(watchers: .loaded(watchers), mandates: .loaded(noMandates)))
+        #expect(CuesPaneLayout.drawsMandates(watchers: .loaded(noWatchers), mandates: .loaded(mandates)))
+    }
+
+    @Test("the top block is the section as published, and how watchers judge items heads the Screen where there is one, the filter model where not")
+    func judgingHeadingOverTheScreen() throws {
+        let older = try Self.cueSettingRows(withScreen: false)
+        #expect(CuesPaneKeys.judgingHeadingKey(in: older) == "filter_provider")
+
+        let newer = try Self.cueSettingRows(withScreen: true)
+        #expect(CuesPaneKeys.judgingHeadingKey(in: newer) == "cues_screen_provider")
+        let top = DescriptorRowFold(newer)
+        #expect(
+            top.open.map(\.key) == ["cues_enabled", "cues_mandates_enabled", "cues_screen_provider", "filter_provider", "filter_model"],
+            "Let watchers act follows Run cues, and the Screen is drawn where and as the section publishes it"
+        )
+        #expect(top.folded.map(\.key) == ["cues_door_port"], "the door's port stays under Advanced")
+    }
+
     @Test("a wire method_not_found that names the version it requires is the newer-engine state")
     func methodNotFoundRequiringIsTheNewerEngineState() throws {
         let requiring = try ManagementRefusal.published("method_requires_newer_engine")
@@ -266,24 +357,7 @@ struct CuesTests {
             .source("eng-blogs", at: nil), .source("gh-hooks", at: nil), .source("home-alerts", at: nil)
         ])
 
-        // A webhook source waiting for its signing secret, as one of any
-        // service still does: GitHub's own never waits, Fermix makes its
-        // secret.
-        let waiting: ManagementCueSource = try Self.edited(
-            "cues_sources_add_webhook",
-            path: { $0["source"] as? [String: Any] },
-            edit: { row in
-                row["ref"] = "gh-hooks"
-                row["state"] = "needs_secret"
-                row["primary_action"] = "set_secret"
-                row["actions"] = ["disable", "set_secret", "get_url"]
-                row["missing_secret"] = "secret"
-                row["secrets"] = [
-                    ["field": "secret", "label": "Signing secret", "present": false],
-                    ["field": "path_secret", "label": "Address", "present": false]
-                ]
-            }
-        )
+        let waiting = try Self.waitingWebhook()
         #expect(CuesSheetPage.opening(waiting) == .source("gh-hooks", at: .secret))
         #expect(CueSourceProjection.secrets(waiting, first: .pathSecret).map(\.field) == [.pathSecret, .secret])
 
@@ -308,6 +382,13 @@ struct CuesTests {
         let list: ManagementCueSourceList = try Self.golden("cues_sources_list")
         #expect(list.sources.allSatisfy(CueSourceProjection.switchShown))
         #expect(CueSourceDetailWords.lastDay(list.sources[0].counts) == "3 received · 3 reached a watcher")
+
+        // GitHub's and X's own marks by preset, as the plugin rows draw them;
+        // every other source keeps its kind's symbol.
+        #expect(list.sources.map(\.preset) == ["rss", "github", nil])
+        #expect(list.sources.map { CueSourceProjection.mark(for: $0) } == [nil, VendorMarks.mark(.plugin, "github"), nil])
+        let accounts = try Self.source(editing: { $0["preset"] = "x_accounts" })
+        #expect(CueSourceProjection.mark(for: accounts) == VendorMarks.mark(.plugin, "x"))
         #expect(CueSourceDetailWords.lines([]) == "None")
     }
 
@@ -355,8 +436,7 @@ struct CuesTests {
     func rowTones() throws {
         let sources: ManagementCueSourceList = try Self.golden("cues_sources_list")
         #expect(sources.sources.map(CueTone.source) == [.pass, .pass, .pass])
-        let waiting: ManagementCueSourceAdded = try Self.golden("cues_sources_add_webhook")
-        #expect(CueTone.source(waiting.source) == .warn, "a source waiting for its secret")
+        #expect(CueTone.source(try Self.waitingWebhook()) == .warn, "a source waiting for its secret")
         #expect(CueTone.source(try Self.source(editing: { $0["state"] = "auth_failed" })) == .fail)
         let off = try Self.source(editing: { row in
             row["enabled"] = false
@@ -468,6 +548,81 @@ struct CuesTests {
 
     // MARK: - The add form
 
+    @Test("the sheet opens on the daemon's choices, featured first and the rest under Something else")
+    func sheetOpensOnTheChoices() throws {
+        let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
+        var form = CueSourceFormState()
+        #expect(form.choices == nil && form.request == ManagementCueFormRequest(), "the first ask names no choice")
+
+        form.take(golden, answering: form.request)
+        #expect(form.featuredChoices.map(\.label) == ["Website or blog", "X accounts", "GitHub", "Your scripts"])
+        #expect(form.otherChoices.map(\.label) == ["Any feed address", "Live stream", "Any webhook"])
+        #expect(form.choice == nil && form.rows.isEmpty, "no field shows before a choice is made")
+        #expect(form.spec == nil)
+
+        #expect(CueChoiceProjection.mark(for: try Self.choice("x_accounts", in: form)) != nil, "X's own mark")
+        #expect(CueChoiceProjection.mark(for: try Self.choice("github", in: form)) != nil, "GitHub's own mark")
+        #expect(CueChoiceProjection.mark(for: try Self.choice("rss", in: form)) == nil)
+        #expect(CueChoiceProjection.symbol(for: try Self.choice("rss", in: form)) == "newspaper", "the rest are drawn by kind")
+        #expect(CueChoiceProjection.symbol(for: try Self.choice("local_push", in: form)) == "terminal")
+    }
+
+    @Test("a choice asks for its own form, by its preset or its kind, and a check changed asks again")
+    func aChoiceAsksItsForm() throws {
+        var form = try Self.answeredChoices()
+
+        form.choose(try Self.choice("rss", in: form))
+        #expect(form.request == ManagementCueFormRequest(preset: "rss"))
+        form.choose(try Self.choice("local_push", in: form))
+        #expect(form.request == ManagementCueFormRequest(kind: "local_push"))
+        form.choose(try Self.choice("stream", in: form))
+        #expect(form.request == ManagementCueFormRequest(kind: "stream"))
+
+        form.choose(try Self.choice("github", in: form))
+        form.set(.text("standard_webhooks"), for: "verify")
+        #expect(form.request == ManagementCueFormRequest(preset: "github", verify: "standard_webhooks"))
+    }
+
+    @Test("Back keeps nothing of the choice it leaves, and the next choice starts empty")
+    func backKeepsNothing() throws {
+        var form = try Self.answeredChoices()
+        let choices = form.choices
+        form.choose(try Self.choice("stream", in: form))
+        form.take(try Self.golden("cues_sources_form_stream"), answering: form.request)
+        form.set(.text("market-wire"), for: "ref")
+        form.secrets["key"] = "fixture-key"
+        form.refusal = CueRefusal(sentence: "That name is taken.", field: "ref")
+
+        form.backToChoices()
+        #expect(form.choice == nil)
+        #expect(form.rows.isEmpty && form.values.isEmpty && form.secrets.isEmpty && form.refusal == nil)
+        #expect(form.requirement == nil && form.notes.isEmpty && form.consent == nil)
+        #expect(form.choices == choices, "the list stays, so step one draws at once")
+
+        form.choose(try Self.choice("x_accounts", in: form))
+        #expect(form.values.isEmpty && form.secrets.isEmpty, "nothing of the stream reaches X accounts")
+        #expect(form.request == ManagementCueFormRequest(preset: "x_accounts"))
+    }
+
+    @Test("the name is optional: Add is ready once the form answers, and an empty name is not sent")
+    func nameIsOptional() throws {
+        var form = try Self.answeredChoices()
+        form.choose(try Self.choice("github", in: form))
+        #expect(form.spec == nil, "nothing to add before the form answers")
+
+        form.take(try Self.golden("cues_sources_form"), answering: form.request)
+        let unnamed = try #require(form.spec)
+        #expect(unnamed.ref == nil, "Fermix names a source left unnamed")
+        #expect(unnamed.preset == "github" && unnamed.kind == nil)
+        #expect(unnamed.values.isEmpty)
+
+        form.set(.text("   "), for: "ref")
+        #expect(form.spec?.ref == nil, "a blank name is not a name")
+        form.set(.text("gh-hooks"), for: "ref")
+        #expect(form.spec?.ref == "gh-hooks")
+        #expect(form.spec?.values.isEmpty == true, "the name travels as the ref, never among the values")
+    }
+
     @Test("a refusal's field marks the form field it names, and anything else is said under the form")
     func refusalMarksItsField() throws {
         var form = try Self.githubForm(try Self.golden("cues_sources_form"))
@@ -482,40 +637,30 @@ struct CuesTests {
 
         form.refusal = CueRefusal(sentence: "Something else.", field: "url")
         #expect(form.formRefusal == "Something else.", "a field this form does not draw is said under it")
+        form.refusal = CueRefusal(sentence: "Unknown preset.", field: "preset")
+        #expect(form.formRefusal == "Unknown preset.", "with no kind control, a preset refusal is said under the form")
         form.refusal = CueRefusal(sentence: "No field.", field: nil)
         #expect(form.formRefusal == "No field.")
     }
 
-    @Test("Add sends the name, the preset and only the values changed, and never a secret")
+    @Test("Add sends the choice's preset and only the values changed, and never a secret")
     func addSendsWhatChanged() throws {
-        let golden = try Self.form(try Self.golden("cues_sources_form"), addingSecret: "secret")
-        var form = CueSourceFormState()
-        form.take(golden, answering: form.request)
-        #expect(form.kind == "feed", "with no kind asked for, the form is a feed's")
-        #expect(form.spec == nil, "nothing to add without a name")
-
-        form.choose(kind: "webhook")
-        form.choose(preset: "github")
-        form.take(golden, answering: form.request)
+        var form = try Self.githubForm(try Self.golden("cues_sources_form"))
         form.set(.text("gh-hooks"), for: "ref")
         form.set(.text("X-Hub-Signature-256"), for: "header")
         form.set(.text("X-Signature"), for: "type_header")
-        form.secrets["secret"] = "fixture-signing-secret"
 
         let spec = try #require(form.spec)
         #expect(spec.ref == "gh-hooks")
         #expect(spec.preset == "github" && spec.kind == nil)
         #expect(spec.values == ["type_header": .setting(.text("X-Signature"))], "an unchanged default is not sent")
-        #expect(form.typedSecrets == [CueTypedSecret(field: .secret, value: "fixture-signing-secret")])
-        #expect(form.request == ManagementCueFormRequest(preset: "github"))
+        #expect(form.typedSecrets.isEmpty, "GitHub's form asks for no secret")
     }
 
     @Test("a typed value for a secret this app cannot store is refused under its row, and Add sends nothing")
     func unstorableSecretIsRefused() throws {
-        let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
-        let renamed = try Self.form(golden, addingSecret: "passphrase")
-        var form = try Self.githubForm(renamed)
-        form.set(.text("gh-hooks"), for: "ref")
+        let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form_stream")
+        var form = try Self.streamForm(try Self.form(golden, renamingSecretTo: "passphrase"))
         form.secrets["passphrase"] = "fixture-passphrase"
 
         let refused = form.prepareAdd()
@@ -524,44 +669,12 @@ struct CuesTests {
         #expect(form.refusal(for: "passphrase") == ProductStrings[.cuesSourceSecretUnstorable])
         #expect(ProductStrings[.cuesSourceSecretUnstorable] == "This version of the app cannot store this secret; update the app.")
 
-        var known = try Self.githubForm(try Self.form(golden, addingSecret: "secret"))
-        known.set(.text("gh-hooks"), for: "ref")
-        known.secrets["secret"] = "fixture-signing-secret"
+        var known = try Self.streamForm(golden)
+        known.secrets["secret"] = "fixture-secret"
         let preparing = known.prepareAdd()
         let prepared = try #require(preparing)
-        #expect(prepared.secrets == [CueTypedSecret(field: .secret, value: "fixture-signing-secret")])
+        #expect(prepared.secrets == [CueTypedSecret(field: .secret, value: "fixture-secret")])
         #expect(known.refusal == nil)
-    }
-
-    @Test("changing the kind asks for its own form, without the other kind's preset or check")
-    func kindChangeAsksAgain() throws {
-        var form = CueSourceFormState()
-        form.take(try Self.golden("cues_sources_form"), answering: form.request)
-        form.choose(preset: "github")
-        form.set(.text("standard_webhooks"), for: "verify")
-        #expect(form.request == ManagementCueFormRequest(preset: "github", verify: "standard_webhooks"))
-
-        form.choose(kind: "local_push")
-        #expect(form.request == ManagementCueFormRequest(kind: "local_push"))
-        #expect(form.kindPresets.isEmpty)
-    }
-
-    @Test("the sheet opens on the first kind with its first preset, and a kind chosen brings its own")
-    func formOpensOnAPreset() throws {
-        var form = CueSourceFormState()
-        form.take(try Self.golden("cues_sources_form"), answering: form.request)
-        #expect(form.kind == "feed" && form.preset == "rss", "a feed opens on RSS, which fills the interval")
-        #expect(form.request == ManagementCueFormRequest(preset: "rss"))
-
-        form.choose(kind: "webhook")
-        #expect(form.preset == "github")
-        form.choose(kind: "local_push")
-        #expect(form.preset == nil, "local push has no preset")
-        #expect(form.request == ManagementCueFormRequest(kind: "local_push"))
-
-        form.choose(kind: "stream")
-        #expect(form.preset == nil && form.kindPresets.isEmpty, "a stream has no preset, so no preset menu")
-        #expect(form.request == ManagementCueFormRequest(kind: "stream"))
     }
 
     // A stream is the general WebSocket source: its field rows explain
@@ -570,17 +683,14 @@ struct CuesTests {
     // own row key once the source exists.
     @Test("a stream's form shows each field's example, asks for its secrets after the address and stores them key first")
     func webSocketStreamForm() throws {
-        let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form_stream")
-        var form = CueSourceFormState()
-        form.take(golden, answering: form.request)
-        form.choose(kind: "stream")
+        var form = try Self.streamForm(try Self.golden("cues_sources_form_stream"))
         #expect(form.request == ManagementCueFormRequest(kind: "stream"))
-        form.take(golden, answering: form.request)
 
         #expect(form.rows.allSatisfy { $0.footer == nil })
         #expect(form.rows.contains { $0.key == "url" && $0.info?.isEmpty == false })
         #expect(Array(form.rows.map(\.key).prefix(4)) == ["ref", "url", "key", "secret"])
         #expect(form.rows.filter { $0.kind == .secret }.map(\.key) == ["key", "secret"])
+        #expect(DescriptorRowFold(form.rows).open.map(\.key) == ["url", "key", "secret", "subscribe_message", "id_path"])
 
         let url = try #require(form.rows.first { $0.key == "url" })
         #expect(DescriptorRowModel(row: url, value: form.value(of: url)).control == .text(value: "", prompt: "wss://news.example.com/stream"))
@@ -588,31 +698,25 @@ struct CuesTests {
         #expect(DescriptorRowModel(row: kept, value: form.value(of: kept)).control == .list(items: [], prompt: "news"))
         #expect(form.rows.filter { $0.kind == .secret || $0.kind == .number }.allSatisfy { $0.example == nil })
 
-        form.set(.text("alpaca-news"), for: "ref")
         form.secrets["key"] = "fixture-key"
         form.secrets["secret"] = "fixture-secret"
         let preparing = form.prepareAdd()
         let prepared = try #require(preparing)
-        #expect(prepared.spec.kind == "stream" && prepared.spec.preset == nil)
+        #expect(prepared.spec.kind == "stream" && prepared.spec.preset == nil && prepared.spec.ref == nil)
         #expect(prepared.secrets == [
             CueTypedSecret(field: .key, value: "fixture-key"),
             CueTypedSecret(field: .secret, value: "fixture-secret")
         ])
     }
 
-    @Test("what adding a source means and the daemon's notes are one explanation behind the kind's info")
+    @Test("what adding a source means and the daemon's notes are one explanation behind the choice's info")
     func formAboutJoinsConsentAndNotes() throws {
         let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
-        var form = CueSourceFormState()
-        #expect(form.about == nil, "nothing to explain before the daemon answers")
+        #expect(CueSourceFormState().about == nil, "nothing to explain before the daemon answers")
 
-        form.take(golden, answering: form.request)
-        form.choose(kind: "webhook")
-        #expect(form.request == ManagementCueFormRequest(preset: "github"), "the golden answers GitHub's form")
-        form.take(golden, answering: form.request)
+        let form = try Self.githubForm(golden)
         let about = try #require(form.about)
-        let consent = try #require(golden.consentSentence)
-        #expect(about.hasPrefix(consent), "the consent line leads")
+        #expect(about.hasPrefix(golden.consentSentence), "the consent line leads")
         #expect(!golden.notes.isEmpty)
         for note in golden.notes { #expect(about.contains(note)) }
     }
@@ -620,21 +724,60 @@ struct CuesTests {
     @Test("an answer to a request the sheet has moved past draws no rows, so one choice's fields never show under another")
     func staleAnswerDrawsNoRows() throws {
         let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
-        var form = CueSourceFormState()
+        var form = try Self.answeredChoices()
 
-        // The first answer is for no choice yet; opening on RSS asks again.
-        form.take(golden, answering: form.request)
-        #expect(form.preset == "rss")
-        #expect(form.rows.isEmpty, "the no-preset rows are not drawn under RSS")
-        #expect(!form.kinds.isEmpty && !form.presets.isEmpty, "the choices are drawn at once")
-
+        form.choose(try Self.choice("github", in: form))
         let asked = form.request
-        form.choose(kind: "webhook")
+        form.backToChoices()
+        form.choose(try Self.choice("rss", in: form))
         form.take(golden, answering: asked)
-        #expect(form.rows.isEmpty, "an answer for RSS is not drawn under GitHub")
+        #expect(form.rows.isEmpty, "an answer for GitHub is not drawn under Website or blog")
 
+        form.backToChoices()
+        form.choose(try Self.choice("github", in: form))
         form.take(golden, answering: form.request)
         #expect(form.rows.first?.key == "ref", "the answer for the current choice draws its rows")
+    }
+
+    // MARK: - X accounts (simpler setup D4)
+
+    @Test("the X accounts form says whether X is signed in, and offers the plugin's page only while it asks for a sign-in")
+    func xAccountsRequirement() throws {
+        let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form_x_accounts")
+        var form = try Self.answeredChoices()
+        form.choose(try Self.choice("x_accounts", in: form))
+        form.take(golden, answering: form.request)
+
+        let needs = try #require(form.requirement)
+        #expect(needs.state == .needsSignIn && needs.plugin == "x")
+        #expect(needs.sentence == "Connect X to read these accounts.")
+        #expect(CueRequirementProjection.offersPlugin(needs))
+        #expect(CueTone.requirement(needs) == .warn)
+        #expect(DescriptorRowFold(form.rows).open.map(\.key) == ["handles"], "only the accounts are asked in the open")
+        #expect(form.spec != nil, "a sign-in still owed never stops the add")
+
+        let ready = try Self.requirement(state: "ready", sentence: "Signed in to X.")
+        #expect(!CueRequirementProjection.offersPlugin(ready))
+        #expect(CueTone.requirement(ready) == .pass)
+        let unknown = try Self.requirement(state: "needs_payment", sentence: "Something else.")
+        #expect(!CueRequirementProjection.offersPlugin(unknown), "a state this build does not know offers no button")
+    }
+
+    @Test("the plugin a requirement names opens on Integrations, once, where the catalogue lists it")
+    func requirementOpensThePluginPage() async throws {
+        let harness = try SettingsHarness(gateway: try Self.gateway())
+
+        harness.model.showPluginPage("notion")
+        #expect(harness.model.selectedPane == .integrations)
+        #expect(harness.model.takeAskedPluginPage() == nil, "nothing opens before the catalogue is read")
+
+        await harness.model.refreshPlugins()
+        #expect(harness.model.takeAskedPluginPage()?.name == "notion")
+        #expect(harness.model.takeAskedPluginPage() == nil, "it opens once")
+
+        harness.model.showPluginPage("x")
+        #expect(harness.model.takeAskedPluginPage() == nil, "a plugin the catalogue does not list leaves the pane as it is")
+        #expect(harness.model.askedPluginPage == nil)
     }
 
     @Test("a form request superseded while it rests asks nothing, and one that rests asks once")
@@ -653,20 +796,40 @@ struct CuesTests {
         #expect(gateway.cueFormRequests == [request])
     }
 
-    @Test("the add calls cues.sources.add, then one secret.set per typed secret, then reads the list")
+    @Test("the sheet's first asks go at once, and a change once its fields show rests first")
+    func firstFormAskDoesNotWait() async throws {
+        let gateway = try Self.gateway()
+        let sleeper = RecordingSleeper()
+        let model = SettingsFixture.model(gateway: gateway, sleeper: sleeper)
+        let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
+
+        let opening = CueSourceFormState()
+        #expect(opening.askPause == 0)
+        _ = await model.cueSourceForm(opening.request, pause: opening.askPause)
+        #expect(sleeper.sleeps.isEmpty, "opening the sheet asks at once, so it opens on its fields")
+
+        let shown = try Self.githubForm(golden)
+        #expect(shown.askPause == CuesSheetMetrics.formPause, "a check changed on GitHub's fields rests first")
+        _ = await model.cueSourceForm(shown.request, pause: shown.askPause)
+        #expect(sleeper.sleeps == [CuesSheetMetrics.formPause], "a change once the fields show rests first")
+        #expect(gateway.cueFormRequests == [opening.request, shown.request])
+    }
+
+    @Test("the add calls cues.sources.add, then one secret.set per typed secret under the name it answered, then reads the list")
     func addThenStore() async throws {
         let gateway = try Self.gateway()
         let harness = try SettingsHarness(gateway: gateway)
-        let spec = ManagementCueSourceSpec(ref: "gh-hooks", choice: .preset("github"), values: [:])
+        let spec = ManagementCueSourceSpec(ref: nil, choice: .kind("webhook"), values: [:])
 
         let outcome = await harness.model.addCueSource(
             spec,
             secrets: [CueTypedSecret(field: .secret, value: "fixture-signing-secret")]
         )
 
-        #expect(outcome == .added(ref: "gh-hooks", token: nil, unstored: nil))
+        let added: ManagementCueSourceAdded = try Self.golden("cues_sources_add_webhook")
+        #expect(outcome == .added(ref: "github", token: nil, secret: added.secret, unstored: nil))
         #expect(gateway.cueSpecs == [spec])
-        #expect(gateway.storedSecrets.map(\.id) == ["cue_source:gh-hooks:secret"])
+        #expect(gateway.storedSecrets.map(\.id) == ["cue_source:github:secret"], "stored under the name in force, never the one sent")
         let order = gateway.calls.filter { [.v2(.cuesSourcesAdd), .v2(.secretSet), .v2(.cuesSourcesList)].contains($0) }
         #expect(Array(order.prefix(2)) == [.v2(.cuesSourcesAdd), .v2(.secretSet)])
         #expect(order.contains(.v2(.cuesSourcesList)))
@@ -678,18 +841,18 @@ struct CuesTests {
         let gateway = try Self.gateway()
         gateway.v2Failures[.secretSet] = try ManagementRefusal.published("invalid_params_cue_source_token")
         let harness = try SettingsHarness(gateway: gateway)
-        let spec = ManagementCueSourceSpec(ref: "gh-hooks", choice: .preset("github"), values: [:])
+        let spec = ManagementCueSourceSpec(ref: "gh-hooks", choice: .kind("webhook"), values: [:])
 
         let outcome = await harness.model.addCueSource(
             spec,
             secrets: [CueTypedSecret(field: .secret, value: "fixture-signing-secret")]
         )
 
-        guard case .added(let ref, nil, let unstored?) = outcome else {
+        guard case .added(let ref, nil, _, let unstored?) = outcome else {
             Issue.record("the source exists and its secret is unstored: \(outcome)")
             return
         }
-        #expect(ref == "gh-hooks")
+        #expect(ref == "github", "the name the daemon answered")
         #expect(unstored.field == "secret")
         #expect(!unstored.sentence.isEmpty)
         #expect(gateway.calls.last { $0 == .v2(.cuesSourcesList) } != nil, "the list is read again, as the daemon reports it")
@@ -697,7 +860,7 @@ struct CuesTests {
 
         var sheet = CuesSheetState(page: .addSource)
         sheet.added(outcome)
-        #expect(sheet.page == .source("gh-hooks", at: .secret))
+        #expect(sheet.page == .source("github", at: .secret))
         #expect(sheet.unstored == unstored)
     }
 
@@ -721,7 +884,7 @@ struct CuesTests {
         let added: ManagementCueSourceAdded = try Self.golden("cues_sources_add_webhook")
         var sheet = CuesSheetState(page: .addSource)
 
-        sheet.added(.added(ref: added.source.ref, token: nil, unstored: nil))
+        sheet.added(.added(ref: added.source.ref, token: nil, secret: nil, unstored: nil))
 
         #expect(sheet.page == .source("github", at: nil), "the name Fermix made for it")
         #expect(!added.source.hasURL, "no address is made by the add itself")
@@ -743,12 +906,39 @@ struct CuesTests {
         sheet.added(outcome)
         #expect(sheet.page == .source("home-alerts", at: nil))
         #expect(sheet.token?.ref == "home-alerts")
+        #expect(sheet.token?.field == .token)
         #expect(sheet.token?.value.isEmpty == false)
 
         sheet.turn(to: .editSource("home-alerts"))
         #expect(sheet.token == nil, "the token leaves the view when the page changes")
 
         sheet.turn(to: .source("home-alerts", at: nil))
+        #expect(sheet.token == nil, "and no page shows it again")
+    }
+
+    @Test("GitHub's made secret shows once on its page with the form's notes, is never stored by the app, and leaves when the page turns")
+    func githubSecretLeavesWithItsPage() async throws {
+        let gateway = try Self.gateway()
+        let harness = try SettingsHarness(gateway: gateway)
+        let form = try Self.githubForm(try Self.golden("cues_sources_form"))
+        let prepared = try #require(form.spec)
+
+        let outcome = await harness.model.addCueSource(prepared, secrets: form.typedSecrets)
+        let made = try #require((try Self.golden("cues_sources_add_webhook") as ManagementCueSourceAdded).secret)
+        #expect(outcome == .added(ref: "github", token: nil, secret: made, unstored: nil))
+        #expect(gateway.storedSecrets.isEmpty, "Fermix stored the secret it made; the app writes it nowhere")
+
+        var sheet = CuesSheetState(page: .addSource)
+        sheet.added(outcome, notes: form.notes)
+        #expect(sheet.page == .source("github", at: nil))
+        #expect(sheet.token == CueHandedToken(ref: "github", field: .secret, value: made, notes: form.notes))
+        #expect(form.notes.count == 4, "the tunnel note, then GitHub's three steps")
+        #expect(form.notes.allSatisfy { !$0.contains("`") }, "plain text, drawn as it is")
+        #expect(sheet.token?.notes.last == "Choose application/json as the content type.", "GitHub's own steps, in the daemon's words")
+
+        sheet.turn(to: .editSource("github"))
+        #expect(sheet.token == nil, "the secret leaves the view when the page changes")
+        sheet.turn(to: .source("github", at: nil))
         #expect(sheet.token == nil, "and no page shows it again")
     }
 
@@ -777,12 +967,13 @@ struct CuesTests {
         for file in files {
             for line in file.text.split(separator: "\n") where line.contains("log.") || line.contains("print(") {
                 #expect(!line.lowercased().contains("token"), "\(file.path) logs a token: \(line)")
+                #expect(!line.lowercased().contains("secret"), "\(file.path) logs a secret: \(line)")
             }
         }
 
         let block = try #require(files.first { $0.path.hasSuffix("CuesSourceSheet.swift") })
         let body = try #require(block.text.components(separatedBy: "struct CueTokenBlock").last)
-        #expect(body.contains(".accessibilityLabel(String(format: ProductStrings[.cuesSourceTokenAccessibilityFormat]"))
+        #expect(body.contains(".accessibilityLabel(String(format: ProductStrings[accessibilityFormat], token.ref))"))
         #expect(!body.contains(".accessibilityValue("))
         #expect(body.contains("Clipboard") == false && body.contains("copied.copy(token.value, on: .system)"))
         #expect(body.contains(".onDisappear { copied.takeBack(on: .system) }"))
@@ -923,15 +1114,30 @@ struct CuesTests {
     @Test("the pane's deck matches the design's copy table")
     func copyDeck() {
         #expect(ProductStrings[.settingsPaneCues] == "Cues")
-        #expect(ProductStrings[.cuesSubtitle] == "Outside items that can wake a task: feeds, streams, webhooks and your scripts.")
+        #expect(
+            ProductStrings[.cuesSubtitle]
+                == "Fermix can watch blogs, X accounts, GitHub and your scripts, and wake a task when something matters."
+        )
+        #expect(ProductStrings[.cuesFirstRunTitle] == "Nothing is watched yet")
+        #expect(ProductStrings[.cuesFirstRunSource] == "Add something to watch: a blog, X accounts, GitHub or your scripts.")
+        #expect(ProductStrings[.cuesFirstRunWatcher] == "In chat, tell Fermix what to look for. It makes a watcher.")
+        #expect(ProductStrings[.cuesFirstRunTask] == "When something matches, your task runs, and asks you before it acts.")
+        #expect(ProductStrings[.cuesFirstRunAdd] == "Add a source")
+        #expect(ProductStrings[.cuesJudgingTitle] == "How watchers judge items")
+        #expect(ProductStrings[.cuesSourceAddTitle] == "What should Fermix watch?")
+        #expect(ProductStrings[.cuesSourceSomethingElse] == "Something else")
+        #expect(ProductStrings[.cuesBack] == "Back")
+        #expect(ProductStrings[.cuesSourceOpenPlugin] == "Open plugin")
+        #expect(ProductStrings[.cuesSourceCopySecret] == "Copy secret")
+        #expect(ProductStrings[.cuesSourceSecretAccessibilityFormat] == "Secret for %@, shown once")
+        #expect(ProductStrings[.cuesWatcherListenFor] == "Keywords", "the engine calls a watcher's words keywords")
         #expect(ProductStrings[.cuesWaitingTitle] == "Waiting for you")
         #expect(ProductStrings[.cuesWaitingShowInChat] == "Show in chat")
-        #expect(ProductStrings[.cuesSourcesEmpty] == "No sources yet.")
         #expect(ProductStrings[.cuesLearnMore] == "Learn more")
         #expect(ProductStrings[.cuesSourceNewTokenConfirm] == "Make a new token for %@? The old one stops working within a minute.")
         #expect(ProductStrings[.cuesSourceTokenOnce] == "Copy it now. Fermix shows it only once.")
         #expect(ProductStrings[.cuesSourceRemoveConfirm] == "Remove %@? Its stored secrets are deleted.")
-        #expect(ProductStrings[.cuesWatchersEmpty] == "No watchers yet.")
+        #expect(ProductStrings[.cuesWatchersEmpty] == "No watchers yet. Ask Fermix in chat to watch for something.")
         #expect(ProductStrings[.cuesWatchersFooter] == "Watchers are made and changed in chat.")
         #expect(ProductStrings[.cuesMandatesEmpty] == "No mandates. Without one, a task only reports to you.")
         #expect(ProductStrings[.cuesMandateModeApprove] == "Ask me first")
@@ -973,8 +1179,14 @@ struct CuesTests {
 
         let push = try await ask(.cuesSourcesAdd, ["ref": "home-alerts", "kind": "local_push", "values": [String: Any]()])
         #expect(push?["token"] as? String != nil)
-        let webhook = try await ask(.cuesSourcesAdd, ["ref": "gh-hooks", "preset": "github", "values": [String: Any]()])
-        #expect(webhook?["secret"] as? String != nil, "Fermix makes a GitHub source's secret")
+        let webhook = try await ask(.cuesSourcesAdd, ["preset": "github", "values": [String: Any]()])
+        #expect((webhook?["source"] as? [String: Any])?["ref"] as? String == "github")
+        #expect(webhook?["secret"] as? String != nil, "a GitHub source's made secret")
+
+        let accounts = try await ask(.cuesSourcesForm, ["preset": "x_accounts"])
+        #expect((accounts?["requirement"] as? [String: Any])?["state"] as? String == "needs_sign_in")
+        let github = try await ask(.cuesSourcesForm, ["preset": "github"])
+        #expect(github?["requirement"] is NSNull, "every other form answers its own golden")
 
         let card = try await ask(.cuesProposalsGet, ["proposal_id": "cpr_9f2c41d07a5e6b38c1d2e4f0"])
         #expect((card?["proposal"] as? [String: Any])?["state"] as? String == "waiting")
@@ -993,15 +1205,57 @@ struct CuesTests {
         return gateway
     }
 
-    /// The add form as the sheet has it once the golden form, GitHub's,
-    /// answers the GitHub request: opened, Webhook chosen, then answered.
-    static func githubForm(_ answer: ManagementCueSourceForm) throws -> CueSourceFormState {
+    /// The add form on step one, the daemon's choices drawn.
+    static func answeredChoices() throws -> CueSourceFormState {
         var form = CueSourceFormState()
-        form.take(answer, answering: form.request)
-        form.choose(kind: "webhook")
+        form.take(try golden("cues_sources_form"), answering: form.request)
+        return form
+    }
+
+    static func choice(_ id: String, in form: CueSourceFormState) throws -> ManagementCueSourceForm.Choice {
+        try #require(form.choices?.first { $0.id == id })
+    }
+
+    /// The add form as the sheet has it once the golden form, GitHub's,
+    /// answers the GitHub choice.
+    static func githubForm(_ answer: ManagementCueSourceForm) throws -> CueSourceFormState {
+        var form = try answeredChoices()
+        form.choose(try choice("github", in: form))
         #expect(form.request == ManagementCueFormRequest(preset: "github"))
         form.take(answer, answering: form.request)
         return form
+    }
+
+    /// The add form once the Live stream choice is answered.
+    static func streamForm(_ answer: ManagementCueSourceForm) throws -> CueSourceFormState {
+        var form = try answeredChoices()
+        form.choose(try choice("stream", in: form))
+        form.take(answer, answering: form.request)
+        return form
+    }
+
+    /// A webhook source waiting for its signing secret, as one of any
+    /// service still does: GitHub's own never waits, Fermix makes its secret.
+    static func waitingWebhook() throws -> ManagementCueSource {
+        try edited("cues_sources_add_webhook", path: { $0["source"] as? [String: Any] }) { row in
+            row["ref"] = "gh-hooks"
+            row["state"] = "needs_secret"
+            row["primary_action"] = "set_secret"
+            row["missing_secret"] = "secret"
+            row["actions"] = ["disable", "set_secret", "get_url"]
+            row["secrets"] = [
+                ["field": "secret", "label": "Signing secret", "present": false],
+                ["field": "path_secret", "label": "Address", "present": false]
+            ]
+        }
+    }
+
+    /// The X accounts requirement in another state.
+    static func requirement(state: String, sentence: String) throws -> ManagementCueSourceForm.Requirement {
+        try edited("cues_sources_form_x_accounts", path: { $0["requirement"] as? [String: Any] }) { requirement in
+            requirement["state"] = state
+            requirement["sentence"] = sentence
+        }
     }
 
     static func harness() throws -> SettingsHarness {
@@ -1025,23 +1279,34 @@ struct CuesTests {
         try edited("cues_status", path: { $0 }, edit: edit)
     }
 
-    /// The golden form with its secret row under another key.
-    /// The golden webhook form with a secret row added under `key`, as a
-    /// webhook's form for any service carries one: GitHub's own asks for no
-    /// secret, since Fermix makes it, so these cases add the row to prove the
-    /// form's handling of a typed secret.
-    static func form(_ golden: ManagementCueSourceForm, addingSecret key: String) throws -> ManagementCueSourceForm {
-        let fixture = try #require(try ManagementFixtures.load(.success, from: .management).first { $0.name == "cues_sources_form" })
+    /// A watcher list with no watcher in it.
+    static func noWatchers() throws -> ManagementCueWatcherList {
+        let empty: [String: Any] = ["watchers": [Any](), "window_s": 86_400, "truncated": false]
+
+        return try JSONDecoder().decode(ManagementCueWatcherList.self, from: try JSONSerialization.data(withJSONObject: empty))
+    }
+
+    /// The golden `cues` section's rows, with the Screen row it publishes
+    /// just before the filter model, or as an engine from before the Screen
+    /// publishes them, without it.
+    static func cueSettingRows(withScreen: Bool) throws -> [ManagementSettingRow] {
+        let fixture = try #require(try ManagementFixtures.load(.success, from: .management).first { $0.name == "settings_get_cues" })
+        let result = try #require(try fixture.object("response")["result"] as? [String: Any])
+        let rows = try #require(result["rows"] as? [[String: Any]])
+        #expect(rows.contains { $0["key"] as? String == "cues_screen_provider" }, "the golden publishes the Screen")
+        let published = withScreen ? rows : rows.filter { $0["key"] as? String != "cues_screen_provider" }
+
+        return try JSONDecoder().decode([ManagementSettingRow].self, from: try JSONSerialization.data(withJSONObject: published))
+    }
+
+    /// The golden stream form with its `secret` row under another key.
+    static func form(_ golden: ManagementCueSourceForm, renamingSecretTo key: String) throws -> ManagementCueSourceForm {
+        let fixture = try #require(try ManagementFixtures.load(.success, from: .management).first { $0.name == "cues_sources_form_stream" })
         var result = try #require(try fixture.object("response")["result"] as? [String: Any])
         var rows = try #require(result["rows"] as? [[String: Any]])
-        var secret = try #require(rows.first)
-        secret["key"] = key
-        secret["kind"] = "secret"
-        secret["label"] = "Signing secret"
-        secret["info"] = NSNull()
-        secret["present"] = false
-        secret["value"] = NSNull()
-        rows.append(secret)
+        for index in rows.indices where rows[index]["key"] as? String == "secret" {
+            rows[index]["key"] = key
+        }
         result["rows"] = rows
 
         return try JSONDecoder().decode(ManagementCueSourceForm.self, from: try JSONSerialization.data(withJSONObject: result))

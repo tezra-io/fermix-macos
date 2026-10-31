@@ -476,6 +476,7 @@ extension FakeDaemonGateway {
     }
 
     func cueSources() async throws -> ManagementCueSourceList {
+        if let cueSourcesGate { await cueSourcesGate() }
         let published: ManagementCueSourceList = try answer(.cuesSourcesList, "cues_sources_list")
 
         return cueSourcesResult ?? published

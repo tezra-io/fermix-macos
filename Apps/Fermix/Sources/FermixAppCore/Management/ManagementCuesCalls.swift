@@ -29,17 +29,18 @@ public enum ManagementCueSourceChoice: Equatable, Sendable {
     case preset(String)
 }
 
-/// `cues.sources.add`: the name, the kind or the preset, and the values the
-/// owner set. A secret is never among them: each one is its own
-/// `secret.set`, once the source exists.
+/// `cues.sources.add`: the name where the owner gave one, the kind or the
+/// preset, and the values the owner set. With no name, Fermix makes one and
+/// the answer's row carries it. A secret is never among them: each one is
+/// its own `secret.set`, once the source exists.
 public struct ManagementCueSourceSpec: Encodable, Equatable, Sendable {
-    public let ref: String
+    public let ref: String?
     public let kind: String?
     public let preset: String?
     public let values: [String: ManagementCueValue]
 
-    public init(ref: String, choice: ManagementCueSourceChoice, values: [String: ManagementCueValue]) {
-        precondition(!ref.isEmpty, "a source is added by name")
+    public init(ref: String?, choice: ManagementCueSourceChoice, values: [String: ManagementCueValue]) {
+        precondition(ref?.isEmpty != true, "an empty name is never sent; Fermix names a source left unnamed")
         self.ref = ref
         self.values = values
         switch choice {
@@ -127,8 +128,9 @@ extension ManagementClient {
         try await send(.cuesSourcesForm, params: request, as: ManagementCueSourceForm.self)
     }
 
+    /// A name is checked only where one is sent: with none, Fermix makes it.
     public func addCueSource(_ spec: ManagementCueSourceSpec) async throws -> ManagementCueSourceAdded {
-        _ = try requireText(spec.ref, field: "ref")
+        if let ref = spec.ref { _ = try requireText(ref, field: "ref") }
 
         return try await send(.cuesSourcesAdd, params: spec, as: ManagementCueSourceAdded.self)
     }
