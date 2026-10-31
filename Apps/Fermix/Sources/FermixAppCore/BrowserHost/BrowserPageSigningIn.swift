@@ -31,7 +31,8 @@ public struct BrowserSignInRequest: Equatable, Sendable {
 public struct BrowserSignInOutcome: Equatable, Sendable {
     public var filled: [BrowserLoginField]
     public var effect: BrowserPageEffect
-    /// The page's address once it settled.
+    /// The address of the document the page shows once the fill was done,
+    /// and its look, if any, was over, as `BrowserActOutcome.url` reads it.
     public var url: String
 
     public init(filled: [BrowserLoginField], effect: BrowserPageEffect, url: String) {
@@ -137,12 +138,14 @@ public protocol BrowserPageSigningIn: AnyObject {
     func loginFor(site: String, store: any LoginStore) async throws -> SavedLogin
 
     /// `page.sign_in`: the checks again, the password read only for a
-    /// `passwordRef`, the ledger told before the page has it, then one fill.
+    /// `passwordRef`, the ledger told before the page has it, then one fill,
+    /// looked at after as an act is (`BrowserPageActing`): a nil `look`
+    /// answers as soon as the fill is done.
     func signIn(
         _ request: BrowserSignInRequest,
         store: any LoginStore,
         ledger: LoginLedger,
-        observing observation: BrowserSnapshotRequest
+        observing look: BrowserSnapshotRequest?
     ) async throws -> BrowserSignInOutcome
 
     /// Throws `secretOnScreen` when a value the ledger fingerprints shows as

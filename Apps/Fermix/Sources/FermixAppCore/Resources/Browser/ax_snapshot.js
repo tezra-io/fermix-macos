@@ -846,9 +846,12 @@
     // call that reaches this file (`WebKitPageScript.text`) does the whole
     // answer's JSON.stringify itself, once, so a second one here would hand
     // the app a string where it expects the object.
+    // `readyState` is read here, with the tree, so a page read before it
+    // finished loading says so in the same answer.
     return {
       title: document.title,
       url: location.href,
+      readyState: document.readyState,
       nodes: walk.nodes,
       elements: walk.elements,
       crossOriginFrames: walk.crossOriginFrames,

@@ -60,10 +60,25 @@ public struct BrowserPageNode: Codable, Equatable, Sendable {
     }
 }
 
+/// How far a document has loaded: `document.readyState`, in the words the
+/// wire's `ready_state` takes.
+public enum BrowserReadyState: String, Equatable, Sendable, Decodable {
+    case loading
+    case interactive
+    case complete
+}
+
 /// A page as one snapshot read it.
 public struct BrowserPageSnapshot: Equatable, Sendable {
     public var title: String
     public var url: String
+    /// `document.readyState` as the snapshot read the page: a look whose
+    /// budget ran out reads a page still loading as it stands.
+    public var readyState: BrowserReadyState
+    /// Whether WebKit had a navigation in flight in the tab when the page was
+    /// read, taken beside the script's answer rather than when the answer is
+    /// sent, by which time that navigation may have replaced the document.
+    public var tabLoading: Bool
     /// The tree, root first: node 0 is the document.
     public var nodes: [BrowserPageNode]
     /// The elements the walk visited, hidden subtrees left out.
@@ -80,6 +95,8 @@ public struct BrowserPageSnapshot: Equatable, Sendable {
     public init(
         title: String,
         url: String,
+        readyState: BrowserReadyState,
+        tabLoading: Bool,
         nodes: [BrowserPageNode],
         elements: Int,
         crossOriginFrames: Int,
@@ -88,6 +105,8 @@ public struct BrowserPageSnapshot: Equatable, Sendable {
     ) {
         self.title = title
         self.url = url
+        self.readyState = readyState
+        self.tabLoading = tabLoading
         self.nodes = nodes
         self.elements = elements
         self.crossOriginFrames = crossOriginFrames
@@ -97,7 +116,8 @@ public struct BrowserPageSnapshot: Equatable, Sendable {
 
     /// The page script's answer, read and checked: the root comes first, ids
     /// are the nodes' own positions, and every child id names a node.
-    public static func decode(_ json: Data, evaluateMilliseconds: Double) throws -> BrowserPageSnapshot {
+    /// `tabLoading` is whether WebKit had a navigation in flight as it answered.
+    public static func decode(_ json: Data, tabLoading: Bool, evaluateMilliseconds: Double) throws -> BrowserPageSnapshot {
         let answer: Answer
         do {
             answer = try JSONDecoder().decode(Answer.self, from: json)
@@ -109,6 +129,8 @@ public struct BrowserPageSnapshot: Equatable, Sendable {
         return BrowserPageSnapshot(
             title: answer.title,
             url: answer.url,
+            readyState: answer.readyState,
+            tabLoading: tabLoading,
             nodes: answer.nodes,
             elements: answer.elements,
             crossOriginFrames: answer.crossOriginFrames,
@@ -117,9 +139,18 @@ public struct BrowserPageSnapshot: Equatable, Sendable {
         )
     }
 
+    /// The `ready_state` the wire reports for this read: the document's own,
+    /// except that a complete document read while the tab was still loading
+    /// is the one a navigation in flight had not yet replaced, so the tab was
+    /// still `loading`.
+    public var reportedReadyState: BrowserReadyState {
+        tabLoading && readyState == .complete ? .loading : readyState
+    }
+
     private struct Answer: Decodable {
         let title: String
         let url: String
+        let readyState: BrowserReadyState
         let nodes: [BrowserPageNode]
         let elements: Int
         let crossOriginFrames: Int
@@ -142,20 +173,25 @@ public struct BrowserPageSnapshot: Equatable, Sendable {
 }
 
 /// What an action is judged by: where the page is, what it is called, how many
-/// elements it has, and which one holds the focus.
+/// elements it has, how much text its body holds, and which element holds the
+/// focus.
 public struct BrowserPageFingerprint: Decodable, Equatable, Sendable {
     public var url: String
     public var title: String
     public var elements: Int
+    /// The length of the body's `textContent`, so a page whose words change
+    /// and whose elements do not has still moved.
+    public var text: Int
     /// The page script's key for the focused element, 0 for none.
     public var focus: Int
     /// `document.readyState`.
     public var ready: String
 
-    public init(url: String, title: String, elements: Int, focus: Int, ready: String) {
+    public init(url: String, title: String, elements: Int, text: Int, focus: Int, ready: String) {
         self.url = url
         self.title = title
         self.elements = elements
+        self.text = text
         self.focus = focus
         self.ready = ready
     }
@@ -163,7 +199,8 @@ public struct BrowserPageFingerprint: Decodable, Equatable, Sendable {
     /// Two looks show the same page. The ready state is how far the page has
     /// loaded, not what it is, so it takes no part.
     public func isSamePage(as other: BrowserPageFingerprint) -> Bool {
-        url == other.url && title == other.title && elements == other.elements && focus == other.focus
+        url == other.url && title == other.title && elements == other.elements && text == other.text
+            && focus == other.focus
     }
 }
 

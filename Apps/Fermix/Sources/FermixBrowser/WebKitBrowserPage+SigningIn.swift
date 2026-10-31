@@ -20,12 +20,12 @@ extension WebKitBrowserPage: BrowserPageSigningIn {
         _ request: BrowserSignInRequest,
         store: any LoginStore,
         ledger: LoginLedger,
-        observing observation: BrowserSnapshotRequest
+        observing look: BrowserSnapshotRequest?
     ) async throws -> BrowserSignInOutcome {
         let origin = signInOrigin
         signInOrigin = nil
         return try await pageActions()
-            .signIn(request, expectedOrigin: origin, store: store, ledger: ledger, observing: observation)
+            .signIn(request, expectedOrigin: origin, store: store, ledger: ledger, observing: look)
     }
 
     func refuseShownSecrets(_ fingerprints: [BrowserSecretFingerprint]) async throws {

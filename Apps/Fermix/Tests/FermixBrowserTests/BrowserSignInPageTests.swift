@@ -9,8 +9,6 @@ import Testing
 @MainActor
 @Suite("Browser sign-in on a page", .serialized)
 struct BrowserSignInPageTests {
-    private static let observation = BrowserSnapshotRequest(mode: .interactive, maxChars: 1, depth: 1)
-
     // MARK: - The fill
 
     @Test("a matching sign-in types both fields and answers which ones, never a value")
@@ -24,12 +22,13 @@ struct BrowserSignInPageTests {
         let login = try await harness.page.loginFor(site: SignInFixture.site, store: store)
         let outcome = try await harness.page.signIn(
             Self.request(username: refs["Email"], password: refs["Password"]),
-            store: store, ledger: ledger, observing: Self.observation
+            store: store, ledger: ledger, observing: nil
         )
 
         #expect(login.site == SignInFixture.site)
         #expect(login.username == SignInFixture.username)
         #expect(outcome.filled == [.username, .password])
+        #expect(outcome.effect == .unobserved, "a sign-in the engine does not look after takes no look")
         #expect(try await harness.pageString("document.getElementById('username').value") == SignInFixture.username)
         #expect(try await harness.pageString("document.getElementById('password').value") == SignInFixture.password)
         #expect(ledger.holds(LoginSecret(SignInFixture.password)))
@@ -65,7 +64,7 @@ struct BrowserSignInPageTests {
         _ = try await harness.page.loginFor(site: SignInFixture.site, store: store)
         let outcome = try await harness.page.signIn(
             Self.request(username: refs["Email"], password: nil),
-            store: store, ledger: ledger, observing: Self.observation
+            store: store, ledger: ledger, observing: nil
         )
 
         #expect(outcome.filled == [.username])
@@ -102,7 +101,7 @@ struct BrowserSignInPageTests {
                 site: "gist.github.com", loginSite: login.site,
                 usernameRef: refs["Email"], passwordRef: refs["Password"]
             ),
-            store: store, ledger: ledger, observing: Self.observation
+            store: store, ledger: ledger, observing: nil
         )
 
         #expect(login.site == SignInFixture.site)
@@ -157,7 +156,7 @@ struct BrowserSignInPageTests {
         await #expect(throws: BrowserLoginRefusal.pageMoved(.origin)) {
             _ = try await harness.page.signIn(
                 Self.request(username: refs["Email"], password: refs["Password"]),
-                store: store, ledger: LoginLedger(), observing: Self.observation
+                store: store, ledger: LoginLedger(), observing: nil
             )
         }
         #expect(await store.passwordReads == 0)
@@ -177,7 +176,7 @@ struct BrowserSignInPageTests {
         await #expect(throws: BrowserLoginRefusal.wrongSite(site: SignInFixture.site)) {
             _ = try await harness.page.signIn(
                 Self.request(username: refs["Email"], password: refs["Password"]),
-                store: store, ledger: LoginLedger(), observing: Self.observation
+                store: store, ledger: LoginLedger(), observing: nil
             )
         }
     }
@@ -191,12 +190,12 @@ struct BrowserSignInPageTests {
         let request = Self.request(username: refs["Email"], password: nil)
 
         await #expect(throws: BrowserLoginRefusal.pageMoved(.origin)) {
-            _ = try await harness.page.signIn(request, store: store, ledger: LoginLedger(), observing: Self.observation)
+            _ = try await harness.page.signIn(request, store: store, ledger: LoginLedger(), observing: nil)
         }
         _ = try await harness.page.loginFor(site: SignInFixture.site, store: store)
-        _ = try await harness.page.signIn(request, store: store, ledger: LoginLedger(), observing: Self.observation)
+        _ = try await harness.page.signIn(request, store: store, ledger: LoginLedger(), observing: nil)
         await #expect(throws: BrowserLoginRefusal.pageMoved(.origin)) {
-            _ = try await harness.page.signIn(request, store: store, ledger: LoginLedger(), observing: Self.observation)
+            _ = try await harness.page.signIn(request, store: store, ledger: LoginLedger(), observing: nil)
         }
     }
 
@@ -211,7 +210,7 @@ struct BrowserSignInPageTests {
         await #expect(throws: BrowserLoginRefusal.pageMoved(.login)) {
             _ = try await harness.page.signIn(
                 BrowserSignInRequest(site: SignInFixture.site, loginSite: "gitlab.com", usernameRef: refs["Email"], passwordRef: nil),
-                store: store, ledger: LoginLedger(), observing: Self.observation
+                store: store, ledger: LoginLedger(), observing: nil
             )
         }
     }
@@ -239,7 +238,7 @@ struct BrowserSignInPageTests {
         await #expect(throws: BrowserLoginRefusal.field(ref: passwordRef, .focus)) {
             _ = try await harness.page.signIn(
                 Self.request(username: refs["Email"], password: passwordRef),
-                store: store, ledger: LoginLedger(), observing: Self.observation
+                store: store, ledger: LoginLedger(), observing: nil
             )
         }
         #expect(try await harness.pageString("document.getElementById('username').value") == "")
@@ -258,13 +257,13 @@ struct BrowserSignInPageTests {
         _ = try await harness.page.loginFor(site: SignInFixture.site, store: store)
         await #expect(throws: BrowserLoginRefusal.field(ref: email, .notPassword)) {
             _ = try await harness.page.signIn(
-                Self.request(username: nil, password: email), store: store, ledger: LoginLedger(), observing: Self.observation
+                Self.request(username: nil, password: email), store: store, ledger: LoginLedger(), observing: nil
             )
         }
         _ = try await harness.page.loginFor(site: SignInFixture.site, store: store)
         await #expect(throws: BrowserLoginRefusal.field(ref: password, .notUsername)) {
             _ = try await harness.page.signIn(
-                Self.request(username: password, password: nil), store: store, ledger: LoginLedger(), observing: Self.observation
+                Self.request(username: password, password: nil), store: store, ledger: LoginLedger(), observing: nil
             )
         }
         #expect(try await harness.pageString("document.getElementById('username').value") == "")
@@ -323,7 +322,7 @@ struct BrowserSignInPageTests {
 
         await #expect(throws: BrowserPageDriveError.staleRef(passwordRef)) {
             _ = try await harness.page.signIn(
-                Self.request(username: nil, password: passwordRef), store: store, ledger: LoginLedger(), observing: Self.observation
+                Self.request(username: nil, password: passwordRef), store: store, ledger: LoginLedger(), observing: nil
             )
         }
     }

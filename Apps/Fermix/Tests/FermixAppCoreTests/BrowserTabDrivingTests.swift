@@ -31,7 +31,8 @@ struct BrowserTabDrivingTests {
     func snapshotForwards() async throws {
         let page = FakeDrivablePage()
         let expected = BrowserPageSnapshot(
-            title: "Example", url: "https://example.com", nodes: [BrowserPageNode(id: 0, role: "RootWebArea")],
+            title: "Example", url: "https://example.com", readyState: .complete, tabLoading: false,
+            nodes: [BrowserPageNode(id: 0, role: "RootWebArea")],
             elements: 3, crossOriginFrames: 0, closedShadowRoots: false, evaluateMilliseconds: 4
         )
         page.snapshotResult = .success(expected)
@@ -43,7 +44,7 @@ struct BrowserTabDrivingTests {
         #expect(page.snapshotRequests == [BrowserSnapshotRequest(mode: .full, maxChars: 8000, depth: 3)])
     }
 
-    @Test("an act forwards the action and the observing request to the driven page")
+    @Test("an act forwards the action and the look to the driven page")
     func actForwards() async throws {
         let page = FakeDrivablePage()
         let expected = BrowserActOutcome(effect: .unchanged, input: .trusted, url: "https://example.com", value: "hi")
@@ -55,7 +56,19 @@ struct BrowserTabDrivingTests {
 
         #expect(outcome == expected)
         #expect(page.actions == [.fill(ref: 3, text: "hi")])
-        #expect(page.snapshotRequests == [request])
+        #expect(page.actLooks == [.some(request)])
+    }
+
+    @Test("an act the engine does not look after reaches the page with no look, and the tab waits for nothing")
+    func actWithNoLook() async throws {
+        let page = FakeDrivablePage()
+        let tab = BrowserTab(profile: .shared, page: page)
+
+        _ = try await tab.act(.hover(ref: 3), observing: nil)
+
+        #expect(page.actLooks == [nil])
+        #expect(page.loadBudgets.isEmpty)
+        #expect(page.snapshotRequests.isEmpty)
     }
 
     @Test("a driven page's own refusal reaches the caller")
@@ -69,9 +82,9 @@ struct BrowserTabDrivingTests {
         }
     }
 
-    // MARK: - Waiting for the page to be ready
+    // MARK: - Waiting for a load
 
-    @Test("a page already loaded snapshots at once")
+    @Test("a page already loaded snapshots at once, after a wait bounded by the settle budget")
     func snapshotWhenAlreadyReady() async throws {
         let page = FakeDrivablePage()
         page.snapshotResult = .success(.empty)
@@ -79,11 +92,11 @@ struct BrowserTabDrivingTests {
 
         _ = try await tab.snapshot(mode: .interactive, maxChars: 4000, depth: 5)
 
-        #expect(page.readyWaits == 1, "the wait ran and answered at once")
+        #expect(page.loadBudgets == [BrowserPageSettle.settleBudget], "the wait ran, bounded, and answered at once")
         #expect(page.snapshotRequests.count == 1)
     }
 
-    @Test("a page still loading defers the snapshot until it finishes")
+    @Test("a page still loading defers the snapshot until the wait for its load answers")
     func snapshotWaitsForALoadInFlightToFinish() async throws {
         let page = FakeDrivablePage()
         page.readyGate = AsyncGate()
@@ -98,6 +111,22 @@ struct BrowserTabDrivingTests {
         _ = try await snapshot.value
 
         #expect(page.snapshotRequests.count == 1)
+    }
+
+    @Test("a load still in flight when the settle budget runs out is read as it stands, not refused")
+    func snapshotReadsALoadStillInFlightAtTheBudget() async throws {
+        let page = FakeDrivablePage()
+        page.loaded = false
+        var loading = BrowserPageSnapshot.empty
+        loading.readyState = .interactive
+        page.snapshotResult = .success(loading)
+        let tab = BrowserTab(profile: .shared, page: page)
+
+        let snapshot = try await tab.snapshot(mode: .interactive, maxChars: 4000, depth: 5)
+
+        #expect(page.loadBudgets == [BrowserPageSettle.settleBudget])
+        #expect(page.snapshotRequests.count == 1, "the page is read although its load never finished")
+        #expect(snapshot.readyState == .interactive)
     }
 
     @Test("a load that fails answers the error, and no snapshot is taken")
@@ -115,5 +144,17 @@ struct BrowserTabDrivingTests {
             _ = try await snapshot.value
         }
         #expect(page.snapshotRequests.isEmpty, "a page that never loaded is never read")
+    }
+
+    @Test("the look after a navigation is the page's own, with no wait of the tab's in front of it")
+    func navigationLookIsThePagesOwn() async throws {
+        let page = FakeDrivablePage()
+        let tab = BrowserTab(profile: .shared, page: page)
+
+        _ = try await tab.snapshotAfterNavigation(mode: .interactive, maxChars: 4000, depth: 5)
+
+        #expect(page.navigationLooks == [BrowserSnapshotRequest(mode: .interactive, maxChars: 4000, depth: 5)])
+        #expect(page.loadBudgets.isEmpty)
+        #expect(page.snapshotRequests.isEmpty)
     }
 }

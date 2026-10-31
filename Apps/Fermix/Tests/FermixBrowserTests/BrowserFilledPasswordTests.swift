@@ -11,7 +11,6 @@ import Testing
 @MainActor
 @Suite("Browser filled password", .serialized)
 struct BrowserFilledPasswordTests {
-    private static let observation = BrowserSnapshotRequest(mode: .interactive, maxChars: 1, depth: 1)
     private static let bullets = String(repeating: "•", count: SignInFixture.password.count)
 
     // MARK: - Reads
@@ -63,7 +62,7 @@ struct BrowserFilledPasswordTests {
         _ = try await harness.page.loginFor(site: SignInFixture.site, store: store)
         _ = try await harness.page.signIn(
             BrowserSignInTestRequest.both(username: fields[0], password: fields[1]),
-            store: store, ledger: LoginLedger(), observing: Self.observation
+            store: store, ledger: LoginLedger(), observing: nil
         )
         try await harness.pageWorld("document.getElementById('second').value = document.getElementById('password').value;")
 
@@ -302,7 +301,7 @@ struct BrowserFilledPasswordTests {
         _ = try await harness.page.loginFor(site: SignInFixture.site, store: store)
         _ = try await harness.page.signIn(
             BrowserSignInTestRequest.both(username: refs["Email"], password: refs["Password"]),
-            store: store, ledger: ledger, observing: observation
+            store: store, ledger: ledger, observing: nil
         )
         return (harness, refs, ledger)
     }

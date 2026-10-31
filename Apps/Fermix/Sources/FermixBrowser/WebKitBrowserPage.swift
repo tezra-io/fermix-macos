@@ -24,10 +24,24 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     /// `page.sign_in` must still find and consumes
     /// (`WebKitBrowserPage+SigningIn.swift` is the one reader and writer).
     var signInOrigin: String?
-    /// Every call parked in `waitUntilReady()` for the navigation in flight
-    /// when it was made; `didFinish` and `didFail` are what resolve them
-    /// (`WebKitBrowserPage+Driving.swift` is the one caller).
+    /// Every call parked in `waitForLoad(within:)` for the load in flight
+    /// when it was made; the ending of the last load resolves them
+    /// (`ended(_:_:)`; `WebKitBrowserPage+Driving.swift` is the one caller).
     var readyWaiters: [ReadyWaiter] = []
+    /// Every call parked in `waitForCommit(within:)` on `requested`, which
+    /// its commit or its ending resolves.
+    var commitWaiters: [ReadyWaiter] = []
+    /// The navigation the last `load` started, by the `WKNavigation` WebKit
+    /// returned for it, and how far it has got: the one the look after
+    /// `tab.open` or `tab.navigate` waits on to commit. WebKit keeps that
+    /// object through server redirects and gives every later navigation its
+    /// own, so nothing from before the load counts as its commit.
+    private(set) var requested: RequestedNavigation = .over(.success(()))
+    /// How many navigations WebKit has started in the page, counted at each
+    /// `didStartProvisionalNavigation`. `webView.isLoading` cannot tell a
+    /// navigation started since a look began from a load already in flight
+    /// before it; this count can (`WebKitPageActions`).
+    private(set) var navigationsStarted = 0
     /// The network rule a file page waits on before it loads anything; nil
     /// for every other page, which is what makes a page a file page.
     private let fileRules: WebKitFileRules?
@@ -65,7 +79,7 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
     var view: NSView { webView }
     private var showsFile: Bool { fileRules != nil }
 
-    func load(_ url: URL) { webView.load(URLRequest(url: url)) }
+    func load(_ url: URL) { follow(webView.load(URLRequest(url: url))) }
     func back() { webView.goBack() }
     func forward() { webView.goForward() }
     func stop() { webView.stopLoading() }
@@ -99,6 +113,16 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         }
 
         loadFile(shownFile.url, as: .text, readAccess: shownFile.readAccess)
+    }
+
+    /// Makes `navigation`, which a load this page asked for started, the
+    /// requested one. A wait parked on the one before carries over to it, as
+    /// a load replaced by a newer one leaves its waits to that one. nil is a
+    /// load WebKit did not start, which leaves nothing to wait on.
+    func follow(_ navigation: WKNavigation?) {
+        guard let navigation else { return settleRequested(.success(())) }
+
+        requested = .pending(navigation)
     }
 
     /// A file, once the network rule is in place and never before it.
@@ -197,15 +221,23 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         report()
     }
 
-    /// Every published property the tab shows, each reporting the whole state.
+    /// Every published property the tab shows, each reporting the whole
+    /// state; a change of `isLoading` is also where a requested navigation
+    /// WebKit drops without a word is found over.
     private func observe() {
         let report: (WKWebView) -> Void = { [weak self] _ in
             MainActor.assumeIsolated { self?.report() }
         }
+        let loadingChanged: (WKWebView) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkDroppedLater() }
+        }
         observations = [
             webView.observe(\.url) { view, _ in report(view) },
             webView.observe(\.title) { view, _ in report(view) },
-            webView.observe(\.isLoading) { view, _ in report(view) },
+            webView.observe(\.isLoading) { view, _ in
+                report(view)
+                loadingChanged(view)
+            },
             webView.observe(\.estimatedProgress) { view, _ in report(view) },
             webView.observe(\.canGoBack) { view, _ in report(view) },
             webView.observe(\.canGoForward) { view, _ in report(view) },
@@ -276,24 +308,65 @@ final class WebKitBrowserPage: NSObject, BrowserPage {
         }
     }
 
-    /// Every waiter parked for the navigation that just finished or failed,
-    /// released at once and in the order they asked.
-    func resolveReadyWaiters(_ result: Result<Void, any Error>) {
+    /// Every waiter parked for the load that just ended, released at once and
+    /// in the order they asked: over, or the failure.
+    private func resolveReadyWaiters(_ outcome: Result<Void, any Error>) {
         let waiters = readyWaiters
         readyWaiters = []
-        for waiter in waiters { waiter.finish(result) }
+        Self.release(waiters, with: outcome)
+    }
+
+    /// The requested navigation is over, committed or ended, and every wait
+    /// for its commit is released with how.
+    private func settleRequested(_ outcome: Result<Void, any Error>) {
+        requested = .over(outcome)
+        let waiters = commitWaiters
+        commitWaiters = []
+        Self.release(waiters, with: outcome)
+    }
+
+    private static func release(_ waiters: [ReadyWaiter], with outcome: Result<Void, any Error>) {
+        for waiter in waiters { waiter.finish(outcome.map { _ in true }) }
+    }
+
+    /// A requested navigation WebKit ends with no delegate call, as it does
+    /// one that only moves within the document shown, is over once nothing
+    /// loads. That is checked a turn after `isLoading` falls: WebKit reports
+    /// the fall just before it tells the delegate of the ending that caused
+    /// it, a failure among them, and that ending is the one that counts.
+    private func checkDroppedLater() {
+        guard !webView.isLoading else { return }
+
+        Task { @MainActor [weak self] in self?.endIfDropped() }
+    }
+
+    /// A requested navigation still waiting to commit while nothing loads
+    /// was dropped: it is over, and the page stands as it was. A wait for its
+    /// commit started after the drop finds it over this way too.
+    func endIfDropped() {
+        guard !webView.isLoading, case .pending(let navigation) = requested else { return }
+
+        ended(navigation, .success(()))
     }
 }
 
-/// A `waitUntilReady()` call parked on the navigation in flight: finishes
-/// once, with the delegate's own answer or the timeout, whichever comes
-/// first, the same shape as `WebKitPageScript`'s own pending call.
+/// The navigation a page's last `load` started: in flight until it commits
+/// or ends, then over, with its failure if it failed.
+enum RequestedNavigation {
+    case pending(WKNavigation)
+    case over(Result<Void, any Error>)
+}
+
+/// A `waitForLoad(within:)` or `waitForCommit(within:)` call parked on a
+/// navigation: finishes once, with the delegate's own answer or with `false`
+/// when its budget runs out, whichever comes first, the same shape as
+/// `WebKitPageScript`'s own pending call.
 @MainActor
 final class ReadyWaiter {
-    var continuation: CheckedContinuation<Void, any Error>?
+    var continuation: CheckedContinuation<Bool, any Error>?
     var timer: Task<Void, Never>?
 
-    func finish(_ result: Result<Void, any Error>) {
+    func finish(_ result: Result<Bool, any Error>) {
         guard let continuation else { return }
 
         self.continuation = nil
@@ -363,36 +436,64 @@ extension WebKitBrowserPage: WKNavigationDelegate {
         events?.pageStartedDownload(WebKitBrowserDownload(download))
     }
 
-    /// The navigation every `waitUntilReady()` call was parked on.
+    /// A navigation began in the page: counted, so a look can tell it from a
+    /// load already in flight.
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        navigationsStarted += 1
+    }
+
+    /// The requested navigation's commit ends the wait for it; any other
+    /// navigation's commit, an earlier one's among them, is not it.
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard isRequested(navigation) else { return }
+
+        settleRequested(.success(()))
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        resolveReadyWaiters(.success(()))
+        ended(navigation, .success(()))
     }
 
     /// A load that never reached a page, a navigation that became a download
     /// among them.
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
-        ended(with: error)
+        ended(navigation, with: error)
     }
 
     /// A load that reached the page but failed once committed (a resource the
     /// main frame needed never arrived).
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-        ended(with: error)
+        ended(navigation, with: error)
     }
 
-    /// The one rule for a navigation that ended without a page
-    /// (`BrowserNavigationEnding`). A failure says why, in the system's own
-    /// words, and fails the reads waiting on it. Anything else leaves the
-    /// page as it stands: ready for those reads once nothing else is loading,
-    /// and where a fresh navigation replaced it, that one settles them.
-    private func ended(with error: any Error) {
-        guard BrowserNavigationEnding(error) == .failed else {
-            if !webView.isLoading { resolveReadyWaiters(.success(())) }
-            return
-        }
+    /// A navigation that ended without a page (`BrowserNavigationEnding`). A
+    /// failure says why, in the system's own words, and fails the reads
+    /// waiting on it. Anything else leaves the page as it stands.
+    private func ended(_ navigation: WKNavigation?, with error: any Error) {
+        guard BrowserNavigationEnding(error) == .failed else { return ended(navigation, .success(())) }
 
         events?.pageFailed(error.localizedDescription)
-        resolveReadyWaiters(.failure(BrowserPageDriveError.navigationFailed(error.localizedDescription)))
+        ended(navigation, .failure(BrowserPageDriveError.navigationFailed(error.localizedDescription)))
+    }
+
+    /// The one rule for every way a navigation ends: finished, failed,
+    /// interrupted, or dropped without a word. The requested navigation's
+    /// commit wait ends with it, and the waits for a load end with it once
+    /// nothing loads after it, so an earlier navigation's ending never ends a
+    /// wait on a later one, and a load another replaced leaves its waits to
+    /// that one. WebKit reports nothing loading by the time it tells of the
+    /// last load's ending (`BrowserPageLookTests`).
+    private func ended(_ navigation: WKNavigation?, _ outcome: Result<Void, any Error>) {
+        if isRequested(navigation) { settleRequested(outcome) }
+        guard !webView.isLoading else { return }
+
+        resolveReadyWaiters(outcome)
+    }
+
+    private func isRequested(_ navigation: WKNavigation?) -> Bool {
+        guard let navigation, case .pending(let own) = requested else { return false }
+
+        return navigation === own
     }
 
     private static func isAttachment(_ response: URLResponse) -> Bool {

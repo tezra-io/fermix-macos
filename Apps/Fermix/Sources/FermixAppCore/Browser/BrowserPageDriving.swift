@@ -118,9 +118,9 @@ public enum BrowserInputPath: String, Equatable, Sendable {
 
 /// What an action did to the page, the way the engine reports it: `changed`
 /// with a fresh snapshot, or `unchanged`, which means the refs the engine
-/// holds are still good. `unobserved` is a page that stopped answering its
-/// script once the action was done, as one holding a dialog does; the action
-/// itself stands.
+/// holds are still good. `unobserved` is no look taken: the engine asked for
+/// none, or the page stopped answering its script once the action was done,
+/// as one holding a dialog does; the action itself stands.
 public enum BrowserPageEffect: Equatable, Sendable {
     case changed(BrowserPageSnapshot)
     case unchanged
@@ -142,7 +142,9 @@ public struct BrowserFieldReceipt: Equatable, Sendable {
 public struct BrowserActOutcome: Equatable, Sendable {
     public var effect: BrowserPageEffect
     public var input: BrowserInputPath
-    /// The page's address once it settled.
+    /// The address of the document the page shows once the action was done,
+    /// and its look, if any, was over: a load the action started that has
+    /// not committed yet does not move it.
     public var url: String
     /// The field's value after a fill or a type.
     public var value: String?
@@ -204,11 +206,12 @@ public indirect enum BrowserPageDriveError: Error, Equatable, Sendable {
     /// A `fill_form` stopped at a field; the ones before it were filled.
     case formStopped(at: Int, filled: [BrowserFieldReceipt], cause: BrowserPageDriveError)
     /// A `wait` act's condition never became true within its own timeout, or
-    /// a snapshot's own wait for the page to finish loading ran out first.
+    /// a sign-in found the page still loading after the script's own bound.
     case waitTimedOut
-    /// The navigation a snapshot or an explicit `page.snapshot` was waiting
-    /// on failed before it read the page, in the system's own sentence
-    /// (`BrowserPageEvents.pageFailed`'s reason).
+    /// The navigation a look or a sign-in was waiting on ended without a
+    /// page before it read one: failed, in the system's own sentence
+    /// (`BrowserPageEvents.pageFailed`'s reason), or never committed
+    /// (`notStarted`).
     case navigationFailed(String)
     /// The request's fields do not fit its kind (plan §4.8's `invalid_request`).
     case invalidRequest(String)
@@ -226,31 +229,50 @@ public indirect enum BrowserPageDriveError: Error, Equatable, Sendable {
         default: return .script(word)
         }
     }
+
+    /// The navigation at `address` did not commit within `timeout`: it ended
+    /// without a page as a failed one does, so the request fails the same
+    /// way (`navigation_refused`), where `Page.navigate` gives up on its own
+    /// timeout in the engine.
+    public static func notStarted(_ address: String, within timeout: Duration) -> BrowserPageDriveError {
+        .navigationFailed("the page did not start loading within \(timeout.components.seconds) seconds: \(address)")
+    }
 }
 
 /// A page as the engine reads it (plan §4.2, the host action `snapshot`).
 @MainActor
 public protocol BrowserPageReading: AnyObject {
+    /// The page as it stands, with no wait of its own: `BrowserTab.snapshot`
+    /// waits for a load in flight first.
     func snapshot(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot
+
+    /// The look after `tab.open` or `tab.navigate`: once that navigation
+    /// commits, the page read when its load has finished and it holds still,
+    /// or as it stands once the navigation budget from the commit is spent
+    /// (`BrowserPageSettle.afterNavigation`). A navigation that never commits
+    /// within the navigation timeout fails it (`BrowserPageDriveError
+    /// .notStarted`).
+    func snapshotAfterNavigation(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot
 }
 
 /// A page as the engine acts on it (plan §4.2, the host action `act`).
 ///
-/// `observing` is the snapshot the engine would take next, so a `changed`
-/// page comes back already read.
+/// `look` is the snapshot the engine takes after the act, so a `changed` page
+/// comes back already read. nil is an act the engine does not look after:
+/// it answers `unobserved` as soon as its input is delivered,
+/// with no settle, no fingerprint and no snapshot.
 @MainActor
 public protocol BrowserPageActing: AnyObject {
-    func act(_ action: BrowserPageAction, observing request: BrowserSnapshotRequest) async throws -> BrowserActOutcome
+    func act(_ action: BrowserPageAction, observing look: BrowserSnapshotRequest?) async throws -> BrowserActOutcome
 }
 
-/// The one wait an observe snapshot, an explicit `page.snapshot` and an act's
-/// after-snapshot all share, so none of them ever reads a page still loading:
-/// a page with a navigation in flight defers until it finishes, throwing the
-/// reported reason if it fails instead, bounded so a page that never answers
-/// never hangs a caller. A page with nothing in flight answers at once.
+/// The one wait for a page's navigation in flight: it answers once the load
+/// finishes, throws the reported reason if it fails, and answers whether it
+/// finished once `budget` runs out, which is never an error. A
+/// page with nothing in flight answers true at once.
 @MainActor
 public protocol BrowserPageReadiness: AnyObject {
-    func waitUntilReady() async throws
+    func waitForLoad(within budget: Duration) async throws -> Bool
 }
 
 public typealias BrowserPageDriving = BrowserPageReading & BrowserPageActing & BrowserPageReadiness

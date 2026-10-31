@@ -54,16 +54,22 @@ final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
     lazy var view = NSView()
 
     private(set) var snapshotRequests: [BrowserSnapshotRequest] = []
+    private(set) var navigationLooks: [BrowserSnapshotRequest] = []
     private(set) var actions: [BrowserPageAction] = []
+    /// The look each act was handed, nil where the engine asked for none.
+    private(set) var actLooks: [BrowserSnapshotRequest?] = []
     var snapshotResult: Result<BrowserPageSnapshot, any Error> = .success(.empty)
     var actResult: Result<BrowserActOutcome, any Error> = .success(.init(effect: .unchanged, input: .trusted, url: ""))
 
-    /// The test's own gate on `waitUntilReady()`: nil answers at once, set
-    /// answers once the test releases it, and `readyFailure` is thrown then
-    /// instead of returning, as a failed navigation would.
+    /// The test's own gate on `waitForLoad(within:)`: nil answers at once,
+    /// set answers once the test releases it, and `readyFailure` is thrown
+    /// then instead of returning, as a failed navigation would. `loaded` is
+    /// the answer: false is a load still in flight when the budget ran out.
     var readyGate: AsyncGate?
     var readyFailure: (any Error)?
-    private(set) var readyWaits = 0
+    var loaded = true
+    /// The budget of every wait for a load, in order.
+    private(set) var loadBudgets: [Duration] = []
 
     func load(_ url: URL) {}
     func loadFile(_ url: URL, as kind: BrowserFileKind, readAccess: URL) {}
@@ -75,12 +81,13 @@ final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
     func zoom(_ zoom: BrowserZoom) {}
     func close() {}
 
-    func waitUntilReady() async throws {
-        readyWaits += 1
-        guard let readyGate else { return }
+    func waitForLoad(within budget: Duration) async throws -> Bool {
+        loadBudgets.append(budget)
+        guard let readyGate else { return loaded }
 
         await readyGate.wait()
         if let readyFailure { throw readyFailure }
+        return loaded
     }
 
     func snapshot(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot {
@@ -88,9 +95,14 @@ final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
         return try snapshotResult.get()
     }
 
-    func act(_ action: BrowserPageAction, observing request: BrowserSnapshotRequest) async throws -> BrowserActOutcome {
+    func snapshotAfterNavigation(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot {
+        navigationLooks.append(request)
+        return try snapshotResult.get()
+    }
+
+    func act(_ action: BrowserPageAction, observing look: BrowserSnapshotRequest?) async throws -> BrowserActOutcome {
         actions.append(action)
-        snapshotRequests.append(request)
+        actLooks.append(look)
         return try actResult.get()
     }
 }
@@ -99,6 +111,8 @@ extension BrowserPageSnapshot {
     static let empty = BrowserPageSnapshot(
         title: "",
         url: "",
+        readyState: .complete,
+        tabLoading: false,
         nodes: [BrowserPageNode(id: 0, role: "RootWebArea")],
         elements: 0,
         crossOriginFrames: 0,

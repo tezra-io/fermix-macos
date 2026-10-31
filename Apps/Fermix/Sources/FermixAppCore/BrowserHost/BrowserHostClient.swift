@@ -69,11 +69,6 @@ public final class BrowserHostClient {
     /// declared dead.
     static let flushDeadline: TimeInterval = 5
 
-    /// The engine never asks this build to skip taking a look; this is the
-    /// value handed to `BrowserTab.act`/`.upload` where the daemon's own
-    /// `observe` is false, and it is discarded there regardless.
-    private static let noObservation = BrowserSnapshotRequest(mode: .interactive, maxChars: 1, depth: 1)
-
     private let lines: LineSocket
     private let socketPath: () throws -> String
     private let profileID: () throws -> String
@@ -504,12 +499,12 @@ public final class BrowserHostClient {
         }
 
         do {
-            let taken = try await tab.snapshot(mode: snapshot.mode, maxChars: snapshot.maxChars, depth: snapshot.depth)
+            let taken = try await tab.snapshotAfterNavigation(mode: snapshot.mode, maxChars: snapshot.maxChars, depth: snapshot.depth)
             respond(BrowserHostResponse(
                 id: id,
                 result: wrap(BrowserHostTabResult(
                     tabId: Self.wireID(tab.id), url: taken.url, title: taken.title,
-                    page: Self.wirePage(taken, isLoading: tab.isLoading)
+                    page: Self.wirePage(taken)
                 ))
             ))
         } catch {
@@ -565,7 +560,7 @@ public final class BrowserHostClient {
             guard let self else { return }
             do {
                 let snapshot = try await tab.snapshot(mode: payload.mode, maxChars: payload.maxChars, depth: payload.depth)
-                self.respond(BrowserHostResponse(id: id, result: .pageSnapshot(Self.wirePage(snapshot, isLoading: tab.isLoading))))
+                self.respond(BrowserHostResponse(id: id, result: .pageSnapshot(Self.wirePage(snapshot))))
             } catch {
                 self.respond(BrowserHostResponse(id: id, error: self.wireError(for: error)))
             }
@@ -583,14 +578,14 @@ public final class BrowserHostClient {
             return
         }
 
-        let observation = payload.snapshot
-            .map { BrowserSnapshotRequest(mode: $0.mode, maxChars: $0.maxChars, depth: $0.depth) } ?? Self.noObservation
+        let look = Self.look(observe: payload.observe, payload.snapshot)
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let outcome = try await tab.act(action, observing: observation)
-                self.respond(BrowserHostResponse(id: id, result: .pageAct(Self.actResult(outcome, title: tab.title, observe: payload.observe))))
+                let outcome = try await tab.act(action, observing: look)
+                let result = Self.actResult(outcome, title: tab.title, observe: payload.observe)
+                self.respond(BrowserHostResponse(id: id, result: .pageAct(result)))
             } catch {
                 self.respond(BrowserHostResponse(id: id, error: self.wireError(for: error)))
             }
@@ -607,7 +602,7 @@ public final class BrowserHostClient {
         Task { [weak self] in
             guard let self else { return }
             do {
-                _ = try await tab.act(.upload(ref: ref, path: path), observing: Self.noObservation)
+                _ = try await tab.act(.upload(ref: ref, path: path), observing: nil)
                 self.respond(BrowserHostResponse(id: id, result: .pageUpload(tabId: tabId)))
             } catch {
                 self.respond(BrowserHostResponse(id: id, error: self.wireError(for: error)))
@@ -743,15 +738,15 @@ public final class BrowserHostClient {
             usernameRef: payload.usernameRef,
             passwordRef: payload.passwordRef
         )
-        let observation = payload.snapshot
-            .map { BrowserSnapshotRequest(mode: $0.mode, maxChars: $0.maxChars, depth: $0.depth) } ?? Self.noObservation
+        let look = Self.look(observe: payload.observe, payload.snapshot)
 
         Task { [weak self] in
             guard let self else { return }
             do {
                 guard let page = tab.signingIn else { throw BrowserPageDriveError.notDrivable }
-                let outcome = try await page.signIn(request, store: self.loginStore, ledger: self.ledger, observing: observation)
-                self.respond(BrowserHostResponse(id: id, result: .pageSignIn(Self.signInResult(outcome, title: tab.title, observe: payload.observe))))
+                let outcome = try await page.signIn(request, store: self.loginStore, ledger: self.ledger, observing: look)
+                let result = Self.signInResult(outcome, title: tab.title, observe: payload.observe)
+                self.respond(BrowserHostResponse(id: id, result: .pageSignIn(result)))
             } catch {
                 self.respond(BrowserHostResponse(id: id, error: self.wireError(for: error)))
             }
@@ -992,14 +987,25 @@ public final class BrowserHostClient {
     }
 
     private static func signInResult(_ outcome: BrowserSignInOutcome, title: String, observe: Bool) -> BrowserHostSignInResult {
-        let page: BrowserHostPage?
-        if observe, case .changed(let snapshot) = outcome.effect {
-            page = wirePage(snapshot, isLoading: false)
-        } else {
-            page = nil
-        }
-
+        let page = observedPage(outcome.effect, observe: observe)
         return BrowserHostSignInResult(url: outcome.url, title: title, filled: outcome.filled.map(\.rawValue), page: page)
+    }
+
+    /// The look the engine asked for: its snapshot when it
+    /// observes, and none when it does not, so the page answers as soon as
+    /// the input is delivered.
+    private static func look(observe: Bool, _ snapshot: BrowserHostSnapshotOptions?) -> BrowserSnapshotRequest? {
+        guard observe, let snapshot else { return nil }
+
+        return BrowserSnapshotRequest(mode: snapshot.mode, maxChars: snapshot.maxChars, depth: snapshot.depth)
+    }
+
+    /// The page an act or a sign-in carries back: only when the engine
+    /// observes and the look found it changed; otherwise no `page` key.
+    private static func observedPage(_ effect: BrowserPageEffect, observe: Bool) -> BrowserHostPage? {
+        guard observe, case .changed(let snapshot) = effect else { return nil }
+
+        return wirePage(snapshot)
     }
 
     private static func action(for payload: BrowserHostPageActRequest) -> BrowserPageAction? {
@@ -1040,13 +1046,7 @@ public final class BrowserHostClient {
     }
 
     private static func actResult(_ outcome: BrowserActOutcome, title: String, observe: Bool) -> BrowserHostActResult {
-        let page: BrowserHostPage?
-        if observe, case .changed(let snapshot) = outcome.effect {
-            page = wirePage(snapshot, isLoading: false)
-        } else {
-            page = nil
-        }
-
+        let page = observedPage(outcome.effect, observe: observe)
         return BrowserHostActResult(url: outcome.url, title: title, value: wireValue(outcome), page: page)
     }
 
@@ -1081,11 +1081,13 @@ public final class BrowserHostClient {
         return .confirmed
     }
 
-    private static func wirePage(_ snapshot: BrowserPageSnapshot, isLoading: Bool) -> BrowserHostPage {
+    /// A page on the wire, its `ready_state` as it stood when the page was
+    /// read, not when the answer is sent.
+    private static func wirePage(_ snapshot: BrowserPageSnapshot) -> BrowserHostPage {
         BrowserHostPage(
             url: snapshot.url,
             title: snapshot.title,
-            readyState: isLoading ? "loading" : "complete",
+            readyState: snapshot.reportedReadyState.rawValue,
             nodes: snapshot.nodes.map(wireNode)
         )
     }
