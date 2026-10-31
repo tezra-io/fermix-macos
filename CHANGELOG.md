@@ -17,7 +17,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 - Chat: a link whose words name one site but that opens another, whose address uses letters from another alphabet that pass for familiar ones, or that puts a name in front of its real site carries a small warning mark, and Fermix asks before opening it.
 - Chat: Copy sits under each reply, with the time it was written, and beside each of your own messages while the pointer is over them.
 - Chat: while Fermix works on a request, the line over its reply says what it is doing in plain words, such as Searching the web or Running a command, and how long it has been at it, instead of only Thinking. Press it to see each step so far, with the model's own summary of its thinking where the model gives one, and once the reply starts it says how long Fermix worked.
-- Fermix keeps working while your Mac is busy. Its engine ran in the band macOS slows down most, so under heavy load its cue checks, reminders, keychain reads and Telegram could time out; it now runs at normal priority, which uses a little more energy.
+- Fermix keeps working while your Mac is busy. Its engine ran in the band macOS slows down most, so under heavy load its cue checks, reminders, keychain reads and Telegram could time out; it now runs with the priority of the apps you use, which uses a little more energy.
 
 ## 0.7.0 (2026-10-27)
 

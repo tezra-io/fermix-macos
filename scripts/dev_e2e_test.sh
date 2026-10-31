@@ -430,17 +430,18 @@ case_development_identity() {
     fail "the staged agent plist names another bundle"
 }
 
-# The agent runs at normal priority. An Adaptive job that nothing boosts over
-# XPC stays in the throttled background band (priority 4), and the engine it
-# execs inherits it: on 2026-10-31 every database call timed out under load in
-# both app-launched engines while a terminal-started one, at 31, had none.
+# The agent is Interactive, so the engine it execs runs at an app's priority,
+# 31. An Adaptive job that nothing boosts over XPC stays in the throttled band
+# (4), and a Standard one gets launchd's light limits (20): on 2026-10-31 every
+# database call timed out under load in both app-launched engines at 4 while a
+# terminal-started one, at 31, had none.
 case_agent_priority() {
   local plist
   stage_and_sign "$IDENTITY" >/dev/null
   plist="$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
 
-  [ "$(plutil -extract ProcessType raw -o - "$plist")" = "Standard" ] ||
-    fail "the staged agent plist does not run the engine at normal priority"
+  [ "$(plutil -extract ProcessType raw -o - "$plist")" = "Interactive" ] ||
+    fail "the staged agent plist does not run the engine at an app's priority"
 }
 
 # There is one launcher.json per support folder and the development identity
