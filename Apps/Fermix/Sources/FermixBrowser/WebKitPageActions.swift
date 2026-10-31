@@ -499,8 +499,8 @@ final class WebKitPageActions {
     /// The look after `tab.open` or `tab.navigate`: its own navigation's
     /// commit, within `timeout`, then its load and the page holding still,
     /// within the navigation budget from the commit, and the page as it
-    /// stands once that is spent. It has moved by definition, so it always
-    /// reads. Only its own navigation failing or never committing fails it; a
+    /// stands once that is spent. It has moved by definition, so it waits for
+    /// no move. Only its own navigation failing or never committing fails it; a
     /// navigation the page starts after that load and that fails leaves the
     /// document shown, which it reads. `timeout` is the engine's but in a
     /// test.
@@ -508,7 +508,7 @@ final class WebKitPageActions {
         _ request: BrowserSnapshotRequest,
         within timeout: Duration = BrowserPageSettle.navigationTimeout
     ) async throws -> BrowserPageSnapshot {
-        _ = try await settle(.afterNavigation(from: navigations(), timeout: timeout))
+        try await settle(.afterNavigation(from: navigations(), timeout: timeout))
         return try await WebKitPageSnapshot(script: script, webView: webView).take(request)
     }
 
@@ -526,37 +526,37 @@ final class WebKitPageActions {
         return (receipt, await lookAfterAct(from: before, observing: look))
     }
 
-    /// The look after an act or a sign-in's fill. A page that stops answering,
-    /// a dialog holding it say, or a load that fails ends it `unobserved`: the
-    /// action itself stands.
+    /// The look after an act or a sign-in's fill: the page it ended on, read
+    /// once the settle says so, whether or not it moved, since the engine
+    /// judges the change against its own last look. A page that stops
+    /// answering, a dialog holding it say, or a load that fails ends it
+    /// `unobserved`, with no page: the action itself stands.
     private func lookAfterAct(
         from before: BrowserPageSettle.Glance,
         observing look: BrowserSnapshotRequest
     ) async -> BrowserPageEffect {
         do {
-            guard try await settle(.afterAct(from: before)) else { return .unchanged }
-            return .changed(try await WebKitPageSnapshot(script: script, webView: webView).take(look))
+            try await settle(.afterAct(from: before))
+            return .observed(try await WebKitPageSnapshot(script: script, webView: webView).take(look))
         } catch {
             return .unobserved
         }
     }
 
-    /// Does what `settling` decides until the look is over: true to read the
-    /// page, false when it never moved. `settling` bounds every wait and
-    /// glance by what is left of the look's budget, and past it answers only
-    /// `read` or `unchanged`, so the loop ends. A page that does not answer a
-    /// glance in time, a dialog holding it say, throws, and so does a
-    /// navigation that never commits, as one that ended without a page.
-    private func settle(_ settling: BrowserPageSettle) async throws -> Bool {
+    /// Does what `settling` decides until the look is over and the page is
+    /// to be read. `settling` bounds every wait and glance by what is left of
+    /// the look's budget, and past it answers only `read`, so the loop ends.
+    /// A page that does not answer a glance in time, a dialog holding it say,
+    /// throws, and so does a navigation that never commits, as one that ended
+    /// without a page.
+    private func settle(_ settling: BrowserPageSettle) async throws {
         var settling = settling
         let started = ContinuousClock.now
         var step = settling.opening
         while true {
             switch step {
             case .read:
-                return true
-            case .unchanged:
-                return false
+                return
             case .glance(let bound):
                 let seen = try await glance(within: bound)
                 step = settling.next(seen, at: started.duration(to: .now))
@@ -569,7 +569,7 @@ final class WebKitPageActions {
                 let committed = try await waitForCommit(timeout)
                 step = settling.afterCommit(committed, at: started.duration(to: .now))
             case .neverCommitted(let timeout):
-                throw BrowserPageDriveError.notStarted(webView.url?.absoluteString ?? "about:blank", within: timeout)
+                throw BrowserPageDriveError.notStarted(within: timeout)
             }
         }
     }

@@ -7,7 +7,9 @@ import Testing
 /// What a look reads on a real web view: an act the
 /// engine does not look after takes no look, an act it does look after waits
 /// out the page's own change and reads it once it holds still, without
-/// waiting for a load the act did not start, the look after a navigation
+/// waiting for a load the act did not start, reads a page that never moved
+/// once the settle budget is spent, and reads nothing on a page a dialog
+/// holds, the look after a navigation
 /// waits for that navigation's own commit and reads the loaded page, the
 /// fingerprint sees a change of words, a snapshot says how far its document
 /// had loaded, and a wait for a load ends with the load, its interruption,
@@ -78,7 +80,7 @@ struct BrowserPageLookTests {
 
         let outcome = try await harness.page.act(.select(ref: ref, value: "medium"), observing: Self.look)
 
-        guard case .changed(let snapshot) = outcome.effect else {
+        guard case .observed(let snapshot) = outcome.effect else {
             Issue.record("the page changed after the act, so its look reads it: \(outcome.effect)")
             return
         }
@@ -86,16 +88,43 @@ struct BrowserPageLookTests {
         #expect(outcome.value == "medium")
     }
 
-    @Test("an act that leaves the page as it was answers unchanged once the settle budget is spent, and reads nothing")
-    func sameChoiceIsUnchanged() async throws {
+    @Test("an act that leaves the page as it was reads it once the settle budget is spent, so the engine can say it is unchanged")
+    func sameChoiceIsReadAtTheBudget() async throws {
         let harness = BrowserPageHarness()
         try await harness.load(Self.delayedPage, at: Self.address)
         let ref = try await harness.ref(role: "combobox")
 
         let outcome = try await harness.page.act(.select(ref: ref, value: "small"), observing: Self.look)
 
-        #expect(outcome.effect == .unchanged, "the timer wrote the words already there")
+        guard case .observed(let snapshot) = outcome.effect else {
+            Issue.record("an observed act always reads the page it ended on: \(outcome.effect)")
+            return
+        }
+        #expect(snapshot.nodes.contains { $0.name.contains("You chose the small size") }, "the timer wrote the words already there")
+        #expect(snapshot.url == Self.address)
         #expect(outcome.value == "small")
+    }
+
+    /// The dialog is the case, so this one ends on a bound: the glance after
+    /// the alert waits out what is left of the look's budget, about 1.7 s.
+    @Test("an act whose look a dialog holds off answers unobserved, with no page, and the act stands")
+    func dialogHeldLookIsUnobserved() async throws {
+        let harness = BrowserPageHarness()
+        let dialogs = HeldDialogs()
+        harness.page.events = dialogs
+        defer { dialogs.answerAll() }
+        try await harness.load(Self.page, at: Self.address)
+        let ref = try await harness.ref(role: "combobox")
+        let actions = try harness.actions { glance in
+            guard glance == 2 else { return }
+            harness.webView.evaluateJavaScript("alert('Saved')", completionHandler: nil)
+        }
+
+        let outcome = try await actions.perform(.select(ref: ref, value: "large"), observing: Self.look)
+
+        #expect(outcome.effect == .unobserved, "the page answered no glance while the dialog held it")
+        #expect(outcome.value == "large", "the act itself stands")
+        #expect(dialogs.shown == ["Saved"])
     }
 
     @Test("an act that changes a page still loading something it did not start is read once the page rests, not when that load ends")
@@ -111,7 +140,7 @@ struct BrowserPageLookTests {
         let outcome = try await harness.actions(recording: waits).perform(.select(ref: ref, value: "medium"), observing: Self.look)
 
         #expect(waits.budgets.isEmpty, "the look never waited for the load the act did not start")
-        guard case .changed(let snapshot) = outcome.effect else {
+        guard case .observed(let snapshot) = outcome.effect else {
             Issue.record("the page changed after the act, so its look reads it: \(outcome.effect)")
             return
         }
@@ -134,7 +163,7 @@ struct BrowserPageLookTests {
             let outcome = try await harness.actions(recording: waits).perform(.select(ref: ref, value: "large"), observing: Self.look)
 
             #expect(waits.budgets == [BrowserPageSettle.navigationBudget], "the act's own navigation, held until the look waited for it")
-            guard case .changed(let snapshot) = outcome.effect else {
+            guard case .observed(let snapshot) = outcome.effect else {
                 Issue.record("the act left the page, so its look reads the new one: \(outcome.effect)")
                 return
             }
@@ -267,7 +296,7 @@ struct BrowserPageLookTests {
         }
     }
 
-    @Test("the look after a navigation that does not commit within its timeout fails as one that ended without a page, naming the address")
+    @Test("the look after a navigation that does not commit within its timeout fails as one that ended without a page, naming no address")
     func navigationThatNeverCommitsFails() async throws {
         try await Self.withPageFile(Self.page) { file in
             let harness = BrowserPageHarness()
@@ -283,7 +312,8 @@ struct BrowserPageLookTests {
             } catch {
                 let reason = try #require(Self.navigationFailure(error), "\(error)")
                 #expect(reason.hasPrefix("the page did not start loading within "), "\(reason)")
-                #expect(reason.hasSuffix("/choose.html"), "\(reason)")
+                #expect(!reason.contains("choose.html"), "the load in flight may be one the engine never checked: \(reason)")
+                #expect(!reason.contains("://"), "\(reason)")
             }
             #expect(waits.commitBudgets == [.milliseconds(50)])
             #expect(waits.budgets.isEmpty, "no load waited for, and nothing read")
@@ -447,6 +477,35 @@ private extension BrowserPageLookTests {
     }
 }
 
+/// The page's events, holding every dialog it raises unanswered until the
+/// case answers them, as a person who has not looked yet does.
+@MainActor
+private final class HeldDialogs: BrowserPageEvents {
+    private(set) var shown: [String] = []
+    private var answers: [@MainActor (BrowserDialogAnswer) -> Void] = []
+
+    func pagePresented(_ dialog: BrowserDialog, answer: @escaping @MainActor (BrowserDialogAnswer) -> Void) {
+        shown.append(dialog.message)
+        answers.append(answer)
+    }
+
+    /// Dismisses every dialog still held, so the page runs again.
+    func answerAll() {
+        let held = answers
+        answers = []
+        for answer in held { answer(.dismissed) }
+    }
+
+    func pageChanged(_ state: BrowserPageState) {}
+    func pageOpened(_ page: any BrowserPage) -> Bool { false }
+    func pageAskedToClose() {}
+    func pageRequestedFiles(_ request: BrowserFileRequest, answer: @escaping @MainActor ([URL]?) -> Void) { answer(nil) }
+    func pageMetExternalScheme(_ url: URL) {}
+    func pageHandedOff(_ url: URL) {}
+    func pageStartedDownload(_ download: any BrowserDownload) {}
+    func pageFailed(_ reason: String) {}
+}
+
 /// Every budget a look asked the page to wait for a load with, and for its
 /// navigation's commit, in order, what each wait answered, and what the case
 /// does as each is asked.
@@ -499,6 +558,26 @@ private extension BrowserPageHarness {
                 return waits.answer(try await self.page.waitForCommit(within: budget))
             },
             navigations: { self.page.navigationsStarted }
+        )
+    }
+
+    /// The page's act kinds on its own script, wired as `pageActions()` wires
+    /// them, with `onGlance` told the count of each glance as it reads the
+    /// page's navigations: the first is the one taken before an act's input,
+    /// the second the look's first after it.
+    func actions(onGlance: @escaping @MainActor (Int) -> Void) throws -> WebKitPageActions {
+        var glances = 0
+        return WebKitPageActions(
+            webView: webView,
+            script: try page.pageScriptResult.get(),
+            expectUpload: { _ in },
+            waitForLoad: { budget in try await self.page.waitForLoad(within: budget) },
+            waitForCommit: { budget in try await self.page.waitForCommit(within: budget) },
+            navigations: {
+                glances += 1
+                onGlance(glances)
+                return self.page.navigationsStarted
+            }
         )
     }
 

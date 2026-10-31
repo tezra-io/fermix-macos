@@ -1000,10 +1000,12 @@ public final class BrowserHostClient {
         return BrowserSnapshotRequest(mode: snapshot.mode, maxChars: snapshot.maxChars, depth: snapshot.depth)
     }
 
-    /// The page an act or a sign-in carries back: only when the engine
-    /// observes and the look found it changed; otherwise no `page` key.
+    /// The page an act or a sign-in carries back: the page its look ended on,
+    /// whether or not it moved, which the engine compares with its own last
+    /// look to say whether it changed. No `page` key when the engine does not
+    /// observe or the look could not be taken.
     private static func observedPage(_ effect: BrowserPageEffect, observe: Bool) -> BrowserHostPage? {
-        guard observe, case .changed(let snapshot) = effect else { return nil }
+        guard observe, case .observed(let snapshot) = effect else { return nil }
 
         return wirePage(snapshot)
     }

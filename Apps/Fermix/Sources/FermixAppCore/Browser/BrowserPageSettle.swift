@@ -12,8 +12,10 @@ import Foundation
 ///
 /// - The look after an act glances at once, and waits up to `settleBudget`
 ///   for the page to move off the glance taken just before the act's input.
-///   A page that never moves is `unchanged` and is not read. A navigation
-///   WebKit starts after that glance is a move.
+///   A page that never moves is read as it stands once that budget is
+///   spent: every look reads the page it ended on, and the engine says
+///   whether it changed. A navigation WebKit starts after that glance is a
+///   move.
 /// - The look after `tab.open` or `tab.navigate` has moved by definition. It
 ///   first waits for its own navigation to commit, for at most
 ///   `navigationTimeout`, and one that never commits fails the request. Its
@@ -34,7 +36,7 @@ import Foundation
 /// a navigation's commit by its timeout, and every glance by what is left
 /// plus `responseGrace`: one clock. A budget spent before a
 /// glance ends the look without one, and past its budget a look answers
-/// `read` or `unchanged` and nothing else, which is what ends the glances.
+/// `read` and nothing else, which is what ends the glances.
 public struct BrowserPageSettle: Sendable {
     /// `settle_budget_ms` in the engine's `Config.act_limits/0`
     /// (`apps/fermix_core/lib/fermix_core/browser/config.ex`): how long the
@@ -97,10 +99,8 @@ public struct BrowserPageSettle: Sendable {
         /// Wait for the navigation in flight to finish, for at most what is
         /// left of the budget, then ask `afterWait`.
         case awaitLoad(Duration)
-        /// The look is over: read the page now.
+        /// The look is over: read the page now, whether it moved or not.
         case read
-        /// The look is over: the page never moved, so it is not read.
-        case unchanged
         /// The look's own navigation did not commit within this timeout: the
         /// request fails, and the page is not read.
         case neverCommitted(within: Duration)
@@ -170,7 +170,7 @@ public struct BrowserPageSettle: Sendable {
     /// bounded by what is left of the budget plus `responseGrace`, or, with
     /// the budget spent, the end of the look without one.
     public func afterWait(at elapsed: Duration) -> Step {
-        guard elapsed < readBy else { return moved ? .read : .unchanged }
+        guard elapsed < readBy else { return .read }
 
         return .glance(readBy - elapsed + Self.responseGrace)
     }
@@ -191,7 +191,7 @@ public struct BrowserPageSettle: Sendable {
     public mutating func next(_ glance: Glance, at elapsed: Duration) -> Step {
         glanced = true
         if !moved {
-            guard hasMoved(glance) else { return elapsed < readBy ? .poll(readBy - elapsed) : .unchanged }
+            guard hasMoved(glance) else { return elapsed < readBy ? .poll(readBy - elapsed) : .read }
             moved = true
         }
         if isAwaited(glance), !loadBudgeted { return awaitLoad(at: elapsed) }

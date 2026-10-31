@@ -351,7 +351,7 @@ struct BrowserHostOperationsTests {
     @Test("page.sign_in answers the fields it typed, the page when observed, and never a value or a username")
     func signInAnswersTheFields() async throws {
         let (client, transport, tab) = try await Self.attachedWithOneTab()
-        tab.page.signInResult = .success(BrowserSignInOutcome(filled: [.username, .password], effect: .unchanged, url: "https://example.com/login"))
+        tab.page.signInResult = .success(BrowserSignInOutcome(filled: [.username, .password], effect: .unobserved, url: "https://example.com/login"))
 
         let response = try await Self.send(transport, .pageSignIn(id: 29, Self.signInRequest(tab.wireID)))
 
@@ -374,7 +374,7 @@ struct BrowserHostOperationsTests {
             nodes: [BrowserPageNode(id: 0, role: "RootWebArea")],
             elements: 1, crossOriginFrames: 0, closedShadowRoots: false, evaluateMilliseconds: 1
         )
-        tab.page.signInResult = .success(BrowserSignInOutcome(filled: [.password], effect: .changed(snapshot), url: "https://example.com/home"))
+        tab.page.signInResult = .success(BrowserSignInOutcome(filled: [.password], effect: .observed(snapshot), url: "https://example.com/home"))
 
         let response = try await Self.send(
             transport,
@@ -384,6 +384,22 @@ struct BrowserHostOperationsTests {
         let result = try #require(response["result"] as? [String: Any])
         #expect(result["filled"] as? [String] == ["password"])
         #expect((result["page"] as? [String: Any])?["url"] as? String == "https://example.com/home")
+        #expect(tab.page.signInLooks == [.some(Self.look)])
+        _ = client
+    }
+
+    @Test("page.sign_in observed whose look could not be taken, a dialog holding the page say, answers with no page")
+    func observedSignInWithNoLookCarriesNoPage() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        tab.page.signInResult = .success(BrowserSignInOutcome(filled: [.password], effect: .unobserved, url: "https://example.com/login"))
+
+        let response = try await Self.send(
+            transport,
+            .pageSignIn(id: 29, Self.signInRequest(tab.wireID, usernameRef: nil, observe: true))
+        )
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(Set(result.keys) == ["url", "title", "filled"])
         #expect(tab.page.signInLooks == [.some(Self.look)])
         _ = client
     }
@@ -533,7 +549,7 @@ struct BrowserHostOperationsTests {
     func observedActHandsItsLook() async throws {
         let (client, transport, tab) = try await Self.attachedWithOneTab()
         let page = Self.page(readyState: .interactive)
-        tab.page.actResult = .success(BrowserActOutcome(effect: .changed(page), input: .trusted, url: page.url))
+        tab.page.actResult = .success(BrowserActOutcome(effect: .observed(page), input: .trusted, url: page.url))
 
         let response = try await Self.send(
             transport, .pageAct(id: 10, Self.actRequest(tab.wireID, kind: .click, ref: 4, observe: true))
@@ -542,6 +558,22 @@ struct BrowserHostOperationsTests {
         let result = try #require(response["result"] as? [String: Any])
         let wirePage = try #require(result["page"] as? [String: Any])
         #expect(wirePage["ready_state"] as? String == "interactive")
+        #expect(tab.page.actLooks == [.some(Self.look)])
+        _ = client
+    }
+
+    @Test("an observed act whose look could not be taken, a dialog holding the page say, answers with no page")
+    func observedActWithNoLookCarriesNoPage() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        tab.page.actResult = .success(BrowserActOutcome(effect: .unobserved, input: .trusted, url: "https://example.com/"))
+
+        let response = try await Self.send(
+            transport, .pageAct(id: 10, Self.actRequest(tab.wireID, kind: .click, ref: 4, observe: true))
+        )
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["page"] == nil)
+        #expect(result["url"] as? String == "https://example.com/")
         #expect(tab.page.actLooks == [.some(Self.look)])
         _ = client
     }
@@ -622,12 +654,10 @@ struct BrowserHostOperationsTests {
         _ = client
     }
 
-    @Test("tab.navigate whose navigation never commits answers navigation_refused, saying the page did not start loading at that address")
+    @Test("tab.navigate whose navigation never commits answers navigation_refused, saying the page did not start loading and naming no address")
     func navigationThatNeverCommitsIsRefused() async throws {
         let (client, transport, tab) = try await Self.attachedWithOneTab()
-        tab.page.navigationLookFailure = BrowserPageDriveError.notStarted(
-            "https://example.com/next", within: BrowserPageSettle.navigationTimeout
-        )
+        tab.page.navigationLookFailure = BrowserPageDriveError.notStarted(within: BrowserPageSettle.navigationTimeout)
         let navigate = BrowserHostTabNavigateRequest(
             tabId: tab.wireID, url: "https://example.com/next", observe: true, snapshot: Self.lookOptions
         )
@@ -636,7 +666,7 @@ struct BrowserHostOperationsTests {
 
         let error = try #require(response["error"] as? [String: Any])
         #expect(error["reason"] as? String == "navigation_refused", "as a navigation that ended without a page")
-        #expect(error["message"] as? String == "the page did not start loading within 30 seconds: https://example.com/next")
+        #expect(error["message"] as? String == "the page did not start loading within 30 seconds", "the engine knows what it asked for")
         #expect(tab.page.navigationLooks == [Self.look])
         _ = client
     }

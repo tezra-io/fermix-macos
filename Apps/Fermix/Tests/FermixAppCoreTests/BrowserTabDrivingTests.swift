@@ -47,7 +47,7 @@ struct BrowserTabDrivingTests {
     @Test("an act forwards the action and the look to the driven page")
     func actForwards() async throws {
         let page = FakeDrivablePage()
-        let expected = BrowserActOutcome(effect: .unchanged, input: .trusted, url: "https://example.com", value: "hi")
+        let expected = BrowserActOutcome(effect: .observed(.empty), input: .trusted, url: "https://example.com", value: "hi")
         page.actResult = .success(expected)
         let tab = BrowserTab(profile: .shared, page: page)
         let request = BrowserSnapshotRequest(mode: .interactive, maxChars: 4000, depth: 5)

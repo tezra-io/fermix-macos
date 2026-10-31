@@ -59,7 +59,7 @@ final class FakeDrivablePage: BrowserPage, BrowserPageDriving {
     /// The look each act was handed, nil where the engine asked for none.
     private(set) var actLooks: [BrowserSnapshotRequest?] = []
     var snapshotResult: Result<BrowserPageSnapshot, any Error> = .success(.empty)
-    var actResult: Result<BrowserActOutcome, any Error> = .success(.init(effect: .unchanged, input: .trusted, url: ""))
+    var actResult: Result<BrowserActOutcome, any Error> = .success(.init(effect: .unobserved, input: .trusted, url: ""))
 
     /// The test's own gate on `waitForLoad(within:)`: nil answers at once,
     /// set answers once the test releases it, and `readyFailure` is thrown

@@ -26,8 +26,8 @@ public struct BrowserSignInRequest: Equatable, Sendable {
     }
 }
 
-/// What a sign-in typed, and what it did to the page, in the shape a
-/// `page.act` reports its own effect.
+/// What a sign-in typed, and what its look saw, in the shape a `page.act`
+/// reports its own effect.
 public struct BrowserSignInOutcome: Equatable, Sendable {
     public var filled: [BrowserLoginField]
     public var effect: BrowserPageEffect

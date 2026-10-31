@@ -59,14 +59,14 @@ struct BrowserPageSettleTests {
         #expect(settle.opening == .glance(Self.bound(1_500, at: 0)))
     }
 
-    @Test("a page that never moves is polled with what is left of the settle budget, then answers unchanged and is not read")
-    func neverMovesIsUnchanged() {
+    @Test("a page that never moves is polled with what is left of the settle budget, then read as it stands once that is spent")
+    func neverMovesIsReadAtTheBudget() {
         var settle = BrowserPageSettle.afterAct(from: Self.glance())
 
         for elapsed in stride(from: 50, to: 1_500, by: 50) {
             #expect(settle.next(Self.glance(), at: Self.at(elapsed)) == .poll(Self.left(1_500, at: elapsed)))
         }
-        #expect(settle.next(Self.glance(), at: Self.at(1_500)) == .unchanged)
+        #expect(settle.next(Self.glance(), at: Self.at(1_500)) == .read, "the engine says whether it changed")
     }
 
     @Test("a page that moves then rests is read once it has held still for the rest window, not at its first change")
@@ -81,7 +81,7 @@ struct BrowserPageSettleTests {
         #expect(settle.next(Self.glance(elements: 60), at: Self.at(300)) == .read, "held since 150 ms, for the whole rest window")
     }
 
-    @Test("a change of text alone is a move, and the page is read once it rests rather than called unchanged")
+    @Test("a change of text alone is a move, and the page is read once it rests rather than when the settle budget is spent")
     func textOnlyChangeIsSeen() {
         var settle = BrowserPageSettle.afterAct(from: Self.glance(elements: 40, text: 1_200))
 
@@ -131,14 +131,14 @@ struct BrowserPageSettleTests {
         #expect(settle.next(Self.glance(elements: 41, navigations: 1), at: Self.at(1_050)) == .read)
     }
 
-    @Test("a load already in flight before the act, with nothing else changing, is not a move")
+    @Test("a load already in flight before the act, with nothing else changing, is not a move, so the page is read only once the settle budget is spent")
     func loadInFlightBeforeTheActIsNoMove() {
         var settle = BrowserPageSettle.afterAct(from: Self.glance(loading: true, navigations: 3))
 
         for elapsed in stride(from: 50, to: 1_500, by: 50) {
             #expect(settle.next(Self.glance(loading: true, navigations: 3), at: Self.at(elapsed)) == .poll(Self.left(1_500, at: elapsed)))
         }
-        #expect(settle.next(Self.glance(loading: true, navigations: 3), at: Self.at(1_500)) == .unchanged)
+        #expect(settle.next(Self.glance(loading: true, navigations: 3), at: Self.at(1_500)) == .read)
     }
 
     @Test("an act that changes a page still loading something from before is read once the page rests, without waiting for that load")
@@ -155,7 +155,7 @@ struct BrowserPageSettleTests {
         var settle = BrowserPageSettle.afterAct(from: Self.glance(loading: true, navigations: 3))
         let next = Self.glance(url: "https://example.com/next", elements: 80, navigations: 4)
 
-        #expect(settle.next(Self.glance(loading: true, navigations: 4), at: Self.at(50)) == .awaitLoad(.milliseconds(4_000)), "not unchanged, though the old document still shows")
+        #expect(settle.next(Self.glance(loading: true, navigations: 4), at: Self.at(50)) == .awaitLoad(.milliseconds(4_000)), "a move, though the old document still shows")
         #expect(settle.next(next, at: Self.at(2_000)) == .poll(Self.left(4_050, at: 2_000)))
         #expect(settle.next(next, at: Self.at(2_150)) == .read)
     }
@@ -203,15 +203,15 @@ struct BrowserPageSettleTests {
         #expect(settle.afterWait(at: Self.at(3_000)) == .glance(Self.bound(5_000, at: 3_000)), "the load's budget is the look's now")
     }
 
-    @Test("a budget spent by a wait ends the look with no glance: read if the page moved, unchanged if it never did")
+    @Test("a budget spent by a wait ends the look with no glance, and the page is read whether it moved or not")
     func spentBudgetEndsTheLook() {
         var moved = BrowserPageSettle.afterAct(from: Self.glance(elements: 40))
         let still = BrowserPageSettle.afterAct(from: Self.glance(elements: 40))
 
         #expect(moved.next(Self.glance(elements: 41), at: Self.at(1_400)) == .poll(Self.left(1_500, at: 1_400)))
         #expect(moved.afterWait(at: Self.at(1_500)) == .read)
-        #expect(still.afterWait(at: Self.at(1_500)) == .unchanged)
-        #expect(still.afterWait(at: Self.at(1_520)) == .unchanged)
+        #expect(still.afterWait(at: Self.at(1_500)) == .read)
+        #expect(still.afterWait(at: Self.at(1_520)) == .read)
         #expect(Self.committed(from: 0).afterWait(at: Self.at(4_000)) == .read)
     }
 
@@ -288,8 +288,8 @@ struct BrowserPageSettleTests {
         #expect(settle.next(Self.glance(url: "about:blank", elements: 3, loading: true, navigations: 3), at: Self.at(4_000)) == .read)
     }
 
-    @Test("the look after a navigation has moved by definition, so it never answers unchanged")
-    func navigationNeverUnchanged() {
+    @Test("the look after a navigation has moved by definition, so it reads once the page holds still, with no wait for a move")
+    func navigationReadsOnceItRests() {
         var settle = Self.committed(from: 2)
 
         #expect(settle.next(Self.glance(navigations: 3), at: Self.at(0)) == .poll(Self.left(4_000, at: 0)))

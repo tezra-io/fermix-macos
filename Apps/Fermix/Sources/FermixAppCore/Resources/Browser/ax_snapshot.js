@@ -1001,15 +1001,17 @@
     return { value: option.value, label: collapse(option.label || option.text).trim() };
   }
 
-  // The engine's submit: the form's primary control, clicked by the app as a
-  // person would, or the form asked to submit itself when it has none.
+  // The engine's submit: the form the ref belongs to, by the element's own
+  // form or the closest form around it, never another form on the page. Its
+  // primary control is clicked by the app as a person would, or the form is
+  // asked to submit itself when it has none. A ref in no form is `no_form`.
   const SUBMIT_CONTROLS = ["button[type='submit']", "input[type='submit']", "[role='search'] button",
     "button:not([type])", "button"];
 
   function submitControl(key) {
     const element = field(key) ?? nodeFor(key);
     if (!element) return { error: "stale" };
-    const form = element.form || element.closest?.("form") || element.ownerDocument.forms[0];
+    const form = element.form || element.closest?.("form");
     if (!form) return { error: "no_form" };
     for (const selector of SUBMIT_CONTROLS) {
       const control = form.querySelector(selector);

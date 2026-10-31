@@ -116,14 +116,14 @@ public enum BrowserInputPath: String, Equatable, Sendable {
     case scripted
 }
 
-/// What an action did to the page, the way the engine reports it: `changed`
-/// with a fresh snapshot, or `unchanged`, which means the refs the engine
-/// holds are still good. `unobserved` is no look taken: the engine asked for
-/// none, or the page stopped answering its script once the action was done,
-/// as one holding a dialog does; the action itself stands.
+/// What the look after an action saw. `observed` is the page the look ended
+/// on, read whether or not it moved: the engine compares it with its own last
+/// look at the tab and says itself whether the page changed. `unobserved` is
+/// no look taken: the engine asked for none, or the page stopped answering
+/// its script once the action was done, as one holding a dialog does; the
+/// action itself stands.
 public enum BrowserPageEffect: Equatable, Sendable {
-    case changed(BrowserPageSnapshot)
-    case unchanged
+    case observed(BrowserPageSnapshot)
     case unobserved
 }
 
@@ -230,12 +230,14 @@ public indirect enum BrowserPageDriveError: Error, Equatable, Sendable {
         }
     }
 
-    /// The navigation at `address` did not commit within `timeout`: it ended
-    /// without a page as a failed one does, so the request fails the same
-    /// way (`navigation_refused`), where `Page.navigate` gives up on its own
-    /// timeout in the engine.
-    public static func notStarted(_ address: String, within timeout: Duration) -> BrowserPageDriveError {
-        .navigationFailed("the page did not start loading within \(timeout.components.seconds) seconds: \(address)")
+    /// The navigation did not commit within `timeout`: it ended without a
+    /// page as a failed one does, so the request fails the same way
+    /// (`navigation_refused`), where `Page.navigate` gives up on its own
+    /// timeout in the engine. It names no address: the load in flight may be
+    /// a redirect's, to a host the engine never checked, and the engine knows
+    /// what it asked for.
+    public static func notStarted(within timeout: Duration) -> BrowserPageDriveError {
+        .navigationFailed("the page did not start loading within \(timeout.components.seconds) seconds")
     }
 }
 
@@ -257,10 +259,10 @@ public protocol BrowserPageReading: AnyObject {
 
 /// A page as the engine acts on it (plan §4.2, the host action `act`).
 ///
-/// `look` is the snapshot the engine takes after the act, so a `changed` page
-/// comes back already read. nil is an act the engine does not look after:
-/// it answers `unobserved` as soon as its input is delivered,
-/// with no settle, no fingerprint and no snapshot.
+/// `look` is the snapshot the engine takes after the act, so the page the act
+/// ended on comes back already read, whether it moved or not. nil is an act
+/// the engine does not look after: it answers `unobserved` as soon as its
+/// input is delivered, with no settle, no fingerprint and no snapshot.
 @MainActor
 public protocol BrowserPageActing: AnyObject {
     func act(_ action: BrowserPageAction, observing look: BrowserSnapshotRequest?) async throws -> BrowserActOutcome

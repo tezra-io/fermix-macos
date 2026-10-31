@@ -35,6 +35,29 @@ struct BrowserSignInPageTests {
         #expect(await store.passwordReads == 1)
     }
 
+    @Test("an observed sign-in that leaves the page as it was reads it once the settle budget is spent")
+    func observedSignInReadsAnUnmovedPage() async throws {
+        let harness = BrowserPageHarness()
+        let store = try await SignInFixture.store()
+        try await harness.load(SignInFixture.plainForm, at: SignInFixture.loginPage)
+        let refs = try await harness.fieldRefs()
+        try await harness.pageWorld("document.getElementById('username').focus();")
+
+        _ = try await harness.page.loginFor(site: SignInFixture.site, store: store)
+        let outcome = try await harness.page.signIn(
+            Self.request(username: refs["Email"], password: nil),
+            store: store, ledger: LoginLedger(),
+            observing: BrowserSnapshotRequest(mode: .interactive, maxChars: 50_000, depth: 50)
+        )
+
+        guard case .observed(let snapshot) = outcome.effect else {
+            Issue.record("an observed sign-in always reads the page it ended on: \(outcome.effect)")
+            return
+        }
+        #expect(snapshot.url == SignInFixture.loginPage, "the field already held the focus, so nothing the look sees moved")
+        #expect(outcome.filled == [.username])
+    }
+
     @Test("fillLogin's answer has exactly one key")
     func fillAnswerHasOneKey() async throws {
         let harness = BrowserPageHarness()
