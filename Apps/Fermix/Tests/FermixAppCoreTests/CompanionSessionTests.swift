@@ -521,4 +521,193 @@ struct CompanionSessionTests {
         #expect(harness.model.rows.isEmpty)
         #expect(harness.model.connection == .connected)
     }
+
+    // MARK: - After a move (M75 §6)
+
+    /// The sentence a desktop's engine sends while its server is out of reach.
+    nonisolated private static let unreachable = "The server fermix-vm is unreachable. Fermix keeps your message until it is back."
+
+    private static func unreachableRefusal(message: String? = unreachable) -> CompanionServerEvent {
+        .error(
+            CompanionServerError(
+                reason: CompanionProtocol.primaryUnreachableReason,
+                message: message,
+                field: nil,
+                event: nil,
+                clientMsgId: nil,
+                direction: nil,
+                clientVersion: nil,
+                minVersion: nil,
+                maxVersion: nil,
+                ref: nil
+            )
+        )
+    }
+
+    @Test("a server out of reach at the handshake says the daemon's sentence, keeps the outbox and connects again")
+    func serverUnreachableAtTheHandshake() throws {
+        let harness = Harness()
+        harness.session.connect()
+        harness.session.send("Hello")
+
+        harness.socket.deliver(Self.unreachableRefusal())
+
+        #expect(harness.model.connection == .waiting(Self.unreachable))
+        #expect(harness.model.pending.map(\.clientMsgId) == ["mac-1"])
+        #expect(harness.socket.closeCount == 1)
+
+        // The daemon closing its end next is not a second drop: the sentence
+        // stays until the next attempt.
+        harness.socket.fail(.peerClosed)
+        #expect(harness.model.connection == .waiting(Self.unreachable))
+
+        harness.scheduler.fireAll()
+        harness.socket.deliver(E.hello())
+
+        #expect(harness.model.connection == .connected)
+        #expect(
+            try harness.sent()
+                == wire(hello, hello, newestPagePull, .msg(clientMsgId: "mac-1", profileId: "main", text: "Hello"))
+        )
+    }
+
+    @Test("a server lost mid-session ends the connection with its sentence, and the outbox waits for the next")
+    func serverUnreachableMidSession() throws {
+        let harness = Harness()
+        harness.connected()
+        harness.session.send("Plan my week")
+
+        harness.socket.deliver(Self.unreachableRefusal())
+
+        #expect(harness.model.connection == .waiting(Self.unreachable))
+        #expect(harness.model.pending.map(\.clientMsgId) == ["mac-1"])
+        #expect(harness.model.lastError == nil, "the sentence is the connection's, not a refused request's")
+        #expect(harness.scheduler.scheduledDelays.last == CompanionSession.reconnectDelays[0])
+    }
+
+    @Test("a server out of reach with no sentence is named in the app's words for a refusal")
+    func serverUnreachableWithoutASentence() {
+        let harness = Harness()
+        harness.session.connect()
+
+        harness.socket.deliver(Self.unreachableRefusal(message: nil))
+
+        #expect(
+            harness.model.connection
+                == .waiting(String(format: ProductStrings[.companionErrorRefusedFormat], CompanionProtocol.primaryUnreachableReason))
+        )
+    }
+
+    /// The sentence a desktop's engine answers a message with while its home
+    /// moves to a server.
+    private static let moving = "Fermix is moving this home to north-box; your message is kept until it is done."
+
+    @Test("while the home moves, chat keeps taking messages into the outbox through the engine's restart, and sends them once it is back")
+    func composerWaitsThroughTheMove() throws {
+        let harness = Harness()
+        harness.connected()
+
+        harness.socket.deliver(Self.unreachableRefusal(message: Self.moving))
+
+        #expect(harness.model.connection == .waiting(Self.moving))
+        #expect(harness.model.connection.acceptsMessages, "the composer takes a message while the server is away")
+
+        harness.session.send("Did the move work?")
+        #expect(harness.model.pending.map(\.clientMsgId) == ["mac-1"])
+
+        // The engine restarts for the move: its socket is gone, then refuses.
+        // Both are the same wait, not an engine without chat or a lost link.
+        harness.socket.connectResult = .failure(.system(errno: ENOENT))
+        harness.scheduler.fireAll()
+        #expect(harness.model.connection == .waiting(Self.moving))
+        harness.socket.connectResult = .failure(.system(errno: ECONNREFUSED))
+        harness.scheduler.fireAll()
+        #expect(harness.model.connection == .waiting(Self.moving))
+        #expect(harness.model.connection.acceptsMessages)
+
+        harness.socket.connectResult = .success(())
+        harness.scheduler.fireAll()
+        harness.socket.deliver(E.hello())
+
+        #expect(harness.model.connection == .connected)
+        #expect(try harness.sent().last == wireObject(companion: .msg(clientMsgId: "mac-1", profileId: "main", text: "Did the move work?")))
+
+        // A later drop of a connected chat is an ordinary one again.
+        harness.socket.fail(.peerClosed)
+        #expect(harness.model.connection == .disconnected(ProductStrings[.companionConnectionReconnecting]))
+        #expect(!harness.model.connection.acceptsMessages)
+    }
+
+    /// The sentence a desktop's engine refuses every connection with once its
+    /// server no longer knows this computer.
+    private static let revoked = "The server fermix-vm does not know this computer: it was removed from the server's devices, or the server was restored from a snapshot taken before this computer joined it. Fermix stopped reaching it."
+
+    private static func revokedRefusal() -> CompanionServerEvent {
+        .error(
+            CompanionServerError(
+                reason: CompanionProtocol.desktopRevokedReason,
+                message: revoked,
+                field: nil,
+                event: nil,
+                clientMsgId: nil,
+                direction: nil,
+                clientVersion: nil,
+                minVersion: nil,
+                maxVersion: nil,
+                ref: nil
+            )
+        )
+    }
+
+    @Test("a desktop its server no longer knows stops chat with the daemon's sentence and drops what waited, saying so")
+    func desktopRevoked() throws {
+        let harness = Harness()
+        harness.connected()
+        harness.socket.deliver(Self.unreachableRefusal())
+        harness.session.send("Is anyone there?")
+        harness.scheduler.fireAll()
+        harness.socket.deliver(E.hello())
+        #expect(harness.model.pending.map(\.clientMsgId) == ["mac-1"], "sent on the new connection, not yet accepted")
+
+        harness.socket.deliver(Self.revokedRefusal())
+
+        #expect(harness.model.connection == .refused(Self.revoked))
+        #expect(!harness.model.connection.acceptsMessages, "nothing new is taken: it could never be sent")
+        #expect(harness.model.pending.isEmpty, "nothing waiting can be sent")
+        #expect(harness.model.lastError == ProductStrings[.companionErrorNotSentRevoked])
+        #expect(harness.scheduler.liveCount == 0, "nothing is retried until chat is asked for again")
+
+        // Asking for chat again tries once more, and hears the same refusal
+        // at the handshake.
+        harness.session.connect()
+        #expect(harness.socket.connectedPaths.count == 3)
+        harness.socket.deliver(Self.revokedRefusal())
+        #expect(harness.model.connection == .refused(Self.revoked))
+    }
+
+    @Test("a desktop's refusal of an unattended client is said in the daemon's sentence")
+    func unattendedClientSentence() {
+        let harness = Harness()
+        let sentence = "Only the Fermix app chats with the server from this computer, and this process was started by Fermix or runs detached."
+        harness.session.connect()
+
+        harness.socket.deliver(
+            .error(
+                CompanionServerError(
+                    reason: "unattended_client",
+                    message: sentence,
+                    field: nil,
+                    event: nil,
+                    clientMsgId: nil,
+                    direction: nil,
+                    clientVersion: nil,
+                    minVersion: nil,
+                    maxVersion: nil,
+                    ref: nil
+                )
+            )
+        )
+
+        #expect(harness.model.connection == .disconnected(sentence))
+    }
 }

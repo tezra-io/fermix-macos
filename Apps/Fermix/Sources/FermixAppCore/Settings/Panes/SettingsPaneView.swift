@@ -23,6 +23,8 @@ struct SettingsPaneView: View {
             }
         case .cues:
             CuesPane(model: model, router: router)
+        case .alwaysOn:
+            AlwaysOnPane(model: model)
         case .computer:
             ComputerPane(model: model)
         case .permissions:
@@ -40,7 +42,8 @@ struct SettingsPaneView: View {
 }
 
 /// A pane that is exactly its daemon-published sections, plus whatever the
-/// surface adds after them.
+/// surface adds after them. On a desktop whose server's sections are missing
+/// (M75), a pane left with none says the daemon's sentence for why.
 struct DescriptorPane<Extra: View>: View {
     let pane: SettingsPane
     @ObservedObject var model: SettingsModel
@@ -51,6 +54,9 @@ struct DescriptorPane<Extra: View>: View {
             if model.requiresNewerEngine {
                 NewerEngineSection(sentence: model.newerEngineSentence)
             } else {
+                if let missing = model.primaryMissing, model.sections(for: pane).isEmpty {
+                    Section { CueNote(text: missing, attention: true) }
+                }
                 DescriptorForm(model: model, sections: model.sections(for: pane))
                 extra
             }

@@ -116,7 +116,7 @@ struct ManagementNegotiationTests {
         // A gate that never fires is not a gate: the loop has to have covered
         // every method the v1 catalog does not carry.
         #expect(refused == Set(contract.methods).subtracting(v1))
-        #expect(refused.count == 78)
+        #expect(refused.count == 93)
     }
 
     /// The refusal happens before a byte is written: a daemon that has already
@@ -271,7 +271,9 @@ struct ManagementNegotiationTests {
             seen.insert(method.rawValue)
         }
 
-        #expect(seen == ["settings.get", "plugins.list", "mobile.pair.start", "browser.install.start", "cues.status"])
+        #expect(
+            seen == ["settings.get", "plugins.list", "mobile.pair.start", "browser.install.start", "cues.status", "home.status"]
+        )
     }
 
     // MARK: - The double

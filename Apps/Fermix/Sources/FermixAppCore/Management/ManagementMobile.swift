@@ -206,10 +206,16 @@ public struct ManagementPairingFailure: Decodable, Equatable, Sendable {
     public let sentence: String
 }
 
+/// A paired device: a phone, or a desktop engine a move paired (M75 §3), with
+/// its executor switch, which is null on a phone.
 public struct ManagementMobileDevice: Decodable, Equatable, Sendable {
     public let deviceId: String
     public let name: String
     public let model: String
+    /// Nil from an engine older than desktops, which pairs only phones.
+    public let kind: ManagementMobileDeviceKind?
+    /// A desktop's switch; null on a phone, and absent from an older engine.
+    public let executor: Bool?
     public let platform: String?
     public let signerRole: ManagementMobileSignerRole?
     public let bootState: ManagementMobileBootState?
@@ -218,7 +224,7 @@ public struct ManagementMobileDevice: Decodable, Equatable, Sendable {
     public let lastSeen: String?
 
     private enum CodingKeys: String, CodingKey {
-        case name, model, platform
+        case name, model, kind, executor, platform
         case deviceId = "device_id"
         case signerRole = "signer_role"
         case bootState = "boot_state"
@@ -228,10 +234,15 @@ public struct ManagementMobileDevice: Decodable, Equatable, Sendable {
     }
 }
 
-/// `mobile.devices.list`: every paired phone, oldest first, at most 64. Empty
-/// whenever the channel is not running.
+/// `mobile.devices.list`: every paired device, oldest first, at most 64.
 public struct ManagementMobileDevices: Decodable, Equatable, Sendable {
     public let devices: [ManagementMobileDevice]
+
+    /// The phones alone, which the Phone sheet lists and forgets. A desktop
+    /// is the Always On pane's, by the kind the daemon publishes.
+    public var phones: [ManagementMobileDevice] {
+        devices.filter { $0.kind == nil || $0.kind == .phone }
+    }
 }
 
 /// `mobile.devices.revoke`: the id forgotten, and `revoked`, which the schema
@@ -441,6 +452,25 @@ public enum ManagementMobileCredentials: ManagementVocabulary {
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = ["ready": .ready, "missing": .missing]
+
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+}
+
+/// What a paired device is: a phone, or a desktop engine in the device role.
+public enum ManagementMobileDeviceKind: ManagementVocabulary, Hashable {
+    case phone
+    case desktop
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = [
+        "phone": .phone,
+        "desktop": .desktop
+    ]
 
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
 

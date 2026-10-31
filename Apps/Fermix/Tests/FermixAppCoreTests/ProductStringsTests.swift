@@ -300,20 +300,27 @@ struct ProductStringsTests {
     /// rots into a rubber stamp.
     @Test("a product name is exempt as a phrase and its generic half is not")
     func properPhrasesDoNotExemptTheirWords() {
-        #expect(ProductCopyRules.properPhrases == ["Claude Code", "VS Code", "Google Meet", "Setup Assistant", "Full Disk Access"])
+        #expect(
+            ProductCopyRules.properPhrases
+                == ["Claude Code", "VS Code", "Google Meet", "Setup Assistant", "Full Disk Access", "Always On"]
+        )
         #expect(ProductCopyRules.titleCaseOffenders(in: "Use Claude Code sign-in").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "The Google Meet account is signed in").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "Run the Setup Assistant to register it").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "Needs Full Disk Access").isEmpty)
+        #expect(ProductCopyRules.titleCaseOffenders(in: "Create the Always On stack").isEmpty)
 
         #expect(ProductCopyRules.titleCaseOffenders(in: "Open the Meet window") == ["Meet"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Show the Code panel") == ["Code"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Ask the Assistant about it") == ["Assistant"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Grant Access to the Disk") == ["Access", "Disk"])
+        #expect(ProductCopyRules.titleCaseOffenders(in: "Keep it On") == ["On"])
         #expect(!ProductCopyRules.properNouns.contains("Code"))
         #expect(!ProductCopyRules.properNouns.contains("Meet"))
         #expect(!ProductCopyRules.properNouns.contains("Assistant"))
         #expect(!ProductCopyRules.properNouns.contains("Disk"))
+        #expect(!ProductCopyRules.properNouns.contains("On"))
+        #expect(!ProductCopyRules.properNouns.contains("Always"))
 
         // A phrase that ends a sentence still ends it, so the word after it is a
         // sentence start rather than an offender.

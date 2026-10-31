@@ -429,7 +429,10 @@ struct PhonePairingModelTests {
         #expect(harness.model.step == .phones)
         await harness.model.settle()
 
-        #expect(harness.model.devices.value?.devices.map(\.name) == ["Sam's phone"])
+        // The golden list holds a desktop beside the phone (M75); the sheet
+        // lists the phone alone.
+        #expect(harness.model.devices.value?.phones.map(\.name) == ["Sam's phone"])
+        #expect(harness.model.devices.value?.devices.map(\.name) == ["Sam's phone", "Studio Mac"])
         #expect(!harness.gateway.calls.contains(.v2(.mobilePairStart)), "the phones open no window")
     }
 
@@ -507,7 +510,7 @@ struct PhonePairingModelTests {
             harness.model.forgetting.refusals[device]
                 == "Only the owner can pair or forget a phone; run this from your own terminal."
         )
-        #expect(harness.model.devices.value?.devices.count == 1)
+        #expect(harness.model.devices.value?.phones.count == 1)
 
         harness.model.closed()
         #expect(harness.model.forgetting == PhoneForgetting(), "a closed sheet asks nothing")

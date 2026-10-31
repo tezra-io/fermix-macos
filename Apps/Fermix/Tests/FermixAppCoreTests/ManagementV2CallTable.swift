@@ -181,6 +181,9 @@ enum ManagementV2Calls {
         "mobile_devices_revoke": {
             _ = try await $0.revokeMobileDevice(id: "3f4a1a55-69a0-4f8a-9132-17d6ac728f84")
         },
+        "mobile_devices_set_executor": {
+            _ = try await $0.setDeviceExecutor(id: "c41e9d27-5a8b-4f63-9e20-7d1b3c5a8f94", executor: false)
+        },
 
         "mcp_servers_list": { _ = try await $0.mcpServers() },
         "mcp_servers_get": { _ = try await $0.mcpServer(name: "linear") },
@@ -295,7 +298,39 @@ enum ManagementV2Calls {
         "cues_proposals_get": { _ = try await $0.cueProposal(id: "cpr_9f2c41d07a5e6b38c1d2e4f0") },
         "cues_proposals_decide": {
             _ = try await $0.decideCueProposal(id: "cpr_9f2c41d07a5e6b38c1d2e4f0", decision: .confirm)
-        }
+        },
+
+        // A browser session's hand-off (M75 §10), which no surface calls.
+        "browser_signin_open": { _ = try await $0.openBrowserSignIn(url: "https://news.example.org/login") },
+        "browser_handoff_send": {
+            _ = try await $0.sendBrowserHandoff(sites: ["news.example.org"], expiresSeconds: 604_800)
+        },
+        "browser_handoffs_list": { _ = try await $0.browserHandoffs() },
+        "browser_handoffs_wipe": { _ = try await $0.wipeBrowserHandoffs(sites: ["news.example.org"]) },
+
+        // The home (M75): the picture, and the recovery snapshots.
+        "home_status": { _ = try await $0.homeStatus() },
+        "home_enroll_open": { _ = try await $0.openEnrollment() },
+        "home_candidates_list": { _ = try await $0.candidates() },
+        "home_move_readiness": { _ = try await $0.moveReadiness(candidateId: "cand-5e2a9c1f7b3d4086") },
+        "home_move_start": {
+            _ = try await $0.startMove(candidateId: "cand-5e2a9c1f7b3d4086", passphrase: "invented-harbor-juniper-lantern")
+        },
+        // A desktop replacing its server: the server moves and is not kept.
+        "home_move_start_replacing_the_server": {
+            _ = try await $0.startMove(
+                candidateId: "cand-5e2a9c1f7b3d4086",
+                passphrase: "invented-harbor-juniper-lantern",
+                keepAsDesktop: false
+            )
+        },
+        "home_snapshots_status": { _ = try await $0.snapshotsStatus() },
+        "home_snapshots_run": { _ = try await $0.runSnapshot() },
+        "home_snapshots_passphrase": { _ = try await $0.setRecoveryPassphrase("invented-lighthouse-meridian") },
+
+        // The folders the server may read on this computer.
+        "device_grants_list": { _ = try await $0.deviceGrants() },
+        "device_grants_remove": { _ = try await $0.removeDeviceGrant(path: "/Users/ana/Downloads") }
     ]
 
 }

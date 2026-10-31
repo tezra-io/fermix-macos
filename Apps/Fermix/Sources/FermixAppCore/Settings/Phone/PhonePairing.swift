@@ -555,7 +555,7 @@ public enum PhoneRowProjection {
     private static func name(of devices: SettingsReadState<ManagementMobileDevices>) -> String {
         switch devices {
         case .loaded(let answer):
-            return answer.devices.first?.name ?? ProductStrings[.channelStatusChecking]
+            return answer.phones.first?.name ?? ProductStrings[.channelStatusChecking]
         case .unavailable(let sentence):
             return sentence
         case .requiresNewerEngine:

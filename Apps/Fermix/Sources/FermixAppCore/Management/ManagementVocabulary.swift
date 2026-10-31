@@ -44,9 +44,9 @@ extension ManagementVocabulary {
 /// Every published management method.
 ///
 /// The eleven the engine serves today have a minimum protocol version of 1; the
-/// thirty-one M34 §7.3 adds, the seven the phone channel added, the three the
-/// iMessage channel added, the twelve of MCP servers and the twenty-four of
-/// cues have a minimum of 2. The
+/// thirty-one M34 §7.3 adds, the eight the phone channel added, the three the
+/// iMessage channel added, the twelve of MCP servers, the twenty-four of cues
+/// and the home's have a minimum of 2. The
 /// minimum is read from the contract (`ManagementContract.minimumVersion(for:)`),
 /// never restated here: one fact, in the checksum-pinned artifact.
 public enum ManagementMethod: String, CaseIterable, Sendable {
@@ -94,6 +94,12 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case computerUseGrantStart = "computer_use.grant.start"
     case computerUsePermissionsGet = "computer_use.permissions.get"
     case browserInstallStart = "browser.install.start"
+    // A browser session's hand-off (M75 §10): modelled for the catalog, and
+    // called by no surface of this app.
+    case browserSigninOpen = "browser.signin.open"
+    case browserHandoffSend = "browser.handoff.send"
+    case browserHandoffsList = "browser.handoffs.list"
+    case browserHandoffsWipe = "browser.handoffs.wipe"
     // The phone channel (engine 534a5858, 2026-09-27): a pairing session is
     // polled rather than a job, and the paired-phone list is read and revoked.
     case mobileStatus = "mobile.status"
@@ -103,6 +109,9 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case mobilePairCancel = "mobile.pair.cancel"
     case mobileDevicesList = "mobile.devices.list"
     case mobileDevicesRevoke = "mobile.devices.revoke"
+    // A desktop's executor switch (M75 §3): whether the primary lets a desktop
+    // its home moved from run actions.
+    case mobileDevicesSetExecutor = "mobile.devices.set_executor"
     // The iMessage channel (engine 053e8007, 2026-10-04): the helper's probe,
     // and the two jobs that wait on a person.
     case imessagePermissionsGet = "imessage.permissions.get"
@@ -148,6 +157,20 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case cuesProposalsList = "cues.proposals.list"
     case cuesProposalsGet = "cues.proposals.get"
     case cuesProposalsDecide = "cues.proposals.decide"
+    // The home (M75 §14): the one picture every Always On surface draws, and
+    // the recovery snapshots.
+    case homeStatus = "home.status"
+    case homeEnrollOpen = "home.enroll.open"
+    case homeCandidatesList = "home.candidates.list"
+    case homeMoveReadiness = "home.move.readiness"
+    case homeMoveStart = "home.move.start"
+    case homeSnapshotsStatus = "home.snapshots.status"
+    case homeSnapshotsRun = "home.snapshots.run"
+    case homeSnapshotsPassphrase = "home.snapshots.passphrase"
+    // The folders the server may read on this computer (M75): answered here,
+    // never forwarded, so they work while the server is away.
+    case deviceGrantsList = "device.grants.list"
+    case deviceGrantsRemove = "device.grants.remove"
 
     /// The method name in a form the request-id pattern accepts.
     public var identifierSlug: String { rawValue.replacingOccurrences(of: ".", with: "-") }
@@ -178,6 +201,17 @@ public enum ManagementErrorCode: ManagementVocabulary {
     /// The pairing session is not retained by this daemon. Added with the phone
     /// channel.
     case unknownPairingSession
+    /// After a move, the server this Mac forwards to cannot be reached (M75
+    /// §6). `details.sentence` names it.
+    case primaryUnreachable
+    /// The server refused a request that configures the computer that
+    /// forwarded it (M75 §6). `details.sentence` says why.
+    case deviceClassMethod
+    /// After a move, the server had a forwarded request whose answer did not
+    /// arrive (`home.move.start`), so its outcome is not known yet. Not a
+    /// failure: `details.sentence` says where it shows, and `home.status` is
+    /// read again.
+    case unconfirmed
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -197,7 +231,10 @@ public enum ManagementErrorCode: ManagementVocabulary {
         "unknown_job": .unknownJob,
         "external_change": .externalChange,
         "config_unreadable": .configUnreadable,
-        "unknown_pairing_session": .unknownPairingSession
+        "unknown_pairing_session": .unknownPairingSession,
+        "primary_unreachable": .primaryUnreachable,
+        "device_class_method": .deviceClassMethod,
+        "unconfirmed": .unconfirmed
     ]
 
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }

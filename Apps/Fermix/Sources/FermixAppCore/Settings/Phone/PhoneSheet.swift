@@ -422,7 +422,8 @@ private struct PhonePhonesStep: View {
     private var phones: some View {
         switch model.devices {
         case .loaded(let answer):
-            ForEach(answer.devices, id: \.deviceId) { device in
+            // A desktop a move paired is the Always On pane's, not a phone.
+            ForEach(answer.phones, id: \.deviceId) { device in
                 PhoneDeviceRow(
                     device: device,
                     forgetting: model.forgetting,
@@ -444,7 +445,7 @@ private struct PhonePhonesStep: View {
 
     /// Another phone once one is paired, and a phone while none is.
     private var pairTitle: ProductStringKey {
-        model.devices.value?.devices.isEmpty == false ? .phonePairAnother : .phonePair
+        model.devices.value?.phones.isEmpty == false ? .phonePairAnother : .phonePair
     }
 
     /// The one row drawn with more than the renderer gives it: Reach from

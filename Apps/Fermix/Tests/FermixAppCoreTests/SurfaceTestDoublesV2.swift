@@ -589,6 +589,74 @@ extension FakeDaemonGateway {
         try answer(.cuesProposalsDecide, "cues_proposals_decide")
     }
 
+    // MARK: - The home (M75)
+
+    /// The golden picture, or the scripted ones in order: each an answer or a
+    /// refusal, an exhausted script answering with its last.
+    func homeStatus() async throws -> ManagementHomeStatus {
+        let published: ManagementHomeStatus = try answer(.homeStatus, "home_status")
+        let scripted = homeStatusScript.isEmpty
+            ? nil
+            : homeStatusScript[min(homeStatusIndex, homeStatusScript.count - 1)]
+        homeStatusIndex += 1
+
+        return try scripted?.get() ?? published
+    }
+
+    func openEnrollment() async throws -> ManagementEnrollmentCode {
+        let published: ManagementEnrollmentCode = try answer(.homeEnrollOpen, "home_enroll_open")
+
+        return enrollmentResult ?? published
+    }
+
+    func candidates() async throws -> ManagementCandidates {
+        try answer(.homeCandidatesList, "home_candidates_list")
+    }
+
+    func moveReadiness(candidateId: String) async throws -> ManagementMoveReadiness {
+        readinessAsked.append(candidateId)
+        let published: ManagementMoveReadiness = try answer(.homeMoveReadiness, "home_move_readiness")
+
+        return readinessResult ?? published
+    }
+
+    func startMove(candidateId: String, passphrase: String, keepAsDesktop: Bool) async throws -> ManagementMoveStarted {
+        moveStarts.append(MoveStart(candidateId: candidateId, passphrase: passphrase, keepAsDesktop: keepAsDesktop))
+        let published: ManagementMoveStarted = try answer(.homeMoveStart, "home_move_start")
+
+        return moveStartedResult ?? published
+    }
+
+    func snapshotsStatus() async throws -> ManagementHomeSnapshots {
+        try answer(.homeSnapshotsStatus, "home_snapshots_status")
+    }
+
+    func runSnapshot() async throws -> ManagementSnapshotsStarted {
+        try answer(.homeSnapshotsRun, "home_snapshots_run")
+    }
+
+    func setRecoveryPassphrase(_ passphrase: String) async throws -> ManagementRecoveryKey {
+        recoveryPassphrases.append(passphrase)
+
+        return try answer(.homeSnapshotsPassphrase, "home_snapshots_passphrase")
+    }
+
+    func setDeviceExecutor(id: String, executor: Bool) async throws -> ManagementMobileDevice {
+        executorWrites.append(ExecutorWrite(deviceId: id, executor: executor))
+
+        return try answer(.mobileDevicesSetExecutor, "mobile_devices_set_executor")
+    }
+
+    func deviceGrants() async throws -> ManagementDeviceGrants {
+        try answer(.deviceGrantsList, "device_grants_list")
+    }
+
+    func removeDeviceGrant(path: String) async throws -> ManagementDeviceGrantRemoved {
+        grantRemovalsAsked.append(path)
+
+        return try answer(.deviceGrantsRemove, "device_grants_remove")
+    }
+
     // MARK: - One answer
 
     /// Record the call, apply the version gate, then decode the named fixture.
@@ -670,6 +738,19 @@ struct PairingDecision: Equatable {
 struct SettingsWrite: Equatable {
     let section: String
     let values: [String: ManagementSettingValue]
+}
+
+/// One `mobile.devices.set_executor`, as the surface sent it.
+struct ExecutorWrite: Equatable {
+    let deviceId: String
+    let executor: Bool
+}
+
+/// One `home.move.start`, as the surface sent it.
+struct MoveStart: Equatable {
+    let candidateId: String
+    let passphrase: String
+    var keepAsDesktop = true
 }
 
 /// One `mcp.servers.tool.set`, as the surface sent it.

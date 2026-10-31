@@ -51,6 +51,11 @@ public final class UserDefaultsSettingsPaneStore: SettingsPaneStoring {
 public final class SettingsModel: ObservableObject {
     @Published public internal(set) var setupState: SettingsReadState<ManagementSetupState> = .unread
     @Published public internal(set) var inventory: SettingsReadState<[ManagementSettingsSection]> = .unread
+    /// On a desktop after a move (M75), the daemon's sentence for why the
+    /// server's sections are missing from the inventory: this Mac's own are
+    /// listed and served, and the rest return when the server answers. Nil
+    /// whenever the inventory is whole.
+    @Published public internal(set) var primaryMissing: String?
     @Published public internal(set) var sections: [String: SettingsReadState<ManagementSettingsSectionRows>] = [:]
     @Published public internal(set) var detections: SettingsReadState<ManagementDetections> = .unread
     @Published public internal(set) var plugins: SettingsReadState<ManagementPluginCatalog> = .unread
@@ -141,6 +146,10 @@ public final class SettingsModel: ObservableObject {
     /// the ledger's reason: the Channels pane and the last setup screen open
     /// the one sheet, so there is one instance for both.
     public private(set) lazy var phone = PhonePairingModel(settings: self, sleeper: sleeper)
+
+    /// The Always On pane's reads and writes (M75 §14). It hangs off this
+    /// model for the phone's reason: one instance, which a restart re-reads.
+    public private(set) lazy var alwaysOn = AlwaysOnModel(settings: self, sleeper: sleeper)
 
     /// Each write the daemon accepted: a row, a secret, the primary provider.
     /// The overview reader reads after every one, since a save is what sets
@@ -236,11 +245,16 @@ public final class SettingsModel: ObservableObject {
         return drawn.filter { $0.matches(needle) || rowsMatch(needle, in: $0) }
     }
 
-    /// Whether the sidebar lists this pane. Every pane but Cues is always
-    /// there; Cues is there only where the running daemon has cues
-    /// (`drawsCuesPane`), with no row and no notice otherwise.
+    /// Whether the sidebar lists this pane. Every pane but Cues and Always On
+    /// is always there; Cues is there only where the running daemon has cues
+    /// (`drawsCuesPane`), and Always On only where it serves the home
+    /// (`drawsAlwaysOnPane`), with no row and no notice otherwise.
     public func draws(_ pane: SettingsPane) -> Bool {
-        pane == .cues ? drawsCuesPane : true
+        switch pane {
+        case .cues: return drawsCuesPane
+        case .alwaysOn: return drawsAlwaysOnPane
+        default: return true
+        }
     }
 
     /// Whether any row this pane has read carries the searched text in its
@@ -294,11 +308,13 @@ public final class SettingsModel: ObservableObject {
     /// The section index is boot bound, so an entry reads it only until it has
     /// an answer: it changes across a restart, and `restartCompleted` reads it
     /// again. Read on every entry, it re-asked for a list that could not have
-    /// moved.
+    /// moved. An index a desktop answered without its server's sections is
+    /// read again, since the server may be back.
     public func windowAppeared() async {
         await refreshSetupState()
-        if inventory.value == nil { await loadInventory() }
+        if inventory.value == nil || primaryMissing != nil { await loadInventory() }
         await refreshCueGate()
+        refreshAlwaysOnGate()
         await paneAppeared(selectedPane)
     }
 
@@ -339,11 +355,13 @@ public final class SettingsModel: ObservableObject {
         await refreshSetupState()
         await loadInventory()
         await refreshCueGate()
+        refreshAlwaysOnGate()
         await paneAppeared(selectedPane)
         // A restart is what starts or stops cues, so the pane on screen reads
         // its lists again: their rows are the restarted daemon's now.
         if selectedPane == .cues, drawsCuesPane { await refreshCues() }
         await phone.restartCompleted()
+        await alwaysOn.restartCompleted()
     }
 
     public func refreshSetupState() async {
@@ -367,7 +385,9 @@ public final class SettingsModel: ObservableObject {
     public func loadInventory() async {
         beginRead(\.inventory)
         do {
-            publish(.loaded(try await gateway.settingsSections().sections), to: \.inventory)
+            let answer = try await gateway.settingsSections()
+            publish(answer.primaryMissing, to: \.primaryMissing)
+            publish(.loaded(answer.sections), to: \.inventory)
             noteServed()
         } catch {
             publish(.failure(error), to: \.inventory)

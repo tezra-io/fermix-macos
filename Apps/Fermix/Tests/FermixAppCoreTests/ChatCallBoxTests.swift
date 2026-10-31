@@ -354,7 +354,7 @@ struct ChatCallBoxTests {
 
         #expect(!composer.contains("toggleCall"))
         #expect(!composer.contains("PetFeatureModel"))
-        #expect(composer.contains(".disabled(connection != .connected)"))
+        #expect(composer.contains(".disabled(!connection.acceptsMessages)"))
     }
 
     // MARK: - The toolbar's call button

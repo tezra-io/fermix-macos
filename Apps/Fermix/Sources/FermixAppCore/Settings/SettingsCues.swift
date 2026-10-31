@@ -124,10 +124,12 @@ extension SettingsModel {
 
     /// Whether a route to this pane lands on Providers instead: Cues, on a
     /// daemon this window has read and found without the method or the
-    /// section. Where neither has been read yet, the gate read the window
+    /// section, and Always On by its own gate (`refusesAlwaysOnRoute`).
+    /// Where neither has been read yet, the gate read the window
     /// makes as it appears decides (`refreshCueGate`), which falls back the
     /// same way, so a link opened at launch is not refused on a guess.
     public func refusesRoute(to pane: SettingsPane) -> Bool {
+        if pane == .alwaysOn { return refusesAlwaysOnRoute() }
         guard pane == .cues else { return false }
 
         if !servedMethods.isEmpty, !servedMethods.contains(.cuesStatus) { return true }

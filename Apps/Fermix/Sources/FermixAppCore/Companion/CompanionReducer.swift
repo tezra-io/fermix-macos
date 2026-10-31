@@ -64,6 +64,17 @@ enum CompanionReducer {
         }
     }
 
+    /// The engine here is a desktop its server no longer knows (M75): the
+    /// connection ended, and nothing waiting can ever be sent, so the outbox
+    /// is dropped and the chat says so once.
+    static func revoked(_ chat: inout CompanionChat) {
+        disconnected(&chat)
+        guard !chat.pending.isEmpty else { return }
+
+        chat.pending.removeAll()
+        chat.lastError = ProductStrings[.companionErrorNotSentRevoked]
+    }
+
     // MARK: - Requests
 
     /// A message to the agent. Blank text is never a message.

@@ -102,6 +102,7 @@ struct ManagementV2FixtureTests {
             ("mobile remote state", Array(ManagementMobileRemoteState.publishedValues.keys)),
             ("mobile credentials", Array(ManagementMobileCredentials.publishedValues.keys)),
             ("mobile signer role", Array(ManagementMobileSignerRole.publishedValues.keys)),
+            ("mobile device kind", Array(ManagementMobileDeviceKind.publishedValues.keys)),
             ("imessage grant service", Array(ManagementIMessageGrantService.publishedValues.keys)),
             ("imessage full disk access", Array(ManagementIMessageFullDiskAccess.publishedValues.keys)),
             ("imessage database", Array(ManagementIMessageDatabase.publishedValues.keys)),
@@ -126,10 +127,16 @@ struct ManagementV2FixtureTests {
             ("cue decided from", Array(ManagementCueDecidedFrom.publishedValues.keys)),
             ("cue result status", Array(ManagementCueResultStatus.publishedValues.keys)),
             ("cue decision", Array(ManagementCueDecision.publishedValues.keys)),
-            ("cue proposal filter", Array(ManagementCueProposalFilter.publishedValues.keys))
+            ("cue proposal filter", Array(ManagementCueProposalFilter.publishedValues.keys)),
+            ("home role", Array(ManagementHomeRole.publishedValues.keys)),
+            ("snapshot result", Array(ManagementSnapshotResult.publishedValues.keys)),
+            ("enrollment state", Array(ManagementEnrollmentState.publishedValues.keys)),
+            ("move phase", Array(ManagementMovePhase.publishedValues.keys)),
+            ("readiness status", Array(ManagementReadinessStatus.publishedValues.keys)),
+            ("primary link state", Array(ManagementPrimaryLinkState.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 50)
+        #expect(modelled.count == 57)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),
@@ -255,7 +262,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 158, "every success record was decoded")
+        #expect(seen.count == 175, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -288,7 +295,7 @@ struct ManagementV2FixtureTests {
         }
 
         #expect(seen == Set(ManagementErrorCode.publishedValues.keys))
-        #expect(seen.count == 17)
+        #expect(seen.count == 20)
     }
 
     /// The per-method refusal of M34 §7.1 carries the version the method needs,
@@ -352,7 +359,7 @@ struct ManagementV2FixtureTests {
             carried += 1
         }
 
-        #expect(carried == 15, "the contract publishes a detail sentence on fifteen records")
+        #expect(carried == 22, "the contract publishes a detail sentence on twenty-two records")
     }
 
     /// An MCP server form's refusal names the input it is about in the

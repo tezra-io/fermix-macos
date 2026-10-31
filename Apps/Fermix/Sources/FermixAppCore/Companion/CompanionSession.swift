@@ -62,6 +62,11 @@ public final class CompanionSession {
     private var onScreen: Set<Int> = []
     /// The handshake deadline or the reconnect timer; never both.
     private var deadline: DeadlineToken?
+    /// The daemon's sentence while the server this desktop reaches is away
+    /// or its home is moving (M75): every failed attempt after it says it
+    /// again, since the engine restarting for a move is part of the same
+    /// wait, until a handshake succeeds or the versions refuse.
+    private var serverAway: String?
     private var consecutiveFailures = 0
     /// The next proposal expiry this Mac's clock is waiting for, and its
     /// timer: one at a time, set again only when the next expiry moves.
@@ -243,7 +248,7 @@ public final class CompanionSession {
 
     private func handshake(_ event: CompanionServerEvent) {
         switch event {
-        case .serverHello(let minimum, let maximum):
+        case .serverHello(let minimum, let maximum, _, _):
             negotiate(CompanionVersionWindow(minimum: minimum, maximum: maximum))
         case .error(let refusal):
             refusedDuringHandshake(refusal)
@@ -262,18 +267,28 @@ public final class CompanionSession {
 
         phase = .connected
         consecutiveFailures = 0
+        serverAway = nil
         model.show(.connected)
         reduce { [onScreen] in CompanionReducer.negotiated(&$0, onScreen: onScreen) }
         grants.negotiated()
     }
 
     /// A refusal that names a direction is the version window's, which no retry
-    /// changes; any other is the daemon's own reason, and the connection is
-    /// tried again.
+    /// changes; any other is the daemon's own reason, said in its own sentence
+    /// where it sent one (a desktop's `unattended_client`, say), and the
+    /// connection is tried again.
     private func refusedDuringHandshake(_ refusal: CompanionServerError) {
+        if refusal.reason == CompanionProtocol.desktopRevokedReason {
+            desktopRevoked(Self.sentence(for: refusal))
+            return
+        }
+        if let sentence = Self.unreachableSentence(refusal) {
+            serverUnreachable(sentence)
+            return
+        }
         guard let direction = refusal.direction else {
             log.error("companion daemon refused the handshake: \(refusal.reason, privacy: .public)")
-            drop(showing: .disconnected(String(format: ProductStrings[.companionErrorRefusedFormat], refusal.reason)))
+            drop(showing: .disconnected(Self.sentence(for: refusal)))
             return
         }
 
@@ -298,9 +313,17 @@ public final class CompanionSession {
         }
     }
 
-    /// A refusal naming a media ref answers that ref's fetch; any other is the
-    /// chat's.
+    /// A refusal naming a media ref answers that ref's fetch; the server out
+    /// of reach ends the connection; any other is the chat's.
     private func routeRefusal(_ refusal: CompanionServerError) {
+        if refusal.reason == CompanionProtocol.desktopRevokedReason {
+            desktopRevoked(Self.sentence(for: refusal))
+            return
+        }
+        if let sentence = Self.unreachableSentence(refusal) {
+            serverUnreachable(sentence)
+            return
+        }
         guard let ref = refusal.ref else {
             reduce { CompanionReducer.receive(.error(refusal), into: &$0) }
             return
@@ -317,9 +340,56 @@ public final class CompanionSession {
         cancelDeadline()
         transport.close()
         phase = .refused
+        serverAway = nil
         update { CompanionReducer.disconnected(&$0) }
         grants.disconnected()
         model.show(.refused(Self.sentence(for: direction)))
+    }
+
+    /// The engine here is a desktop whose server cannot be reached, or whose
+    /// home is moving (M75 §6), before or after the handshake. The connection
+    /// is ended here, as the daemon is about to end it, so its close is not
+    /// read as a second drop; the outbox is kept and sent at the next
+    /// handshake, the composer keeps taking messages into it, and the chat
+    /// says the daemon's sentence until then.
+    private func serverUnreachable(_ sentence: String) {
+        log.error("companion: the server this desktop reaches is unreachable")
+        serverAway = sentence
+        drop(showing: .waiting(sentence))
+    }
+
+    /// The engine here is a desktop its server no longer knows (M75): every
+    /// connection is refused until the engine restarts, so the session stops
+    /// as for a version refusal, the outbox is dropped with a line saying so
+    /// rather than kept as sending, and the composer takes nothing. Asking
+    /// for chat again tries once more.
+    private func desktopRevoked(_ sentence: String) {
+        log.error("companion: the server no longer knows this desktop")
+        cancelDeadline()
+        transport.close()
+        phase = .refused
+        serverAway = nil
+        update { CompanionReducer.revoked(&$0) }
+        grants.disconnected()
+        model.show(.refused(sentence))
+    }
+
+    /// The daemon's sentence for the server out of reach, or nil for any other
+    /// refusal.
+    private static func unreachableSentence(_ refusal: CompanionServerError) -> String? {
+        guard refusal.reason == CompanionProtocol.primaryUnreachableReason else { return nil }
+
+        return sentence(for: refusal)
+    }
+
+    /// A refusal in the daemon's own sentence, or, where it sent none, in the
+    /// app's words for its reason.
+    private static func sentence(for refusal: CompanionServerError) -> String {
+        guard let message = refusal.message, !message.isEmpty else {
+            return String(format: ProductStrings[.companionErrorRefusedFormat], refusal.reason)
+        }
+
+        return message
     }
 
     private func transportFailed(_ failure: CompanionTransportFailure) {
@@ -343,7 +413,7 @@ public final class CompanionSession {
         consecutiveFailures += 1
 
         phase = .waiting
-        model.show(connection)
+        model.show(serverAway.map(CompanionConnection.waiting) ?? connection)
         deadline = deadlines.schedule(after: delay) { [weak self] in
             self?.reconnectDue()
         }

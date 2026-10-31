@@ -466,6 +466,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case companionConnectionUpdateEngine = "companion.connection.updateEngine"
     case companionErrorRefusedFormat = "companion.error.refusedFormat"
     case companionErrorMessageTooLong = "companion.error.messageTooLong"
+    /// What waited in the outbox when the server stopped knowing this desktop.
+    case companionErrorNotSentRevoked = "companion.error.notSentRevoked"
     case companionErrorReplyStopped = "companion.error.replyStopped"
     case companionErrorReplyInterrupted = "companion.error.replyInterrupted"
     case companionErrorReplyFailedFormat = "companion.error.replyFailedFormat"
@@ -782,6 +784,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsPaneSearch = "settings.pane.search"
     case settingsPaneImages = "settings.pane.images"
     case settingsPaneBrowser = "settings.pane.browser"
+    case settingsPaneAlwaysOn = "settings.pane.alwaysOn"
     case settingsPaneSecrets = "settings.pane.secrets"
     case settingsPaneSandbox = "settings.pane.sandbox"
     case settingsPanePermissions = "settings.pane.permissions"
@@ -800,6 +803,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsKeywordsSearch = "settings.keywords.search"
     case settingsKeywordsImages = "settings.keywords.images"
     case settingsKeywordsBrowser = "settings.keywords.browser"
+    case settingsKeywordsAlwaysOn = "settings.keywords.alwaysOn"
     case settingsKeywordsSecrets = "settings.keywords.secrets"
     case settingsKeywordsSandbox = "settings.keywords.sandbox"
     case settingsKeywordsPermissions = "settings.keywords.permissions"
@@ -1346,6 +1350,91 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case cuesMandatePinKey = "cues.mandate.pinKey"
     case cuesMandatePinValue = "cues.mandate.pinValue"
     case cuesMandateAddPin = "cues.mandate.addPin"
+
+    // The Always On pane (M75 §14). Status lines, phases, refusals and the
+    // server's own facts are the daemon's; these are the pane's.
+    case alwaysOnSubtitle = "alwaysOn.subtitle"
+    /// The way from the pane to the Always On guide on fermix.ai.
+    case alwaysOnLearnMore = "alwaysOn.learnMore"
+    case alwaysOnGuideOpenFailed = "alwaysOn.guideOpenFailed"
+    case alwaysOnSetupTitle = "alwaysOn.setup.title"
+    case alwaysOnSetupMoves = "alwaysOn.setup.moves"
+    case alwaysOnSetupStays = "alwaysOn.setup.stays"
+    case alwaysOnSetupNotAvailable = "alwaysOn.setup.notAvailable"
+    case alwaysOnSetupWhere = "alwaysOn.setup.where"
+    case alwaysOnSetupAWS = "alwaysOn.setup.aws"
+    case alwaysOnSetupExistingHost = "alwaysOn.setup.existingHost"
+    case alwaysOnSetupGetCode = "alwaysOn.setup.getCode"
+    case alwaysOnSetupNewCode = "alwaysOn.setup.newCode"
+    case alwaysOnCodeOnce = "alwaysOn.code.once"
+    case alwaysOnCodeCopy = "alwaysOn.code.copy"
+    /// When the code stops working, as a time.
+    case alwaysOnCodeExpiresFormat = "alwaysOn.code.expiresFormat"
+    /// The code's accessibility label. The code itself is never its value.
+    case alwaysOnCodeAccessibility = "alwaysOn.code.accessibility"
+    case alwaysOnAWSSteps = "alwaysOn.aws.steps"
+    case alwaysOnAWSOpenGuide = "alwaysOn.aws.openGuide"
+    case alwaysOnHostSteps = "alwaysOn.host.steps"
+    /// The one command an existing server runs. Not a secret: it carries no
+    /// code, and the script it fetches asks for the code without echo.
+    case alwaysOnHostCommand = "alwaysOn.host.command"
+    case alwaysOnHostCopyCommand = "alwaysOn.host.copyCommand"
+    case alwaysOnWaitChecking = "alwaysOn.wait.checking"
+    case alwaysOnWaitStopped = "alwaysOn.wait.stopped"
+    case alwaysOnWaitCheckAgain = "alwaysOn.wait.checkAgain"
+    case alwaysOnCandidatesTitle = "alwaysOn.candidates.title"
+    case alwaysOnCandidateSystem = "alwaysOn.candidate.system"
+    case alwaysOnCandidateProvider = "alwaysOn.candidate.provider"
+    case alwaysOnCandidateInstance = "alwaysOn.candidate.instance"
+    case alwaysOnCandidateRegion = "alwaysOn.candidate.region"
+    case alwaysOnCandidateAccount = "alwaysOn.candidate.account"
+    case alwaysOnCandidateUnverified = "alwaysOn.candidate.unverified"
+    /// How long the primary holds a server that checked in, as a time.
+    case alwaysOnCandidateWaitsFormat = "alwaysOn.candidate.waitsFormat"
+    case alwaysOnCandidateChoose = "alwaysOn.candidate.choose"
+    case alwaysOnPassphraseTitle = "alwaysOn.passphrase.title"
+    case alwaysOnPassphraseBody = "alwaysOn.passphrase.body"
+    case alwaysOnPassphraseField = "alwaysOn.passphrase.field"
+    case alwaysOnPassphraseAgain = "alwaysOn.passphrase.again"
+    case alwaysOnPassphraseMismatch = "alwaysOn.passphrase.mismatch"
+    case alwaysOnPassphraseSave = "alwaysOn.passphrase.save"
+    case alwaysOnMoveStart = "alwaysOn.move.start"
+    case alwaysOnMoveTitle = "alwaysOn.move.title"
+    case alwaysOnMoveRestarting = "alwaysOn.move.restarting"
+    case alwaysOnPrimaryTitle = "alwaysOn.primary.title"
+    /// When the link to the server came up, as a time.
+    case alwaysOnConnectedSinceFormat = "alwaysOn.connectedSinceFormat"
+    case alwaysOnThisMacTitle = "alwaysOn.thisMac.title"
+    case alwaysOnRecoveryTitle = "alwaysOn.recovery.title"
+    case alwaysOnRecoveryBackUpNow = "alwaysOn.recovery.backUpNow"
+    /// A target's last verified point, as a time.
+    case alwaysOnRecoveryLastVerifiedFormat = "alwaysOn.recovery.lastVerifiedFormat"
+    case alwaysOnRecoveryNotVerified = "alwaysOn.recovery.notVerified"
+    case alwaysOnRecoverySetPassphrase = "alwaysOn.recovery.setPassphrase"
+    /// The recovery key a target's last verified point was written for.
+    case alwaysOnRecoveryKeyFormat = "alwaysOn.recovery.keyFormat"
+    /// The ids of the secrets that did not resolve where the home runs.
+    case alwaysOnSecretsMissingFormat = "alwaysOn.secretsMissing.format"
+    case alwaysOnSecretsMissingAction = "alwaysOn.secretsMissing.action"
+    // The readiness report between reviewing a server and moving to it. Each
+    // fact is the daemon's sentence; these frame it.
+    case alwaysOnReadinessTitle = "alwaysOn.readiness.title"
+    case alwaysOnReadinessChecking = "alwaysOn.readiness.checking"
+    case alwaysOnReadinessBlocked = "alwaysOn.readiness.blocked"
+    // Replacing the server from a desktop.
+    case alwaysOnReplaceTitle = "alwaysOn.replace.title"
+    case alwaysOnReplaceBody = "alwaysOn.replace.body"
+    case alwaysOnReplaceNoMoveBack = "alwaysOn.replace.noMoveBack"
+    case alwaysOnReplaceUnderWay = "alwaysOn.replace.underWay"
+    // The folders the server may read on this Mac.
+    /// When the owner allowed the server to read a folder, as a time.
+    case alwaysOnGrantsAllowedFormat = "alwaysOn.grants.allowedFormat"
+    case alwaysOnGrantsRemove = "alwaysOn.grants.remove"
+    case alwaysOnDesktopsTitle = "alwaysOn.desktops.title"
+    case alwaysOnDesktopsExecutor = "alwaysOn.desktops.executor"
+    case alwaysOnDesktopsExecutorInfo = "alwaysOn.desktops.executorInfo"
+    case alwaysOnDesktopsNotConnected = "alwaysOn.desktops.notConnected"
+    case alwaysOnDesktopsConnected = "alwaysOn.desktops.connected"
 
     // Menu bar status item
     case menuStateStarting = "menu.state.starting"

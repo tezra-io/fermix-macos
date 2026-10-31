@@ -195,6 +195,21 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var cueSourceUpdates: [CueValuesWrite] = []
     var cueMandateWrites: [CueValuesWrite] = []
     var cueProposalFilters: [ManagementCueProposalFilter] = []
+    /// The home (M75): pictures a case needs that the golden does not draw,
+    /// each an answer or a refusal, consumed in order; a code and a move's
+    /// answer other than the goldens'; and what the surfaces asked, in order.
+    var homeStatusScript: [Result<ManagementHomeStatus, any Error>] = []
+    var homeStatusIndex = 0
+    var enrollmentResult: ManagementEnrollmentCode?
+    var moveStartedResult: ManagementMoveStarted?
+    var moveStarts: [MoveStart] = []
+    /// A readiness report other than the golden's, and the servers asked about.
+    var readinessResult: ManagementMoveReadiness?
+    var readinessAsked: [String] = []
+    /// The folders a surface asked to stop the server reading, in order.
+    var grantRemovalsAsked: [String] = []
+    var recoveryPassphrases: [String] = []
+    var executorWrites: [ExecutorWrite] = []
 
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take

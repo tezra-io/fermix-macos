@@ -43,6 +43,7 @@ struct CompanionProtocolTests {
         let main = CompanionProtocol.profileId
         let produced: [CompanionClientEvent] = [
             .clientHello(protocolVersion: CompanionProtocol.version),
+            .clientHello(protocolVersion: CompanionProtocol.version, primaryEpoch: 2),
             .msg(clientMsgId: "mac-1", profileId: main, text: "What is on my calendar today?"),
             .command(clientMsgId: "mac-2", profileId: main, name: "confirm", args: "opaque-token"),
             .cancel(profileId: main, clientMsgId: "mac-3"),
@@ -110,7 +111,7 @@ struct CompanionProtocolTests {
             return try CompanionServerEvent.decode(fixture.line)
         }
 
-        #expect(try event("server_hello") == .serverHello(minVersion: 3, maxVersion: 4))
+        #expect(try event("server_hello") == .serverHello(minVersion: 3, maxVersion: 4, primaryEpoch: 2, role: "primary"))
 
         let duplicate = try event("accepted") { $0.object["duplicate"] as? Bool == true }
         #expect(duplicate == .accepted(CompanionAccepted(clientMsgId: "mac-1", duplicate: true, serverSeq: 13)))

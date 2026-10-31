@@ -99,8 +99,13 @@ enum CompanionServerWire {
 
     private static func fields(_ event: CompanionServerEvent) -> [String: Any] {
         switch event {
-        case .serverHello(let minVersion, let maxVersion):
-            return ["min_version": minVersion, "max_version": maxVersion]
+        case .serverHello(let minVersion, let maxVersion, let primaryEpoch, let role):
+            return present([
+                "min_version": minVersion,
+                "max_version": maxVersion,
+                "primary_epoch": primaryEpoch,
+                "role": role
+            ])
         case .accepted(let accepted):
             return present([
                 "client_msg_id": accepted.clientMsgId,

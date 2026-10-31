@@ -31,6 +31,15 @@ public enum CompanionProtocol {
     /// A file's `kind` for a sound: on the person's row, a voice note the
     /// phone recorded.
     public static let audioKind = "audio"
+    /// The refusal an engine in the device role sends while its server cannot
+    /// be reached (M75 §6): its `message` names the server, and the
+    /// connection closes. The chat says that sentence, keeps its outbox and
+    /// connects again as after any drop.
+    public static let primaryUnreachableReason = "primary_unreachable"
+    /// The refusal an engine in the device role sends, to every connection,
+    /// once its server no longer knows this computer (M75): nothing waiting
+    /// can be sent, and nothing new is taken, until the engine restarts.
+    public static let desktopRevokedReason = "desktop_revoked"
 
     /// Whether `ref` is one the daemon takes: 64 lowercase hex digits, a
     /// sha256. Any other is `invalid_field`, which closes the connection, so a
@@ -155,7 +164,10 @@ public enum CompanionHistoryCursor: Equatable, Sendable {
 /// Everything this client sends. The wire names are the contract's, and a value
 /// is the only way to produce a line: nothing composes a dictionary by hand.
 public enum CompanionClientEvent: Equatable, Sendable, Encodable {
-    case clientHello(protocolVersion: Int)
+    /// `primaryEpoch` is the highest primary epoch the client has seen (M75),
+    /// absent while it has seen none. This client keeps none, so it sends
+    /// none, which every daemon serves.
+    case clientHello(protocolVersion: Int, primaryEpoch: Int? = nil)
     /// A message to the agent. This wire carries no attachments in versions 1
     /// to 4, so the line always sends an empty `attach_ids`.
     case msg(clientMsgId: String, profileId: String, text: String)
@@ -202,6 +214,7 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
     private enum CodingKeys: String, CodingKey {
         case type, text, name, args, query, limit, ref, decision
         case protocolVersion = "protocol_version"
+        case primaryEpoch = "primary_epoch"
         case clientMsgId = "client_msg_id"
         case profileId = "profile_id"
         case attachIds = "attach_ids"
@@ -217,8 +230,9 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         try container.encode(wireType, forKey: .type)
 
         switch self {
-        case .clientHello(let version):
+        case .clientHello(let version, let primaryEpoch):
             try container.encode(version, forKey: .protocolVersion)
+            try container.encodeIfPresent(primaryEpoch, forKey: .primaryEpoch)
         case .msg(let clientMsgId, let profileId, let text):
             try container.encode(clientMsgId, forKey: .clientMsgId)
             try container.encode(profileId, forKey: .profileId)
@@ -621,7 +635,9 @@ enum CompanionTime {
 
 /// Everything the daemon sends.
 public enum CompanionServerEvent: Equatable, Sendable {
-    case serverHello(minVersion: Int, maxVersion: Int)
+    /// The window, and from an engine that has them (M75) the home's primary
+    /// epoch and the engine's role, `primary` or `device`, kept as sent.
+    case serverHello(minVersion: Int, maxVersion: Int, primaryEpoch: Int? = nil, role: String? = nil)
     case accepted(CompanionAccepted)
     case turnStarted(profileId: String, turnId: String, inReplyTo: String)
     /// Text to append to the turn's draft exactly as sent, never trimmed.
@@ -731,9 +747,10 @@ public enum CompanionServerEvent: Equatable, Sendable {
 
 extension CompanionServerEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case type, text, code, message, outcome, ref, blocks, proposal
+        case type, text, code, message, outcome, ref, blocks, proposal, role
         case minVersion = "min_version"
         case maxVersion = "max_version"
+        case primaryEpoch = "primary_epoch"
         case profileId = "profile_id"
         case turnId = "turn_id"
         case inReplyTo = "in_reply_to"
@@ -752,7 +769,9 @@ extension CompanionServerEvent: Decodable {
         case "server_hello":
             self = .serverHello(
                 minVersion: try fields.decode(Int.self, forKey: .minVersion),
-                maxVersion: try fields.decode(Int.self, forKey: .maxVersion)
+                maxVersion: try fields.decode(Int.self, forKey: .maxVersion),
+                primaryEpoch: try fields.decodeIfPresent(Int.self, forKey: .primaryEpoch),
+                role: try fields.decodeIfPresent(String.self, forKey: .role)
             )
         case "accepted":
             self = .accepted(try CompanionAccepted(from: decoder))

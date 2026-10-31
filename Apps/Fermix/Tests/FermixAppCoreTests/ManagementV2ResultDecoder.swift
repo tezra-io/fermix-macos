@@ -71,6 +71,8 @@ enum ManagementV2ResultDecoder {
             try read(ManagementMobileDevices.self, payload, identifier, method)
         case .mobileDevicesRevoke:
             try read(ManagementMobileDeviceRevoked.self, payload, identifier, method)
+        case .mobileDevicesSetExecutor:
+            try read(ManagementMobileDevice.self, payload, identifier, method)
         case .mcpServersList:
             try read(ManagementMCPServerList.self, payload, identifier, method)
         case .mcpServersDraft:
@@ -121,6 +123,34 @@ enum ManagementV2ResultDecoder {
             try read(ManagementCueProposalCardAnswer.self, payload, identifier, method)
         case .cuesProposalsDecide:
             try read(ManagementCueProposalAnswer.self, payload, identifier, method)
+        case .browserSigninOpen:
+            try read(ManagementBrowserSignInOpened.self, payload, identifier, method)
+        case .browserHandoffSend:
+            try read(ManagementBrowserHandoffSent.self, payload, identifier, method)
+        case .browserHandoffsList:
+            try read(ManagementBrowserHandoffList.self, payload, identifier, method)
+        case .browserHandoffsWipe:
+            try read(ManagementBrowserHandoffsWiped.self, payload, identifier, method)
+        case .homeStatus:
+            try read(ManagementHomeStatus.self, payload, identifier, method)
+        case .homeEnrollOpen:
+            try read(ManagementEnrollmentCode.self, payload, identifier, method)
+        case .homeCandidatesList:
+            try read(ManagementCandidates.self, payload, identifier, method)
+        case .homeMoveReadiness:
+            try read(ManagementMoveReadiness.self, payload, identifier, method)
+        case .homeMoveStart:
+            try read(ManagementMoveStarted.self, payload, identifier, method)
+        case .homeSnapshotsStatus:
+            try read(ManagementHomeSnapshots.self, payload, identifier, method)
+        case .homeSnapshotsRun:
+            try read(ManagementSnapshotsStarted.self, payload, identifier, method)
+        case .homeSnapshotsPassphrase:
+            try read(ManagementRecoveryKey.self, payload, identifier, method)
+        case .deviceGrantsList:
+            try read(ManagementDeviceGrants.self, payload, identifier, method)
+        case .deviceGrantsRemove:
+            try read(ManagementDeviceGrantRemoved.self, payload, identifier, method)
 
         // Every remaining method answers the uniform job view.
         case .providersProbeStart, .jobGet, .jobCancel, .authImportStart, .pluginsInstallStart,
