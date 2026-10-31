@@ -13,7 +13,8 @@ import Foundation
 /// What the chat holds is decided by `CompanionReducer`; this owns the socket
 /// and the clock, sends what the reducer answers, and publishes the result to
 /// `model`, which nothing else writes. The files the engine grants are counted
-/// by `grants`, which sends through this, only on a negotiated connection.
+/// by `grants`, and the owner's lists (M85) are kept by `lists`; both send
+/// through this, only on a negotiated connection.
 @MainActor
 public final class CompanionSession {
     private enum Phase: Equatable {
@@ -37,8 +38,17 @@ public final class CompanionSession {
     /// The engine's grants of phone-side files (M66 decision 1), for the
     /// chat's tiles, the player and the pane to hold a ref's file by.
     public private(set) lazy var grants = MediaGrants { [weak self] event in
-        self?.sendForGrants(event) ?? false
+        self?.sendNegotiated(event) ?? false
     }
+
+    /// The owner's lists (M85): the index, a store per list that a card and
+    /// the panel both draw, and the edits sent and not yet answered. Fed
+    /// every list event and the answers to its edits, and pulled again at
+    /// every handshake whose daemon serves lists.
+    public private(set) lazy var lists = ChecklistLibrary(
+        send: { [weak self] event in self?.sendNegotiated(event) ?? false },
+        messageIds: messageIds
+    )
 
     /// What the owner is writing and has not sent. The chat view is rebuilt on
     /// every rail change and when Settings opens, so the text lives here, beside
@@ -283,6 +293,7 @@ public final class CompanionSession {
         model.show(.connected)
         reduce { [onScreen] in CompanionReducer.negotiated(&$0, onScreen: onScreen) }
         grants.negotiated()
+        lists.negotiated(serves: min(protocolVersion, window.maximum) >= CompanionProtocol.listsVersion)
     }
 
     /// Keeps a primary's epoch as the highest seen at this socket, and says
@@ -340,14 +351,19 @@ public final class CompanionSession {
             grants.answered(ref, .missing)
         case .error(let refusal):
             routeRefusal(refusal)
+        case .checklists, .checklist:
+            lists.receive(event)
+        case .accepted(let receipt) where lists.accepted(receipt):
+            break
         default:
             reduce { CompanionReducer.receive(event, into: &$0) }
         }
     }
 
     /// A refusal naming a media ref answers that ref's fetch; the server out
-    /// of reach or no longer knowing this desktop ends the connection; any
-    /// other is the chat's.
+    /// of reach or no longer knowing this desktop ends the connection; one
+    /// of a list edit, or of a list pull, is the lists'; any other is the
+    /// chat's.
     private func routeRefusal(_ refusal: CompanionServerError) {
         if refusal.reason == CompanionProtocol.desktopRevokedReason {
             desktopRevoked(Self.sentence(for: refusal))
@@ -357,6 +373,7 @@ public final class CompanionSession {
             serverUnreachable(Self.sentence(for: refusal))
             return
         }
+        if lists.refused(refusal) { return }
         guard let ref = refusal.ref else {
             reduce { CompanionReducer.receive(.error(refusal), into: &$0) }
             return
@@ -413,6 +430,7 @@ public final class CompanionSession {
         serverAway = nil
         update(change)
         grants.disconnected()
+        lists.disconnected()
         model.show(.refused(sentence))
     }
 
@@ -439,6 +457,7 @@ public final class CompanionSession {
         transport.close()
         update { CompanionReducer.disconnected(&$0) }
         grants.disconnected()
+        lists.disconnected()
         retry(showing: connection)
     }
 
@@ -510,9 +529,9 @@ public final class CompanionSession {
         update { _ in }
     }
 
-    /// Sends one of the grants' events on a negotiated connection, and says
-    /// whether there was one.
-    private func sendForGrants(_ event: CompanionClientEvent) -> Bool {
+    /// Sends one of the grants' or the lists' events on a negotiated
+    /// connection, and says whether there was one.
+    private func sendNegotiated(_ event: CompanionClientEvent) -> Bool {
         guard phase == .connected else { return false }
 
         transport.send(event)

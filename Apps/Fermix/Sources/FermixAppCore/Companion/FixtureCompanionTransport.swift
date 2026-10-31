@@ -14,6 +14,10 @@ enum FixtureCompanionTimeline: Equatable {
     /// cards, lists, a table, a quote, links and code, all on one page, and
     /// nothing happening now.
     case replies
+    /// The owner's lists (M85): an older reply's card folded to one line, a
+    /// card of three lists, and the newest reply's card of one list, over
+    /// four lists in two folders and none, with nothing happening now.
+    case lists
 }
 
 /// The companion socket, replaced by a scripted daemon.
@@ -27,7 +31,9 @@ enum FixtureCompanionTimeline: Equatable {
 /// answer, resolves a proposal's answer a moment later, stops a turn that is
 /// cancelled, and grants only the link pictures of the replies timeline, from
 /// sample photos every Mac has; every other `media_fetch` is answered
-/// `media_missing`.
+/// `media_missing`. It keeps the lists timeline's lists (`FixtureChecklists`),
+/// none on any other: it answers their pulls, takes every edit and pushes
+/// each list it changed a tenth of a second later, as the engine does.
 ///
 /// Callbacks go out on whatever thread asked, which is the main one; the
 /// composition wraps this in the same main-actor delivery the real socket
@@ -55,6 +61,13 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
     /// The most rows one of this timeline's pages carries.
     private let pageLimit: Int
     private var repliesWritten = 0
+    private let lists: FixtureChecklists
+    /// The lists this connection pulled, and those pulled with their
+    /// removed rows, as the engine holds them.
+    private var held: [String] = []
+    private var heldWithRemoved: Set<String> = []
+    /// How long the engine's window holds a change before it pushes it.
+    static let listWindow: TimeInterval = 0.1
 
     /// `now` is when the launch began: a waiting proposal's expiry is counted
     /// from it, so the card still asks when the chat is looked at.
@@ -72,7 +85,12 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             rows = FixtureRepliesScript.rows
             opening = []
             pageLimit = Self.repliesPage
+        case .lists:
+            rows = FixtureChecklistScript.rows
+            opening = []
+            pageLimit = Self.historyPage
         }
+        lists = FixtureChecklists(timeline == .lists ? FixtureChecklistScript.seeds : [])
     }
 
     func connect(path: String, completion: @escaping (Result<Void, LineSocketConnectFailure>) -> Void) {
@@ -124,6 +142,12 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             break
         case "proposal_answer":
             decide(proposal: event)
+        case "checklists_pull":
+            emit(.checklists(profileId: CompanionProtocol.profileId, lists: lists.index))
+        case "checklist_pull":
+            pull(list: event)
+        case "checklist_edit":
+            edit(list: event)
         default:
             preconditionFailure("the fixture daemon has no answer for \(type)")
         }
@@ -272,6 +296,67 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.replyDelay) { [weak self] in
             self?.emit(confirmed ? FixtureProposalScript.confirmed(proposalId) : FixtureProposalScript.denied(proposalId))
         }
+    }
+
+    /// A pull of one list: the list, held from then on, or the engine's
+    /// refusal for one it has no list for.
+    private func pull(list event: [String: Any]) {
+        let listId = event["list_id"] as? String ?? ""
+        let removed = event["removed"] as? Bool == true
+        guard let list = lists.list(listId, removed: removed) else {
+            emit(.error(Self.refusal(FixtureChecklists.missingList, clientMsgId: nil)))
+            return
+        }
+
+        held.removeAll { $0 == listId }
+        held.append(listId)
+        if removed { heldWithRemoved.insert(listId) } else { heldWithRemoved.remove(listId) }
+        emit(.checklist(profileId: CompanionProtocol.profileId, list: list))
+    }
+
+    /// An edit is accepted once applied, and each list it changed that this
+    /// connection holds is pushed when the window ends, with what it made,
+    /// then the index. A create's list is held from then on.
+    private func edit(list event: [String: Any]) {
+        let clientMsgId = event["client_msg_id"] as? String ?? ""
+        guard let op = (event["op"] as? [String: Any]).flatMap(CompanionChecklistOp.init(fixtureLine:)) else {
+            preconditionFailure("the fixture daemon was sent an op it does not know")
+        }
+
+        switch lists.apply(op, to: event["list_id"] as? String) {
+        case .failure(let refusal):
+            emit(.error(Self.refusal(refusal.sentence, clientMsgId: clientMsgId)))
+        case .success(let change):
+            if case .create = op, let made = change.made { held.append(made) }
+            emit(.accepted(CompanionAccepted(clientMsgId: clientMsgId, duplicate: false, serverSeq: nil)))
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.listWindow) { [weak self] in
+                self?.push(change.changed, made: change.made.map { [clientMsgId: $0] } ?? [:])
+            }
+        }
+    }
+
+    private func push(_ changed: [String], made: [String: String]) {
+        for listId in held where changed.contains(listId) {
+            guard let list = lists.list(listId, removed: heldWithRemoved.contains(listId)) else { continue }
+
+            emit(.checklist(profileId: CompanionProtocol.profileId, list: list, made: made))
+        }
+        emit(.checklists(profileId: CompanionProtocol.profileId, lists: lists.index))
+    }
+
+    private static func refusal(_ sentence: String, clientMsgId: String?) -> CompanionServerError {
+        CompanionServerError(
+            reason: "request_failed",
+            message: sentence,
+            field: nil,
+            event: nil,
+            clientMsgId: clientMsgId,
+            direction: nil,
+            clientVersion: nil,
+            minVersion: nil,
+            maxVersion: nil,
+            ref: nil
+        )
     }
 
     /// The contract's own answer to a cancel: the turn ends as cancelled.

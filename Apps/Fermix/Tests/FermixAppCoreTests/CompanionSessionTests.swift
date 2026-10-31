@@ -84,7 +84,7 @@ struct CompanionSessionTests {
 
         #expect(harness.model.connection == .connected)
         #expect(harness.scheduler.liveCount == 0)
-        #expect(try harness.sent() == wire(hello, newestPagePull))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull))
     }
 
     @Test("asking again while connected changes nothing")
@@ -271,7 +271,7 @@ struct CompanionSessionTests {
         harness.scheduler.fireAll()
         harness.socket.deliver(E.hello())
 
-        #expect(try harness.sent() == wire(hello, newestPagePull, hello, historyPull(.after(seq: 12))))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull, hello, historyPull(.after(seq: 12)), listIndexPull))
     }
 
     // MARK: - The outbox
@@ -290,7 +290,7 @@ struct CompanionSessionTests {
 
         #expect(
             try harness.sent()
-                == wire(hello, newestPagePull, .msg(clientMsgId: "mac-1", profileId: "main", text: "Hello"))
+                == wire(hello, newestPagePull, .msg(clientMsgId: "mac-1", profileId: "main", text: "Hello"), listIndexPull)
         )
     }
 
@@ -310,7 +310,7 @@ struct CompanionSessionTests {
 
         #expect(
             try harness.sent()
-                == wire(hello, newestPagePull, first, second, hello, historyPull(.after(seq: 12)), first, second)
+                == wire(hello, newestPagePull, listIndexPull, first, second, hello, historyPull(.after(seq: 12)), first, second, listIndexPull)
         )
         #expect(harness.model.pending.map(\.clientMsgId) == ["mac-1", "mac-2"])
 
@@ -364,14 +364,14 @@ struct CompanionSessionTests {
         harness.socket.deliver(E.row(12))
 
         harness.session.pullOlder()
-        #expect(try harness.sent() == wire(hello, newestPagePull, historyPull(.after(seq: 10))))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull, historyPull(.after(seq: 10))))
 
         harness.socket.deliver(E.forward([11, 12], head: 12, next: 12))
         harness.session.pullOlder()
 
         #expect(
             try harness.sent()
-                == wire(hello, newestPagePull, historyPull(.after(seq: 10)), historyPull(.before(seq: 8)))
+                == wire(hello, newestPagePull, listIndexPull, historyPull(.after(seq: 10)), historyPull(.before(seq: 8)))
         )
     }
 
@@ -452,7 +452,7 @@ struct CompanionSessionTests {
         harness.socket.deliver(M.updated(13))
         harness.socket.deliver(M.page([M.exported(13, text: "Pick up milk", refs: [M.voice])], head: 13))
 
-        #expect(try harness.sent() == wire(hello, newestPagePull, M.read(after: 12, limit: 1)))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull, M.read(after: 12, limit: 1)))
         #expect(harness.model.rows.last?.text == "Pick up milk")
         #expect(harness.model.reshape?.seqs == [13])
         #expect(harness.scheduler.liveCount == 0)
@@ -464,13 +464,13 @@ struct CompanionSessionTests {
         harness.connected()
         harness.socket.deliver(E.backward(Array(1...12), head: 12))
         harness.session.rowsOnScreen([10, 11, 12])
-        #expect(try harness.sent() == wire(hello, newestPagePull))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull))
 
         harness.socket.fail(.peerClosed)
         harness.session.rowsOnScreen([9, 10, 11])
         harness.scheduler.fireAll()
         harness.socket.deliver(E.hello())
-        #expect(try harness.sent() == wire(hello, newestPagePull, hello, historyPull(.after(seq: 12))))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull, hello, historyPull(.after(seq: 12)), listIndexPull))
 
         harness.socket.deliver(E.forward([], head: 12, next: 12))
         #expect(try harness.sent().last == wireObject(companion: M.read(after: 8, limit: 3)))
@@ -478,7 +478,7 @@ struct CompanionSessionTests {
         harness.socket.deliver(M.page((9...11).map(E.exported), head: 12))
         harness.session.rowsOnScreen([2, 3])
         #expect(try harness.sent().last == wireObject(companion: M.read(after: 1, limit: 2)))
-        #expect(try harness.sent().count == 6)
+        #expect(try harness.sent().count == 8)
     }
 
     // MARK: - Routing
@@ -572,7 +572,7 @@ struct CompanionSessionTests {
         #expect(harness.model.connection == .connected)
         #expect(
             try harness.sent()
-                == wire(hello, hello, newestPagePull, .msg(clientMsgId: "mac-1", profileId: "main", text: "Hello"))
+                == wire(hello, hello, newestPagePull, .msg(clientMsgId: "mac-1", profileId: "main", text: "Hello"), listIndexPull)
         )
     }
 
@@ -635,7 +635,7 @@ struct CompanionSessionTests {
         harness.socket.deliver(E.hello())
 
         #expect(harness.model.connection == .connected)
-        #expect(try harness.sent().last == wireObject(companion: .msg(clientMsgId: "mac-1", profileId: "main", text: "Did the move work?")))
+        #expect(try harness.sent().suffix(2) == wire(.msg(clientMsgId: "mac-1", profileId: "main", text: "Did the move work?"), listIndexPull))
 
         // A later drop of a connected chat is an ordinary one again.
         harness.socket.fail(.peerClosed)

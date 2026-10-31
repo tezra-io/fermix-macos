@@ -23,6 +23,10 @@ func historyPull(_ cursor: CompanionHistoryCursor) -> CompanionClientEvent {
 /// The cold start's pull: the newest page.
 let newestPagePull = historyPull(.before(seq: CompanionReducer.newestPageBound))
 
+/// The index of the owner's lists, which every handshake to a daemon that
+/// serves them asks for after the chat's own lines (M85 §07).
+let listIndexPull = CompanionClientEvent.checklistsPull(profileId: CompanionProtocol.profileId)
+
 /// Server events built the way the daemon writes them, with only the facts a
 /// case varies named at the call.
 enum CompanionEvents {
