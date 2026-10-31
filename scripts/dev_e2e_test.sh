@@ -430,6 +430,19 @@ case_development_identity() {
     fail "the staged agent plist names another bundle"
 }
 
+# The agent runs at normal priority. An Adaptive job that nothing boosts over
+# XPC stays in the throttled background band (priority 4), and the engine it
+# execs inherits it: on 2026-10-31 every database call timed out under load in
+# both app-launched engines while a terminal-started one, at 31, had none.
+case_agent_priority() {
+  local plist
+  stage_and_sign "$IDENTITY" >/dev/null
+  plist="$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
+
+  [ "$(plutil -extract ProcessType raw -o - "$plist")" = "Standard" ] ||
+    fail "the staged agent plist does not run the engine at normal priority"
+}
+
 # There is one launcher.json per support folder and the development identity
 # has its own, so the installed app's record is a file this loop has no name
 # for: `up` writes only inside its own folder and leaves the other untouched.
@@ -580,6 +593,7 @@ if [ "${1:-}" = '--case' ]; then
     build_version) case_build_version ;;
     invalid_version) case_invalid_version ;;
     development_identity) case_development_identity ;;
+    agent_priority) case_agent_priority ;;
     installed_record_untouched) case_installed_record_untouched ;;
     installed_labels_untouched) case_installed_labels_untouched ;;
     no_identity) case_no_identity ;;
@@ -605,7 +619,7 @@ if [ "${1:-}" = '--case' ]; then
 fi
 
 failed=0
-for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version development_identity installed_record_untouched installed_labels_untouched no_identity two_identities signed_with_identity no_provisioning_profile signed_with_provisioning_profile version_owner version_foreign profile_fresh_home profile_appended profile_foreign interrupted_transaction agent_disallowed toolchain_xcode toolchain_current_tools toolchain_newer_tools toolchain_no_buildable_sdk; do
+for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version development_identity agent_priority installed_record_untouched installed_labels_untouched no_identity two_identities signed_with_identity no_provisioning_profile signed_with_provisioning_profile version_owner version_foreign profile_fresh_home profile_appended profile_foreign interrupted_transaction agent_disallowed toolchain_xcode toolchain_current_tools toolchain_newer_tools toolchain_no_buildable_sdk; do
   if bash "$0" --case "$scenario"; then echo "ok $scenario"; else failed=1; echo "FAILED $scenario" >&2; fi
 done
 exit "$failed"

@@ -25,6 +25,12 @@
 # 95 of them. The value is the launchd baseline the launcher already expects,
 # and it is declared once, in Product.json.
 #
+# ProcessType is Standard because the agent execs the engine, which inherits its
+# priority. An Adaptive job that nothing boosts over XPC stays in the throttled
+# background band: on 2026-10-31 both app-launched engines ran at priority 4 and
+# every database call timed out under CPU load, about 1,800 in Fermix Dev and
+# 617 in the installed app, while a terminal-started engine at 31 had none.
+#
 # Usage: render_launch_agent_plist.sh <out_plist_path>
 set -euo pipefail
 
@@ -58,7 +64,7 @@ cat >"$OUT" <<PLIST
   </dict>
   <key>KeepAlive</key><true/>
   <key>Label</key><string>$LABEL</string>
-  <key>ProcessType</key><string>Adaptive</string>
+  <key>ProcessType</key><string>Standard</string>
   <key>RunAtLoad</key><true/>
 </dict>
 </plist>
