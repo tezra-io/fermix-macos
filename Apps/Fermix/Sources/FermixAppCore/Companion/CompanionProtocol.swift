@@ -15,8 +15,18 @@ public enum CompanionProtocol {
     /// follow-up in place of a call and is answered and resolved as a
     /// proposal is. Version 6 says what a turn is doing in a person's words:
     /// the model's summary of each step of its reasoning (`reasoning`), and
-    /// the engine's sentence for a tool's step on its start (`activity`).
+    /// the engine's sentence for a tool's step on its start (`activity`),
+    /// and brings the owner's lists (M85), read and changed live.
     public static let version = 6
+
+    /// The version that brings the owner's lists (M85): their events are sent
+    /// only on a connection at it, to a daemon whose window reaches it.
+    public static let listsVersion = 6
+
+    /// The longest `client_msg_id` a `checklist_edit` may carry, in
+    /// characters. A longer one is `invalid_field`, which closes the
+    /// connection.
+    public static let maximumChecklistMessageIdLength = 128
 
     /// The daemon's window at the pinned contract, which `version` sits inside.
     public static let supportedWindow = CompanionVersionWindow(minimum: 5, maximum: 6)
@@ -224,6 +234,18 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
     /// value edited here (M60 §5.2). Answered `accepted`, then
     /// `proposal_resolved`, or refused with `request_failed`.
     case proposalAnswer(clientMsgId: String, profileId: String, proposalId: String, decision: CompanionProposalDecision)
+    /// Version 6: asks for the index of the owner's lists, answered
+    /// `checklists`; from then on the connection hears the index again after
+    /// any change, and a turn it carries is told this app draws lists.
+    case checklistsPull(profileId: String)
+    /// Version 6: asks for one whole list, answered `checklist`; the
+    /// connection then holds it, at most 16, and hears it again after every
+    /// change. `removed` adds the rows removed in the last 30 days.
+    case checklistPull(profileId: String, listId: String, removed: Bool = false)
+    /// Version 6: one op on the owner's lists, by row id. `listId` names the
+    /// list for every op but `create`. Answered `accepted`, or refused with
+    /// `request_failed` and the engine's sentence.
+    case checklistEdit(clientMsgId: String, profileId: String, listId: String?, op: CompanionChecklistOp)
 
     public var wireType: String {
         switch self {
@@ -237,11 +259,14 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         case .mediaFetch: return "media_fetch"
         case .mediaRelease: return "media_release"
         case .proposalAnswer: return "proposal_answer"
+        case .checklistsPull: return "checklists_pull"
+        case .checklistPull: return "checklist_pull"
+        case .checklistEdit: return "checklist_edit"
         }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, text, name, args, query, limit, ref, decision
+        case type, text, name, args, query, limit, ref, decision, removed, op
         case protocolVersion = "protocol_version"
         case primaryEpoch = "primary_epoch"
         case clientMsgId = "client_msg_id"
@@ -252,6 +277,7 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         case readUpToSeq = "read_up_to_seq"
         case taskRef = "task_ref"
         case proposalId = "proposal_id"
+        case listId = "list_id"
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -299,6 +325,19 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
             try container.encode(profileId, forKey: .profileId)
             try container.encode(proposalId, forKey: .proposalId)
             try container.encode(decision, forKey: .decision)
+        case .checklistsPull(let profileId):
+            try container.encode(profileId, forKey: .profileId)
+        case .checklistPull(let profileId, let listId, let removed):
+            try container.encode(profileId, forKey: .profileId)
+            try container.encode(listId, forKey: .listId)
+            if removed {
+                try container.encode(true, forKey: .removed)
+            }
+        case .checklistEdit(let clientMsgId, let profileId, let listId, let op):
+            try container.encode(clientMsgId, forKey: .clientMsgId)
+            try container.encode(profileId, forKey: .profileId)
+            try container.encodeIfPresent(listId, forKey: .listId)
+            try container.encode(op, forKey: .op)
         }
     }
 
@@ -373,8 +412,8 @@ public enum CompanionApprovalOutcome: Equatable, Sendable, Decodable {
     }
 }
 
-/// The durable receipt for a `msg` or `command`: after it, the outbox stops
-/// resending that request.
+/// The durable receipt for a `msg`, a `command` or (version 6) a
+/// `checklist_edit`: after it, the outbox stops resending that request.
 public struct CompanionAccepted: Equatable, Sendable, Decodable {
     public let clientMsgId: String
     public let duplicate: Bool
@@ -816,6 +855,16 @@ public enum CompanionServerEvent: Equatable, Sendable {
     case proposal(profileId: String, proposal: CompanionProposal)
     /// Version 4: a proposal left `waiting`.
     case proposalResolved(CompanionProposalResolution)
+    /// Version 6: the index of the owner's lists, every live list in picker
+    /// order: the answer to `checklists_pull`, and sent again, whole, after
+    /// any change to any list.
+    case checklists(profileId: String, lists: [CompanionChecklistEntry])
+    /// Version 6: one whole list, the answer to `checklist_pull` and sent
+    /// again, whole, after every committed change to it. `made` maps the
+    /// `client_msg_id` of each create or add a device sent since the list's
+    /// last push to the list or row it made, and is empty when there is
+    /// none.
+    case checklist(profileId: String, list: CompanionChecklistList, made: [String: String] = [:])
     /// An event type published after this build shipped: logged by the session,
     /// never silently dropped.
     case unrecognized(type: String)
@@ -843,6 +892,8 @@ public enum CompanionServerEvent: Equatable, Sendable {
         case .rowUpdated: return "row_updated"
         case .proposal: return "proposal"
         case .proposalResolved: return "proposal_resolved"
+        case .checklists: return "checklists"
+        case .checklist: return "checklist"
         case .unrecognized(let type): return type
         }
     }
@@ -892,7 +943,7 @@ public enum CompanionServerEvent: Equatable, Sendable {
 
 extension CompanionServerEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case type, text, code, message, outcome, ref, blocks, proposal, role
+        case type, text, code, message, outcome, ref, blocks, proposal, role, lists, list, made
         case minVersion = "min_version"
         case maxVersion = "max_version"
         case primaryEpoch = "primary_epoch"
@@ -989,6 +1040,17 @@ extension CompanionServerEvent: Decodable {
             )
         case "proposal_resolved":
             self = .proposalResolved(try CompanionProposalResolution(from: decoder))
+        case "checklists":
+            self = .checklists(
+                profileId: try fields.decode(String.self, forKey: .profileId),
+                lists: try fields.decode([CompanionChecklistEntry].self, forKey: .lists)
+            )
+        case "checklist":
+            self = .checklist(
+                profileId: try fields.decode(String.self, forKey: .profileId),
+                list: try fields.decode(CompanionChecklistList.self, forKey: .list),
+                made: try fields.decodeIfPresent([String: String].self, forKey: .made) ?? [:]
+            )
         default:
             self = .unrecognized(type: type)
         }

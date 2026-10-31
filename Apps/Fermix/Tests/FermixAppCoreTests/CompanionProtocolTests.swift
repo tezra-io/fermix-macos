@@ -61,7 +61,7 @@ struct CompanionProtocolTests {
             .mediaRelease(profileId: main, ref: "9879f6d3c9efefe8c4f4aabe9d3269762264be52794e96f62ab8ffa53b7fadec"),
             .proposalAnswer(clientMsgId: "mac-10", profileId: main, proposalId: "cpr_4f1c2a9b7e3d5a60c8b1f2e3", decision: .confirm),
             .proposalAnswer(clientMsgId: "mac-11", profileId: main, proposalId: "cpr_9a0b1c2d3e4f5a6b7c8d9e0f", decision: .deny)
-        ]
+        ] + Self.checklistClientEvents
 
         #expect(produced.count == fixtures.count)
         #expect(Set(fixtures.map(\.type)) == (try CompanionFixtures.publishedTypes("clientEvent")))
@@ -78,6 +78,84 @@ struct CompanionProtocolTests {
                 "\(fixture.type): \(String(decoding: line, as: UTF8.self))"
             )
         }
+    }
+
+    /// Version 6: the owner's lists (M85), in the goldens' order: the two
+    /// pulls, then one edit of each op the contract publishes, by row id.
+    static let checklistClientEvents: [CompanionClientEvent] = {
+        let main = CompanionProtocol.profileId
+        let groceries = "ck_4q8m2x7v1d"
+        let packing = "ck_2b7n5r8c3j"
+        func edit(_ id: Int, _ list: String?, _ op: CompanionChecklistOp) -> CompanionClientEvent {
+            .checklistEdit(clientMsgId: "mac-\(id)", profileId: main, listId: list, op: op)
+        }
+
+        return [
+            .checklistsPull(profileId: main),
+            .checklistPull(profileId: main, listId: groceries),
+            .checklistPull(profileId: main, listId: groceries, removed: true),
+            edit(20, nil, .create(title: "Packing", folder: "Trips")),
+            edit(21, groceries, .add(text: "Lemons", note: "The unwaxed ones", place: .section("ci_5w7p0t4n6b"))),
+            edit(22, groceries, .add(text: "Bread", note: nil, place: .after("ci_8f3k2m9q1x"))),
+            edit(23, groceries, .check(rowId: "ci_3h9d1v8r2k")),
+            edit(24, groceries, .uncheck(rowId: "ci_3h9d1v8r2k")),
+            edit(25, groceries, .edit(rowId: "ci_3h9d1v8r2k", text: "Basil, two bunches", note: "")),
+            edit(26, groceries, .move(rowId: "ci_6j4c7x0m5s", place: nil, toListId: "ck_9t3k6w0p5h")),
+            edit(27, groceries, .move(rowId: "ci_6j4c7x0m5s", place: .section("ci_5w7p0t4n6b"), toListId: nil)),
+            edit(28, groceries, .section(text: "Dairy", afterId: "ci_6j4c7x0m5s")),
+            edit(29, groceries, .remove(rowId: "ci_6j4c7x0m5s")),
+            edit(30, groceries, .folder("Home")),
+            edit(31, groceries, .folder("")),
+            edit(32, groceries, .rename(text: "Weekly groceries")),
+            edit(33, groceries, .clearDone),
+            edit(34, groceries, .restore(rowId: "ci_6j4c7x0m5s", title: nil)),
+            edit(35, packing, .restore(rowId: nil, title: nil)),
+            edit(36, packing, .restore(rowId: nil, title: "Packing, spring")),
+            edit(37, packing, .removeList)
+        ]
+    }()
+
+    /// A list's events carry the index, a whole list with its rows in order,
+    /// what a device's adds made, and the removed rows Recently removed is
+    /// drawn from, each under the Swift names.
+    @Test("the golden lists decode under the Swift names")
+    func checklistFixtureFields() throws {
+        let fixtures = try CompanionFixtures.load(.serverEvents)
+        let indexes = try fixtures.filter { $0.type == "checklists" }.map { try CompanionServerEvent.decode($0.line) }
+        let lists = try fixtures.filter { $0.type == "checklist" }.map { try CompanionServerEvent.decode($0.line) }
+
+        #expect(indexes.count == 2)
+        #expect(indexes.first == .checklists(profileId: "main", lists: [
+            CompanionChecklistEntry(listId: "ck_9t3k6w0p5h", title: "Fermix", folder: "Projects", open: 4, done: 1, rev: 12),
+            CompanionChecklistEntry(listId: "ck_4q8m2x7v1d", title: "Groceries", folder: nil, open: 3, done: 1, rev: 7)
+        ]))
+        #expect(indexes.last == .checklists(profileId: "main", lists: []))
+
+        guard lists.count == 4,
+              case .checklist(_, let groceries, let made) = lists[0],
+              case .checklist(_, let removed, let none) = lists[1],
+              case .checklist(_, let created, let madeList) = lists[2],
+              case .checklist(_, let gone, _) = lists[3]
+        else {
+            Issue.record("the golden lists did not decode as four lists")
+            return
+        }
+
+        #expect(groceries.rev == 7)
+        #expect(groceries.rows.map(\.kind) == [.item, .section, .item, .item, .item])
+        #expect(groceries.rows[2] == CompanionChecklistRow(rowId: "ci_0r2y8e6u3g", kind: .item, text: "Lemons", done: false, note: "The unwaxed ones"))
+        #expect(groceries.rows[1].done == nil, "a heading has no done")
+        #expect(groceries.rows[3].isDone)
+        #expect(groceries.rows[3].doneAt == "2031-06-02T14:00:00.000000Z")
+        #expect(groceries.removed == nil)
+        #expect(made == ["mac-21": "ci_0r2y8e6u3g"])
+
+        #expect(none.isEmpty)
+        #expect(removed.removed?.map(\.rowId) == ["ci_3h9d1v8r2k"])
+        #expect(removed.removed?.first?.removedAt == "2031-06-02T14:05:00.000000Z")
+        #expect(madeList == ["mac-20": "ck_2b7n5r8c3j"])
+        #expect(created.rows.isEmpty)
+        #expect(gone.removedAt == "2031-05-20T08:00:00.000000Z")
     }
 
     @Test("every golden server event decodes and writes back as itself")

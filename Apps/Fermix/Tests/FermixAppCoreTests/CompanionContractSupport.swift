@@ -180,8 +180,58 @@ enum CompanionServerWire {
                 "sentence": resolution.sentence,
                 "result_text": resolution.resultText
             ])
+        case .checklists(let profileId, let lists):
+            return ["profile_id": profileId, "lists": lists.map(checklistEntry)]
+        case .checklist(let profileId, let list, let made):
+            return present([
+                "profile_id": profileId,
+                "list": checklistList(list),
+                "made": made.isEmpty ? nil : made
+            ])
         case .unrecognized:
             return [:]
+        }
+    }
+
+    private static func checklistEntry(_ entry: CompanionChecklistEntry) -> [String: Any] {
+        present([
+            "list_id": entry.listId,
+            "title": entry.title,
+            "folder": entry.folder,
+            "open": entry.open,
+            "done": entry.done,
+            "rev": entry.rev
+        ])
+    }
+
+    private static func checklistList(_ list: CompanionChecklistList) -> [String: Any] {
+        present([
+            "list_id": list.listId,
+            "title": list.title,
+            "rev": list.rev,
+            "rows": list.rows.map(checklistRow),
+            "removed": list.removed.map { $0.map(checklistRow) },
+            "removed_at": list.removedAt
+        ])
+    }
+
+    private static func checklistRow(_ row: CompanionChecklistRow) -> [String: Any] {
+        present([
+            "row_id": row.rowId,
+            "kind": word(row.kind),
+            "text": row.text,
+            "done": row.done,
+            "note": row.note,
+            "done_at": row.doneAt,
+            "removed_at": row.removedAt
+        ])
+    }
+
+    private static func word(_ kind: CompanionChecklistRowKind) -> String {
+        switch kind {
+        case .item: return "item"
+        case .section: return "section"
+        case .unrecognized(let word): return word
         }
     }
 
@@ -339,6 +389,8 @@ enum CompanionServerWire {
     private static func block(_ block: CompanionBlock) -> [String: Any] {
         switch block {
         case .places(let places): return ["type": "places", "places": places.map(place)]
+        case .checklists(let lists):
+            return ["type": "checklists", "lists": lists.map { ["list_id": $0.listId, "title": $0.title, "rows": $0.rows] }]
         }
     }
 

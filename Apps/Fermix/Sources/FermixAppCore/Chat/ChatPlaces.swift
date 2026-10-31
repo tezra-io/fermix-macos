@@ -37,6 +37,10 @@ struct ChatRecords: View {
                     if !places.isEmpty {
                         ChatPlaces(places: places, width: rows.columnWidth, reply: reply, selection: rows.places)
                     }
+                case .checklists:
+                    // The lists' card is drawn by the transcript, which knows
+                    // the newest card of each list (M85 §08).
+                    EmptyView()
                 }
             }
         }

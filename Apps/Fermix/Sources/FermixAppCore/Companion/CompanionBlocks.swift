@@ -8,6 +8,11 @@ public enum CompanionBlock: Equatable, Sendable {
     /// The places `place_search` found that the reply links, one to ten, in
     /// the order the text first links them.
     case places([CompanionPlace])
+    /// The owner's lists the reply's turn read or changed (M85), one to
+    /// eight, in the order the turn first touched them, each by id with the
+    /// rows the turn touched. The card under the reply draws them as they
+    /// stand now.
+    case checklists([CompanionChecklistRef])
 }
 
 /// A row's `blocks` as the wire carries them, at most one of each type, read
@@ -33,13 +38,14 @@ public struct CompanionBlocks: Equatable, Sendable, Decodable {
         let block: CompanionBlock?
 
         private enum CodingKeys: String, CodingKey {
-            case type, places
+            case type, places, lists
         }
 
         init(from decoder: Decoder) throws {
             let fields = try decoder.container(keyedBy: CodingKeys.self)
             switch try fields.decode(String.self, forKey: .type) {
             case "places": block = .places(try fields.decode([CompanionPlace].self, forKey: .places))
+            case "checklists": block = .checklists(try fields.decode([CompanionChecklistRef].self, forKey: .lists))
             default: block = nil
             }
         }

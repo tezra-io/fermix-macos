@@ -709,7 +709,7 @@ public struct ManagementCueWatcher: Decodable, Equatable, Sendable {
     }
 
     public struct Counts: Decodable, Equatable, Sendable {
-        /// Every item its words to listen for let through, kept or not.
+        /// Every item its keywords to listen for let through, kept or not.
         public let offered: Int
         public let waiting: Int
         public let passed: Int
@@ -763,7 +763,7 @@ public struct ManagementCueWatcherList: Decodable, Equatable, Sendable {
 }
 
 /// `cues.watchers.get`: the row plus the owner's own words, its purpose, its
-/// words to listen for and its instructions, and its examples counted, never
+/// keywords to listen for and its instructions, and its examples counted, never
 /// shown.
 public struct ManagementCueWatcherDetail: Decodable, Equatable, Sendable {
     public struct Instruction: Decodable, Equatable, Sendable {

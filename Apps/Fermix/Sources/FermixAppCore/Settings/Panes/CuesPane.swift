@@ -460,7 +460,7 @@ struct CuesSettingsSection: View {
 /// The `cues` section's keys the pane places itself.
 enum CuesPaneKeys {
     static let enabled = "cues_enabled"
-    static let screen = "cues_screen_provider"
+    static let screen = "cues_screen"
     static let doorPort = "cues_door_port"
 
     /// The row "How watchers judge items" heads: the Screen, which newer

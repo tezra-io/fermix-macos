@@ -53,7 +53,7 @@ public enum CueWatcherDetailWords {
         )
     }
 
-    /// The words to listen for, as the owner gave them.
+    /// The keywords to listen for, as the owner gave them.
     public static func listenFor(_ words: [String]) -> String {
         words.joined(separator: ", ")
     }

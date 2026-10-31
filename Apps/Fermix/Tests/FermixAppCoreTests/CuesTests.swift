@@ -329,10 +329,10 @@ struct CuesTests {
         #expect(CuesPaneKeys.judgingHeadingKey(in: older) == "filter_provider")
 
         let newer = try Self.cueSettingRows(withScreen: true)
-        #expect(CuesPaneKeys.judgingHeadingKey(in: newer) == "cues_screen_provider")
+        #expect(CuesPaneKeys.judgingHeadingKey(in: newer) == "cues_screen")
         let top = DescriptorRowFold(newer)
         #expect(
-            top.open.map(\.key) == ["cues_enabled", "cues_mandates_enabled", "cues_screen_provider", "filter_provider", "filter_model"],
+            top.open.map(\.key) == ["cues_enabled", "cues_mandates_enabled", "cues_screen", "filter_provider", "filter_model"],
             "Let watchers act follows Run cues, and the Screen is drawn where and as the section publishes it"
         )
         #expect(top.folded.map(\.key) == ["cues_door_port"], "the door's port stays under Advanced")
@@ -517,12 +517,12 @@ struct CuesTests {
         #expect(CueWatcherDetailWords.filter(passing) == "No filter")
     }
 
-    /// Saved before words to listen for were required, a watcher gets nothing
+    /// Saved before keywords to listen for were required, a watcher gets nothing
     /// until it is changed in chat, and its row asks for that as a held one
     /// does, in the daemon's sentence.
     @Test("a watcher that needs an update in chat is drawn for attention with the daemon's sentence")
     func needsUpdateDrawsAttention() throws {
-        let sentence = "Needs words to listen for: update it in chat."
+        let sentence = "Needs keywords to listen for: update it in chat."
         let watcher = try Self.watcher(editing: { row in
             row["state"] = "needs_update"
             row["status_sentence"] = sentence
@@ -1292,8 +1292,8 @@ struct CuesTests {
         let fixture = try #require(try ManagementFixtures.load(.success, from: .management).first { $0.name == "settings_get_cues" })
         let result = try #require(try fixture.object("response")["result"] as? [String: Any])
         let rows = try #require(result["rows"] as? [[String: Any]])
-        #expect(rows.contains { $0["key"] as? String == "cues_screen_provider" }, "the golden publishes the Screen")
-        let published = withScreen ? rows : rows.filter { $0["key"] as? String != "cues_screen_provider" }
+        #expect(rows.contains { $0["key"] as? String == "cues_screen" }, "the golden publishes the Screen")
+        let published = withScreen ? rows : rows.filter { $0["key"] as? String != "cues_screen" }
 
         return try JSONDecoder().decode([ManagementSettingRow].self, from: try JSONSerialization.data(withJSONObject: published))
     }
