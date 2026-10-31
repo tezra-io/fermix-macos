@@ -18,16 +18,17 @@ struct ChatReplyRowTests {
     }
 
     /// The row is compared whole, so a field a row gains is never missed.
-    @Test("a finished row is drawn again only when the row or the words a search marks in it change")
+    @Test("a finished row is drawn again only when the row, the words a search marks in it or whether its lists card is live change")
     func rowEquality() {
-        let row = ChatRow(row: Self.row(), marked: [])
+        let row = ChatRow(row: Self.row(), marked: [], listsLive: true)
         let preview = CompanionLinkPreview(link: nil, url: "https://a.example", site: "A", title: "A", description: nil, imageRef: nil)
 
-        #expect(row == ChatRow(row: Self.row(), marked: []))
-        #expect(row != ChatRow(row: Self.row("Saved it again."), marked: []))
-        #expect(row != ChatRow(row: Self.row(previews: [preview]), marked: []))
-        #expect(row != ChatRow(row: Self.row(role: CompanionProtocol.userRole), marked: []))
-        #expect(row != ChatRow(row: Self.row(), marked: ["saved"]))
+        #expect(row == ChatRow(row: Self.row(), marked: [], listsLive: true))
+        #expect(row != ChatRow(row: Self.row("Saved it again."), marked: [], listsLive: true))
+        #expect(row != ChatRow(row: Self.row(previews: [preview]), marked: [], listsLive: true))
+        #expect(row != ChatRow(row: Self.row(role: CompanionProtocol.userRole), marked: [], listsLive: true))
+        #expect(row != ChatRow(row: Self.row(), marked: ["saved"], listsLive: true))
+        #expect(row != ChatRow(row: Self.row(), marked: [], listsLive: false))
     }
 
     /// Paragraphs a blank line apart read as one part where a reply is read
@@ -62,7 +63,7 @@ struct ChatReplyRowTests {
         let rows = try #require(SourceTree.swiftFiles(matching: "Chat/ChatRows.swift").first?.text)
         let reply = try #require(SourceTree.swiftFiles(matching: "Chat/ChatReplyText.swift").first?.text)
 
-        #expect(rows.contains("ChatRow(row: row, marked: marked)\n                .equatable()"))
+        #expect(rows.contains("ChatRow(row: row, marked: marked, listsLive: listsLive)\n                .equatable()"))
         #expect(rows.contains("ChatReplyText(blocks: blocks, marked: marked, titles: titles, speaker: speaker)\n            .equatable()"))
         #expect(reply.contains("static func == (lhs: ChatReplyText, rhs: ChatReplyText) -> Bool"))
     }

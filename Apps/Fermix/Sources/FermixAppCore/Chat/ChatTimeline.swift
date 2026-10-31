@@ -40,6 +40,13 @@ enum ChatItem: Equatable, Identifiable {
         }
     }
 
+    /// The seq of the timeline row the item draws, where it draws one.
+    var rowSeq: Int? {
+        guard case .row(let row) = self else { return nil }
+
+        return row.serverSeq
+    }
+
     /// A message this client sent and the daemon has not yet accepted: the
     /// signal, in `ChatTranscript`, that the reader just sent it themselves.
     var isPending: Bool {

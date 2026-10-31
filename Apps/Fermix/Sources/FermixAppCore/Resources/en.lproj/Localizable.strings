@@ -550,6 +550,40 @@
 "chat.place.ratingFormat" = "%1$@ (%2$@)";
 "chat.place.distanceFormat" = "%1$@ %2$@";
 
+/* MARK: Lists */
+"lists.title" = "Lists";
+"lists.addItem" = "Add an item";
+"lists.openFormat" = "%d open";
+"lists.doneFormat" = "%d done";
+"lists.moreFormat" = "%d more";
+"lists.moreListsFormat" = "and %d more lists";
+"lists.done" = "Done";
+"lists.newList" = "New list";
+"lists.renameList" = "Rename list";
+"lists.moveToFolder" = "Move to folder";
+"lists.moveToList" = "Move to list";
+"lists.newFolder" = "New folder";
+"lists.noFolder" = "No folder";
+"lists.copyAsText" = "Copy as text";
+"lists.clearDone" = "Clear done";
+"lists.recentlyRemoved" = "Recently removed";
+"lists.removeList" = "Remove list";
+"lists.removedFormat" = "Removed %@.";
+"lists.undo" = "Undo";
+"lists.listRemoved" = "This list was removed.";
+"lists.hidePanel" = "Hide lists";
+"lists.openList" = "Open list";
+"lists.none" = "No lists yet.";
+"lists.moveUp" = "Move up";
+"lists.moveDown" = "Move down";
+"lists.remove" = "Remove";
+"lists.restore" = "Restore";
+"lists.listNamePrompt" = "List name";
+"lists.folderNamePrompt" = "Folder name";
+"lists.notePrompt" = "Add a note";
+"lists.listLabelFormat" = "%1$@, list, %2$@";
+"lists.listsLabelFormat" = "%@, lists";
+
 /* MARK: Browser */
 "browser.notice.notAnAddress" = "Enter a web address, such as fermix.ai.";
 "browser.notice.profileUnavailable" = "The browser’s website data could not be read, so it cannot open pages.";
@@ -711,6 +745,8 @@
 "menuTitle.beginVoiceCall" = "Begin Voice Call";
 "menuTitle.endVoiceCall" = "End Voice Call";
 "menuTitle.showBrowser" = "Show Browser";
+"menuTitle.showLists" = "Show Lists";
+"menuTitle.hideLists" = "Hide Lists";
 "menuTitle.hideMenuBarItem" = "Hide Menu Bar Item";
 "menuTitle.linkCommandLineTool" = "Add the fermix Command to Terminal…";
 

@@ -646,6 +646,48 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatPlaceRatingFormat = "chat.place.ratingFormat"
     case chatPlaceDistanceFormat = "chat.place.distanceFormat"
 
+    // The owner's lists (M85 §09): the card under a reply, the Lists panel
+    // beside the chat and its menus, and what VoiceOver says of them.
+    case listsTitle = "lists.title"
+    case listsAddItem = "lists.addItem"
+    case listsOpenFormat = "lists.openFormat"
+    case listsDoneFormat = "lists.doneFormat"
+    case listsMoreFormat = "lists.moreFormat"
+    case listsMoreListsFormat = "lists.moreListsFormat"
+    case listsDone = "lists.done"
+    case listsNewList = "lists.newList"
+    case listsRenameList = "lists.renameList"
+    case listsMoveToFolder = "lists.moveToFolder"
+    case listsMoveToList = "lists.moveToList"
+    case listsNewFolder = "lists.newFolder"
+    case listsNoFolder = "lists.noFolder"
+    case listsCopyAsText = "lists.copyAsText"
+    case listsClearDone = "lists.clearDone"
+    case listsRecentlyRemoved = "lists.recentlyRemoved"
+    case listsRemoveList = "lists.removeList"
+    case listsRemovedFormat = "lists.removedFormat"
+    case listsUndo = "lists.undo"
+    case listsListRemoved = "lists.listRemoved"
+    /// The panel's hide button, a card's way into the panel, and an empty
+    /// index.
+    case listsHidePanel = "lists.hidePanel"
+    case listsOpenList = "lists.openList"
+    case listsNone = "lists.none"
+    /// A row's own actions, in its menu and to VoiceOver, and a removed
+    /// row's way back.
+    case listsMoveUp = "lists.moveUp"
+    case listsMoveDown = "lists.moveDown"
+    case listsRemove = "lists.remove"
+    case listsRestore = "lists.restore"
+    /// The fields a name or a note is typed into.
+    case listsListNamePrompt = "lists.listNamePrompt"
+    case listsFolderNamePrompt = "lists.folderNamePrompt"
+    case listsNotePrompt = "lists.notePrompt"
+    /// A card as VoiceOver names it: "Fermix, list, 6 open", or "Fermix,
+    /// Portfolio site, and Groceries, lists".
+    case listsListLabelFormat = "lists.listLabelFormat"
+    case listsListsLabelFormat = "lists.listsLabelFormat"
+
     // The browser pane. Its one sentence says why something the person asked
     // for did not happen, or what became of a file they saved.
     case browserNoticeNotAnAddress = "browser.notice.notAnAddress"
@@ -1541,6 +1583,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case menuTitleBeginVoiceCall = "menuTitle.beginVoiceCall"
     case menuTitleEndVoiceCall = "menuTitle.endVoiceCall"
     case menuTitleShowBrowser = "menuTitle.showBrowser"
+    case menuTitleShowLists = "menuTitle.showLists"
+    case menuTitleHideLists = "menuTitle.hideLists"
     case menuTitleHideMenuBarItem = "menuTitle.hideMenuBarItem"
     case menuTitleLinkCommandLineTool = "menuTitle.linkCommandLineTool"
 

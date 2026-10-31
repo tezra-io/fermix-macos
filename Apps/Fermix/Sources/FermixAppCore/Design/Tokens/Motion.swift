@@ -11,6 +11,10 @@ public enum MotionRole: String, CaseIterable, Sendable {
     /// its braille cell, and the band's pass through the word.
     case thinkingDots
     case thinkingShimmer
+    /// A list's item ticked (M85 §09): the circle fills, and its words
+    /// strike through a little after.
+    case checklistTick
+    case checklistStrike
 
     /// Whether SwiftUI drives this role.
     ///
@@ -168,6 +172,10 @@ public enum MotionTable {
             return MotionSpec(curve: .linear, duration: 1.2, repeatsForever: true, redlineMilliseconds: 1200)
         case .thinkingShimmer:
             return MotionSpec(curve: .linear, duration: 2.4, repeatsForever: true, redlineMilliseconds: 2400)
+        case .checklistTick:
+            return MotionSpec(curve: .easeOut, duration: 0.12, redlineMilliseconds: 120)
+        case .checklistStrike:
+            return MotionSpec(curve: .easeOut, duration: 0.18, redlineMilliseconds: 180)
         }
     }
 
@@ -179,6 +187,8 @@ public enum MotionTable {
             return .entrance
         case .stepCrossfade:
             return .crossfade
+        case .checklistTick, .checklistStrike:
+            return .oneShot
         }
     }
 }

@@ -377,7 +377,7 @@ struct ChatCallBoxTests {
     @Test("the toolbar's call button follows the gate where it stands")
     func toolbarFollowsTheGate() throws {
         let surface = try Self.text(of: "Chat/ChatSurfaceView.swift")
-        #expect(surface.contains("SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router, follows: gate)"))
+        #expect(surface.contains("SurfaceToolbar(spec: CommandTable.toolbar(for: .chat, condition: toolbarCondition), router: router, follows: gate)"))
 
         let toolbar = try Self.text(of: "Design/Components/SurfaceToolbar.swift")
         #expect(toolbar.contains("Following(followed: follows) { button(command) }"))

@@ -49,6 +49,11 @@ enum FixtureStart: Equatable {
     /// their map and cards, lists and steps, a table and a quote, and last
     /// the places Apple Maps found, which open at Apple's own card.
     case chatReplies
+    /// Chat over the owner's lists (M85), with the Lists panel open beside
+    /// it: an older reply's card folded to one line, a card of three lists
+    /// and the newest reply's card of one, all drawn live from the scripted
+    /// daemon's lists, which take every edit.
+    case lists
     /// Chat with the browser pane open beside it on two fake tabs. The pane
     /// closed is `chat` itself.
     case browser
@@ -83,6 +88,7 @@ enum FixtureStart: Equatable {
     static let approvalStepName = "assistant/approval"
     static let emptyChatName = "chat-empty"
     static let chatRepliesName = "chat-replies"
+    static let listsName = "lists"
     static let browserName = "browser"
     static let chatCallName = "chat-call"
     static let failedChatCallName = "chat-call-failed"
@@ -99,6 +105,8 @@ enum FixtureStart: Equatable {
             self = .emptyChat
         } else if name == Self.chatRepliesName {
             self = .chatReplies
+        } else if name == Self.listsName {
+            self = .lists
         } else if name == Self.browserName {
             self = .browser
         } else if name == Self.chatCallName {
@@ -132,7 +140,7 @@ enum FixtureStart: Equatable {
         AppRoute.allCases.map(\.rawValue)
             + SettingsPane.allCases.map { settingsPrefix + $0.slug }
             + OnboardingStage.allCases.map { assistantPrefix + $0.rawValue }
-            + [restartSheetName, approvalStepName, emptyChatName, chatRepliesName, browserName, chatCallName, failedChatCallName]
+            + [restartSheetName, approvalStepName, emptyChatName, chatRepliesName, listsName, browserName, chatCallName, failedChatCallName]
             + FixtureMCPStart.allCases.map(\.rawValue)
             + FixtureAlwaysOnStart.allCases.map(\.rawValue)
             + FixturePhoneStart.allCases.map { phonePrefix + $0.rawValue }
@@ -533,7 +541,7 @@ struct FixtureLaunch {
         case .surface(let route): return .route(route)
         case .settings(let pane): return .settings(pane)
         case .restartSheet: return .homeWithRestartSheet
-        case .emptyChat, .chatReplies: return .route(.chat)
+        case .emptyChat, .chatReplies, .lists: return .route(.chat)
         case .browser: return .chatWithBrowser
         case .chatCall, .failedChatCall: return .chatWithCall
         case .phone(let step): return .channelsWithPhone(step.intent)
@@ -573,6 +581,7 @@ struct FixtureLaunch {
         switch start {
         case .emptyChat: return .empty
         case .chatReplies: return .replies
+        case .lists: return .lists
         default: return .full
         }
     }
@@ -595,6 +604,7 @@ struct FixtureLaunch {
         case .approvalStep: return "assistant-approval"
         case .emptyChat: return FixtureStart.emptyChatName
         case .chatReplies: return FixtureStart.chatRepliesName
+        case .lists: return FixtureStart.listsName
         case .browser: return FixtureStart.browserName
         case .chatCall: return FixtureStart.chatCallName
         case .failedChatCall: return FixtureStart.failedChatCallName
@@ -889,6 +899,17 @@ final class FixtureSidebarStore: SidebarVisibilityStoring {
     var sidebarVisible: Bool?
 }
 
+/// Whether the Lists panel is open: open on the lists start, closed on every
+/// other, and never written to the operator's defaults.
+@MainActor
+final class FixtureChecklistPanelStore: ChecklistPanelStoring {
+    var panelOpen: Bool?
+
+    init(open: Bool) {
+        panelOpen = open
+    }
+}
+
 /// The link preference at its default, the pane, and never written to the
 /// operator's defaults.
 @MainActor
@@ -960,6 +981,7 @@ extension AppEnvironment {
             settingsPanes: FixturePaneStore(),
             sidebarVisibility: FixtureSidebarStore(),
             linkPreference: FixtureLinkPreferenceStore(),
+            checklistPanel: FixtureChecklistPanelStore(open: launch.start == .lists),
             opener: FixtureExternalOpener(),
             updater: UnwiredUpdater(),
             mascot: mascot,

@@ -36,6 +36,9 @@ public enum AppCommand: String, CaseIterable, Sendable {
     /// Opens the browser pane on its own, with nothing to show yet, so the
     /// person can watch or browse without waiting for a link (plan §4.10).
     case showBrowser
+    /// Shows and hides the Lists panel beside the chat (M85 §09), drawn in
+    /// Chat's toolbar only where the daemon serves lists.
+    case toggleLists
     case runLocalChecks
     case runNetworkChecks
     case pauseLogs
@@ -209,10 +212,14 @@ public struct ToolbarCondition: Equatable, Sendable {
     public let setupComplete: Bool
     /// Whether the launch reconcile found the bundle newer than the daemon.
     public let reconcilePending: Bool
+    /// Whether the daemon serves the owner's lists (M85 §07): Chat draws
+    /// its Lists button only then.
+    public let listsServed: Bool
 
-    public init(setupComplete: Bool, reconcilePending: Bool) {
+    public init(setupComplete: Bool, reconcilePending: Bool, listsServed: Bool = false) {
         self.setupComplete = setupComplete
         self.reconcilePending = reconcilePending
+        self.listsServed = listsServed
     }
 
     /// Nothing has been read yet. Setup is not complete until the daemon says
@@ -249,6 +256,7 @@ public enum CommandTable {
         case .toggleVoiceCall:
             return .toggling(whenOn: .menuTitleEndVoiceCall, whenOff: .menuTitleBeginVoiceCall)
         case .showBrowser: return .fixed(.menuTitleShowBrowser)
+        case .toggleLists: return .toggling(whenOn: .menuTitleHideLists, whenOff: .menuTitleShowLists)
         case .runLocalChecks: return .fixed(.menuTitleRunLocalChecks)
         case .runNetworkChecks: return .fixed(.menuTitleRunNetworkChecks)
         case .pauseLogs:
@@ -290,6 +298,8 @@ public enum CommandTable {
         // Chat's toolbar draws this one, and its sentence-case spelling is its
         // own rather than the View menu's title case.
         case .showBrowser: return .browserShow
+        // The button's name is the panel's, whichever way it moves it.
+        case .toggleLists: return .listsTitle
         case .pauseLogs: return nil
         case .openFermix, .checkForUpdates, .openSettings, .quit, .toggleSidebar, .showChat, .showHome,
              .showDoctor, .showLogs, .showPet, .toggleVoiceCall, .runLocalChecks,
@@ -347,6 +357,7 @@ public enum CommandTable {
         switch command {
         case .runNetworkChecks: return "globe"
         case .showBrowser: return "safari"
+        case .toggleLists: return "checklist"
         case .toggleVoiceCall: return callSymbol
         case .pauseLogs: return "pause.circle"
         case .exportLogs, .exportSupportBundle: return "square.and.arrow.up"
@@ -374,6 +385,7 @@ public enum CommandTable {
         case .showLogs: return CommandShortcut("4")
         case .showPet: return CommandShortcut("5")
         case .showBrowser: return CommandShortcut("b")
+        case .toggleLists: return CommandShortcut("l", shift: true)
         case .runLocalChecks: return CommandShortcut("r")
         default: return nil
         }
@@ -443,6 +455,7 @@ public enum CommandTable {
             // After Pet, with no shortcut in the first cut (M56 P5).
             .command(.toggleVoiceCall),
             .command(.showBrowser),
+            .command(.toggleLists),
             .separator,
             .command(.runLocalChecks),
             .command(.runNetworkChecks),
@@ -518,10 +531,13 @@ public enum CommandTable {
         case .home:
             return home(condition)
         // Chat's search is the toolbar's own search field, not a command; the
-        // pane opens from the toolbar too, on its own (plan §4.10), and the
-        // call begins and ends there, at the conversation's top right (M56).
+        // pane opens from the toolbar too, on its own (plan §4.10), the call
+        // begins and ends there, at the conversation's top right (M56), and
+        // the Lists panel is shown and hidden beside them where the daemon
+        // serves lists (M85 §09).
         case .chat:
-            return ToolbarSpec(secondary: [.showBrowser, .toggleVoiceCall])
+            let lists: [AppCommand] = condition.listsServed ? [.toggleLists] : []
+            return ToolbarSpec(secondary: [.showBrowser, .toggleVoiceCall] + lists)
         case .pet, .setup, .update, .uninstall, .recovery:
             return ToolbarSpec()
         }

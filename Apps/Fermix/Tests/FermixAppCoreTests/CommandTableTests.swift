@@ -59,6 +59,26 @@ struct CommandTableTests {
         #expect(CommandTable.shortcut(of: .showBrowser) == CommandShortcut("b"))
     }
 
+    /// The Lists panel is shown and hidden from the View menu as from Chat's
+    /// toolbar, on Command-Shift-L, which no other command takes (M85 §09).
+    @Test("the View menu carries the Lists command after Show browser, on Command-Shift-L, which nothing else takes")
+    func viewMenuCarriesTheListsCommand() throws {
+        let view = try #require(CommandTable.mainMenu.first { $0.titleKey == .menuTitleView })
+        let commands = view.commands
+        let browser = try #require(commands.firstIndex(of: .showBrowser))
+
+        #expect(commands[browser + 1] == .toggleLists)
+        #expect(CommandTable.shortcut(of: .toggleLists) == CommandShortcut("l", shift: true))
+        #expect(CommandTable.symbol(of: .toggleLists) == "checklist")
+        let taken = AppCommand.allCases.filter { $0 != .toggleLists }.compactMap(CommandTable.shortcut(of:))
+        #expect(!taken.contains(CommandShortcut("l", shift: true)))
+        let system = CommandTable.mainMenu.flatMap(\.entries).compactMap { entry -> SystemMenuItem? in
+            guard case .system(let item) = entry else { return nil }
+            return item
+        }
+        #expect(!system.contains { $0.keyEquivalent == "l" && $0.holdsShift })
+    }
+
     /// A command in the table is one this build performs. The router is the
     /// only place that answers that, so the two are checked against each other
     /// rather than against a list.
@@ -77,12 +97,13 @@ struct CommandTableTests {
     func togglingTitles() {
         let router = FakeCommandRouter()
 
-        router.on = [.toggleBackgroundService, .pauseLogs, .toggleFloatingPet, .toggleSidebar, .toggleVoiceCall]
+        router.on = [.toggleBackgroundService, .pauseLogs, .toggleFloatingPet, .toggleSidebar, .toggleVoiceCall, .toggleLists]
         #expect(router.menuTitle(of: .toggleBackgroundService) == "Disable Background Service")
         #expect(router.menuTitle(of: .pauseLogs) == "Resume Logs")
         #expect(router.menuTitle(of: .toggleFloatingPet) == "Hide Pet")
         #expect(router.menuTitle(of: .toggleSidebar) == "Hide Sidebar")
         #expect(router.menuTitle(of: .toggleVoiceCall) == "End Voice Call")
+        #expect(router.menuTitle(of: .toggleLists) == "Hide Lists")
 
         router.on = []
         #expect(router.menuTitle(of: .toggleBackgroundService) == "Enable Background Service")
@@ -90,6 +111,7 @@ struct CommandTableTests {
         #expect(router.menuTitle(of: .toggleFloatingPet) == "Show Pet")
         #expect(router.menuTitle(of: .toggleSidebar) == "Show Sidebar")
         #expect(router.menuTitle(of: .toggleVoiceCall) == "Begin Voice Call")
+        #expect(router.menuTitle(of: .toggleLists) == "Show Lists")
     }
 
     /// M34 §4 bans Start and Stop for the durable service, in the menu as
@@ -199,6 +221,10 @@ struct CommandTableTests {
         // Chat's search is the toolbar's own field, not a command; it carries
         // "Show browser" (plan §4.10) and the call, at the top right (M56).
         #expect(CommandTable.toolbar(for: .chat).secondary == [.showBrowser, .toggleVoiceCall])
+        // The Lists button beside them, only where the daemon serves lists (M85 §09).
+        let served = ToolbarCondition(setupComplete: true, reconcilePending: false, listsServed: true)
+        #expect(CommandTable.toolbar(for: .chat, condition: served).secondary == [.showBrowser, .toggleVoiceCall, .toggleLists])
+        #expect(CommandTable.toolbar(for: .home, condition: served).secondary.isEmpty)
         #expect(CommandTable.toolbar(for: .chat).primary == nil)
         #expect(CommandTable.toolbar(for: .chat).more.isEmpty)
     }
@@ -209,8 +235,9 @@ struct CommandTableTests {
     func toolbarLabelsExist() {
         let router = FakeCommandRouter()
 
+        let served = ToolbarCondition(setupComplete: true, reconcilePending: false, listsServed: true)
         for route in AppRoute.allCases {
-            for command in CommandTable.toolbar(for: route).commands {
+            for command in CommandTable.toolbar(for: route).commands + CommandTable.toolbar(for: route, condition: served).commands {
                 let title = router.toolbarTitle(of: command)
 
                 #expect(!title.isEmpty, "\(command.rawValue)")

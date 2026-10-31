@@ -36,6 +36,8 @@ struct AppEnvironment {
     let sidebarVisibility: any SidebarVisibilityStoring
     /// Where a clicked link opens: the pane or the person's own browser.
     let linkPreference: any LinkPreferenceStoring
+    /// Whether the Lists panel beside the chat is open (M85 §09).
+    let checklistPanel: any ChecklistPanelStoring
     let opener: any ExternalOpening
     /// The updater behind the seam. It arrives from outside because the
     /// implementation links Sparkle, which only the GUI executable may do
@@ -169,6 +171,7 @@ extension AppEnvironment {
             settingsPanes: UserDefaultsSettingsPaneStore(),
             sidebarVisibility: UserDefaultsSidebarStore(),
             linkPreference: UserDefaultsLinkPreferenceStore(),
+            checklistPanel: UserDefaultsChecklistPanelStore(),
             opener: WorkspaceExternalOpener(),
             updater: updater,
             mascot: mascot,

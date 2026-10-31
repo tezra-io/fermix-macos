@@ -83,6 +83,9 @@ public final class CommandRouter: CommandPerforming {
         // and never while there is a call to end (M56 §4.1).
         case .toggleVoiceCall:
             return surfaces.callGate.action != .unavailable
+        // Only where the daemon serves lists (M85 §07).
+        case .toggleLists:
+            return surfaces.lists.served
         case .openFermix, .openSettings, .quit, .revealLogFolder, .toggleSidebar, .showChat, .showHome,
              .showDoctor, .showLogs, .showPet, .showBrowser, .pauseLogs, .toggleFloatingPet:
             return true
@@ -102,6 +105,7 @@ public final class CommandRouter: CommandPerforming {
         // start or a call is up, "Begin" otherwise, including while the last
         // call is still ending.
         case .toggleVoiceCall: return surfaces.callGate.action == .end
+        case .toggleLists: return surfaces.lists.isOpen
         default: return false
         }
     }
@@ -136,6 +140,16 @@ public final class CommandRouter: CommandPerforming {
         // can watch or browse without waiting for a link (plan §4.10).
         case .showBrowser:
             browser.showPane()
+        // The panel stands beside the chat, so from anywhere else the
+        // command opens Chat with the panel shown.
+        case .toggleLists:
+            guard model.route == .chat else {
+                coordinator.open(.chat)
+                surfaces.lists.show(nil)
+                return
+            }
+
+            surfaces.lists.toggle()
         case .openSettings:
             coordinator.openSettings()
         // The same resolution `fermix://setup` takes: the assistant while a

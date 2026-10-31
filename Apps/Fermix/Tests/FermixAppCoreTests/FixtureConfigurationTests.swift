@@ -151,6 +151,7 @@ struct FixtureConfigurationTests {
         #expect(FixtureStart(name: "restart-sheet") == .restartSheet)
         #expect(FixtureStart(name: "chat-empty") == .emptyChat)
         #expect(FixtureStart(name: "chat-replies") == .chatReplies)
+        #expect(FixtureStart(name: "lists") == .lists)
         #expect(FixtureStart(name: "browser") == .browser)
         #expect(FixtureStart(name: "chat-call") == .chatCall)
         #expect(FixtureStart(name: "chat-call-failed") == .failedChatCall)
@@ -188,7 +189,7 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 7 + FixturePhoneStart.allCases.count + FixtureMCPStart.allCases.count
+            + OnboardingStage.allCases.count + 8 + FixturePhoneStart.allCases.count + FixtureMCPStart.allCases.count
             + FixtureAlwaysOnStart.allCases.count + FixtureUpdateStart.allCases.count)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
@@ -320,7 +321,7 @@ struct FixtureConfigurationTests {
         case .approvalStep:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.onboardingStage == .starting)
-        case .emptyChat, .chatReplies, .browser, .chatCall, .failedChatCall:
+        case .emptyChat, .chatReplies, .lists, .browser, .chatCall, .failedChatCall:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.route == .chat)
         case .phone:
@@ -363,6 +364,51 @@ struct FixtureConfigurationTests {
         #expect(FixtureLaunch(start: .chatReplies).companionTimeline == .replies)
         #expect(FixtureLaunch(start: .chatReplies).startSlug == "chat-replies")
         #expect(FixtureHome.forStart(.chatReplies) == .settled)
+    }
+
+    /// The owner's lists (M85) are looked at on a timeline of their own, with
+    /// the Lists panel open beside it; every other start keeps it closed.
+    @Test("lists opens Chat on the lists timeline with the panel open")
+    @MainActor
+    func listsStartNamesItsTimeline() {
+        #expect(FixtureLaunch(start: .lists).presentation == .route(.chat))
+        #expect(FixtureLaunch(start: .lists).companionTimeline == .lists)
+        #expect(FixtureLaunch(start: .lists).startSlug == "lists")
+        #expect(FixtureHome.forStart(.lists) == .settled)
+        #expect(FixtureChecklistPanelStore(open: FixtureStart.lists == .lists).panelOpen == true)
+    }
+
+    /// The lists timeline's replies carry their blocks, and its daemon serves
+    /// four lists in two folders and none, takes an edit, pushes the list it
+    /// changed with what an add made, and refuses a row it no longer has
+    /// with the engine's sentence.
+    @MainActor
+    @Test("the lists timeline holds three cards over four lists its daemon serves and edits")
+    func listsTimelineArrives() async throws {
+        let session = fixtureChat(.lists)
+        session.connect()
+
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...6))
+        #expect(ChecklistCards.live(in: session.model.rows) == [4, 6], "yesterday's Fermix card folds under today's")
+        let lists = session.lists
+        #expect(lists.index.served)
+        #expect(lists.index.entries?.map(\.title) == ["Fermix", "Portfolio site", "Groceries", "Packing"])
+        #expect(lists.index.folders.names == ["Projects", "Trips"])
+        #expect(lists.index.folders.loose.map(\.title) == ["Groceries"])
+
+        lists.draw(FixtureChecklistScript.packing)
+        let packing = lists.store(FixtureChecklistScript.packing)
+        #expect(packing.shown?.openCount == 6)
+
+        lists.edit(FixtureChecklistScript.packing, .add(text: "Hat", note: nil, place: nil))
+        #expect(packing.shown?.rows.last.map { ChecklistState.isSending($0.rowId) } == true, "drawn at once")
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(packing.shown?.rows.last?.text == "Hat")
+        #expect(packing.shown?.rows.contains { ChecklistState.isSending($0.rowId) } == false, "named by the push")
+        #expect(packing.state.pending.isEmpty)
+
+        lists.edit(FixtureChecklistScript.packing, .check(rowId: "ci_gone000000"))
+        #expect(packing.refusal == FixtureChecklists.missingRow)
     }
 
     /// A call is looked at beside a conversation, so both call starts hold the

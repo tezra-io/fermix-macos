@@ -20,12 +20,15 @@ extension ChatMetrics {
 
 /// The records a reply carries, drawn under its words (M72 §6.3): each of
 /// its blocks by its type, in the order the row holds them. A places block
-/// with no places, which the contract never sends, draws nothing.
+/// with no places, which the contract never sends, draws nothing, and the
+/// lists' card is live only where it is the newest of every list it draws
+/// (M85 §08).
 struct ChatRecords: View {
     let blocks: [CompanionBlock]
     /// The row's sequence number, which tells its places from another
     /// reply's.
     let reply: Int
+    let listsLive: Bool
 
     @Environment(\.chatRows) private var rows
 
@@ -37,10 +40,8 @@ struct ChatRecords: View {
                     if !places.isEmpty {
                         ChatPlaces(places: places, width: rows.columnWidth, reply: reply, selection: rows.places)
                     }
-                case .checklists:
-                    // The lists' card is drawn by the transcript, which knows
-                    // the newest card of each list (M85 §08).
-                    EmptyView()
+                case .checklists(let lists):
+                    ChecklistCard(refs: lists, live: listsLive)
                 }
             }
         }

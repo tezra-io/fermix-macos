@@ -20,16 +20,19 @@ struct ChatRowContext: Equatable, Sendable {
     let visit: ChatVisit?
     /// The reading column's width, which a strip fits its tiles to.
     let columnWidth: Double
+    /// The Lists panel beside the chat, and through it the owner's lists a
+    /// reply's card draws (M85 §08).
+    let lists: ChecklistPanelModel
 
-    /// The media, the player and the opener are each one object for the
-    /// app's life, and the places shown and the link check one for the
-    /// surface's, so two
+    /// The media, the player, the opener and the lists are each one object
+    /// for the app's life, and the places shown and the link check one for
+    /// the surface's, so two
     /// contexts are the same when they, the visit and the column are: a
     /// keystroke that redraws the surface must not redraw every row.
     static func == (lhs: ChatRowContext, rhs: ChatRowContext) -> Bool {
         lhs.media === rhs.media && lhs.player === rhs.player && lhs.links === rhs.links
             && lhs.places === rhs.places && lhs.linkGuard === rhs.linkGuard
-            && lhs.visit == rhs.visit && lhs.columnWidth == rhs.columnWidth
+            && lhs.visit == rhs.visit && lhs.columnWidth == rhs.columnWidth && lhs.lists === rhs.lists
     }
 }
 
@@ -52,6 +55,9 @@ struct ChatItemView: View {
     let item: ChatItem
     /// Words to mark, where the reader was sent here by a search.
     let marked: [String]
+    /// Whether the row's lists card is the newest of each list it draws,
+    /// and so live (M85 §08).
+    let listsLive: Bool
     let answer: (String, Bool) -> Void
     /// A proposal card's two buttons, and nothing else, answer through this.
     let decide: (String, CompanionProposalDecision) -> Void
@@ -59,7 +65,7 @@ struct ChatItemView: View {
     var body: some View {
         switch item {
         case .row(let row):
-            ChatRow(row: row, marked: marked)
+            ChatRow(row: row, marked: marked, listsLive: listsLive)
                 .equatable()
         case .turn(let turn):
             ChatTurnRow(turn: turn)
@@ -77,7 +83,8 @@ struct ChatItemView: View {
 
 /// A finished row, on its side: its words, or its voice note with its words
 /// as the transcript; under them the records its reply was drawn with, a map
-/// and cards for the places it recommends (M72 §8.1); then the sound files it
+/// and cards for the places it recommends (M72 §8.1) and the lists its turn
+/// read or changed (M85 §08); then the sound files it
 /// names in the Fermix home;
 /// the note and each sound playable where it is (M66 §3.4); and then its
 /// strip (§3.1). Its words are the strip's text, without the lines that only
@@ -95,11 +102,13 @@ struct ChatItemView: View {
 struct ChatRow: View, Equatable {
     let row: CompanionRow
     let marked: [String]
+    /// Whether its lists card is live; an older one folds to one line.
+    let listsLive: Bool
 
     @Environment(\.chatRows) private var rows
 
     static func == (lhs: ChatRow, rhs: ChatRow) -> Bool {
-        lhs.row == rhs.row && lhs.marked == rhs.marked
+        lhs.row == rhs.row && lhs.marked == rhs.marked && lhs.listsLive == rhs.listsLive
     }
 
     var body: some View {
@@ -122,7 +131,7 @@ struct ChatRow: View, Equatable {
                 }
             }
 
-            ChatRecords(blocks: row.blocks, reply: row.serverSeq)
+            ChatRecords(blocks: row.blocks, reply: row.serverSeq, listsLive: listsLive)
 
             ForEach(strip.sounds, id: \.self) { sound in
                 ChatSoundRow(url: sound, name: sound.lastPathComponent, player: rows.player)

@@ -920,7 +920,8 @@ final class AppComposition {
                 doctor: doctor
             ),
             settings: settings,
-            companion: companion
+            companion: companion,
+            lists: ChecklistPanelModel(library: companion.lists, store: environment.checklistPanel)
         )
     }
 

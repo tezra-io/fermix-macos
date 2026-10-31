@@ -13,6 +13,11 @@ import UniformTypeIdentifiers
 struct ChatMediaTests {
     private typealias F = ChatFactsFixture
 
+    /// The Lists panel, over a library that sends nothing.
+    private static func lists() -> ChecklistPanelModel {
+        ChecklistPanelModel(library: ChecklistLibrary(send: { _ in false }, messageIds: { "mac-1" }), store: FixtureChecklistPanelStore(open: false))
+    }
+
     private static func media(
         home: @escaping () throws -> URL = { URL(fileURLWithPath: "/Users/me/.fermix") },
         apps: FakeDocumentApplications = FakeDocumentApplications()
@@ -160,8 +165,9 @@ struct ChatMediaTests {
     /// app's life, and the places shown one for the surface's, so two
     /// contexts are the same when they, the visit and the column are: a
     /// keystroke that redraws the surface must not redraw every row.
-    @Test("two row contexts are the same when their media, player, opener, places shown, link check, visit and column are")
+    @Test("two row contexts are the same when their media, player, opener, places shown, link check, visit, column and lists are")
     func contextEquality() {
+        let lists = Self.lists()
         let media = Self.media()
         let browser = BrowserHarness()
         let player = browser.player
@@ -176,7 +182,8 @@ struct ChatMediaTests {
             places otherPlaces: ChatPlaceSelection? = nil,
             check otherCheck: ChatLinkGuard? = nil,
             visit otherVisit: ChatVisit?? = .none,
-            width: Double = 720
+            width: Double = 720,
+            lists otherLists: ChecklistPanelModel? = nil
         ) -> ChatRowContext {
             ChatRowContext(
                 media: media ?? Self.media(),
@@ -185,7 +192,8 @@ struct ChatMediaTests {
                 places: otherPlaces ?? places,
                 linkGuard: otherCheck ?? check,
                 visit: otherVisit ?? visit,
-                columnWidth: width
+                columnWidth: width,
+                lists: otherLists ?? lists
             )
         }
         let same = context(media: media, player: player)
@@ -198,6 +206,7 @@ struct ChatMediaTests {
         #expect(same != context(media: media, player: player, links: Self.links(browser)))
         #expect(same != context(media: media, player: player, places: ChatPlaceSelection(links: links)))
         #expect(same != context(media: media, player: player, check: ChatLinkGuard(links: links)))
+        #expect(same != context(media: media, player: player, lists: Self.lists()))
     }
 
     private static func links(_ browser: BrowserHarness) -> ContentLinkOpener {

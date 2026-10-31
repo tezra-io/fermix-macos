@@ -130,6 +130,11 @@ enum ChatMetrics {
 /// conversation's top right, and while it is up the pet floats at the body's
 /// top right (`ChatCallBox`): nothing in the column moves for it, in either
 /// state (M56; the owner's direction of 2026-10-03).
+///
+/// Where the daemon serves the owner's lists, the toolbar's Lists button
+/// shows the Lists panel at the body's right (M85 §09), past a divider that
+/// drags it between 280 and 420 points; the column and the call box take
+/// what is left.
 struct ChatSurfaceView: View {
     let session: CompanionSession
     @ObservedObject var model: CompanionModel
@@ -155,8 +160,12 @@ struct ChatSurfaceView: View {
     let media: ChatMedia
     /// The app's one player, which a sound in a row plays on.
     let player: AppPlayer
-    /// The toolbar's commands: "Show browser" (plan §4.10) and the call.
+    /// The toolbar's commands: "Show browser" (plan §4.10), the call and
+    /// the Lists panel.
     let router: any CommandPerforming
+    /// The Lists panel beside the chat, observed for whether it is open and
+    /// how wide, and whether the daemon serves lists at all.
+    @ObservedObject var lists: ChecklistPanelModel
 
     /// The text being written. The session holds it as well, so leaving Chat
     /// or opening Settings mid-call, which rebuilds this view, does not lose it.
@@ -188,7 +197,8 @@ struct ChatSurfaceView: View {
         links: ContentLinkOpener,
         media: ChatMedia,
         player: AppPlayer,
-        router: any CommandPerforming
+        router: any CommandPerforming,
+        lists: ChecklistPanelModel
     ) {
         self.session = session
         self.model = session.model
@@ -200,6 +210,7 @@ struct ChatSurfaceView: View {
         self.media = media
         self.player = player
         self.router = router
+        self.lists = lists
         _draft = State(initialValue: session.draft)
         _places = StateObject(wrappedValue: ChatPlaceSelection(links: links))
         _linkGuard = StateObject(wrappedValue: ChatLinkGuard(links: links))
@@ -208,10 +219,18 @@ struct ChatSurfaceView: View {
     var body: some View {
         let items = ChatTimeline.items(of: model)
 
-        column(items)
+        HStack(spacing: 0) {
+            conversation(items)
+
+            if lists.isOpen, lists.served {
+                ChecklistPanelEdge(panel: lists)
+                ChecklistPanel(panel: lists, index: lists.library.index)
+            }
+        }
             // Every row reads its media, the player, the opener, the place
-            // shown, the home and its strip's width from here: the transcript
-            // builds its rows with nothing of their own to pass them (M66 §3.2).
+            // shown, the home, its strip's width and the lists from here: the
+            // transcript builds its rows with nothing of their own to pass
+            // them (M66 §3.2).
             .environment(\.chatRows, ChatRowContext(
                 media: media,
                 player: player,
@@ -219,22 +238,9 @@ struct ChatSurfaceView: View {
                 places: places,
                 linkGuard: linkGuard,
                 visit: visit,
-                columnWidth: ChatMetrics.column(inBody: bodyWidth)
+                columnWidth: ChatMetrics.column(inBody: bodyWidth),
+                lists: lists
             ))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onGeometryChange(for: Double.self) { proxy in
-                proxy.size.width
-            } action: { width in
-                bodyWidth = width
-            }
-            // The call floats at the body's top right, in the margin beside
-            // the centred column; only a body too narrow for that margin puts
-            // it over the transcript's trailing edge (`ChatCallBox.overlapsColumn`).
-            .overlay(alignment: .topTrailing) {
-                ChatCallBox(call: call, pet: pet)
-                    .padding(.top, ChatMetrics.callBoxInset)
-                    .padding(.trailing, ChatMetrics.callBoxInset)
-            }
             .navigationTitle(ProductStrings[.sidebarChat])
             .searchable(text: $query, placement: .toolbar, prompt: ProductStrings[.chatSearchPrompt])
             .onSubmit(of: .search) { search() }
@@ -281,10 +287,35 @@ struct ChatSurfaceView: View {
                 Text(ChatLinkCautionWords.sentence(held.caution))
             }
             .toolbar {
-                SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router, follows: gate)
+                SurfaceToolbar(spec: CommandTable.toolbar(for: .chat, condition: toolbarCondition), router: router, follows: gate)
             }
             .onChange(of: draft) {
                 session.draft = draft
+            }
+    }
+
+    /// Chat's toolbar asks the daemon one thing: whether it serves lists.
+    private var toolbarCondition: ToolbarCondition {
+        ToolbarCondition(setupComplete: ToolbarCondition.unknown.setupComplete, reconcilePending: false, listsServed: lists.served)
+    }
+
+    /// The conversation: the column, as wide as the body less the panel, with
+    /// the call box at its own top right.
+    private func conversation(_ items: [ChatItem]) -> some View {
+        column(items)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onGeometryChange(for: Double.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                bodyWidth = width
+            }
+            // The call floats at the body's top right, in the margin beside
+            // the centred column; only a body too narrow for that margin puts
+            // it over the transcript's trailing edge (`ChatCallBox.overlapsColumn`).
+            .overlay(alignment: .topTrailing) {
+                ChatCallBox(call: call, pet: pet)
+                    .padding(.top, ChatMetrics.callBoxInset)
+                    .padding(.trailing, ChatMetrics.callBoxInset)
             }
     }
 

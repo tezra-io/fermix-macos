@@ -384,7 +384,8 @@ struct MainWindowView: View {
                 links: links,
                 media: chatMedia,
                 player: player,
-                router: router
+                router: router,
+                lists: surfaces.lists
             )
         case .home:
             HomeView(model: surfaces.home, router: router)

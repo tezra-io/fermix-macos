@@ -46,6 +46,9 @@ struct ChatTranscript: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        // Only the newest card that draws a list is live (M85 §08).
+        let liveLists = ChecklistCards.live(in: model.rows)
+
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: ChatMetrics.rowGap) {
@@ -59,6 +62,7 @@ struct ChatTranscript: View {
                         ChatItemView(
                             item: item,
                             marked: marked(item),
+                            listsLive: liveLists.contains(item.rowSeq ?? -1),
                             answer: session.answerApproval,
                             decide: session.answerProposal
                         )
