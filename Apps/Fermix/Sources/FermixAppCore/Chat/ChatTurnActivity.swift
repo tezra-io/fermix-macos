@@ -186,8 +186,10 @@ struct ChatTurnActivity: View {
 
 /// One step under a turn's line: a tool's step as its sentence, and a
 /// summary of the model's reasoning as its heading over its words, its
-/// inline markdown read.
-private struct ChatTurnStepView: View {
+/// inline markdown read but no link in it live: a summary is the model's
+/// words, which a page it read can shape, and a link here would open
+/// without the chat's check (`ChatLinkGuard`).
+struct ChatTurnStepView: View {
     let step: ChatTurnProgress.Step
 
     var body: some View {
@@ -213,8 +215,10 @@ private struct ChatTurnStepView: View {
         }
     }
 
-    private static func inline(_ words: String) -> AttributedString {
+    static func inline(_ words: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: words, options: options)) ?? AttributedString(words)
+        var read = (try? AttributedString(markdown: words, options: options)) ?? AttributedString(words)
+        read.link = nil
+        return read
     }
 }

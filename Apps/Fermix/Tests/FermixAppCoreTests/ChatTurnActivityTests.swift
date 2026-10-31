@@ -67,6 +67,17 @@ struct ChatTurnActivityTests {
         #expect(Self.turn().shows)
     }
 
+    /// A summary is the model's words, which a page it read can shape: its
+    /// links are read as words, never opened past the chat's check.
+    @Test("a summary's links are its words, with nothing to open")
+    func noLiveLinks() {
+        let words = ChatTurnStepView.inline("See [your bank](https://bank-login.example/verify) and **this**.")
+
+        #expect(String(words.characters) == "See your bank and this.")
+        #expect(words.runs.allSatisfy { $0.link == nil })
+        #expect(words.runs.contains { $0.inlinePresentationIntent == .stronglyEmphasized })
+    }
+
     @Test("how long a turn worked is said in minutes and seconds")
     func elapsed() {
         let start = Date(timeIntervalSinceReferenceDate: 0)
