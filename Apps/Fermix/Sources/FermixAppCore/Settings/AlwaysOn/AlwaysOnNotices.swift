@@ -7,7 +7,10 @@ import Foundation
 /// Each is raised from a change the app saw between two reads of
 /// `home.status`, never from a state it read once, so each is raised at most
 /// once per occurrence: a launch reads its first summary and raises nothing
-/// for it. The body is the engine's own sentence for the state it changed to.
+/// for it. The reads come when the engine says the summary changed, so a
+/// change is seen as it happens; the engine also says so once as the last
+/// backup turns a week old, the read the week-old notification is raised at.
+/// The body is the engine's own sentence for the state it changed to.
 
 /// Which notification a change raised.
 public enum AlwaysOnNoticeKind: String, CaseIterable, Sendable {
@@ -101,39 +104,5 @@ public enum AlwaysOnNotices {
         // The engine writes these times in the cue rows' shape, and
         // `ManagementCueTime` is the one reader of it.
         ManagementCueTime.date(status.summary?.detail.seenAt ?? status.moved?.movedAt)
-    }
-}
-
-/// How long the app waits before it reads `home.status` again: briskly while
-/// something moves by itself and the pane shows it, slowly while all is set
-/// and nothing can change but the server's health, and rarely where Always On
-/// is not set up.
-public enum AlwaysOnCadence {
-    /// While the pane shows a server being created or a move, and while the
-    /// engine restarts for this app's own move.
-    public static let watching: TimeInterval = 3
-    /// While the pane is open on anything else.
-    public static let open: TimeInterval = 10
-    /// While a server is created or a move runs with the pane closed.
-    public static let moving: TimeInterval = 15
-    /// While Always On is set up: a server that stops answering, a server
-    /// that waits too long, an old backup.
-    public static let settled: TimeInterval = 60
-    /// After a read that failed, or while Always On is not set up.
-    public static let idle: TimeInterval = 300
-
-    public static func wait(after status: ManagementHomeStatus?, failed: Bool, paneVisible: Bool, ownMove: Bool) -> TimeInterval {
-        if ownMove { return watching }
-        let state = status?.summary?.state
-        let moves = state == .creating || state == .moving
-
-        if moves { return paneVisible ? watching : moving }
-        if paneVisible { return open }
-        if failed { return idle }
-
-        switch state {
-        case .ready?, .on?, .problem?, .undone?: return settled
-        default: return idle
-        }
     }
 }

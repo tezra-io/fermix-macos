@@ -637,19 +637,28 @@ extension FakeDaemonGateway {
         return try answer(.homeSnapshotsPassphrase, "home_snapshots_passphrase")
     }
 
-    // MARK: - The Always On server on Hetzner (M75)
+    // MARK: - The Always On server at a cloud provider (M75)
 
-    func provisionConnect(token: String) async throws -> ManagementProvisionView {
-        provisionTokens.append(token)
-        return try answer(.homeProvisionConnect, "home_provision_connect")
+    func provisionProviders() async throws -> ManagementProvisionProviders {
+        let published: ManagementProvisionProviders = try answer(.homeProvisionProviders, "home_provision_providers")
+
+        return provisionProvidersResult ?? published
     }
 
-    func provisionOptions() async throws -> ManagementProvisionOptions {
-        try answer(.homeProvisionOptions, "home_provision_options")
+    func provisionConnect(provider: String, token: String) async throws -> ManagementProvisionView {
+        provisionTokens.append(ProvisionToken(provider: provider, token: token))
+        let published: ManagementProvisionView = try answer(.homeProvisionConnect, "home_provision_connect")
+
+        return provisionConnectResult ?? published
     }
 
-    func provisionCreate(_ pick: ManagementProvisionPick, replace: Bool) async throws -> ManagementJob {
-        provisionCreates.append(ProvisionCreate(pick: pick, replace: replace))
+    func provisionOptions(provider: String) async throws -> ManagementProvisionOptions {
+        provisionOptionsAsked.append(provider)
+        return try answer(.homeProvisionOptions, "home_provision_options")
+    }
+
+    func provisionCreate(provider: String, _ pick: ManagementProvisionPick, replace: Bool) async throws -> ManagementJob {
+        provisionCreates.append(ProvisionCreate(provider: provider, pick: pick, replace: replace))
         return try answer(.homeProvisionCreate, "home_provision_create")
     }
 
@@ -929,8 +938,15 @@ final class FakeProviderReadiness: @unchecked Sendable {
 
 /// One `home.provision.create` the pane asked for.
 struct ProvisionCreate: Equatable {
+    let provider: String
     let pick: ManagementProvisionPick
     let replace: Bool
+}
+
+/// One `home.provision.connect` the pane asked for.
+struct ProvisionToken: Equatable {
+    let provider: String
+    let token: String
 }
 
 /// One `home.move.start` the pane asked for.

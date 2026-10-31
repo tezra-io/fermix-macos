@@ -139,8 +139,8 @@ public enum ManagementJobKind: ManagementVocabulary, Hashable {
     case imessageGrant
     case imessagePolicyConfirm
     case mcpCheck
-    /// Creating, turning on, resetting or deleting the Always On server on
-    /// Hetzner (M75 lean v1 §4.3).
+    /// Creating, turning on, resetting or deleting the Always On server at
+    /// its cloud provider (M75 lean v1 §4.3).
     case homeProvision
     case unrecognized(String)
 

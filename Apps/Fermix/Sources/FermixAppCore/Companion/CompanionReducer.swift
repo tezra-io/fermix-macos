@@ -268,9 +268,9 @@ enum CompanionReducer {
             hold(proposal, in: &chat)
         case .proposalResolved(let resolution):
             resolve(resolution, in: &chat)
-        case .serverHello, .mediaPath, .mediaMissing, .checklists, .checklist, .unrecognized:
-            // The handshake, the grants and the lists are the session's,
-            // never the chat's.
+        case .serverHello, .mediaPath, .mediaMissing, .checklists, .checklist, .homeStatusChanged, .unrecognized:
+            // The handshake, the grants, the lists and Always On's notice are
+            // the session's, never the chat's.
             break
         }
 

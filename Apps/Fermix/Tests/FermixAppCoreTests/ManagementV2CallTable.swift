@@ -23,11 +23,15 @@ enum ManagementV2Calls {
     ///
     /// `home.enroll.withdraw` has no app caller either: a desktop's engine
     /// forwards it to the server it replaces, so no surface ever asks it.
-    static let unexercised: Set<String> = ["setup_session_create", "home_enroll_withdraw"]
+    /// `cues.watchers.always_allow.revoke` has none yet: the Cues pane's half
+    /// of Always allow is to come.
+    static let unexercised: Set<String> = [
+        "setup_session_create", "home_enroll_withdraw", "cues_watchers_always_allow_revoke"
+    ]
 
     /// The methods no surface calls, whose every golden is unexercised, so
     /// the N-1 gate is never reached for them.
-    static let uncalledMethods: Set<String> = ["home.enroll.withdraw"]
+    static let uncalledMethods: Set<String> = ["home.enroll.withdraw", "cues.watchers.always_allow.revoke"]
 
     /// Each golden request, mapped to the call that must produce it.
     static let byFixture: [String: @Sendable (ManagementClient) async throws -> Void] = [
@@ -332,15 +336,22 @@ enum ManagementV2Calls {
         "home_snapshots_run": { _ = try await $0.runSnapshot() },
         "home_snapshots_passphrase": { _ = try await $0.setRecoveryPassphrase("invented-lighthouse-meridian") },
 
-        // The Always On server on Hetzner (M75 lean v1 §4.3).
-        "home_provision_connect": { _ = try await $0.provisionConnect(token: "invented-hetzner-token-6d1f0c9a2b7e4f3a") },
-        "home_provision_options": { _ = try await $0.provisionOptions() },
+        // The Always On server at a cloud provider (M75 lean v1 §4.3).
+        "home_provision_providers": { _ = try await $0.provisionProviders() },
+        "home_provision_connect": {
+            _ = try await $0.provisionConnect(provider: "hetzner", token: "invented-hetzner-token-6d1f0c9a2b7e4f3a")
+        },
+        "home_provision_options": { _ = try await $0.provisionOptions(provider: "hetzner") },
         "home_provision_create": {
-            _ = try await $0.provisionCreate(ManagementProvisionPick(type: "cpx22", location: .falkenstein))
+            _ = try await $0.provisionCreate(provider: "hetzner", ManagementProvisionPick(type: "cpx22", location: "fsn1"))
         },
         // Replace the server, from the desktop whose home lives on it.
         "home_provision_create_replace": {
-            _ = try await $0.provisionCreate(ManagementProvisionPick(type: "cpx32", location: .helsinki), replace: true)
+            _ = try await $0.provisionCreate(
+                provider: "hetzner",
+                ManagementProvisionPick(type: "cpx32", location: "hel1"),
+                replace: true
+            )
         },
         "home_provision_power": { _ = try await $0.provisionPower(.reset) },
         "home_provision_resources": { _ = try await $0.provisionResources() },

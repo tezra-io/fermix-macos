@@ -144,7 +144,7 @@ struct ManagementClientResultTests {
         #expect(hello.protocolRange.currentVersion == 2)
         #expect(hello.protocolRange.minimum == 1)
         #expect(hello.protocolRange.maximum == 2)
-        #expect(hello.capabilities.methods.count == 104)
+        #expect(hello.capabilities.methods.count == 106)
         #expect(hello.engine.engineId == "fermix-core")
         #expect(hello.engine.productVersion == "0.9.0")
         #expect(hello.engine.distributionIdentity == "macos_app")

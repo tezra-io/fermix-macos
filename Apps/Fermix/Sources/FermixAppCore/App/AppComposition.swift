@@ -276,6 +276,13 @@ final class AppComposition {
         // The native host wire is always-on for the same reason: a reminder
         // due on this Mac rings whether or not a window was ever opened.
         nativeHost.connect()
+        // The chat wire is always-on too: Always On's notices come on it
+        // (companion protocol 6), so a server that becomes ready, a move that
+        // finishes or a server that stops answering is seen with no window
+        // open, and nothing reads Always On on a timer. While Always On is
+        // off the engine sends nothing on it, and the app asks nothing.
+        settings.alwaysOn.listen(to: surfaces.companion)
+        surfaces.companion.connect()
         // The grant, read once now, so the Permissions row never opens on a
         // guess before anything else has asked.
         Task { [notifications] in await notifications.refresh() }
@@ -306,11 +313,10 @@ final class AppComposition {
         // the menu bar would have no answer to draw.
         coordinator.readDaemonCondition = { [surfaces] in Task { await surfaces.home.refresh() } }
         // Always On's notifications are the system's own, raised from the
-        // summary the follow reads for as long as the app runs, window or no
-        // window (M75 lean v1 §7). Its Update is the app's own update.
+        // changes its reads see, window or no window (M75 lean v1 §7). Its
+        // Update is the app's own update.
         settings.alwaysOn.notifier = notifications
         settings.alwaysOn.checkForUpdates = { [router] in router.perform(.checkForUpdates) }
-        Task { [settings] in await settings.alwaysOn.follow(with: MainQueueDeadlineScheduler()) }
 
         windowHost.surfaces = AppSurfaces(
             model: model,
@@ -492,7 +498,7 @@ final class AppComposition {
 
     /// The chat session, built once over its own socket, before the player,
     /// the pane and the chat's media, which hold phone-side files by its
-    /// grants. Nothing connects it until a surface first asks.
+    /// grants. It connects once the app is assembled (`finishAssembly`).
     private static func buildCompanion(
         bootstrap: BootstrapStore,
         lines: CompanionSocketClient.LineSocket

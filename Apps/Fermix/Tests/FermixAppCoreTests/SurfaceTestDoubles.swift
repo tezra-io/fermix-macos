@@ -205,7 +205,8 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var homeStatusIndex = 0
     /// What the Always On pane asked of the home and the provisioner, in
     /// order.
-    var provisionTokens: [String] = []
+    var provisionTokens: [ProvisionToken] = []
+    var provisionOptionsAsked: [String] = []
     var provisionCreates: [ProvisionCreate] = []
     var provisionPowers: [ManagementProvisionPower] = []
     var readinessCandidates: [String] = []
@@ -216,6 +217,8 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var moveReadinessResult: ManagementMoveReadiness?
     var jobListResult: ManagementJobList?
     var provisionResourcesResult: ManagementProvisionView?
+    var provisionConnectResult: ManagementProvisionView?
+    var provisionProvidersResult: ManagementProvisionProviders?
 
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take

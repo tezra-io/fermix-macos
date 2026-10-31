@@ -257,8 +257,9 @@ struct ChatSurfaceView: View {
 
                 search()
             }
-            // The session connects the first time a surface asks and then stays
-            // connected, so coming back to Chat asks nothing new.
+            // The session connects at launch and then stays connected, so
+            // coming back to Chat asks nothing new; after a refusal it tries
+            // once more.
             .task { session.connect() }
             // The Fermix home is read as the surface appears, as the browser
             // reads it at each open: on appearing rather than in a task,

@@ -1,15 +1,19 @@
 import Foundation
 
-/// The `home.provision.*` calls (M75 lean v1 §4.3): the Hetzner token, what
-/// Hetzner sells, creating, turning on, resetting and deleting the server
-/// Fermix made, and the record of what it made.
+/// The `home.provision.*` calls (M75 lean v1 §4.3): the cloud providers Fermix
+/// creates the server on, a provider's token, what it sells, creating,
+/// turning on, resetting and deleting the server Fermix made, and the record
+/// of what it made.
 ///
-/// Each is minimum version 2 and arrived inside protocol 2, so the pane draws
-/// the Hetzner path only where `hello` lists all six
-/// (`ManagementMethod.homeProvisionMethods`). Create, power and delete start a
-/// `home_provision` job; connect, options and resources call Hetzner in the
-/// request itself, so they wait longer than the usual call
-/// (`DefaultManagementTimeoutPolicy.hetzner`).
+/// Every provider is the engine's data: `home.provision.providers` names each
+/// one and the words its token screen draws, so a provider the engine adds
+/// needs nothing here. Each method is minimum version 2 and arrived inside
+/// protocol 2, so the pane draws the provisioner only where `hello` lists all
+/// seven (`ManagementMethod.homeProvisionMethods`); an engine without
+/// `home.provision.providers` takes no `provider` and gets the update answer.
+/// Create, power and delete start a `home_provision` job; connect, options
+/// and resources call the provider in the request itself, so they wait
+/// longer than the usual call (`DefaultManagementTimeoutPolicy.cloud`).
 
 // MARK: - Vocabularies
 
@@ -46,11 +50,11 @@ public enum ManagementProvisionState: ManagementVocabulary, Hashable {
     }
 }
 
-/// Whether Hetzner takes the kept token.
+/// Whether the provider takes the kept token.
 public enum ManagementProvisionToken: ManagementVocabulary, Hashable {
     case none
     case accepted
-    /// Hetzner stopped accepting it.
+    /// The provider stopped accepting it.
     case refused
     case unrecognized(String)
 
@@ -160,14 +164,15 @@ public enum ManagementProvisionPower: String, Encodable, CaseIterable, Sendable 
 
 // MARK: - The record
 
-/// The server Fermix created, as its ledger last read it from Hetzner.
+/// The server Fermix created, as its ledger last read it from the provider.
 public struct ManagementProvisionServer: Decodable, Equatable, Sendable {
     public let name: String
     public let type: String
-    public let location: ManagementHetznerLocation
+    /// A location id of the provider's own.
+    public let location: String
     public let status: ManagementProvisionStatus
-    /// Hetzner's status word as last read (`running`, `off` and the like);
-    /// null before it was read.
+    /// The provider's status word as last read (`running`, `off` or another
+    /// of its own); null before it was read.
     public let power: String?
     public let ipv4: String?
     public let createdAt: String?
@@ -180,11 +185,13 @@ public struct ManagementProvisionServer: Decodable, Equatable, Sendable {
     }
 }
 
-/// Why the last create stopped, in the daemon's words.
+/// Why the last create stopped, in the daemon's words. `reason` is a word the
+/// app never switches on (`other` is a provider's own refusal); the sentence
+/// is what it says.
 public struct ManagementProvisionFailure: Decodable, Equatable, Sendable {
     public let reason: String
     public let sentence: String
-    public let nextLocation: ManagementHetznerLocation?
+    public let nextLocation: String?
     public let at: String
 
     private enum CodingKeys: String, CodingKey {
@@ -193,11 +200,13 @@ public struct ManagementProvisionFailure: Decodable, Equatable, Sendable {
     }
 }
 
-/// One thing Fermix created and Hetzner bills for until it is deleted.
+/// One thing Fermix created and its provider bills for until it is deleted.
 public struct ManagementProvisionResource: Decodable, Equatable, Sendable {
     public let kind: ManagementProvisionResourceKind
     public let name: String?
-    public let id: Int?
+    /// The provider's own id, opaque to Fermix; null until the provider
+    /// answered with one. The app never sends it.
+    public let id: String?
     public let status: ManagementProvisionStatus
     /// The old server's, while a replace keeps it.
     public let replaced: Bool
@@ -213,9 +222,13 @@ public struct ManagementProvisionReplace: Decodable, Equatable, Sendable {
 }
 
 /// `home.provision.connect` and `home.provision.resources`: what Fermix
-/// created on Hetzner, from this computer's ledger. The token is never
-/// answered.
+/// created at a provider, from this computer's ledger of it. The token is
+/// never answered.
 public struct ManagementProvisionView: Decodable, Equatable, Sendable {
+    /// The provider in use: the one Fermix created something on, else the one
+    /// whose token was given last, else the first `home.provision.providers`
+    /// lists; for `connect`, the one connected. Options and create name it.
+    public let provider: String
     public let state: ManagementProvisionState
     public let token: ManagementProvisionToken
     public let server: ManagementProvisionServer?
@@ -227,21 +240,54 @@ public struct ManagementProvisionView: Decodable, Equatable, Sendable {
     public let sentence: String?
     /// `connect`: the project holds servers Fermix did not create.
     public let otherServers: Bool?
-    /// `resources`: whether Hetzner was read just now; `sentence` says why
-    /// not.
+    /// `resources`: whether the provider was read just now; `sentence` says
+    /// why not.
     public let checked: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case state, token, server, failure, replace, resources, sentence, checked
+        case provider, state, token, server, failure, replace, resources, sentence, checked
         case otherServers = "other_servers"
     }
 }
 
-// MARK: - What Hetzner sells
+// MARK: - The providers
 
-/// One location the options name.
+/// One cloud provider Fermix creates the Always On server on, as
+/// `home.provision.providers` lists it: what its token screen draws and what
+/// Open console opens. A provider the engine adds is one more row, drawn the
+/// same way.
+public struct ManagementProvisionProvider: Decodable, Equatable, Hashable, Sendable {
+    /// What connect, options and create take as `provider`.
+    public let id: String
+    /// How every sentence names it.
+    public let name: String
+    /// The token field's label.
+    public let tokenLabel: String
+    /// The "How to get one" steps.
+    public let steps: [String]
+    /// The provider's console, which `open_console` opens.
+    public let consoleUrl: URL
+    /// Its section of the Always On docs page.
+    public let docsAnchor: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, steps
+        case tokenLabel = "token_label"
+        case consoleUrl = "console_url"
+        case docsAnchor = "docs_anchor"
+    }
+}
+
+/// `home.provision.providers`, in the order the app offers them.
+public struct ManagementProvisionProviders: Decodable, Equatable, Sendable {
+    public let providers: [ManagementProvisionProvider]
+}
+
+// MARK: - What a provider sells
+
+/// One location the options name, by the provider's own id.
 public struct ManagementProvisionLocation: Decodable, Equatable, Sendable {
-    public let id: ManagementHetznerLocation
+    public let id: String
     public let city: String
     public let country: String
 }
@@ -256,7 +302,7 @@ public struct ManagementProvisionOffer: Decodable, Equatable, Sendable {
     public let memoryGb: Double
     public let diskGb: Int
     public let dedicated: Bool
-    public let location: ManagementHetznerLocation
+    public let location: String
     public let monthly: String
     public let ipv4Monthly: String
     public let totalMonthly: String
@@ -273,16 +319,17 @@ public struct ManagementProvisionOffer: Decodable, Equatable, Sendable {
 /// A type in a location: what Create server makes.
 public struct ManagementProvisionPick: Codable, Equatable, Hashable, Sendable {
     public let type: String
-    public let location: ManagementHetznerLocation
+    public let location: String
 
-    public init(type: String, location: ManagementHetznerLocation) {
+    public init(type: String, location: String) {
         precondition(!type.isEmpty, "a server is created of a type")
+        precondition(!location.isEmpty, "a server is created in a location")
         self.type = type
         self.location = location
     }
 }
 
-/// `home.provision.options`: what Hetzner sells now, read live.
+/// `home.provision.options`: what a provider sells now, read live.
 public struct ManagementProvisionOptions: Decodable, Equatable, Sendable {
     public let currency: String
     public let locations: [ManagementProvisionLocation]
@@ -297,29 +344,36 @@ public struct ManagementProvisionOptions: Decodable, Equatable, Sendable {
         case moreRoom = "more_room"
     }
 
-    /// The offer a pick names, where Hetzner sells it.
+    /// The offer a pick names, where the provider sells it.
     public func offer(_ pick: ManagementProvisionPick) -> ManagementProvisionOffer? {
         offers.first { $0.type == pick.type && $0.location == pick.location }
     }
 
-    /// A location's city, as Hetzner names it.
-    public func city(_ location: ManagementHetznerLocation) -> String? {
+    /// A location's city, as the provider names it.
+    public func city(_ location: String) -> String? {
         locations.first { $0.id == location }?.city
     }
 }
 
 // MARK: - What a call sends
 
-/// The token, sent once and never kept here.
+/// The token for a provider, sent once and never kept here.
 struct ManagementProvisionTokenParams: Encodable {
+    let provider: String
     let token: String
 }
 
-/// The server to create. `replace` is sent only as true, from the desktop
-/// whose home lives on the server Fermix created.
+/// The provider whose offers are read.
+struct ManagementProvisionProviderParams: Encodable {
+    let provider: String
+}
+
+/// The server to create, at the provider in use. `replace` is sent only as
+/// true, from the desktop whose home lives on the server Fermix created.
 struct ManagementProvisionCreateParams: Encodable {
+    let provider: String
     let type: String
-    let location: ManagementHetznerLocation
+    let location: String
     let replace: Bool?
 }
 
@@ -328,10 +382,11 @@ struct ManagementProvisionPowerParams: Encodable {
 }
 
 extension ManagementMethod {
-    /// The provisioner's methods: the Hetzner path is drawn only where the
-    /// daemon lists every one.
+    /// The provisioner's methods: its screens are drawn only where the daemon
+    /// lists every one, `home.provision.providers` among them, so an engine
+    /// whose calls take no `provider` is never sent one.
     public static let homeProvisionMethods: Set<ManagementMethod> = [
-        .homeProvisionConnect, .homeProvisionOptions, .homeProvisionCreate,
+        .homeProvisionProviders, .homeProvisionConnect, .homeProvisionOptions, .homeProvisionCreate,
         .homeProvisionPower, .homeProvisionResources, .homeProvisionDelete
     ]
 }
@@ -339,27 +394,45 @@ extension ManagementMethod {
 // MARK: - The client
 
 extension ManagementClient {
-    /// Checks a Hetzner project token and keeps it on this computer only.
-    public func provisionConnect(token: String) async throws -> ManagementProvisionView {
+    /// Every provider Fermix creates the server on, in the order offered.
+    public func provisionProviders() async throws -> ManagementProvisionProviders {
+        try await send(.homeProvisionProviders, params: ManagementEmptyParams(), as: ManagementProvisionProviders.self)
+    }
+
+    /// Checks a token for one provider and keeps it on this computer only.
+    public func provisionConnect(provider: String, token: String) async throws -> ManagementProvisionView {
         try await send(
             .homeProvisionConnect,
-            params: ManagementProvisionTokenParams(token: try requireText(token, field: "token")),
+            params: ManagementProvisionTokenParams(
+                provider: try requireText(provider, field: "provider"),
+                token: try requireText(token, field: "token")
+            ),
             as: ManagementProvisionView.self
         )
     }
 
-    public func provisionOptions() async throws -> ManagementProvisionOptions {
-        try await send(.homeProvisionOptions, params: ManagementEmptyParams(), as: ManagementProvisionOptions.self)
+    /// What one provider sells now.
+    public func provisionOptions(provider: String) async throws -> ManagementProvisionOptions {
+        try await send(
+            .homeProvisionOptions,
+            params: ManagementProvisionProviderParams(provider: try requireText(provider, field: "provider")),
+            as: ManagementProvisionOptions.self
+        )
     }
 
-    /// Creates the server, or with `replace` a new one for the server the home
-    /// lives on, as a `home_provision` job.
-    public func provisionCreate(_ pick: ManagementProvisionPick, replace: Bool = false) async throws -> ManagementJob {
+    /// Creates the server at a provider, or with `replace` a new one for the
+    /// server the home lives on, as a `home_provision` job.
+    public func provisionCreate(
+        provider: String,
+        _ pick: ManagementProvisionPick,
+        replace: Bool = false
+    ) async throws -> ManagementJob {
         try await send(
             .homeProvisionCreate,
             params: ManagementProvisionCreateParams(
+                provider: try requireText(provider, field: "provider"),
                 type: try requireText(pick.type, field: "type"),
-                location: pick.location,
+                location: try requireText(pick.location, field: "location"),
                 replace: replace ? true : nil
             ),
             as: ManagementJob.self
@@ -382,16 +455,20 @@ extension ManagementClient {
 // MARK: - The gateway
 
 extension ManagementGateway {
-    public func provisionConnect(token: String) async throws -> ManagementProvisionView {
-        try await negotiated().provisionConnect(token: token)
+    public func provisionProviders() async throws -> ManagementProvisionProviders {
+        try await negotiated().provisionProviders()
     }
 
-    public func provisionOptions() async throws -> ManagementProvisionOptions {
-        try await negotiated().provisionOptions()
+    public func provisionConnect(provider: String, token: String) async throws -> ManagementProvisionView {
+        try await negotiated().provisionConnect(provider: provider, token: token)
     }
 
-    public func provisionCreate(_ pick: ManagementProvisionPick, replace: Bool) async throws -> ManagementJob {
-        try await negotiated().provisionCreate(pick, replace: replace)
+    public func provisionOptions(provider: String) async throws -> ManagementProvisionOptions {
+        try await negotiated().provisionOptions(provider: provider)
+    }
+
+    public func provisionCreate(provider: String, _ pick: ManagementProvisionPick, replace: Bool) async throws -> ManagementJob {
+        try await negotiated().provisionCreate(provider: provider, pick, replace: replace)
     }
 
     public func provisionPower(_ action: ManagementProvisionPower) async throws -> ManagementJob {

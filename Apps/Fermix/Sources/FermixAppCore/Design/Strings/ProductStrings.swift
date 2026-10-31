@@ -872,10 +872,14 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case alwaysOnLearnMore = "alwaysOn.learnMore"
     case alwaysOnLinkOpenFailed = "alwaysOn.linkOpenFailed"
     case alwaysOnDetails = "alwaysOn.details"
-    case alwaysOnTokenField = "alwaysOn.token.field"
-    case alwaysOnTokenChecking = "alwaysOn.token.checking"
+    /// Where the engine offers more than one cloud provider, the line above
+    /// their names.
+    case alwaysOnProviderChoose = "alwaysOn.provider.choose"
+    /// The provider's name, as the engine gives it.
+    case alwaysOnTokenCheckingFormat = "alwaysOn.token.checkingFormat"
     case alwaysOnHowToGetOne = "alwaysOn.token.howToGetOne"
-    case alwaysOnOpenHetzner = "alwaysOn.token.openHetzner"
+    /// The provider's name, as the engine gives it.
+    case alwaysOnOpenConsoleFormat = "alwaysOn.token.openConsoleFormat"
     case alwaysOnChange = "alwaysOn.choose.change"
     case alwaysOnChangeTitle = "alwaysOn.choose.title"
     /// The owner's own choice, in the words the engine's recommendation is said in: type, city and the monthly total with its IPv4 address.

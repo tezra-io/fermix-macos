@@ -26,7 +26,8 @@ now: the phone's wire carries them at its next version. So are what a turn is
 doing (version 6): `reasoning`, and the `activity` a `tool_event` that starts
 a tool carries here, which the phone's `tool_event` does not. So are the
 owner's lists (version 6): the phone's wire does not carry them yet, and gains
-them with the Android app's lists.
+them with the Android app's lists. So is `home_status_changed` (version 6):
+Always On is set up and watched from the computer, never from a phone.
 
 ## Transport
 
@@ -157,12 +158,10 @@ version 4 the window is {3, 4}, so a version 2 client is refused with
 
 Version 5 lets the owner answer a watcher's follow-up in the Mac's chat. A
 watcher may have a follow-up, a job of the owner's own words that an item
-passing the watcher sets off; asked first, it waits for the owner on a card,
-and an automatic one waits once for the owner's approval before it runs on
-its own. Both are cards of the `proposal` event, keyed by their own
-`proposal_id` (`cft_…` for a follow-up's card, `cfa_…` for an approval's
-prompt), and both are answered with `proposal_answer` and ended with
-`proposal_resolved`, as a mandate's proposal is. It adds no event:
+passing the watcher sets off; it waits for the owner on a card, a card of
+the `proposal` event keyed by its own `proposal_id` (`cft_…`), answered with
+`proposal_answer` and ended with `proposal_resolved`, as a mandate's proposal
+is. It adds no event:
 
 - one card field, `follow_up`, in place of `mandate`, `tool` and
   `outside.args_text`, which a follow-up's card does not carry (see
@@ -175,11 +174,23 @@ A mandate's card gains `outside.args` and `outside.reason`, the compact card's
 lines. They are additive, so they are sent on every version and an older
 client ignores them.
 
+A follow-up's card also offers Always allow: `follow_up.offers_always_allow`
+is `true`, and `proposal_answer` takes the `decision` `always_allow` for it,
+which runs it as `confirm` does and lets the follow-up's later items run with
+no card until what it runs or what sets it off changes. Neither needs a
+version: the field is additive, so an older client ignores it and answers
+with `confirm` and `deny` as before, and a client sends `always_allow` only to
+a card whose `offers_always_allow` it read, which a daemon that takes it
+alone writes. A mandate's card does not offer it, and refuses it with
+`error: request_failed`. The approval prompt (`cfa_…`) a daemon before Always
+allow sent for an automatic follow-up is gone, with its `follow_up.asks`
+value `automatic` and the `daily_cap` and `set_off_by` it carried.
+
 Every version 4 event, field and rule holds unchanged on version 5. Since
 version 5 the window is {4, 5}, so a version 3 client is refused with
 `error: unsupported_protocol_version` (`client_too_old`).
 
-### Version 6: what a turn is doing
+### Version 6: what a turn is doing, the owner's lists, and Always On without polling
 
 Version 6 says what a turn is doing while it runs, in words a person reads,
 never a tool's name, so a long turn shows its steps rather than only that it
@@ -223,6 +234,13 @@ owner's, and sends a list event only to a connection that pulled: the index
 to one that pulled the index, a list to one that holds it. A version 5
 connection that sends one is refused with `error: unknown_event` and closed,
 and is never sent one. The phone's wire does not carry lists in this version.
+
+Version 6 also lets an app stop asking for Always On's state on a timer. It
+adds one more server event, `home_status_changed`, with no fields: Always
+On's summary (management `home.status`'s `summary`, the one source of its
+words) changed, and the app reads `home.status` again over management for
+what it is now (see *When Always On changes*). It names version 6 as its
+`x-since-version` and reaches version 6 connections only.
 
 Every version 5 event, field and rule holds unchanged on version 6. Since
 version 6 the window is {5, 6}, so a version 4 client is refused with
@@ -334,7 +352,7 @@ in a fixed order:
 | `read_state` | `profile_id`, `read_up_to_seq` | Advances the monotonic read frontier, never past the newest row. |
 | `media_fetch` | `profile_id`, `ref` (64 lowercase hex digits) | Version 3. Asks for a managed local file holding the bytes of `ref`, a media ref a row of the profile names. Answered by `media_path`, `media_missing`, or `error: request_failed` with `ref`. Any other `ref` is refused with `error: invalid_field` (`ref`) and the connection is closed. See *Managed media files*. |
 | `media_release` | `profile_id`, `ref` (64 lowercase hex digits) | Version 3. The client has finished with the file `media_path` granted for `ref`. Never answered. Releasing a ref this connection does not hold changes nothing. |
-| `proposal_answer` | `client_msg_id`, `profile_id`, `proposal_id`, `decision` (`confirm` or `deny`) | Version 4. The owner's answer to a proposal. Answered `accepted` (`duplicate: false`) once the decision is recorded, then `proposal_resolved`; a refusal is `error: request_failed` with the daemon's sentence and `client_msg_id`. Taken only from a connection placed as the owner's; see *Proposals*. |
+| `proposal_answer` | `client_msg_id`, `profile_id`, `proposal_id`, `decision` (`confirm`, `deny`, or `always_allow` for a follow-up's card that offers it) | Version 4. The owner's answer to a proposal. Answered `accepted` (`duplicate: false`) once the decision is recorded, then `proposal_resolved`; a refusal is `error: request_failed` with the daemon's sentence and `client_msg_id`. Taken only from a connection placed as the owner's; see *Proposals*. |
 | `checklists_pull` | `profile_id` | Version 6. Asks for the index of the owner's lists, answered `checklists`; from then on this connection is sent the index again after any change. Taken only from a connection placed as the owner's; see *Lists*. |
 | `checklist_pull` | `profile_id`, `list_id` (`ck_` id); `removed?` (boolean) | Version 6. Asks for one whole list, answered `checklist`; the connection then holds it (at most 16) and is sent it again after every change. `removed: true` adds the rows removed in the last 30 days. Owner's connection only; see *Lists*. |
 | `checklist_edit` | `client_msg_id` (at most 128 characters), `profile_id`, `op`; `list_id?` (`ck_` id, for every op but `create`) | Version 6. One op on the owner's lists, by row id. Answered `accepted` once applied, `duplicate: true` when the `client_msg_id` was already applied; a refusal is `error: request_failed` with the engine's sentence and `client_msg_id`, and changes nothing. Owner's connection only; see *Lists*. |
@@ -366,6 +384,7 @@ in a fixed order:
 | `media_missing` | `ref` | Version 3. Nothing to grant for `ref`; see *Managed media files*. Sent only to a connection on version 3. |
 | `proposal` | `profile_id`, `proposal` (the card) | Version 4. A proposal waiting for the owner: sent when it is stored, and again after `server_hello` for each still waiting, oldest first. Sent only to a connection on version 4 placed as the owner's; see *Proposals*. |
 | `proposal_resolved` | `profile_id`, `proposal_id`, `state`, `sentence`; `result_status?`, `result_text?` | Version 4. A proposal left `waiting`: `denied`, `expired` or `refused`, or `confirmed` once its call has finished, whichever surface decided it. Sent only to a connection on version 4 placed as the owner's; see *Proposals*. |
+| `home_status_changed` | none | Version 6. Always On's summary changed: read `home.status` over management. Carries no content. Sent once after `server_hello` unless Always On is off, then at each change, never while it stays off, only to a connection on version 6; see *When Always On changes*. |
 | `checklists` | `profile_id`, `lists[]` | Version 6. The index: every live list as `{list_id, title, folder?, open, done, rev}`, in picker order. The answer to `checklists_pull`, and pushed again, whole, after any change. Sent only to a version 6 connection placed as the owner's that pulled the index; see *Lists*. |
 | `checklist` | `profile_id`, `list`; `made?` | Version 6. One whole list, `{list_id, title, rev, rows[], removed[]?, removed_at?}`. The answer to `checklist_pull`, and pushed again, whole, after every committed change to it, at most once per 100 ms. Sent only to a version 6 connection placed as the owner's that holds the list; see *Lists*. |
 | `error` | `reason`; `message?`, `field?`, `event?`, `client_msg_id?`, `ref?`, `direction?`, `client_version?`, `min_version?`, `max_version?` | A refusal; see *Errors*. |
@@ -518,6 +537,63 @@ The phones are not sent it: their wire has `link_preview`, which reaches them
 as before. A notice sent while a client was disconnected is lost, so a client
 that reconnects reads again the rows it shows.
 
+## When Always On changes
+
+`home_status_changed` (version 6) says that Always On's summary changed, and
+carries none of it: the app reads management's `home.status` and draws its
+`summary`, so the words come from one place. The daemon sends it to every
+version 6 connection:
+
+- **once after `server_hello`**, after the approvals and proposals that
+  follow it, unless Always On is `off`: an app that connects while Always On
+  is set up, moving or running reads its state once, and one that connects
+  while it is off reads nothing and asks nothing until it is told;
+- **at each change** of the summary after that: of its `state`, its
+  `action` (id and label) or its problem kind (`detail.kind`), or of its
+  `sentence` on any state but `on` and `problem`, where the sentence carries
+  a figure that moves with the clock (the last backup's age, a count of days,
+  how full the disk is) and the state, action and kind already say every
+  change of note, and `off`. `detail` alone never counts: an app reads it
+  when the owner opens Details. On the server, which its desktops' summaries
+  read in their `primary_home`, a change of its newest backup, of its
+  enrollment code or of the servers it holds counts as well. On a desktop and
+  on the server, the newest backup the summary counts from turning 7 days old
+  counts once, though its words do not change there: it is when the app
+  raises its notification that the last backup is a week old.
+- **never while Always On stays `off`**: an app forgets Always On while it is
+  off. A settings write that changes what the `off` sentence names (iMessage,
+  voice calls, meetings) is not told; the app reads that line when the owner
+  opens the pane. Entering `off` from another state (a server deleted before
+  the move, a cancelled setup) is a change, told once.
+
+The daemon works this out without polling anything. It reads the summary
+again only when something it rests on happens (the move's phase, a server
+enrolling or its code being opened, used, withdrawn or expiring, the Always
+On provisioner's file being written, the link to the server going up or
+down, a backup run finishing) and at the next time the
+summary changes by the clock alone (a code open 30 minutes while the
+computer is awake, a link down 10 minutes while it is awake, a waiting
+server's 24 hours, a backup's 3 days and its 7), on one timer, armed again
+at each read; and only while a version 6 connection is attached. While Always On is
+`off` it arms nothing and reads only on what could end `off` (a token, a
+code, a move). It never calls the cloud provider: the
+provider is read when the app asks (`home.provision.resources`) or a job
+runs.
+
+A notice sent while the app was disconnected is lost, so an app that
+connects reads nothing on its own: the notice after `server_hello` is its
+cue. The figures in `on` and `problem` sentences move without a notice, so
+an app that shows one reads `home.status` again when the owner opens the
+pane. A server's disk filling has no event of its own: its summary is read
+again at the next event (on the server, every backup run).
+
+**After a move.** The app's Always On pane reads the desktop's own
+`home.status`, so the desktop's engine sends the notice for its summary, not
+the server's (see *After a move: the desktop's tunnel*). While the server is
+unreachable the tunnel refuses every connection with `primary_unreachable`,
+so the app reads `home.status` when it is refused and when its connection
+ends that way: that is when the summary moves to `cannot_reach` and back.
+
 ## Blocks under a reply
 
 A reply can carry `blocks[]`: records its text links, and the lists its turn
@@ -601,6 +677,14 @@ refuses a client that has seen a later primary.
   it against its ref and grants the managed file under its own home, as
   *Managed media files* says, once the connection's `client_hello` declared a
   version that has it. `media_release` is answered by nothing, as always.
+- **Always On is the desktop's.** The app's Always On pane reads this
+  computer's `home.status`, so on a connection whose `client_hello` declared
+  version 6 the desktop's engine sends its own `home_status_changed` after
+  the primary's `server_hello` and at each change of its own summary. The
+  primary's `home_status_changed` on that connection is never passed on: it
+  says the primary's part of the desktop's `home.status` (`primary_home`) may
+  have moved, and the desktop reads its summary again, telling the app only
+  if that changed.
 - **The primary unreachable.** A connection made while the engine cannot reach
   the primary is answered with
   `error: primary_unreachable` and closed, its `message` naming the primary:
@@ -821,15 +905,14 @@ it survives a restart.
   filter's one-sentence reason for passing the item. A client draws `outside`
   as outside text, never as Fermix's words. Times are RFC 3339 UTC.
 - **A follow-up's card** (version 5). In place of `mandate`, `tool` and the
-  call's arguments it carries `follow_up { asks, name, instructions, tools,
-  reports_to, daily_cap?, set_off_by? }`, the follow-up in Fermix's and the
-  owner's words: `asks` is `run` (once, now) or `automatic` (on every item that
-  passes, with no card, at most `daily_cap` a day, set off by `set_off_by`,
-  the watcher's sources and words). `task` is the follow-up's job; `outside`
-  holds only the item (`cue?`) and the filter's `reason?`, since the
-  follow-up is handed nothing of the item; an approval's prompt has an empty
-  `outside`. Its states read as a proposal's: a confirmed card is starting
-  its run, and a denied one was skipped.
+  call's arguments it carries `follow_up { asks, offers_always_allow?, name,
+  instructions, tools, reports_to }`, the follow-up in Fermix's and the
+  owner's words: `asks` is `run` (once, now), and `offers_always_allow`, when
+  `true`, says the card also takes `always_allow`. `task` is the follow-up's
+  job; `outside` holds only the item (`cue?`) and the filter's `reason?`,
+  since the follow-up is handed nothing of the item. Its states read as a
+  proposal's: a confirmed card is starting its run, whether by `confirm` or
+  `always_allow`, and a denied one was skipped.
 - **When.** A card is sent when the proposal is stored. Right after
   `server_hello`, the daemon sends the card of every proposal still waiting,
   oldest first (at most 100). A client keys cards by `proposal_id`, so a card
@@ -841,7 +924,12 @@ it survives a restart.
   one write moves the proposal out of `waiting`, fenced on its id and its
   expiry. `deny` runs nothing. `confirm` checks the mandate's switches, its
   pins, its grant and its validator again, and runs exactly the recorded call,
-  once, with no model. `accepted` comes as soon as the decision is recorded,
+  once, with no model; on a follow-up's card it starts the follow-up's run.
+  `always_allow`, on a follow-up's card only, starts the run as `confirm` does
+  and, in the same write, lets the follow-up's later items run with no card
+  for what the card showed; one whose follow-up or what sets it off changed
+  since the card was shown allows nothing, and its `proposal_resolved`
+  sentence says which. `accepted` comes as soon as the decision is recorded,
   before the call has run. A second answer, from this socket, a phone, the
   management socket or the owner's chat, is refused with its sentence ("That
   call was already confirmed; it runs at most once."); so is an answer after
@@ -981,6 +1069,8 @@ a refused `checklist_edit`, with the edit's `client_msg_id`; a refused
 ```
 companion -> daemon:  client_hello { protocol_version: 6 }
 daemon -> companion:  server_hello { min_version: 5, max_version: 6 }
+daemon -> companion:  home_status_changed {}                                (Always On is not off)
+                      (the app reads management home.status)
 companion -> daemon:  history_pull { profile_id: "main", after_seq: 12, limit: 200 }
 daemon -> companion:  history_page { messages: [...], next_after_seq: 12, history_head_seq: 12 }
 companion -> daemon:  msg { client_msg_id: "mac-1", profile_id: "main", text, attach_ids: [] }

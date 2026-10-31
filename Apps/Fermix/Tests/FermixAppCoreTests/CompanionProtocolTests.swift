@@ -61,7 +61,9 @@ struct CompanionProtocolTests {
             .mediaRelease(profileId: main, ref: "9879f6d3c9efefe8c4f4aabe9d3269762264be52794e96f62ab8ffa53b7fadec"),
             .proposalAnswer(clientMsgId: "mac-10", profileId: main, proposalId: "cpr_4f1c2a9b7e3d5a60c8b1f2e3", decision: .confirm),
             .proposalAnswer(clientMsgId: "mac-11", profileId: main, proposalId: "cpr_9a0b1c2d3e4f5a6b7c8d9e0f", decision: .deny)
-        ] + Self.checklistClientEvents
+        ] + Self.checklistClientEvents + [
+            .proposalAnswer(clientMsgId: "mac-12", profileId: main, proposalId: "cft_5d2e8a1c9b4f7e3a6c0d1b2e", decision: .alwaysAllow)
+        ]
 
         #expect(produced.count == fixtures.count)
         #expect(Set(fixtures.map(\.type)) == (try CompanionFixtures.publishedTypes("clientEvent")))
@@ -190,6 +192,7 @@ struct CompanionProtocolTests {
         }
 
         #expect(try event("server_hello") == .serverHello(minVersion: 5, maxVersion: 6, primaryEpoch: 2, role: .primary))
+        #expect(try event("home_status_changed") == .homeStatusChanged)
 
         let duplicate = try event("accepted") { $0.object["duplicate"] as? Bool == true }
         #expect(duplicate == .accepted(CompanionAccepted(clientMsgId: "mac-1", duplicate: true, serverSeq: 13)))
@@ -260,8 +263,10 @@ struct CompanionProtocolTests {
     }
 
     /// Version 5: a watcher's follow-up asks on a proposal's card, naming the
-    /// follow-up in place of a call, and a mandate's card gains its compact
-    /// lines. Every one is decoded from the contract's own goldens.
+    /// follow-up in place of a call and offering Always allow, and a
+    /// mandate's card gains its compact lines. Every one is decoded from the
+    /// contract's own goldens; the automatic prompt an engine from before
+    /// Always allow sent has none left, and the proposal tests keep it.
     @Test("the golden follow-up cards and a mandate's compact lines decode under the Swift names")
     func followUpCardFixtures() throws {
         let fixtures = try CompanionFixtures.load(.serverEvents)
@@ -278,6 +283,7 @@ struct CompanionProtocolTests {
         let run = try card("cft_")
         #expect(run.ask == .followUp(CompanionFollowUp(
             asks: .run,
+            offersAlwaysAllow: true,
             name: "Codex review",
             instructions: "Use Codex in ~/projects/fermix to review the last day's commits on dev and report the findings.",
             tools: ["codex_run"],
@@ -288,16 +294,6 @@ struct CompanionProtocolTests {
         #expect(run.outside.argsText == nil && run.outside.args == nil, "a follow-up's card carries no call")
         #expect(run.outside.reason == "The post says usage limits reset.")
         #expect(run.outside.cue?.subject == "@limits_bot")
-
-        let approval = try card("cfa_")
-        guard case .followUp(let automatic) = approval.ask else {
-            Issue.record("the approval's prompt did not decode as a follow-up")
-            return
-        }
-        #expect(automatic.asks == .automatic)
-        #expect(automatic.dailyCap == 5)
-        #expect(automatic.setOffBy == "x-feed; listens for reset, limits, usage")
-        #expect(approval.outside == CompanionProposalOutside(argsText: nil, args: nil, reason: nil, cue: nil))
 
         let mandate = try card("cpr_4f1c")
         #expect(mandate.ask == .call(mandate: "release-issues", tool: "github_create_issue"))

@@ -5,7 +5,9 @@ import Testing
 
 /// The Always On pane (M75 lean v1 §7): the summary's goldens, the screen each
 /// summary maps to, the calls each action makes, the notifications raised
-/// from changes of state, the follow's pace, and the gates.
+/// from changes of state, when the summary is read (never on a timer, never
+/// while Always On is off and the pane is closed), the providers the engine
+/// names, and the gates.
 @Suite("Always On pane")
 @MainActor
 struct AlwaysOnPaneTests {
@@ -46,17 +48,20 @@ struct AlwaysOnPaneTests {
     func provisionGoldensDecode() throws {
         let connected: ManagementProvisionView = try AlwaysOnTests.golden("home_provision_connect")
         #expect(connected.state == .connected && connected.token == .accepted && connected.otherServers == false)
+        #expect(connected.provider == "hetzner")
 
         let options: ManagementProvisionOptions = try AlwaysOnTests.golden("home_provision_options")
-        #expect(options.recommended == ManagementProvisionPick(type: "cpx22", location: .falkenstein))
-        #expect(options.moreRoom == ManagementProvisionPick(type: "cpx32", location: .falkenstein))
+        #expect(options.recommended == ManagementProvisionPick(type: "cpx22", location: "fsn1"))
+        #expect(options.moreRoom == ManagementProvisionPick(type: "cpx32", location: "fsn1"))
         #expect(options.sentence == "Recommended: CPX22 in Falkenstein, €20 a month.")
-        #expect(options.offer(ManagementProvisionPick(type: "cpx32", location: .nuremberg)) == nil, "not in stock there")
-        #expect(options.city(.helsinki) == "Helsinki")
+        #expect(options.offer(ManagementProvisionPick(type: "cpx32", location: "nbg1")) == nil, "not in stock there")
+        #expect(options.city("hel1") == "Helsinki")
 
         let resources: ManagementProvisionView = try AlwaysOnTests.golden("home_provision_resources")
-        #expect(resources.server?.location == .helsinki && resources.server?.power == "running")
+        #expect(resources.provider == "hetzner")
+        #expect(resources.server?.location == "hel1" && resources.server?.power == "running")
         #expect(resources.resources.map(\.kind) == [.server, .firewall, .primaryIp, .primaryIp, .server, .firewall, .primaryIp, .primaryIp])
+        #expect(resources.resources.first?.id == "61840117", "a resource's id is the provider's own, as a string")
         #expect(resources.checked == true)
 
         for name in ["home_provision_create", "home_provision_power", "home_provision_delete", "job_get_home_provision_completed"] {
@@ -65,16 +70,16 @@ struct AlwaysOnPaneTests {
         }
     }
 
-    /// Connect, options and resources call Hetzner in the request, up to
-    /// three calls of 10 s each; the jobs answer at once.
-    @Test("the provisioner's three Hetzner reads wait 35 seconds, and its jobs the usual time")
+    /// Connect, options and resources call the provider in the request, up
+    /// to three calls of 10 s each; the providers and the jobs answer at once.
+    @Test("the provisioner's three reads of the provider wait 35 seconds, and the rest the usual time")
     func provisionTimeouts() {
         let policy = DefaultManagementTimeoutPolicy()
 
         for method in [ManagementMethod.homeProvisionConnect, .homeProvisionOptions, .homeProvisionResources] {
             #expect(policy.timeout(for: method) == .seconds(35), "\(method.rawValue)")
         }
-        for method in [ManagementMethod.homeProvisionCreate, .homeProvisionPower, .homeProvisionDelete] {
+        for method in [ManagementMethod.homeProvisionProviders, .homeProvisionCreate, .homeProvisionPower, .homeProvisionDelete] {
             #expect(policy.timeout(for: method) == DefaultManagementTimeoutPolicy.standard, "\(method.rawValue)")
         }
     }
@@ -104,7 +109,7 @@ struct AlwaysOnPaneTests {
         let token = try #require(Self.page(off, local: AlwaysOnLocal(settingUp: true)).screen)
         #expect(token.kind == .token && token.tokenField && token.action == nil)
         #expect(token.sentence == Self.connectSentence)
-        #expect(token.steps == Self.steps)
+        #expect(token.tokenTarget(providers: [Self.hetzner], picked: nil, inUse: nil) == .provider(Self.hetzner))
         #expect(token.alternatives.map(\.id) == [.ownServer])
     }
 
@@ -115,7 +120,7 @@ struct AlwaysOnPaneTests {
         ]))).screen)
 
         #expect(screen.kind == .token && screen.tokenField && screen.action == nil)
-        #expect(screen.steps == Self.steps && screen.alternatives.map(\.label) == ["Use my own Linux server"])
+        #expect(screen.alternatives.map(\.label) == ["Use my own Linux server"])
     }
 
     @Test("choose offers Create server, and only where every provisioner method is listed")
@@ -130,6 +135,11 @@ struct AlwaysOnPaneTests {
 
         let withoutDelete = Self.all.subtracting([.homeProvisionDelete])
         #expect(AlwaysOnPage.page(status: choose, failure: nil, local: AlwaysOnLocal(), served: withoutDelete) == .needsUpdate)
+        let withoutProviders = Self.all.subtracting([.homeProvisionProviders])
+        #expect(
+            AlwaysOnPage.page(status: choose, failure: nil, local: AlwaysOnLocal(), served: withoutProviders) == .needsUpdate,
+            "an engine whose calls take no provider is too old for the provisioner"
+        )
         let token = AlwaysOnPage.page(status: try Self.home(Self.off), failure: nil, local: AlwaysOnLocal(settingUp: true), served: withoutDelete)
         #expect(token.screen?.kind == .token, "the own-server path stays")
     }
@@ -206,12 +216,12 @@ struct AlwaysOnPaneTests {
     @Test("Get a code is hidden while a server Fermix created stands, and offered once it is gone")
     func ownServerHidden() throws {
         let standing = try Self.home(Self.problem("not_set_up", action: "start_again", alternatives: [
-            Self.action("own_server", "Use my own Linux server"), Self.action("open_hetzner", "Open Hetzner"),
+            Self.action("own_server", "Use my own Linux server"), Self.action("open_console", "Open Hetzner"),
             Self.action("delete_server", "Delete your server")
         ]))
-        #expect(Self.page(standing).screen?.alternatives.map(\.id) == [.openHetzner, .deleteServer])
+        #expect(Self.page(standing).screen?.alternatives.map(\.id) == [.openConsole, .deleteServer])
 
-        let none = try Self.home(Self.problem("account_limit", action: "open_hetzner", alternatives: [Self.action("own_server", "Use my own Linux server")]))
+        let none = try Self.home(Self.problem("account_limit", action: "open_console", alternatives: [Self.action("own_server", "Use my own Linux server")]))
         #expect(Self.page(none).screen?.alternatives.map(\.id) == [.ownServer])
     }
 
@@ -307,62 +317,120 @@ struct AlwaysOnPaneTests {
         pane.model.notifier = notifier
         gateway.homeStatusScript = [.success(try AlwaysOnTests.golden("home_status_creating")), .success(try AlwaysOnTests.golden("home_status_ready"))]
 
-        await pane.model.tick()
-        await pane.model.tick()
-        await pane.model.tick()
+        await pane.model.refresh()
+        await pane.model.refresh()
+        await pane.model.refresh()
 
         let ready: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_ready")
         #expect(notifier.posted.map(\.title) == ["Always On"])
         #expect(notifier.posted.map(\.body) == [ready.summary?.sentence])
     }
 
-    // MARK: - The follow
+    // MARK: - When the summary is read
 
-    @Test("the follow reads briskly while something moves, slowly once set, and rarely where nothing is set up")
-    func cadence() throws {
-        let creating: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_creating")
-        let on: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_on")
-        let off = try Self.home(Self.off)
-
-        #expect(AlwaysOnCadence.wait(after: creating, failed: false, paneVisible: true, ownMove: false) == AlwaysOnCadence.watching)
-        #expect(AlwaysOnCadence.wait(after: creating, failed: false, paneVisible: false, ownMove: false) == AlwaysOnCadence.moving)
-        #expect(AlwaysOnCadence.wait(after: on, failed: false, paneVisible: false, ownMove: false) == AlwaysOnCadence.settled)
-        #expect(AlwaysOnCadence.wait(after: on, failed: false, paneVisible: true, ownMove: false) == AlwaysOnCadence.open)
-        #expect(AlwaysOnCadence.wait(after: off, failed: false, paneVisible: false, ownMove: false) == AlwaysOnCadence.idle)
-        #expect(AlwaysOnCadence.wait(after: nil, failed: true, paneVisible: false, ownMove: true) == AlwaysOnCadence.watching)
-    }
-
-    @Test("following reads now and schedules the next read at the summary's pace")
-    func followSchedules() async throws {
+    /// The owner's rule: while Always On is off the app forgets it. The
+    /// engine sends nothing on the chat wire while it stays off, so a launch,
+    /// the chat connecting, Settings showing another pane, a restart and
+    /// every timer the app has run ask the engine nothing about Always On.
+    @Test("while Always On is off and the pane is closed, the app asks the engine nothing about it")
+    func offAsksNothing() async throws {
         let gateway = try AlwaysOnTests.gateway()
+        gateway.homeStatusScript = [.success(try Self.home(Self.off))]
         let pane = try Self.harness(gateway)
-        gateway.homeStatusScript = [.success(try AlwaysOnTests.golden("home_status_on"))]
-        let deadlines = ManualDeadlineScheduler()
+        let chat = Self.chat()
+        pane.model.listen(to: chat.session)
 
-        await pane.model.follow(with: deadlines)
+        chat.session.connect()
+        chat.socket.deliver(CompanionEvents.hello())
+        await pane.settings.windowAppeared()
+        await pane.settings.restartCompleted()
+        chat.scheduler.fireAll()
 
-        #expect(gateway.calls.filter { $0 == .v2(.homeStatus) }.count == 1)
-        #expect(deadlines.scheduledDelays == [AlwaysOnCadence.settled])
+        #expect(Self.alwaysOnCalls(gateway).isEmpty, "asked \(Self.alwaysOnCalls(gateway))")
+        #expect(pane.model.cued == nil)
+        #expect(chat.scheduler.liveCount == 0, "nothing waits to read it later")
 
         await pane.model.paneAppeared()
-        #expect(deadlines.scheduledDelays == [AlwaysOnCadence.open], "the pane reschedules, it does not add a read")
+        let shown: [ManagementMethod] = [.homeProvisionProviders, .homeStatus]
+        #expect(Self.alwaysOnCalls(gateway) == shown, "the pane reads the off line it is never told of")
+        pane.model.paneDisappeared()
+        await pane.settings.restartCompleted()
+        #expect(Self.alwaysOnCalls(gateway) == shown, "a restart with the pane closed reads nothing")
     }
 
-    @Test("until hello answers, the follow reads again within a minute, and an engine without the home is asked nothing")
-    func followBeforeHello() async throws {
+    @Test("each notice reads the summary once, and the change it shows raises its notification")
+    func noticeReads() async throws {
         let gateway = try AlwaysOnTests.gateway()
+        gateway.homeStatusScript = [.success(try AlwaysOnTests.golden("home_status_creating")), .success(try AlwaysOnTests.golden("home_status_ready"))]
         let pane = try Self.harness(gateway)
-        let deadlines = ManualDeadlineScheduler()
-        gateway.hello = nil
+        let notifier = RecordingAlwaysOnNotifier()
+        pane.model.notifier = notifier
+        let chat = Self.chat()
+        pane.model.listen(to: chat.session)
+        chat.session.connect()
+        chat.socket.deliver(CompanionEvents.hello())
 
-        await pane.model.follow(with: deadlines)
-        #expect(deadlines.scheduledDelays == [AlwaysOnCadence.settled])
+        chat.socket.deliver(.homeStatusChanged)
+        await pane.model.cued?.value
+        #expect(Self.alwaysOnCalls(gateway) == [.homeStatus])
+        #expect(notifier.posted.isEmpty, "the first read after a launch raises nothing")
 
-        gateway.hello = try Self.helloWithout(.homeStatus)
-        await pane.model.tick()
-        await pane.model.restartCompleted()
-        #expect(!gateway.calls.contains(.v2(.homeStatus)))
-        #expect(deadlines.scheduledDelays == [AlwaysOnCadence.idle])
+        chat.socket.deliver(.homeStatusChanged)
+        await pane.model.cued?.value
+        #expect(Self.alwaysOnCalls(gateway) == [.homeStatus, .homeStatus])
+        let ready: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_ready")
+        #expect(notifier.posted.map(\.body) == [ready.summary?.sentence])
+        #expect(chat.scheduler.liveCount == 0, "no read is scheduled after one")
+    }
+
+    /// While the server is out of reach the desktop refuses every chat
+    /// connection, so no notice can come: each refused reconnect reads.
+    @Test("after a move, each reconnect the desktop refuses because its server is out of reach reads the summary")
+    func unreachableReads() async throws {
+        let gateway = try AlwaysOnTests.gateway()
+        gateway.homeStatusScript = [.success(try AlwaysOnTests.golden("home_status_on")), .success(try AlwaysOnTests.golden("home_status_problem"))]
+        let pane = try Self.harness(gateway)
+        let notifier = RecordingAlwaysOnNotifier()
+        pane.model.notifier = notifier
+        let chat = Self.chat()
+        pane.model.listen(to: chat.session)
+        chat.session.connect()
+        chat.socket.deliver(CompanionEvents.hello())
+        chat.socket.deliver(.homeStatusChanged)
+        await pane.model.cued?.value
+
+        chat.socket.deliver(Self.unreachable)
+        await pane.model.cued?.value
+        chat.scheduler.fireAll()
+        chat.socket.deliver(Self.unreachable)
+        await pane.model.cued?.value
+
+        #expect(Self.alwaysOnCalls(gateway) == [.homeStatus, .homeStatus, .homeStatus])
+        #expect(notifier.posted.map(\.title) == ["Always On"], "the server that stopped answering, once")
+    }
+
+    @Test("the pane reads as it shows, and this app's own action reads after it, with nothing scheduled")
+    func paneAndActionRead() async throws {
+        let gateway = try AlwaysOnTests.gateway()
+        gateway.homeStatusScript = [.success(try AlwaysOnTests.golden("home_status_on"))]
+        let pane = try Self.harness(gateway)
+
+        await pane.model.paneAppeared()
+        #expect(Self.alwaysOnCalls(gateway) == [.homeProvisionProviders, .homeStatus])
+
+        await pane.model.perform(Self.typed("back_up_now"))
+        #expect(Self.alwaysOnCalls(gateway) == [.homeProvisionProviders, .homeStatus, .homeSnapshotsRun, .homeStatus])
+    }
+
+    @Test("the app's own moving screen goes when the engine says where the move is, or at the first read past ten minutes")
+    func ownMoveBound() {
+        let started = Date(timeIntervalSince1970: 1_950_000_000)
+
+        #expect(AlwaysOnModel.ownMoveEnds(.on, since: started, now: started))
+        #expect(AlwaysOnModel.ownMoveEnds(.moving, since: started, now: started))
+        #expect(!AlwaysOnModel.ownMoveEnds(.ready, since: started, now: started.addingTimeInterval(599)))
+        #expect(AlwaysOnModel.ownMoveEnds(.ready, since: started, now: started.addingTimeInterval(601)))
+        #expect(!AlwaysOnModel.ownMoveEnds(nil, since: started, now: started.addingTimeInterval(60)))
     }
 
     @Test("a read that fails after one answered keeps the screen and says so")
@@ -391,43 +459,45 @@ struct AlwaysOnPaneTests {
         #expect(pane.gateway.calls.count == before)
     }
 
-    @Test("a pasted token is checked with Hetzner, then the summary and the offers are read")
+    @Test("a pasted token is checked for its provider, then the summary and that provider's offers are read")
     func tokenChecked() async throws {
         let choose = try Self.home(Self.summary("choose", "Your Hetzner token works.", action: Self.action("create_server", "Create server")))
         let pane = try await Self.opened(Self.off, then: [choose])
         let mark = pane.gateway.calls.count
 
-        await pane.model.checkToken("  invented-hetzner-token-6d1f0c9a2b7e4f3a\n")
+        await pane.model.checkToken("  invented-hetzner-token-6d1f0c9a2b7e4f3a\n", for: Self.hetzner)
 
-        #expect(pane.gateway.provisionTokens == ["invented-hetzner-token-6d1f0c9a2b7e4f3a"])
+        #expect(pane.gateway.provisionTokens == [ProvisionToken(provider: "hetzner", token: "invented-hetzner-token-6d1f0c9a2b7e4f3a")])
         #expect(Self.methods(pane.gateway, after: mark) == [.homeProvisionConnect, .homeStatus, .homeProvisionOptions])
+        #expect(pane.gateway.provisionOptionsAsked == ["hetzner"], "the connect answer names the provider in use")
         #expect(pane.model.page.screen?.kind == .choose && pane.model.tokenRefusal == nil)
     }
 
-    @Test("a token Hetzner refuses is said under the field in the engine's words")
+    @Test("a token the provider refuses is said under the field in the engine's words")
     func tokenRefused() async throws {
         let pane = try await Self.opened(Self.off)
         let sentence = "Hetzner does not accept this token, so paste a Read & Write API token from the Hetzner project you made for Fermix."
         pane.gateway.v2Failures[.homeProvisionConnect] = Self.refusal(.invalidParams, sentence, field: "token")
 
-        await pane.model.checkToken("invented-hetzner-token-6d1f0c9a2b7e4f3a")
+        await pane.model.checkToken("invented-hetzner-token-6d1f0c9a2b7e4f3a", for: Self.hetzner)
 
         #expect(pane.model.tokenRefusal == sentence)
     }
 
-    @Test("Create server creates the recommendation, or the owner's own choice once changed")
+    @Test("Create server creates the recommendation, or the owner's own choice once changed, at the provider in use")
     func createServer() async throws {
         let choose = Self.summary("choose", "Your Hetzner token works.", action: Self.action("create_server", "Create server"))
         let pane = try await Self.opened(choose)
 
         await pane.model.perform(Self.typed("create_server"))
-        pane.model.choose(ManagementProvisionPick(type: "cpx32", location: .helsinki))
+        pane.model.choose(ManagementProvisionPick(type: "cpx32", location: "hel1"))
         await pane.model.perform(Self.typed("create_server"))
 
         #expect(pane.gateway.provisionCreates == [
-            ProvisionCreate(pick: ManagementProvisionPick(type: "cpx22", location: .falkenstein), replace: false),
-            ProvisionCreate(pick: ManagementProvisionPick(type: "cpx32", location: .helsinki), replace: false)
+            ProvisionCreate(provider: "hetzner", pick: ManagementProvisionPick(type: "cpx22", location: "fsn1"), replace: false),
+            ProvisionCreate(provider: "hetzner", pick: ManagementProvisionPick(type: "cpx32", location: "hel1"), replace: false)
         ])
+        #expect(pane.gateway.provisionOptionsAsked == ["hetzner"])
     }
 
     @Test("Cancel stops the running create, then deletes what it made")
@@ -559,7 +629,7 @@ struct AlwaysOnPaneTests {
         await pane.model.perform(Self.typed("start_again"))
 
         #expect(pane.gateway.provisionCreates.map(\.replace) == [true, true])
-        #expect(pane.gateway.provisionCreates.first?.pick.location == .helsinki)
+        #expect(pane.gateway.provisionCreates.first?.pick.location == "hel1")
     }
 
     @Test("deleting the old server after a replace is a problem of its own, with Delete as its one action")
@@ -586,7 +656,7 @@ struct AlwaysOnPaneTests {
             ("turn_on", [.homeProvisionPower, .jobGet, .homeProvisionResources, .homeStatus]),
             ("restart_server", [.homeProvisionPower, .jobGet, .homeProvisionResources, .homeStatus]),
             ("start_again", [.homeProvisionResources, .homeProvisionDelete, .jobGet, .homeStatus, .homeProvisionCreate, .homeStatus]),
-            ("create_in", [.homeProvisionOptions, .homeProvisionCreate, .homeStatus]),
+            ("create_in", [.homeProvisionResources, .homeProvisionOptions, .homeProvisionCreate, .homeStatus]),
             ("delete_server", [.homeProvisionDelete, .jobGet, .homeStatus]),
             ("back_up_now", [.homeSnapshotsRun, .homeStatus]),
             ("check_again", [.homeMoveReadiness, .homeStatus])
@@ -613,12 +683,12 @@ struct AlwaysOnPaneTests {
 
         #expect(pane.gateway.provisionPowers == [.on, .reset])
         #expect(pane.gateway.provisionCreates == [
-            ProvisionCreate(pick: ManagementProvisionPick(type: "cpx32", location: .helsinki), replace: false),
-            ProvisionCreate(pick: ManagementProvisionPick(type: "cpx22", location: .nuremberg), replace: false)
+            ProvisionCreate(provider: "hetzner", pick: ManagementProvisionPick(type: "cpx32", location: "hel1"), replace: false),
+            ProvisionCreate(provider: "hetzner", pick: ManagementProvisionPick(type: "cpx22", location: "nbg1"), replace: false)
         ])
     }
 
-    @Test("Learn more, Open Hetzner and Update open their pages and ask the daemon nothing")
+    @Test("Learn more and Update open their pages and ask the daemon nothing")
     func linksCallNothing() async throws {
         let opener = RecordingExternalOpener()
         let pane = try await Self.opened(Self.problem("deleted", action: "learn_more"), opener: opener)
@@ -627,11 +697,23 @@ struct AlwaysOnPaneTests {
         let before = pane.gateway.calls.count
 
         await pane.model.perform(Self.typed("learn_more"))
-        await pane.model.perform(Self.typed("open_hetzner"))
         await pane.model.perform(Self.typed("update"))
 
-        #expect(opener.urls == [AlwaysOnLinks.guide, AlwaysOnLinks.hetznerConsole])
+        #expect(opener.urls == [AlwaysOnLinks.guide])
         #expect(updated == 1 && pane.gateway.calls.count == before)
+    }
+
+    @Test("Open console opens the console of the provider in use, reading the record and the providers once")
+    func openConsole() async throws {
+        let opener = RecordingExternalOpener()
+        let pane = try await Self.opened(Self.problem("account_limit", action: "open_console"), opener: opener)
+        let mark = pane.gateway.calls.count
+
+        await pane.model.perform(Self.typed("open_console"))
+        await pane.model.perform(Self.typed("open_console"))
+
+        #expect(opener.urls == [Self.hetzner.consoleUrl, Self.hetzner.consoleUrl])
+        #expect(Self.methods(pane.gateway, after: mark) == [.homeProvisionResources, .homeProvisionProviders])
     }
 
     @Test("Use my own Linux server opens a code and shows the one command with it inside, until the pane goes")
@@ -656,9 +738,11 @@ struct AlwaysOnPaneTests {
         await pane.model.perform(Self.typed("replace_server"))
         #expect(pane.model.replacing && pane.gateway.provisionCreates.isEmpty)
 
-        await pane.model.replaceServer(with: ManagementProvisionPick(type: "cpx32", location: .helsinki))
+        await pane.model.replaceServer(with: ManagementProvisionPick(type: "cpx32", location: "hel1"))
         #expect(!pane.model.replacing)
-        #expect(pane.gateway.provisionCreates == [ProvisionCreate(pick: ManagementProvisionPick(type: "cpx32", location: .helsinki), replace: true)])
+        #expect(pane.gateway.provisionCreates == [
+            ProvisionCreate(provider: "hetzner", pick: ManagementProvisionPick(type: "cpx32", location: "hel1"), replace: true)
+        ])
     }
 
     @Test("the recovery passphrase is set once typed twice the same, and refused here otherwise")
@@ -675,17 +759,25 @@ struct AlwaysOnPaneTests {
 
     // MARK: - The gates and the copy
 
-    @Test("the Hetzner path is served only where hello lists every provisioner method")
-    func hetznerGate() async throws {
+    @Test("the provisioner is served only where hello lists every one of its methods, the providers among them")
+    func provisionerGate() async throws {
         let gateway = try AlwaysOnTests.gateway()
         let pane = try Self.harness(gateway)
 
         await pane.model.paneAppeared()
-        #expect(pane.model.servesHetzner)
-        #expect(ManagementMethod.homeProvisionMethods.count == 6)
+        #expect(pane.model.servesProvisioner)
+        #expect(ManagementMethod.homeProvisionMethods.count == 7)
+        #expect(ManagementMethod.homeProvisionMethods.contains(.homeProvisionProviders))
+
+        let old = try AlwaysOnTests.gateway()
+        old.hello = try Self.helloWithout(.homeProvisionProviders)
+        let older = try Self.harness(old)
+        await older.model.paneAppeared()
+        #expect(!older.model.servesProvisioner)
+        #expect(!old.calls.contains(.v2(.homeProvisionProviders)), "an engine without it is not asked")
     }
 
-    @Test("the pane's own words keep the copy rules")
+    @Test("the pane's own words keep the copy rules, and none names a cloud provider")
     func copy() {
         let own = ProductStringKey.allCases.filter { $0.rawValue.hasPrefix("alwaysOn.") }
 
@@ -693,6 +785,97 @@ struct AlwaysOnPaneTests {
         for key in own {
             #expect(ProductCopyRules.violations(in: ProductStrings[key]).isEmpty, "\(key.rawValue)")
         }
+        for key in ProductStringKey.allCases {
+            #expect(!ProductStrings[key].localizedCaseInsensitiveContains("hetzner"), "\(key.rawValue) names a provider")
+        }
+        #expect(!ProductCopyRules.properNouns.contains("Hetzner"))
+    }
+
+    // MARK: - The providers, from the engine
+
+    @Test("the providers' golden decodes: the token screen's words, its console and its section of the docs")
+    func providersGoldenDecodes() throws {
+        let answer: ManagementProvisionProviders = try AlwaysOnTests.golden("home_provision_providers")
+
+        #expect(answer.providers == [Self.hetzner])
+        #expect(Self.hetzner.tokenLabel == "Hetzner API token" && Self.hetzner.steps.count == 4)
+        #expect(AlwaysOnLinks.guide(at: Self.hetzner.docsAnchor).absoluteString == "https://fermix.ai/docs/always-on/#hetzner")
+    }
+
+    @Test("a token field takes the only provider, the one picked among several, or on a problem the one in use")
+    func tokenTarget() throws {
+        let token = try #require(Self.page(try Self.home(Self.off), local: AlwaysOnLocal(settingUp: true)).screen)
+        let refused = try #require(Self.page(try Self.home(Self.problem("token_refused", action: "paste_token")),
+                                             local: AlwaysOnLocal(pastingToken: true)).screen)
+        let both = [Self.hetzner, Self.nimbus]
+
+        #expect(token.tokenTarget(providers: nil, picked: nil, inUse: nil) == .unknown)
+        #expect(token.tokenTarget(providers: [Self.nimbus], picked: nil, inUse: "hetzner") == .provider(Self.nimbus))
+        #expect(token.tokenTarget(providers: both, picked: nil, inUse: nil) == .pick(both))
+        #expect(token.tokenTarget(providers: both, picked: "nimbus", inUse: nil) == .provider(Self.nimbus))
+        #expect(refused.tokenTarget(providers: both, picked: "hetzner", inUse: "nimbus") == .provider(Self.nimbus))
+        #expect(refused.tokenTarget(providers: both, picked: nil, inUse: nil) == .unknown)
+    }
+
+    /// A provider the engine adds is one more row: the app draws it, and
+    /// names it on every call, with nothing of its own to change.
+    @Test("with two providers Set up asks which, and the token, the offers and the server name the one picked")
+    func secondProvider() async throws {
+        let gateway = try AlwaysOnTests.gateway()
+        gateway.homeStatusScript = [.success(try Self.home(Self.off)),
+                                    .success(try Self.home(Self.summary("choose", "Your Nimbus token works.",
+                                                                        action: Self.action("create_server", "Create server"))))]
+        gateway.provisionProvidersResult = ManagementProvisionProviders(providers: [Self.hetzner, Self.nimbus])
+        gateway.provisionConnectResult = try Self.record(provider: "nimbus")
+        let pane = try Self.harness(gateway)
+        await pane.model.paneAppeared()
+
+        await pane.model.perform(Self.typed("set_up"))
+        let screen = try #require(pane.model.page.screen)
+        #expect(pane.model.tokenTarget(on: screen) == .pick([Self.hetzner, Self.nimbus]))
+
+        pane.model.pick(provider: Self.nimbus)
+        #expect(pane.model.tokenTarget(on: screen) == .provider(Self.nimbus))
+        await pane.model.checkToken("invented-nimbus-token-0a1b2c3d4e5f", for: Self.nimbus)
+        await pane.model.perform(Self.typed("create_server"))
+
+        #expect(pane.gateway.provisionTokens.map(\.provider) == ["nimbus"])
+        #expect(pane.gateway.provisionOptionsAsked == ["nimbus"])
+        #expect(pane.gateway.provisionCreates.map(\.provider) == ["nimbus"])
+        #expect(!pane.gateway.calls.contains(.v2(.homeProvisionResources)), "the connect answer named the provider")
+
+        pane.model.paneDisappeared()
+        #expect(pane.model.local.provider == nil, "the pick leaves with the pane")
+    }
+
+    @Test("the token screen's links open its provider's console and its section of the docs")
+    func tokenScreenLinks() async throws {
+        let opener = RecordingExternalOpener()
+        let pane = try await Self.opened(Self.off, opener: opener)
+        let before = pane.gateway.calls.count
+
+        pane.model.openConsole(of: Self.nimbus)
+        pane.model.openGuide(for: Self.nimbus)
+
+        #expect(opener.urls == [Self.nimbus.consoleUrl, AlwaysOnLinks.guide(at: "nimbus")])
+        #expect(pane.gateway.calls.count == before)
+    }
+
+    @Test("a location is any id the provider names, a failure may be the provider's own, and a pick names both")
+    func openLocations() throws {
+        var options = try AlwaysOnTests.goldenObject("home_provision_options")
+        options["locations"] = [["id": "lis1", "city": "Lisbon", "country": "PT"]]
+        let read = try AlwaysOnTests.decode(ManagementProvisionOptions.self, options)
+        #expect(read.city("lis1") == "Lisbon")
+
+        let failure = try AlwaysOnTests.decode(ManagementProvisionFailure.self, [
+            "reason": "other", "sentence": "Nimbus refused the request: the plan is retired.", "next_location": "lis2",
+            "at": "2031-05-04T11:50:00Z"
+        ])
+        #expect(failure.reason == "other" && failure.nextLocation == "lis2")
+
+        let problem = try Self.home(Self.problem("no_capacity", action: "create_in", nextLocation: "lis2"))
+        #expect(problem.summary?.detail.nextLocation == "lis2")
     }
 
     // MARK: - Fixtures
@@ -714,13 +897,67 @@ struct AlwaysOnPaneTests {
     static let off = summary("off", offSentence, action: action("set_up", "Set up"), detail: [
         "connect": ["sentence": connectSentence, "steps": steps, "alternatives": [action("own_server", "Use my own Linux server")]]
     ])
+    /// The one provider the contract's golden lists.
+    static let hetzner = ManagementProvisionProvider(
+        id: "hetzner", name: "Hetzner", tokenLabel: "Hetzner API token", steps: steps,
+        consoleUrl: url("https://console.hetzner.cloud/"), docsAnchor: "hetzner"
+    )
+    /// An invented second provider, as a later engine could list one.
+    static let nimbus = ManagementProvisionProvider(
+        id: "nimbus", name: "Nimbus", tokenLabel: "Nimbus access key",
+        steps: ["Sign in to Nimbus and turn on two-factor sign-in.", "Make an access key for Fermix alone."],
+        consoleUrl: url("https://console.nimbus.example/"), docsAnchor: "nimbus"
+    )
+    /// A desktop's server out of reach, as its engine refuses the chat then.
+    static let unreachable = CompanionServerEvent.error(CompanionServerError(
+        reason: CompanionProtocol.primaryUnreachableReason, message: "The server fermix-vm is unreachable.",
+        field: nil, event: nil, clientMsgId: nil, direction: nil, clientVersion: nil, minVersion: nil, maxVersion: nil, ref: nil
+    ))
+
+    static func url(_ text: String) -> URL {
+        guard let url = URL(string: text) else { preconditionFailure("an invented url forms: \(text)") }
+
+        return url
+    }
+
+    /// The connect golden, at another provider.
+    static func record(provider: String) throws -> ManagementProvisionView {
+        var object = try AlwaysOnTests.goldenObject("home_provision_connect")
+        object["provider"] = provider
+
+        return try AlwaysOnTests.decode(ManagementProvisionView.self, object)
+    }
+
+    /// A chat session over a fake socket, built as the composition builds it.
+    struct Chat {
+        let socket: FakeCompanionSocket
+        let scheduler: ManualDeadlineScheduler
+        let session: CompanionSession
+    }
+
+    static func chat() -> Chat {
+        let socket = FakeCompanionSocket()
+        let scheduler = ManualDeadlineScheduler()
+        let session = CompanionSession(
+            transport: CompanionSocketClient(lines: socket),
+            socketPath: { "/tmp/fermix-test/companion.sock" },
+            deadlines: scheduler
+        )
+
+        return Chat(socket: socket, scheduler: scheduler, session: session)
+    }
+
+    /// Every Always On method asked, in order: each `home.*` call.
+    static func alwaysOnCalls(_ gateway: FakeDaemonGateway) -> [ManagementMethod] {
+        methods(gateway, after: 0).filter { $0.rawValue.hasPrefix("home.") }
+    }
 
     /// The one action each problem kind the design names, as the engine
     /// sends it.
     static let problemActions: [(String, String)] = [
         ("turned_off", "turn_on"), ("cannot_reach", "restart_server"), ("deleted", "learn_more"),
         ("not_set_up", "start_again"), ("waited_too_long", "start_again"), ("no_capacity", "create_in"),
-        ("account_limit", "open_hetzner"), ("read_only_token", "paste_token"), ("token_refused", "paste_token"),
+        ("account_limit", "open_console"), ("read_only_token", "paste_token"), ("token_refused", "paste_token"),
         ("create_failed", "start_again"), ("update", "update"), ("disk_full", "learn_more"),
         ("backup_old", "back_up_now"), ("not_ready", "check_again"), ("unreadable", "learn_more")
     ]

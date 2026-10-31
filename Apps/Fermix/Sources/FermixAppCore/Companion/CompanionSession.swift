@@ -50,6 +50,15 @@ public final class CompanionSession {
         messageIds: messageIds
     )
 
+    /// Called each time Always On's summary may have moved, so the app reads
+    /// `home.status` (M75): on `home_status_changed`, which a version 6
+    /// connection is sent once after `server_hello` unless Always On is off
+    /// and then at each change; and, on a desktop whose home moved, each time
+    /// the server is out of reach or no longer knows this computer, since no
+    /// notice can arrive then. Never on connecting alone: the notice after
+    /// the hello is the cue.
+    public var homeStatusCue: (() -> Void)?
+
     /// What the owner is writing and has not sent. The chat view is rebuilt on
     /// every rail change and when Settings opens, so the text lives here, beside
     /// the outbox it is on its way to. Not the model's, which holds the daemon's
@@ -349,6 +358,8 @@ public final class CompanionSession {
             grants.answered(path.ref, .granted(MediaGrant(path)))
         case .mediaMissing(let ref):
             grants.answered(ref, .missing)
+        case .homeStatusChanged:
+            homeStatusCue?()
         case .error(let refusal):
             routeRefusal(refusal)
         case .checklists, .checklist:
@@ -403,10 +414,12 @@ public final class CompanionSession {
     /// connection is refused until the engine restarts, so the session stops
     /// as for a version refusal, the outbox is dropped with a line saying so
     /// rather than kept as sending, and the composer takes nothing. Asking
-    /// for chat again tries once more.
+    /// for chat again tries once more. Always On's summary is read, since no
+    /// notice can follow.
     private func desktopRevoked(_ sentence: String) {
         log.error("companion: the server no longer knows this desktop")
         stop(showing: sentence) { CompanionReducer.revoked(&$0) }
+        homeStatusCue?()
     }
 
     /// The engine here is a desktop whose server cannot be reached, or whose
@@ -414,11 +427,14 @@ public final class CompanionSession {
     /// is ended here, as the daemon is about to end it, so its close is not
     /// read as a second drop; the outbox is kept and sent at the next
     /// handshake, the composer keeps taking messages into it, and the chat
-    /// says the daemon's sentence until then.
+    /// says the daemon's sentence until then. Always On's summary is read at
+    /// each such refusal: no notice can arrive while the server is away, and
+    /// this is when the summary moves to "cannot reach" and back.
     private func serverUnreachable(_ sentence: String) {
         log.error("companion: the server this desktop reaches is unreachable")
         serverAway = sentence
         drop(showing: .waiting(sentence))
+        homeStatusCue?()
     }
 
     /// Ends the connection and stops trying: no retry changes what the daemon

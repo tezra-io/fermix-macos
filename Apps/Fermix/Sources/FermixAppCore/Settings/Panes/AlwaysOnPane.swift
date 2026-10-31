@@ -48,17 +48,24 @@ struct AlwaysOnPane: View {
 }
 
 /// The pane's lead: Learn more, to the Always On docs page, over every
-/// screen.
+/// screen; on a provider's token screen, to that provider's section of it.
 struct AlwaysOnLead: View {
     @ObservedObject var model: AlwaysOnModel
+    var provider: ManagementProvisionProvider?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Spacing.s) {
             Spacer(minLength: Spacing.s)
-            LinkButton(title: ProductStrings[.alwaysOnLearnMore], action: model.openGuide)
+            LinkButton(title: ProductStrings[.alwaysOnLearnMore], action: learnMore)
                 .fermixType(Typography.style(.calloutSmall))
         }
         .textCase(nil)
+    }
+
+    private func learnMore() {
+        guard let provider else { return model.openGuide() }
+
+        model.openGuide(for: provider)
     }
 }
 
@@ -88,7 +95,7 @@ struct AlwaysOnScreenView: View {
             AlwaysOnScreenBody(screen: screen, model: model, newerEngine: settings.newerEngineSentence, change: change)
             AlwaysOnMainAction(action: screen.action, model: model)
         } header: {
-            AlwaysOnLead(model: model)
+            AlwaysOnLead(model: model, provider: tokenProvider)
         }
 
         if screen.asksPassphrase {
@@ -127,20 +134,28 @@ struct AlwaysOnScreenView: View {
 
         return sentence
     }
+
+    /// The provider whose token the screen's field takes, whose section of
+    /// the docs page Learn more opens.
+    private var tokenProvider: ManagementProvisionProvider? {
+        guard screen.tokenField, case .provider(let provider) = model.tokenTarget(on: screen) else { return nil }
+
+        return provider
+    }
 }
 
 /// What a screen holds between its sentence and its action.
 struct AlwaysOnScreenBody: View {
     let screen: AlwaysOnScreen
     @ObservedObject var model: AlwaysOnModel
-    /// What an engine without the Hetzner provisioner is told, in place of
-    /// the paste field.
+    /// What an engine without the provisioner is told, in place of the paste
+    /// field.
     let newerEngine: String
     let change: () -> Void
 
     var body: some View {
-        if screen.tokenField, model.servesHetzner {
-            AlwaysOnTokenField(model: model, steps: screen.steps)
+        if screen.tokenField, model.servesProvisioner {
+            AlwaysOnTokenStep(model: model, target: model.tokenTarget(on: screen))
         } else if screen.tokenField {
             NewerEngineNotice(sentence: newerEngine)
         }
@@ -211,11 +226,50 @@ struct AlwaysOnLinkAction: View {
     }
 }
 
-/// The paste field, checked as soon as a token is pasted, and "How to get
-/// one" with the engine's steps.
+/// The token step: the field of the provider it is for, the pick where the
+/// engine offers more than one provider, or the providers' read.
+struct AlwaysOnTokenStep: View {
+    @ObservedObject var model: AlwaysOnModel
+    let target: AlwaysOnTokenTarget
+
+    var body: some View {
+        switch target {
+        case .provider(let provider):
+            AlwaysOnTokenField(model: model, provider: provider)
+                .id(provider.id)
+        case .pick(let providers):
+            AlwaysOnProviderPick(model: model, providers: providers)
+        case .unknown:
+            if case .unavailable(let sentence) = model.providers {
+                CueNote(text: sentence, attention: true)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+    }
+}
+
+/// Where the engine offers more than one provider, the owner picks one by
+/// its name before its token screen, from every one given.
+struct AlwaysOnProviderPick: View {
+    @ObservedObject var model: AlwaysOnModel
+    let providers: [ManagementProvisionProvider]
+
+    var body: some View {
+        CueNote(text: ProductStrings[.alwaysOnProviderChoose])
+        ForEach(providers, id: \.id) { provider in
+            LinkButton(title: provider.name) { model.pick(provider: provider) }
+                .fermixType(Typography.style(.callout))
+        }
+    }
+}
+
+/// One provider's paste field, checked as soon as a token is pasted, and
+/// "How to get one" with its steps and its console, all in the engine's
+/// words for that provider.
 struct AlwaysOnTokenField: View {
     @ObservedObject var model: AlwaysOnModel
-    let steps: [String]
+    let provider: ManagementProvisionProvider
 
     @State private var token = ""
 
@@ -224,8 +278,8 @@ struct AlwaysOnTokenField: View {
     static let pasted = 16
 
     var body: some View {
-        LabeledContent(ProductStrings[.alwaysOnTokenField]) {
-            SecretInput(label: ProductStrings[.alwaysOnTokenField], value: $token, onSubmit: check)
+        LabeledContent(provider.tokenLabel) {
+            SecretInput(label: provider.tokenLabel, value: $token, onSubmit: check)
                 .onChange(of: token) { before, after in
                     guard after.count - before.count >= Self.pasted else { return }
 
@@ -237,25 +291,25 @@ struct AlwaysOnTokenField: View {
         if model.checkingToken {
             HStack(spacing: Spacing.xs) {
                 ProgressView().controlSize(.small)
-                CueNote(text: ProductStrings[.alwaysOnTokenChecking])
+                CueNote(text: String(format: ProductStrings[.alwaysOnTokenCheckingFormat], provider.name))
             }
         }
         if let refusal = model.tokenRefusal {
             CueNote(text: refusal, attention: true)
         }
-        if !steps.isEmpty {
-            DisclosureGroup(ProductStrings[.alwaysOnHowToGetOne]) {
-                AlwaysOnSteps(steps: steps)
-                LinkButton(title: ProductStrings[.alwaysOnOpenHetzner], action: model.openHetznerConsole)
+        DisclosureGroup(ProductStrings[.alwaysOnHowToGetOne]) {
+            AlwaysOnSteps(steps: provider.steps)
+            LinkButton(title: String(format: ProductStrings[.alwaysOnOpenConsoleFormat], provider.name)) {
+                model.openConsole(of: provider)
             }
-            .fermixType(Typography.style(.calloutSmall))
         }
+        .fermixType(Typography.style(.calloutSmall))
     }
 
     private func check() {
         let pasted = token
         Task {
-            await model.checkToken(pasted)
+            await model.checkToken(pasted, for: provider)
             if model.tokenRefusal == nil { token = "" }
         }
     }

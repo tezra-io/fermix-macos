@@ -3,27 +3,43 @@ import Foundation
 /// What the Always On pane draws (M75 lean v1 §7), worked out from what the
 /// engine said and the few things the app keeps itself.
 ///
-/// Every sentence and action label is the engine's (`home.status.summary`).
-/// The app keeps only the steps nothing in the engine records: Set up, which
-/// opens the token screen; Paste a new token, which opens the field in place;
-/// and the restart after its own Move now, while the engine is away.
+/// Every sentence and action label is the engine's (`home.status.summary`),
+/// and so is every cloud provider's word (`home.provision.providers`). The app
+/// keeps only the steps nothing in the engine records: Set up, which opens
+/// the token screen; the provider picked there where the engine offers more
+/// than one; Paste a new token, which opens the field in place; and the
+/// restart after its own Move now, while the engine is away.
 
 /// The steps the app keeps itself.
 public struct AlwaysOnLocal: Equatable, Sendable {
     /// Set up was pressed on `off`: the token screen shows until a token or a
     /// code exists.
     public var settingUp = false
+    /// The provider the owner picked on the token screen, by its id, while
+    /// the pane shows.
+    public var provider: String?
     /// Paste a new token was pressed on a problem that offers it.
     public var pastingToken = false
     /// The engine's sentence for the move this app started, while the engine
     /// restarts to carry it out and until it answers again.
     public var moveStarted: String?
 
-    public init(settingUp: Bool = false, pastingToken: Bool = false, moveStarted: String? = nil) {
+    public init(settingUp: Bool = false, provider: String? = nil, pastingToken: Bool = false, moveStarted: String? = nil) {
         self.settingUp = settingUp
+        self.provider = provider
         self.pastingToken = pastingToken
         self.moveStarted = moveStarted
     }
+}
+
+/// Which provider's token a token field takes.
+public enum AlwaysOnTokenTarget: Equatable, Sendable {
+    /// The providers, or the one in use, are not read yet, or could not be.
+    case unknown
+    /// The engine offers more than one and none is picked: the owner picks
+    /// first, from every one given, in the engine's order.
+    case pick([ManagementProvisionProvider])
+    case provider(ManagementProvisionProvider)
 }
 
 /// The screen a summary maps to.
@@ -55,12 +71,11 @@ public struct AlwaysOnScreen: Equatable, Sendable {
     public let sentence: String
     /// The one main action, or none when all is well.
     public let action: ManagementHomeAction?
-    /// The token screen's "How to get one" steps.
-    public let steps: [String]
     /// The other actions the screen offers: Details on a problem and on `on`,
     /// the own-server link on the token screen.
     public let alternatives: [ManagementHomeAction]
-    /// The paste field shows (the token screen, or Paste a new token).
+    /// The paste field shows (the token screen, or Paste a new token); its
+    /// provider's label and steps are `tokenTarget`'s.
     public let tokenField: Bool
     /// The bar that claims no percentage shows (creating and moving).
     public let showsProgress: Bool
@@ -96,8 +111,9 @@ extension AlwaysOnPage {
     ///     later read fails, so the screen does not blank between reads.
     ///   - failure: the last read's refusal, while it is the latest word.
     ///   - local: the steps the app keeps itself.
-    ///   - served: the methods the daemon's `hello` lists; the Hetzner path
-    ///     is drawn only where every `home.provision.*` method is there.
+    ///   - served: the methods the daemon's `hello` lists; the provisioner's
+    ///     screens are drawn only where every `home.provision.*` method is
+    ///     there.
     public static func page(
         status: ManagementHomeStatus?,
         failure: SettingsReadState<ManagementHomeStatus>?,
@@ -111,8 +127,8 @@ extension AlwaysOnPage {
         guard let summary = status.summary else { return .needsUpdate }
 
         let screen = AlwaysOnScreen.screen(summary, home: status, local: local)
-        let hetzner = served.isSuperset(of: ManagementMethod.homeProvisionMethods)
-        return !hetzner && screen.needsHetzner ? .needsUpdate : .screen(screen)
+        let provisioner = served.isSuperset(of: ManagementMethod.homeProvisionMethods)
+        return !provisioner && screen.needsProvisioner ? .needsUpdate : .screen(screen)
     }
 
     /// Nothing answered yet: still reading, an engine too old for the home's
@@ -143,10 +159,10 @@ extension AlwaysOnPage {
 }
 
 extension AlwaysOnScreen {
-    /// The actions that call the Hetzner provisioner.
-    static let hetznerActions: Set<ManagementHomeActionId> = [
+    /// The actions that call the provisioner.
+    static let provisionerActions: Set<ManagementHomeActionId> = [
         .createServer, .cancel, .turnOn, .restartServer, .startAgain, .createIn, .pasteToken,
-        .deleteServer, .replaceServer
+        .deleteServer, .replaceServer, .openConsole
     ]
 
     /// The review's warnings and blocks the summary carries, which a screen
@@ -155,11 +171,30 @@ extension AlwaysOnScreen {
         (detail.readiness ?? []).filter { $0.status != .ok }
     }
 
-    /// Whether this screen calls the Hetzner provisioner.
-    var needsHetzner: Bool {
+    /// Whether this screen calls the provisioner.
+    var needsProvisioner: Bool {
         if kind == .choose { return true }
-        if let action, Self.hetznerActions.contains(action.id) { return true }
+        if let action, Self.provisionerActions.contains(action.id) { return true }
         return false
+    }
+
+    /// Which provider's token this screen's field takes: on a problem that
+    /// asks for a new token, the one in use, which the provisioner's record
+    /// names; else the one the owner picked here, or the only one offered.
+    ///
+    /// - Parameters:
+    ///   - providers: `home.provision.providers`, or nil while unread.
+    ///   - picked: the id the owner picked on this pane.
+    ///   - inUse: the provisioner's record's provider, or nil while unread.
+    public func tokenTarget(providers: [ManagementProvisionProvider]?, picked: String?, inUse: String?) -> AlwaysOnTokenTarget {
+        guard let providers else { return .unknown }
+
+        if case .problem = kind {
+            return providers.first { $0.id == inUse }.map(AlwaysOnTokenTarget.provider) ?? .unknown
+        }
+        if let chosen = providers.first(where: { $0.id == picked }) { return .provider(chosen) }
+        if providers.count == 1, let only = providers.first { return .provider(only) }
+        return providers.isEmpty ? .unknown : .pick(providers)
     }
 
     /// The screen for one summary.
@@ -169,7 +204,7 @@ extension AlwaysOnScreen {
             return token(summary.detail.connect, fallback: summary)
         case .connect:
             return AlwaysOnScreen(
-                kind: .token, sentence: summary.sentence, action: nil, steps: summary.detail.steps ?? [],
+                kind: .token, sentence: summary.sentence, action: nil,
                 alternatives: offered(summary.detail.alternatives), tokenField: true, showsProgress: false,
                 asksPassphrase: false, detail: summary.detail
             )
@@ -186,7 +221,6 @@ extension AlwaysOnScreen {
             kind: .token,
             sentence: connect?.sentence ?? summary.sentence,
             action: nil,
-            steps: connect?.steps ?? [],
             alternatives: offered(connect?.alternatives),
             tokenField: true,
             showsProgress: false,
@@ -203,7 +237,6 @@ extension AlwaysOnScreen {
             kind: .problem(kind),
             sentence: summary.sentence,
             action: pasting ? nil : offered(summary.action),
-            steps: [],
             alternatives: offered(summary.detail.alternatives),
             tokenField: pasting,
             showsProgress: false,
@@ -217,7 +250,6 @@ extension AlwaysOnScreen {
             kind: kind,
             sentence: summary.sentence,
             action: offered(summary.action),
-            steps: [],
             alternatives: offered(summary.detail.actions),
             tokenField: false,
             showsProgress: kind == .creating || kind == .moving,
@@ -229,7 +261,7 @@ extension AlwaysOnScreen {
     /// The moving screen while the engine restarts for this app's own move.
     static func moving(_ sentence: String) -> AlwaysOnScreen {
         AlwaysOnScreen(
-            kind: .moving, sentence: sentence, action: nil, steps: [], alternatives: [], tokenField: false,
+            kind: .moving, sentence: sentence, action: nil, alternatives: [], tokenField: false,
             showsProgress: true, asksPassphrase: false, detail: Self.noDetail
         )
     }

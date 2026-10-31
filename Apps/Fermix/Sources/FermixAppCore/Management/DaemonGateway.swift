@@ -153,11 +153,12 @@ public protocol DaemonQuerying: Sendable {
     func runSnapshot() async throws -> ManagementSnapshotsStarted
     func setRecoveryPassphrase(_ passphrase: String) async throws -> ManagementRecoveryKey
 
-    // The Always On server on Hetzner (M75 lean v1 §4.3). Found in
+    // The Always On server at a cloud provider (M75 lean v1 §4.3). Found in
     // `servedMethods()`: they arrived inside protocol 2.
-    func provisionConnect(token: String) async throws -> ManagementProvisionView
-    func provisionOptions() async throws -> ManagementProvisionOptions
-    func provisionCreate(_ pick: ManagementProvisionPick, replace: Bool) async throws -> ManagementJob
+    func provisionProviders() async throws -> ManagementProvisionProviders
+    func provisionConnect(provider: String, token: String) async throws -> ManagementProvisionView
+    func provisionOptions(provider: String) async throws -> ManagementProvisionOptions
+    func provisionCreate(provider: String, _ pick: ManagementProvisionPick, replace: Bool) async throws -> ManagementJob
     func provisionPower(_ action: ManagementProvisionPower) async throws -> ManagementJob
     func provisionResources() async throws -> ManagementProvisionView
     func provisionDelete() async throws -> ManagementJob

@@ -45,8 +45,8 @@ extension ManagementVocabulary {
 ///
 /// The eleven the engine serves today have a minimum protocol version of 1; the
 /// thirty-one M34 §7.3 adds, the seven the phone channel added, the three the
-/// iMessage channel added, the twelve of MCP servers, the twenty-four of cues,
-/// the nine of the home and the six of its Hetzner provisioner have a
+/// iMessage channel added, the twelve of MCP servers, the twenty-five of cues,
+/// the nine of the home and the seven of its cloud provisioner have a
 /// minimum of 2. The
 /// minimum is read from the contract (`ManagementContract.minimumVersion(for:)`),
 /// never restated here: one fact, in the checksum-pinned artifact.
@@ -138,6 +138,9 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case cuesSourcesURLGet = "cues.sources.url.get"
     case cuesWatchersList = "cues.watchers.list"
     case cuesWatchersGet = "cues.watchers.get"
+    /// Takes back a follow-up's Always allow. No surface asks it yet: the
+    /// Cues pane's half of Always allow is to come.
+    case cuesWatchersAlwaysAllowRevoke = "cues.watchers.always_allow.revoke"
     case cuesMandatesList = "cues.mandates.list"
     case cuesMandatesChoices = "cues.mandates.choices"
     case cuesMandatesAdd = "cues.mandates.add"
@@ -163,14 +166,16 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case homeSnapshotsStatus = "home.snapshots.status"
     case homeSnapshotsRun = "home.snapshots.run"
     case homeSnapshotsPassphrase = "home.snapshots.passphrase"
-    // The Always On server on Hetzner (M75 lean v1 §4.3): the token, what
-    // Hetzner sells, the server Fermix creates, and the record of it.
+    // The Always On server at a cloud provider (M75 lean v1 §4.3): the
+    // providers, the token, what the provider sells, the server Fermix
+    // creates, and the record of it.
     case homeProvisionConnect = "home.provision.connect"
     case homeProvisionOptions = "home.provision.options"
     case homeProvisionCreate = "home.provision.create"
     case homeProvisionPower = "home.provision.power"
     case homeProvisionResources = "home.provision.resources"
     case homeProvisionDelete = "home.provision.delete"
+    case homeProvisionProviders = "home.provision.providers"
 
     /// The method name in a form the request-id pattern accepts.
     public var identifierSlug: String { rawValue.replacingOccurrences(of: ".", with: "-") }

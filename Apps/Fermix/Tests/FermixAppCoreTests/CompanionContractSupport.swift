@@ -188,7 +188,7 @@ enum CompanionServerWire {
                 "list": checklistList(list),
                 "made": made.isEmpty ? nil : made
             ])
-        case .unrecognized:
+        case .homeStatusChanged, .unrecognized:
             return [:]
         }
     }
@@ -269,6 +269,7 @@ enum CompanionServerWire {
         case .followUp(let followUp):
             return ["follow_up": present([
                 "asks": word(followUp.asks),
+                "offers_always_allow": followUp.offersAlwaysAllow,
                 "name": followUp.name,
                 "instructions": followUp.instructions,
                 "tools": followUp.tools,

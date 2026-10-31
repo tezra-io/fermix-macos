@@ -16,7 +16,9 @@ public enum CompanionProtocol {
     /// proposal is. Version 6 says what a turn is doing in a person's words:
     /// the model's summary of each step of its reasoning (`reasoning`), and
     /// the engine's sentence for a tool's step on its start (`activity`),
-    /// and brings the owner's lists (M85), read and changed live.
+    /// and brings the owner's lists (M85), read and changed live; and it
+    /// adds `home_status_changed`, which tells the app when Always On's
+    /// summary changed, so nothing reads it on a timer (M75).
     public static let version = 6
 
     /// The version that brings the owner's lists (M85): their events are sent
@@ -583,10 +585,14 @@ public enum CompanionProposalState: Equatable, Sendable, Decodable {
     }
 }
 
-/// Version 4: the owner's answer to a proposal, the contract's two words.
+/// Version 4: the owner's answer to a proposal, in the contract's words.
 public enum CompanionProposalDecision: String, Equatable, Sendable, Encodable {
     case confirm
     case deny
+    /// A follow-up's card whose `offersAlwaysAllow` is true also takes this:
+    /// it runs as `confirm` does and lets the follow-up's later items run with
+    /// no card. This build draws no Always allow yet, so it never sends it.
+    case alwaysAllow = "always_allow"
 }
 
 /// The task whose cue run raised a proposal. A task with no name of the
@@ -668,9 +674,13 @@ public enum CompanionFollowUpAsks: Equatable, Sendable, Decodable {
 
 /// Version 5: a watcher's follow-up, in Fermix's and the owner's words: the
 /// job an item that passes sets off, which is handed nothing of the item.
-/// `dailyCap` and `setOffBy` come with an automatic one.
+/// `dailyCap` and `setOffBy` come with an automatic one, which only an
+/// engine from before Always allow sends.
 public struct CompanionFollowUp: Equatable, Sendable, Decodable {
     public let asks: CompanionFollowUpAsks
+    /// The card also takes `alwaysAllow`; absent from an engine before Always
+    /// allow. Decoded and not drawn yet.
+    public let offersAlwaysAllow: Bool?
     public let name: String
     public let instructions: String
     public let tools: [String]
@@ -680,6 +690,7 @@ public struct CompanionFollowUp: Equatable, Sendable, Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case asks, name, instructions, tools
+        case offersAlwaysAllow = "offers_always_allow"
         case reportsTo = "reports_to"
         case dailyCap = "daily_cap"
         case setOffBy = "set_off_by"
@@ -865,6 +876,10 @@ public enum CompanionServerEvent: Equatable, Sendable {
     /// last push to the list or row it made, and is empty when there is
     /// none.
     case checklist(profileId: String, list: CompanionChecklistList, made: [String: String] = [:])
+    /// Version 6: Always On's summary changed, and `home.status` says what it
+    /// is now. Carries no content. Sent once after `server_hello` unless
+    /// Always On is off, then at each change, never while it stays off.
+    case homeStatusChanged
     /// An event type published after this build shipped: logged by the session,
     /// never silently dropped.
     case unrecognized(type: String)
@@ -894,6 +909,7 @@ public enum CompanionServerEvent: Equatable, Sendable {
         case .proposalResolved: return "proposal_resolved"
         case .checklists: return "checklists"
         case .checklist: return "checklist"
+        case .homeStatusChanged: return "home_status_changed"
         case .unrecognized(let type): return type
         }
     }
@@ -1051,6 +1067,8 @@ extension CompanionServerEvent: Decodable {
                 list: try fields.decode(CompanionChecklistList.self, forKey: .list),
                 made: try fields.decodeIfPresent([String: String].self, forKey: .made) ?? [:]
             )
+        case "home_status_changed":
+            self = .homeStatusChanged
         default:
             self = .unrecognized(type: type)
         }

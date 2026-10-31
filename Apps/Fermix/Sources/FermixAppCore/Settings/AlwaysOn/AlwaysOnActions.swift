@@ -1,11 +1,19 @@
 import Foundation
 
-/// The Always On pages on the web: the docs page Learn more opens, Hetzner's
-/// console, and the installer the owner's own Linux server runs. Constants,
-/// like the cues guide: the product's own pages, the same for every home.
+/// The Always On pages on the web: the docs page Learn more opens and the
+/// installer the owner's own Linux server runs. Constants, like the cues
+/// guide: the product's own pages, the same for every home. A provider's
+/// console and its section of the docs page are the engine's
+/// (`home.provision.providers`).
 public enum AlwaysOnLinks {
     public static let guide = url("https://fermix.ai/docs/always-on/")
-    public static let hetznerConsole = url("https://console.hetzner.cloud/")
+
+    /// A provider's section of the docs page, by the anchor the engine names.
+    public static func guide(at anchor: String) -> URL {
+        precondition(!anchor.isEmpty, "a section of the guide is named")
+
+        return url("https://fermix.ai/docs/always-on/#\(anchor)")
+    }
 
     /// The one command an owner's own Linux server runs, with the code
     /// inside (§7): the installer reads the code from `FERMIX_ENROLL_CODE`
@@ -60,10 +68,10 @@ extension AlwaysOnModel {
         notice = nil
         switch action.id {
         case .setUp: local.settingUp = true
-        case .pasteToken: local.pastingToken = true
+        case .pasteToken: await pasteToken()
         case .replaceServer: openReplace()
         case .learnMore: openGuide()
-        case .openHetzner: openHetznerConsole()
+        case .openConsole: await openConsole()
         case .update: checkForUpdates?()
         case .ownServer: await getCode()
         case .unrecognized: log.error("an action this build does not know was offered: \(action.id.wireValue, privacy: .public)")
@@ -94,10 +102,11 @@ extension AlwaysOnModel {
 
     // MARK: - The token
 
-    /// Checks a pasted token: Hetzner reads the project, and Fermix keeps the
-    /// token on this computer only. A refusal is the engine's sentence under
-    /// the field.
-    public func checkToken(_ token: String) async {
+    /// Checks a token pasted for one provider: the engine reads that
+    /// provider's account with it, and keeps the token on this computer only.
+    /// A refusal is the engine's sentence under the field; the answer is the
+    /// provisioner's record, which names the provider from then on.
+    public func checkToken(_ token: String, for provider: ManagementProvisionProvider) async {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !checkingToken else { return }
 
@@ -105,7 +114,7 @@ extension AlwaysOnModel {
         defer { checkingToken = false }
         tokenRefusal = nil
         do {
-            _ = try await gateway.provisionConnect(token: trimmed)
+            record = try await gateway.provisionConnect(provider: provider.id, token: trimmed)
         } catch {
             tokenRefusal = ManagementMessage.sentence(for: error)
             settings.noteRead(error, "home.provision.connect")
@@ -115,6 +124,26 @@ extension AlwaysOnModel {
         local.pastingToken = false
         await refresh()
         if status?.summary?.state == .choose { await readOptions() }
+    }
+
+    /// Paste a new token opens the field in place, for the provider in use,
+    /// whose record is read where it was not yet.
+    private func pasteToken() async {
+        local.pastingToken = true
+        guard record == nil else { return }
+
+        do {
+            _ = try await readRecord()
+        } catch {
+            refusal = ManagementMessage.sentence(for: error)
+            settings.noteRead(error, "home.provision.resources")
+        }
+    }
+
+    /// The provider the owner picked on the token screen, where the engine
+    /// offers more than one.
+    public func pick(provider: ManagementProvisionProvider) {
+        local.provider = provider.id
     }
 
     // MARK: - Creating the server
@@ -138,7 +167,7 @@ extension AlwaysOnModel {
     }
 
     /// Why there is no size and location to create: nothing is in stock, or
-    /// what Hetzner sells could not be read.
+    /// what the provider sells could not be read.
     private var optionsSentence: String? {
         switch options {
         case .loaded(let options): return options.sentence
@@ -148,10 +177,12 @@ extension AlwaysOnModel {
         }
     }
 
-    /// Creates the server, as a job the summary follows from here.
+    /// Creates the server at the provider in use, as a job the summary
+    /// follows from here.
     private func create(_ pick: ManagementProvisionPick, replace: Bool) async {
         do {
-            _ = try await gateway.provisionCreate(pick, replace: replace)
+            let provider = try await providerInUse()
+            _ = try await gateway.provisionCreate(provider: provider, pick, replace: replace)
         } catch {
             refusal = ManagementMessage.sentence(for: error)
             settings.noteRead(error, "home.provision.create")
@@ -182,7 +213,7 @@ extension AlwaysOnModel {
     private func startAgain() async {
         let made: ManagementProvisionPick?
         do {
-            made = try await gateway.provisionResources().server.map { ManagementProvisionPick(type: $0.type, location: $0.location) }
+            made = try await readRecord().server.map { ManagementProvisionPick(type: $0.type, location: $0.location) }
         } catch {
             refusal = ManagementMessage.sentence(for: error)
             settings.noteRead(error, "home.provision.resources")
@@ -197,8 +228,8 @@ extension AlwaysOnModel {
     }
 
     /// Creates the type asked for in the next location in stock: the one the
-    /// owner chose, else the recommended one, since a create Hetzner had no
-    /// room for left no server to name it.
+    /// owner chose, else the recommended one, since a create the provider had
+    /// no room for left no server to name it.
     private func createIn() async {
         guard let location = status?.summary?.detail.nextLocation else { return }
         if options.value == nil, chosen == nil { await readOptions() }
@@ -237,8 +268,12 @@ extension AlwaysOnModel {
         await reconcile()
     }
 
-    /// Follows a job until it ends, up to its budget. Answers whether it
-    /// completed; its failure is the engine's sentence under the action.
+    /// Follows a job this app started until it ends, up to its budget.
+    /// Answers whether it completed; its failure is the engine's sentence
+    /// under the action. The job itself is read: the notice says when the
+    /// summary changed, which a job's steps do, but never that the job ended
+    /// or why it failed, which only `job.get` answers, and Cancel, Start
+    /// again and Turn it on each wait for that end before their next call.
     private func finished(_ started: ManagementJob) async -> Bool {
         var job = started
         let polls = min(Self.jobPolls, Int(Double(job.budgetMs) / 1_000 / Self.jobPollSeconds) + 1)
@@ -260,7 +295,7 @@ extension AlwaysOnModel {
 
     // MARK: - Replacing the server
 
-    /// Replace's sheet reads what Hetzner sells as it appears.
+    /// Replace's sheet reads what the provider sells as it appears.
     private func openReplace() {
         replacing = true
     }
@@ -382,6 +417,7 @@ extension AlwaysOnModel {
     private func beginOwnMove(_ sentence: String) {
         passphrase = nil
         local.moveStarted = sentence
+        ownMoveSince = now()
     }
 
     /// The warnings and blocks the ready screen lists: the summary's, else
@@ -440,9 +476,37 @@ extension AlwaysOnModel {
         open(AlwaysOnLinks.guide)
     }
 
-    /// Hetzner's console, where the token is made.
-    public func openHetznerConsole() {
-        open(AlwaysOnLinks.hetznerConsole)
+    /// Learn more on a provider's token screen: its section of the docs page.
+    public func openGuide(for provider: ManagementProvisionProvider) {
+        open(AlwaysOnLinks.guide(at: provider.docsAnchor))
+    }
+
+    /// A provider's console, where its token is made.
+    public func openConsole(of provider: ManagementProvisionProvider) {
+        open(provider.consoleUrl)
+    }
+
+    /// Open console: the console of the provider in use, which the
+    /// provisioner's record names and `home.provision.providers` gives the
+    /// address of. Either is read once where it was not yet.
+    private func openConsole() async {
+        do {
+            let id = try await providerInUse()
+            if providers.value == nil { await readProviders() }
+            if case .unavailable(let sentence) = providers {
+                refusal = sentence
+                return
+            }
+            guard let provider = providers.value?.first(where: { $0.id == id }) else {
+                log.error("the provider in use is not one the engine lists: \(id, privacy: .public)")
+                refusal = ProductStrings[.alwaysOnLinkOpenFailed]
+                return
+            }
+            openConsole(of: provider)
+        } catch {
+            refusal = ManagementMessage.sentence(for: error)
+            settings.noteRead(error, "home.provision.resources")
+        }
     }
 
     /// Opens a page in the browser; a browser that could not open it is said

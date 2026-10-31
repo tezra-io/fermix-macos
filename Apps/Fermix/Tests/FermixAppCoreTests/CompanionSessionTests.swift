@@ -523,6 +523,56 @@ struct CompanionSessionTests {
     }
 
 
+    // MARK: - Always On's notice (version 6)
+
+    @Test("connecting says nothing of Always On, and each notice after it asks for one read, never the chat's")
+    func homeStatusNotice() throws {
+        let harness = Harness()
+        var cues = 0
+        harness.session.homeStatusCue = { cues += 1 }
+
+        harness.connected()
+        #expect(cues == 0, "the hello alone is no cue: an engine whose Always On is off sends nothing after it")
+
+        harness.socket.deliver(.homeStatusChanged)
+        harness.socket.deliver(.homeStatusChanged)
+
+        #expect(cues == 2)
+        #expect(harness.model.rows.isEmpty && harness.model.lastError == nil)
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull), "a notice is answered by nothing on the chat wire")
+    }
+
+    @Test("a notice before the handshake, or after a version refusal, asks for nothing")
+    func homeStatusNoticeOutsideASession() {
+        let harness = Harness()
+        var cues = 0
+        harness.session.homeStatusCue = { cues += 1 }
+        harness.session.connect()
+
+        harness.socket.deliver(.homeStatusChanged)
+        harness.socket.deliver(E.hello(below.0, below.1))
+        harness.socket.deliver(.homeStatusChanged)
+
+        #expect(cues == 0)
+        #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
+    }
+
+    /// An engine older than this build's version 6, a server after a move
+    /// before its nightly update among them, refuses the hello as too new:
+    /// it is told to update, as every older engine is, and never hello'd at
+    /// a lower version.
+    @Test("an engine whose window ends below version 6 refuses this build's hello, and chat says to update the engine")
+    func engineBelowVersionSix() throws {
+        let harness = Harness()
+        harness.session.connect()
+
+        harness.socket.deliver(E.refusal("unsupported_protocol_version", direction: .clientTooNew, window: .init(minimum: 4, maximum: 5)))
+
+        #expect(try harness.sent() == wire(.clientHello(protocolVersion: 6)))
+        #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
+        #expect(harness.scheduler.liveCount == 0)
+    }
+
     // MARK: - After a move (M75)
 
     /// The sentence a desktop's engine sends while its server is out of reach.
@@ -574,6 +624,29 @@ struct CompanionSessionTests {
             try harness.sent()
                 == wire(hello, hello, newestPagePull, .msg(clientMsgId: "mac-1", profileId: "main", text: "Hello"), listIndexPull)
         )
+    }
+
+    /// While the server is out of reach the desktop refuses every
+    /// connection, so no notice can arrive: each refusal is the cue to read
+    /// Always On, which is when its summary says the server cannot be reached
+    /// and when it says it is back.
+    @Test("a server out of reach asks for a read of Always On at each refusal, at the handshake and mid-session")
+    func serverUnreachableCuesAlwaysOn() {
+        let harness = Harness()
+        var cues = 0
+        harness.session.homeStatusCue = { cues += 1 }
+        harness.connected()
+
+        harness.socket.deliver(Self.unreachableRefusal())
+        #expect(cues == 1)
+
+        harness.scheduler.fireAll()
+        harness.socket.deliver(Self.unreachableRefusal())
+        #expect(cues == 2, "each refused reconnect reads again, on the chat's own backoff")
+
+        harness.scheduler.fireAll()
+        harness.socket.deliver(E.hello())
+        #expect(cues == 2, "once the server is back, its notice after the hello is the cue")
     }
 
     @Test("a server lost mid-session ends the connection with its sentence, and the outbox waits for the next")
@@ -671,6 +744,19 @@ struct CompanionSessionTests {
         #expect(harness.socket.connectedPaths.count == 3)
         harness.socket.deliver(Self.refusal(CompanionProtocol.desktopRevokedReason, message: Self.revoked))
         #expect(harness.model.connection == .refused(Self.revoked))
+    }
+
+    @Test("a desktop its server no longer knows asks for one read of Always On, since no notice can follow")
+    func desktopRevokedCuesAlwaysOn() {
+        let harness = Harness()
+        var cues = 0
+        harness.session.homeStatusCue = { cues += 1 }
+        harness.connected()
+
+        harness.socket.deliver(Self.refusal(CompanionProtocol.desktopRevokedReason, message: Self.revoked))
+
+        #expect(cues == 1)
+        #expect(harness.scheduler.liveCount == 0, "nothing is retried, so nothing reads again")
     }
 
     @Test("a desktop's refusal of an unattended client is said in the daemon's sentence")

@@ -107,6 +107,8 @@ enum ManagementV2ResultDecoder {
             try read(ManagementCueWatcherList.self, payload, identifier, method)
         case .cuesWatchersGet:
             try read(ManagementCueWatcherAnswer.self, payload, identifier, method)
+        case .cuesWatchersAlwaysAllowRevoke:
+            try read(RevokedWatcher.self, payload, identifier, method)
         case .cuesMandatesList:
             try read(ManagementCueMandateList.self, payload, identifier, method)
         case .cuesMandatesChoices:
@@ -143,6 +145,8 @@ enum ManagementV2ResultDecoder {
             try read(ManagementProvisionView.self, payload, identifier, method)
         case .homeProvisionOptions:
             try read(ManagementProvisionOptions.self, payload, identifier, method)
+        case .homeProvisionProviders:
+            try read(ManagementProvisionProviders.self, payload, identifier, method)
 
         // Every remaining method answers the uniform job view.
         case .providersProbeStart, .jobGet, .jobCancel, .authImportStart, .pluginsInstallStart,
@@ -167,4 +171,11 @@ enum ManagementV2ResultDecoder {
             as: Result.self
         )
     }
+}
+
+/// `cues.watchers.always_allow.revoke`'s answer, the watcher's row: the app
+/// asks it nowhere yet, so its envelope is modelled only here, over the app's
+/// own row.
+private struct RevokedWatcher: Decodable {
+    let watcher: ManagementCueWatcher
 }

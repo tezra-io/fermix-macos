@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// What Details holds (§7): on `choose` the server's shape and the price with
-/// its IPv4 address and VAT, and how Hetzner bills; on `ready` the server's
+/// its IPv4 address and VAT, and how the provider bills; on `ready` the server's
 /// facts and until when it waits; on `on` the server, each backup, the space
 /// this Mac's copies take, the disk, what lives on the server, Back up now and
 /// Replace the server; on a problem what Fermix last saw and when, and the
@@ -140,8 +140,8 @@ enum AlwaysOnFormat {
     }
 }
 
-/// The prices of an offer, as Hetzner gave them: monthly and gross, in the
-/// account's currency, never rounded or summed here.
+/// The prices of an offer, as the provider gave them: monthly and gross, in
+/// the account's currency, never rounded or summed here.
 enum AlwaysOnPrices {
     static func money(_ amount: String, currency: String) -> String {
         guard let value = Decimal(string: amount, locale: Locale(identifier: "en_US_POSIX")) else { return amount }
@@ -155,7 +155,7 @@ enum AlwaysOnPrices {
         String(
             format: ProductStrings[.alwaysOnChoiceFormat],
             offer.description,
-            options.city(offer.location) ?? offer.location.wireValue,
+            options.city(offer.location) ?? offer.location,
             money(offer.totalMonthly, currency: options.currency)
         )
     }
@@ -178,8 +178,8 @@ enum AlwaysOnPrices {
     }
 }
 
-/// Change (§7): the sizes and locations Hetzner has in stock, each with its
-/// monthly price as given.
+/// Change (§7): the sizes and locations the provider has in stock, each with
+/// its monthly price as given.
 struct AlwaysOnChangeSheet: View {
     @ObservedObject var model: AlwaysOnModel
     let done: () -> Void
