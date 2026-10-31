@@ -421,13 +421,6 @@ check_staged_assets() {
   done <<MARKS
 $(cd "$source_marks" && find . -type f ! -name '*.json' | sed 's|^\./||')
 MARKS
-  # The chat's reading face, its licence and its record, every file of them.
-  while IFS= read -r name; do
-    [ -n "$name" ] || continue
-    [ -f "$resources/Fonts/$name" ] || fail "Fonts/$name is not staged"
-  done <<FONTS
-$(cd "$SOURCE_RESOURCES/Fonts" && find . -type f | sed 's|^\./||')
-FONTS
   for asset in "Product.json" "en.lproj/Localizable.strings" "FermixMarkTemplate.png"; do
     [ -f "$resources/$asset" ] || fail "$asset is not staged in the resource bundle"
   done

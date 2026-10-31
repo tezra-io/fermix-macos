@@ -124,6 +124,17 @@ public struct CompanionTurn: Equatable, Sendable {
     public internal(set) var text: String
     /// The latest tool call the turn reported, as the daemon reported it.
     public internal(set) var tool: CompanionToolEvent?
+    /// What the turn said it was doing, oldest first (version 6): each tool's
+    /// step in the engine's words and each summary of its reasoning.
+    public internal(set) var steps: [CompanionTurnStep] = []
+}
+
+/// One thing a turn said it was doing while it ran.
+public enum CompanionTurnStep: Equatable, Sendable {
+    /// A tool's step, in the engine's sentence for it.
+    case activity(String)
+    /// The model's summary of a step of its reasoning, as it wrote it.
+    case reasoning(String)
 }
 
 /// What a request asks of the agent.

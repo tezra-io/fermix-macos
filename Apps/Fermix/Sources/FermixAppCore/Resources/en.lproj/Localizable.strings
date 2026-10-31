@@ -465,6 +465,9 @@
 "outside.subjectFormat" = "Subject: %@";
 "outside.datedFormat" = "Dated: %@";
 "chat.thinking" = "Thinking";
+"chat.workedFor" = "Worked for %@";
+"chat.steps.show" = "Shows the steps Fermix took";
+"chat.steps.hide" = "Hides the steps Fermix took";
 "chat.showNewest" = "Show the newest message";
 "chat.search.prompt" = "Search the conversation";
 "chat.search.searching" = "Searching";
@@ -483,7 +486,6 @@
 "chat.kind.document" = "Document";
 "chat.kind.page" = "Page";
 "chat.kind.file" = "File";
-"chat.code" = "Code";
 "chat.code.language.shell" = "Shell";
 "chat.code.language.powerShell" = "PowerShell";
 "chat.code.language.batch" = "Batch";
@@ -526,8 +528,6 @@
 "chat.code.language.dockerfile" = "Dockerfile";
 "chat.code.language.makefile" = "Makefile";
 "chat.code.language.text" = "Text";
-"chat.table" = "Table";
-"chat.quote" = "Quote";
 "chat.list.bullet" = "•";
 "chat.list.bulletNested" = "◦";
 "chat.list.numberFormat" = "%lld.";

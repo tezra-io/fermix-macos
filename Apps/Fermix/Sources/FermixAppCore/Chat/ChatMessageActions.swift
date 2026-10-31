@@ -1,10 +1,10 @@
 import SwiftUI
 
 extension ChatMetrics {
-    /// A message's action: the system's regular control height, square, its
-    /// glyph a small caption's size.
-    static let actionSize: Double = HitTarget.rowAction
-    static let actionGlyph: Double = 12
+    /// A message's action and a code block's Copy: the system's small
+    /// control height, square, its glyph a caption's size.
+    static let actionSize: Double = 20
+    static let actionGlyph: Double = 11
     /// Between a reply and the actions under it.
     static let actionsTopGap: Double = Spacing.xxs
     /// The actions' height under a reply, which the seam to the next turn
@@ -61,13 +61,15 @@ struct ChatReplyActionsRow: ViewModifier {
 }
 
 /// Copy, as a quiet glyph that says Copied for a moment once pressed. It
-/// shows while the pointer is over its message, the keyboard is on it, or it
-/// has just copied; VoiceOver always finds it.
+/// shows while the pointer is over its message or its code block, the
+/// keyboard is on it, or it has just copied; VoiceOver always finds it.
 struct ChatCopyAction: View {
     /// What it writes.
     let text: String
     /// Whether the pointer is over its message.
     let shown: Bool
+    /// What it is called: Copy for a message, Copy code for a code block.
+    var label: ProductStringKey = .chatMessageCopy
 
     @State private var copied = false
     @FocusState private var focused: Bool
@@ -87,8 +89,8 @@ struct ChatCopyAction: View {
         }
         .buttonStyle(ChatActionButtonStyle())
         .focused($focused)
-        .help(ProductStrings[.chatMessageCopy])
-        .accessibilityLabel(ProductStrings[copied ? .chatCodeCopied : .chatMessageCopy])
+        .help(ProductStrings[label])
+        .accessibilityLabel(ProductStrings[copied ? .chatCodeCopied : label])
         .opacity(visible ? 1 : 0)
         .animation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade), value: visible)
         .task(id: copied) {
@@ -122,5 +124,23 @@ private struct ChatActionFace: View {
             )
             .opacity(configuration.isPressed ? ChatMetrics.tilePressedStrength : 1)
             .onHover { hovering = $0 }
+    }
+}
+
+/// What Copy does: puts its text on the pasteboard through the app's one
+/// writer (`Clipboard`), a message as it was written and a code block's code
+/// exactly as written, and tells VoiceOver it did.
+struct ChatCopy {
+    let write: (String) -> Void
+    let announcer: any AccessibilityAnnouncing
+
+    /// The pasteboard and VoiceOver, as the app copies.
+    static var app: ChatCopy {
+        ChatCopy(write: Clipboard.write, announcer: AppKitAccessibilityAnnouncer())
+    }
+
+    func callAsFunction(_ text: String) {
+        write(text)
+        announcer.announce(ProductStrings[.chatCodeCopied])
     }
 }

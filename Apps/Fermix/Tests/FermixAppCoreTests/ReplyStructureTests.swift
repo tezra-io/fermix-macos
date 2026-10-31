@@ -7,7 +7,7 @@ import Testing
 /// The words between a reply's code blocks are read as the blocks they are
 /// written as, by GitHub's rules kept to the set the phone draws: paragraphs,
 /// lists with their nesting and numbers, tables with their alignment and
-/// cells, and quotes. A heading stays a bold line of its paragraph.
+/// cells, quotes, and headings, each a block of its own.
 @Suite("Reply structure")
 struct ReplyStructureTests {
     private static let home = "/Users/me"
@@ -19,6 +19,7 @@ struct ReplyStructureTests {
         switch block {
         case .prose(let words): return "prose " + String(words.characters)
         case .quote(let words): return "quote " + String(words.characters)
+        case .heading(let level, let words): return "h\(level) " + String(words.characters)
         case .code(let code): return "code \(code.language ?? "-") " + code.text
         case .list(let list): return "list " + list.items.map(described).joined(separator: " | ")
         case .table(let table): return "table " + described(table)
@@ -61,13 +62,15 @@ struct ReplyStructureTests {
         #expect(Self.described("\n\n  \n").isEmpty)
     }
 
-    @Test("a heading is a bold line of its paragraph, as it was")
-    func headingInParagraph() throws {
-        let blocks = ReplyText(markdown: "## Plan\nFirst this.\n\n### Then\n- a", home: Self.home).blocks
-        let plan = try #require(blocks.first?.prose)
+    /// A heading line is a block of its own wherever it stands, and ends a
+    /// paragraph; inside a quote or an item it stays a bold line of its words.
+    @Test("a heading is a block of its own, and a bold line inside a quote")
+    func headings() throws {
+        let blocks = ReplyText(markdown: "## Plan\nFirst this.\nStill this.\n### Then\n- a\n\n> ### Quoted", home: Self.home).blocks
 
-        #expect(blocks.map(Self.described) == ["prose Plan\nFirst this.", "prose Then", "list • a"])
-        #expect(plan.runs.first?.inlinePresentationIntent == .stronglyEmphasized)
+        #expect(blocks.map(Self.described) == ["h2 Plan", "prose First this.\nStill this.", "h3 Then", "list • a", "quote Quoted"])
+        guard case .quote(let quote) = try #require(blocks.last) else { return }
+        #expect(quote.runs.first?.inlinePresentationIntent == .stronglyEmphasized)
     }
 
     // MARK: - Lists

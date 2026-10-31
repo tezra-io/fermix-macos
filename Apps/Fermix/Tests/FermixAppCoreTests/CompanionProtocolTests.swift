@@ -111,7 +111,7 @@ struct CompanionProtocolTests {
             return try CompanionServerEvent.decode(fixture.line)
         }
 
-        #expect(try event("server_hello") == .serverHello(minVersion: 4, maxVersion: 5, primaryEpoch: 2, role: .primary))
+        #expect(try event("server_hello") == .serverHello(minVersion: 5, maxVersion: 6, primaryEpoch: 2, role: .primary))
 
         let duplicate = try event("accepted") { $0.object["duplicate"] as? Bool == true }
         #expect(duplicate == .accepted(CompanionAccepted(clientMsgId: "mac-1", duplicate: true, serverSeq: 13)))
@@ -120,6 +120,18 @@ struct CompanionProtocolTests {
         #expect(
             stopped == .toolEvent(
                 CompanionToolEvent(turnId: "turn-mac-1", tool: "web_search", phase: .stop, detail: "%{status: :ok}")
+            )
+        )
+        let started = try event("tool_event") { $0.object["activity"] != nil }
+        #expect(
+            started == .toolEvent(
+                CompanionToolEvent(turnId: "turn-mac-1", tool: "web_search", phase: .start, detail: nil, activity: "Searching the web")
+            )
+        )
+        #expect(
+            try event("reasoning") == .reasoning(
+                turnId: "turn-mac-1",
+                text: "**Checking the calendar**\n\nThe owner wants today's schedule, so I'll look up today's events before answering."
             )
         )
         #expect(try event("text_done") == .textDone(turnId: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10."))
@@ -165,8 +177,8 @@ struct CompanionProtocolTests {
         }
         #expect(refusal.reason == "unsupported_protocol_version")
         #expect(refusal.direction == .clientTooNew)
-        #expect(refusal.clientVersion == 6)
-        #expect(refusal.window == CompanionVersionWindow(minimum: 4, maximum: 5))
+        #expect(refusal.clientVersion == 7)
+        #expect(refusal.window == CompanionVersionWindow(minimum: 5, maximum: 6))
     }
 
     /// Version 5: a watcher's follow-up asks on a proposal's card, naming the

@@ -259,6 +259,25 @@ struct CompanionReducerTests {
         #expect(chat.cursor == 13)
     }
 
+    /// Version 6: what the turn says it is doing is kept in order, a tool's
+    /// step only on its start and only where the engine said it in words.
+    @Test("a turn keeps its reasoning and each tool's step in order, in the engine's words")
+    func turnSteps() {
+        var chat = CompanionChat.holding(1...12)
+        let start = CompanionToolEvent(turnId: "turn-mac-1", tool: "web_search", phase: .start, detail: nil, activity: "Searching the web")
+        let stop = CompanionToolEvent(turnId: "turn-mac-1", tool: "web_search", phase: .stop, detail: "%{status: :ok}")
+        let unsaid = CompanionToolEvent(turnId: "turn-mac-1", tool: "shell", phase: .start, detail: nil)
+
+        chat.receive(.turnStarted(profileId: "main", turnId: "turn-mac-1", inReplyTo: "mac-1"))
+        chat.receive(.reasoning(turnId: "turn-mac-1", text: "**Checking the weather**\n\nFirst the forecast."))
+        chat.receive(.toolEvent(start))
+        chat.receive(.toolEvent(stop))
+        chat.receive(.toolEvent(unsaid))
+
+        #expect(chat.turn?.steps == [.reasoning("**Checking the weather**\n\nFirst the forecast."), .activity("Searching the web")])
+        #expect(chat.turn?.tool == unsaid)
+    }
+
     @Test("a turn joined midway starts from its first delta, with no request known")
     func turnJoinedMidway() {
         var chat = CompanionChat.holding(1...12)

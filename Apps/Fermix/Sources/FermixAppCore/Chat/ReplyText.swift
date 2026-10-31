@@ -9,8 +9,9 @@ import Foundation
 /// Fermix's words are blocks in reading order: a fenced code block
 /// (`ReplyFences`) is code, kept as it was written with the language its
 /// fence names, and the words between are the paragraphs, lists, tables and
-/// quotes they are written as (`ReplyStructure`), every stretch of their
-/// words inline markdown, their headings read inline (`headingsInlined`),
+/// quotes they are written as (`ReplyStructure`), and the headings between
+/// them, every stretch of their words inline markdown, a heading inside a
+/// quote, an item or a cell read inline (`headingsInlined`),
 /// with every local path (`ReplyPaths`) and every web address written out
 /// (`ReplyLinks`) a link. Code carries no links. A person's words are drawn
 /// as they typed them, so they are read as plain text, one block: only the
@@ -79,23 +80,32 @@ struct ReplyText: Equatable {
         return ReplyPaths.linked(ReplyLinks.linked(parsed), home: home)
     }
 
-    /// Inline markdown only, except a heading line, one to six `#` then a
-    /// space then its text, which becomes that text strongly emphasised: a
-    /// reply is a conversation, and a heading reads as noise on the ground
-    /// rather than as structure (owner, 2026-09-28). Every other line is left
+    /// Inline markdown only, except a heading line inside a quote, a list
+    /// item or a table cell, one to six `#` then a space then its text, which
+    /// becomes that text strongly emphasised. A heading line of the reply's
+    /// own is a block of its own (`ReplyStructure`). Every other line is left
     /// as it is.
     private static func headingsInlined(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line in heading(line).map { "**\($0)**" } ?? String(line) }
+            .map { line in ReplyHeading(line).map { "**\($0.title)**" } ?? String(line) }
             .joined(separator: "\n")
     }
+}
 
-    /// The text of a heading line, or nil for any other line.
-    private static func heading(_ line: Substring) -> String? {
+/// A heading line: one to six `#`, a space, and its text, which is not
+/// empty. How many `#` it opens with is its level.
+struct ReplyHeading {
+    let level: Int
+    let title: String
+
+    init?(_ line: Substring) {
         let marks = line.prefix { $0 == "#" }
         guard (1...6).contains(marks.count), line.dropFirst(marks.count).first == " " else { return nil }
         let title = line.dropFirst(marks.count + 1).trimmingCharacters(in: .whitespaces)
-        return title.isEmpty ? nil : title
+        guard !title.isEmpty else { return nil }
+
+        level = marks.count
+        self.title = title
     }
 }
 
@@ -120,6 +130,8 @@ struct ReplyReading {
 enum ReplyBlock: Equatable {
     /// A paragraph: words, with their links set.
     case prose(AttributedString)
+    /// A heading line of the reply's own: its level, 1 to 6, and its words.
+    case heading(level: Int, words: AttributedString)
     /// A fenced code block, as it was written.
     case code(ReplyCode)
     /// A list, its nested items among its own.
@@ -142,7 +154,7 @@ enum ReplyBlock: Equatable {
     /// items, and a table's header and then its rows. Code has none.
     var words: [AttributedString] {
         switch self {
-        case .prose(let words), .quote(let words): return [words]
+        case .prose(let words), .quote(let words), .heading(_, let words): return [words]
         case .code: return []
         case .list(let list): return list.items.map(\.words)
         case .table(let table): return table.header + table.rows.flatMap { $0 }
@@ -157,6 +169,8 @@ enum ReplyBlock: Equatable {
             return .prose(change(words))
         case .quote(let words):
             return .quote(change(words))
+        case .heading(let level, let words):
+            return .heading(level: level, words: change(words))
         case .code:
             return self
         case .list(let list):

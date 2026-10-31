@@ -164,13 +164,6 @@ struct CodeHighlightTests {
         #expect(tags.allSatisfy { $0 == $0.lowercased() })
     }
 
-    @Test("VoiceOver names a block by its language's name, and a block with no language as code")
-    func spokenLanguage() {
-        #expect(ChatCodeBlock.label(of: ReplyCode(language: "py", text: "x = 1")) == ProductStrings.commaPair(ProductStrings[.chatCode], "Python"))
-        #expect(ChatCodeBlock.label(of: ReplyCode(language: "nim", text: "x")) == ProductStrings.commaPair(ProductStrings[.chatCode], "nim"))
-        #expect(ChatCodeBlock.label(of: ReplyCode(language: nil, text: "x")) == ProductStrings[.chatCode])
-    }
-
     // MARK: - Hostile input
 
     @Test("a string never closed is no string, and a quote inside another is part of it")

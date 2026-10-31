@@ -1,13 +1,11 @@
 import AppKit
-import SwiftUI
 import Testing
 
 @testable import FermixAppCore
 
 /// A table's columns follow the browser's automatic rule: natural widths
 /// where they fit, and otherwise the widest give way first and wrap, down to
-/// a floor, so every column shows in the reply; only floors wider than the
-/// reply scroll.
+/// a floor, so every column shows in the reply.
 @Suite("Table columns")
 struct ChatTableColumnsTests {
     private static let gap = ChatMetrics.tableColumnGap
@@ -44,7 +42,7 @@ struct ChatTableColumnsTests {
         #expect(Self.widths([900], in: 600) == [600])
     }
 
-    @Test("no column narrows below the floor, and floors wider than the reply are kept and scroll")
+    @Test("no column narrows below the floor, and floors wider than the reply are kept")
     func floors() {
         #expect(Self.widths([500, 500, 500], in: 400) == [Self.floor, Self.floor, Self.floor])
         #expect(Self.widths([500, 400, 60], in: 200) == [Self.floor, Self.floor, 60])
@@ -52,25 +50,14 @@ struct ChatTableColumnsTests {
         #expect(Self.widths([], in: 300).isEmpty)
     }
 
-    /// Measured through SwiftUI itself: the layout reads each cell's ideal
-    /// width, and a cell in a column given way wraps onto more lines.
-    @Test("the layout fits a table too wide for the reply by wrapping its widest column")
-    @MainActor
-    func layoutWraps() {
-        let long = String(repeating: "Atmospheric lanes and steep climbs. ", count: 6)
-        func size(_ available: Double) -> CGSize {
-            let table = ChatTableLayout(alignments: [.leading, .leading, .trailing], available: available, floor: Self.floor) {
-                Text("Alfama")
-                Text(long)
-                Text("€€")
-            }
-            return NSHostingView(rootView: table).fittingSize
-        }
-        let wide = size(4000)
-        let narrow = size(500)
+    /// A table spans the reply: each column's width becomes its share of
+    /// the table's, so a narrower window narrows every column in step.
+    @Test("each column's share is its width over the table's, and a table with no words shares evenly")
+    func shares() {
+        let shares = ChatTableColumns.shares(natural: [108, 650, 85], available: 696, gap: Self.gap, floor: Self.floor)
 
-        #expect(narrow.width <= 500)
-        #expect(narrow.height > wide.height)
-        #expect(wide.width < 4000)
+        #expect(shares.map { ($0 * 100).rounded() / 100 } == [16.67, 70.22, 13.12])
+        #expect(abs(shares.reduce(0, +) - 100) < 0.001)
+        #expect(ChatTableColumns.shares(natural: [0, 0], available: 696, gap: Self.gap, floor: Self.floor) == [50, 50])
     }
 }

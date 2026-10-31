@@ -121,8 +121,11 @@ enum CompanionServerWire {
                 "turn_id": tool.turnId,
                 "tool": tool.tool,
                 "phase": word(tool.phase),
-                "detail": tool.detail
+                "detail": tool.detail,
+                "activity": tool.activity
             ])
+        case .reasoning(let turnId, let text):
+            return ["turn_id": turnId, "text": text]
         case .textDone(let turnId, let serverSeq, let text, let blocks):
             return present([
                 "turn_id": turnId,

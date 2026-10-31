@@ -77,13 +77,11 @@ struct ReplyBlocksTests {
         #expect(reply.links.isEmpty)
     }
 
-    @Test("a heading is still drawn as its text in bold, beside a code block")
-    func headingsUnchanged() throws {
-        let blocks = ChatText.drawn(ReplyText(markdown: "## Steps\n```\nls\n```", home: Self.home))
-        let heading = try #require(blocks.first?.prose)
+    @Test("a heading is a block of its own with its level, beside a code block")
+    func headings() throws {
+        let blocks = ReplyText(markdown: "## Steps\n```\nls\n```", home: Self.home).blocks
 
-        #expect(String(heading.characters) == "Steps")
-        #expect(heading.runs.allSatisfy { $0.inlinePresentationIntent == .stronglyEmphasized })
+        #expect(blocks.first == .heading(level: 2, words: AttributedString("Steps")))
         #expect(blocks.last?.code == ReplyCode(language: nil, text: "ls"))
     }
 

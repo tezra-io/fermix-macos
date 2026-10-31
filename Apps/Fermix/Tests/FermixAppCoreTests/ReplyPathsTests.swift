@@ -222,13 +222,16 @@ struct ReplyPathsTests {
         #expect(ReplyText(markdown: text, home: Self.home).files.map(\.path) == ["/Users/me/work/a.png"])
     }
 
-    @Test("a heading's path is a link, drawn in bold")
+    @Test("a heading's path is a link")
     func headingPath() throws {
-        let reply = Self.reply("## Saved /Users/me/out/report.pdf")
-        let linked = try #require(reply.runs.first { $0.link != nil })
+        let blocks = ReplyText(markdown: "## Saved /Users/me/out/report.pdf", home: Self.home).blocks
+        guard case .heading(let level, _) = try #require(blocks.first) else {
+            Issue.record("a heading line is a heading")
+            return
+        }
 
-        #expect(Self.links(reply) == ["/Users/me/out/report.pdf": "file:///Users/me/out/report.pdf"])
-        #expect(linked.inlinePresentationIntent == .stronglyEmphasized)
+        #expect(level == 2)
+        #expect(Self.links(Self.reply("## Saved /Users/me/out/report.pdf")) == ["/Users/me/out/report.pdf": "file:///Users/me/out/report.pdf"])
     }
 
     @Test("the person's own message stays as they typed it, with no links")

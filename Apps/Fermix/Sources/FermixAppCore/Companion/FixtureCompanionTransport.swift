@@ -338,12 +338,17 @@ enum FixtureCompanionScript {
         row(20, "user", "Will it rain on Saturday? I want to plan the hike.", clientMsgId: askedLast),
     ]
 
-    /// Live after the newest page: the reply to the last message, with the
-    /// forecast lookup running, and an approval the agent is waiting on.
+    /// Live after the newest page: the reply to the last message, with a
+    /// summary of its reasoning, the forecast lookup running in the engine's
+    /// words, and an approval the agent is waiting on.
     static let opening: [CompanionServerEvent] = [
         .turnStarted(profileId: CompanionProtocol.profileId, turnId: openingTurn, inReplyTo: askedLast),
+        .reasoning(
+            turnId: openingTurn,
+            text: "**Finding the trailhead's forecast**\n\nThe hike is on Saturday, so I need the hourly forecast near the trailhead rather than the city's."
+        ),
         .textDelta(turnId: openingTurn, text: "Let me check the forecast for Saturday around the trailhead."),
-        .toolEvent(CompanionToolEvent(turnId: openingTurn, tool: "web_search", phase: .start, detail: nil)),
+        .toolEvent(CompanionToolEvent(turnId: openingTurn, tool: "web_search", phase: .start, detail: nil, activity: "Searching the web")),
         .approval(
             CompanionApproval(
                 approvalId: approvalId,

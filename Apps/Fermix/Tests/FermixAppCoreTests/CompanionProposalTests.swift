@@ -164,10 +164,10 @@ private func moment(_ value: String) throws -> Date {
 
 @Suite("Companion proposals: the wire")
 struct CompanionProposalWireTests {
-    @Test("this build speaks version 5 on the 4 to 5 window, the version that carries a follow-up's card")
-    func declaresVersionFive() {
-        #expect(CompanionProtocol.version == 5)
-        #expect(CompanionProtocol.supportedWindow == CompanionVersionWindow(minimum: 4, maximum: 5))
+    @Test("this build speaks version 6 on the 5 to 6 window, past the version that carries a follow-up's card")
+    func declaresVersionSix() {
+        #expect(CompanionProtocol.version == 6)
+        #expect(CompanionProtocol.supportedWindow == CompanionVersionWindow(minimum: 5, maximum: 6))
     }
 
     @Test("a follow-up's card decodes with its follow-up and no call, and writes back as itself")
@@ -674,7 +674,7 @@ struct CompanionProposalSessionTests {
         harness.socket.deliver(E.hello(3, 4))
 
         #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
-        #expect(try harness.socket.sentObjects() == [wireObject(companion: .clientHello(protocolVersion: 5))])
+        #expect(try harness.socket.sentObjects() == [wireObject(companion: .clientHello(protocolVersion: CompanionProtocol.version))])
     }
 
     @Test("a follow-up's card is held, answered by its id and word alone, and resolved like any proposal")

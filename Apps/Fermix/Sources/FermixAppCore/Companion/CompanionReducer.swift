@@ -232,6 +232,13 @@ enum CompanionReducer {
         case .toolEvent(let tool):
             var turn = held(tool.turnId, in: chat)
             turn.tool = tool
+            if tool.phase == .start, let activity = tool.activity {
+                turn.steps.append(.activity(activity))
+            }
+            chat.turn = turn
+        case .reasoning(let turnId, let text):
+            var turn = held(turnId, in: chat)
+            turn.steps.append(.reasoning(text))
             chat.turn = turn
         case .textDone(let turnId, let serverSeq, let text, let blocks):
             return finish(turnId, at: serverSeq, text: text, blocks: blocks, into: &chat)

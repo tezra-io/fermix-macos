@@ -221,10 +221,6 @@ struct ChatSurfaceView: View {
                 visit: visit,
                 columnWidth: ChatMetrics.column(inBody: bodyWidth)
             ))
-            // A conversation is set in the reading face, its code in the
-            // system's monospaced one; the toolbar and its search field stay
-            // the system's.
-            .environment(\.typeFace, .reading)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onGeometryChange(for: Double.self) { proxy in
                 proxy.size.width

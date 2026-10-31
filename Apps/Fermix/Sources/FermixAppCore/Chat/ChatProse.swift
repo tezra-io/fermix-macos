@@ -2,14 +2,19 @@ import AppKit
 import SwiftUI
 
 extension ChatMetrics {
-    /// A reply's words and a person's, in the reading face: the body's size
-    /// with room between lines for reading at length (owner, 2026-10-30).
-    static let readingType = TypeStyle(size: 15, leading: 23, weight: .regular, relativeTo: .body)
-    /// Between two paragraphs drawn as one text: less than a blank line, so
-    /// a run of paragraphs reads as one piece of writing.
-    static let paragraphGap: Double = 10
+    /// A reply's words and a person's: the system's face at the body's size,
+    /// with room between lines for reading at length.
+    static let readingType = TypeStyle(size: 16, leading: 26, weight: .regular, relativeTo: .body)
+    /// Above a paragraph, a list, a quote, a table or a code block that
+    /// follows another block: less than a blank line, so a reply reads as one
+    /// piece of writing.
+    static let paragraphGap: Double = 12
+    /// Above a heading that follows another block, and under a heading
+    /// before the block it heads, so a heading sits with what it heads.
+    static let headingGap: Double = 22
+    static let underHeadingGap: Double = 6
     /// Inline code, a step under the words round it, as a code block is.
-    static let codeSpanScale: Double = 0.9
+    static let codeSpanScale: Double = 0.88
     /// The mark after a link that may not go where it seems to, as a share
     /// of the words' size.
     static let cautionMarkScale: Double = 0.8
@@ -38,107 +43,127 @@ struct ChatLinkTitles: Equatable {
     }
 }
 
-/// Marks a link that may not go where it seems to, with why, on the words
-/// the system's text view draws (`ChatProseText`).
 extension NSAttributedString.Key {
+    /// Marks a link that may not go where it seems to, with why, on the
+    /// words a reply's text view draws (`ChatProseText`).
     static let chatLinkCaution = NSAttributedString.Key("fermix.chatLinkCaution")
+    /// Marks inline code, whose fill the reply's text view draws round
+    /// (`ChatReplyLayoutManager`).
+    static let chatCodeSpan = NSAttributedString.Key("fermix.chatCodeSpan")
+    /// What a stretch of a reply's text is copied as where it is not its own
+    /// characters: a table cell's end is a tab, a task's box its markdown,
+    /// and a caution mark nothing (`ChatReplyTextView`).
+    static let chatPlain = NSAttributedString.Key("fermix.chatPlain")
 }
 
-/// What a reply's words are drawn with by the system's text view: the
-/// reading face at the size the reader's text size makes it, its lines a
-/// fixed height apart so a line with an emoji or another script in it is
-/// no taller, and its paragraphs a gap apart.
-struct ChatProseStyle {
+/// What a reply's words are set in: the system's face at the size the
+/// reader's text size makes the reading rung, its lines a fixed height
+/// apart so a line with an emoji or another script in it is no taller, and
+/// every other measure grown with it.
+struct ChatProseStyle: Equatable {
     let size: Double
+    /// How much the reader's text size grew the reading rung.
+    let ratio: Double
     let lineHeight: Double
-    let paragraphGap: Double
-    private let faces: Faces
 
     /// The reading rung at `size`, the reader's text size applied to it.
-    @MainActor
     init(size: Double) {
-        let ratio = size / ChatMetrics.readingType.size
+        ratio = size / ChatMetrics.readingType.size
         self.size = size
         lineHeight = (ChatMetrics.readingType.leading ?? size) * ratio
-        paragraphGap = ChatMetrics.paragraphGap * ratio
-        faces = Self.faces(at: size)
     }
 
-    func font(_ intent: InlinePresentationIntent?) -> NSFont {
-        if intent?.contains(.code) == true { return faces.code }
+    /// A measure of the redlines grown with the words.
+    func scaled(_ value: Double) -> Double {
+        value * ratio
+    }
 
-        switch (intent?.contains(.stronglyEmphasized) == true, intent?.contains(.emphasized) == true) {
-        case (false, false): return faces.regular
-        case (true, false): return faces.strong
-        case (false, true): return faces.italic
-        case (true, true): return faces.strongItalic
+    /// The words' face for what inline markdown made of them.
+    @MainActor
+    func font(_ intent: InlinePresentationIntent?) -> NSFont {
+        if intent?.contains(.code) == true { return codeSpanFont }
+
+        let strong = intent?.contains(.stronglyEmphasized) == true
+        return Self.face(size: size, weight: strong ? .semibold : .regular, italic: intent?.contains(.emphasized) == true)
+    }
+
+    /// A heading's size: a level 1 or 2 heading a step over the words, a
+    /// level 3 heading half a step, and any deeper one the words' own size,
+    /// all semibold.
+    func headingSize(level: Int) -> Double {
+        switch level {
+        case 1, 2: return size * 1.25
+        case 3: return size * 1.125
+        default: return size
         }
     }
 
-    /// The fonts a reply's words are set in at one size, matched once for
-    /// each size: finding a face by its family is the slow part of drawing
-    /// a reply, and a turn being written draws its last paragraph again for
-    /// every piece.
-    private struct Faces {
-        let regular: NSFont
-        let strong: NSFont
-        let italic: NSFont
-        let strongItalic: NSFont
-        let code: NSFont
+    @MainActor
+    func headingFont(level: Int, emphasized: Bool = false) -> NSFont {
+        Self.face(size: headingSize(level: level), weight: .semibold, italic: emphasized)
     }
 
-    @MainActor private static var matched: [Double: Faces] = [:]
+    func headingLineHeight(level: Int) -> Double {
+        (headingSize(level: level) * 1.35).rounded()
+    }
 
     @MainActor
-    private static func faces(at size: Double) -> Faces {
-        if let known = matched[size] { return known }
-
-        let faces = Faces(
-            regular: ReadingFace.nsFont(size: size, weight: .regular),
-            strong: ReadingFace.nsFont(size: size, weight: .semibold),
-            italic: ReadingFace.nsFont(size: size, weight: .regular, italic: true),
-            strongItalic: ReadingFace.nsFont(size: size, weight: .semibold, italic: true),
-            code: NSFont.monospacedSystemFont(ofSize: size * ChatMetrics.codeSpanScale, weight: .regular)
-        )
-        matched[size] = faces
-        return faces
+    var codeSpanFont: NSFont {
+        Self.mono(size: size * ChatMetrics.codeSpanScale, weight: .regular)
     }
 
-    func paragraph(first: Bool) -> NSParagraphStyle {
+    /// A code block's code: the code rung, grown with the words.
+    @MainActor
+    func codeFont(strong: Bool = false) -> NSFont {
+        Self.mono(size: scaled(ChatMetrics.codeType.size), weight: strong ? .semibold : .regular)
+    }
+
+    var codeLineHeight: Double {
+        scaled(ChatMetrics.codeType.leading ?? ChatMetrics.codeType.size)
+    }
+
+    /// A paragraph of the words, `before` points under what comes before it.
+    func paragraph(before: Double = 0, lineHeight: Double? = nil) -> NSMutableParagraphStyle {
         let style = NSMutableParagraphStyle()
-        style.minimumLineHeight = lineHeight
-        style.maximumLineHeight = lineHeight
-        style.paragraphSpacingBefore = first ? 0 : paragraphGap
+        style.minimumLineHeight = lineHeight ?? self.lineHeight
+        style.maximumLineHeight = lineHeight ?? self.lineHeight
+        style.paragraphSpacingBefore = before
         return style
     }
 
-    /// Where the first line's baseline sits under the top of the words, as
-    /// TextKit lays a line of this style out: what a list item's words and
-    /// its mark line up on. Laid out once for each size.
-    @MainActor
-    var firstBaseline: Double {
-        if let known = Self.baselines[size] { return known }
+    /// The faces a reply is set in, each made once for its size: finding a
+    /// face is the slow part of setting a reply, and a turn being written
+    /// sets its last block again for every piece.
+    @MainActor private static var faces: [String: NSFont] = [:]
 
-        let probe = NSTextStorage(string: "X", attributes: [.font: font(nil), .paragraphStyle: paragraph(first: true)])
-        let layout = NSLayoutManager()
-        let container = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0
-        layout.addTextContainer(container)
-        probe.addLayoutManager(layout)
-        let baseline = layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).minY + layout.location(forGlyphAt: 0).y
-        Self.baselines[size] = baseline
-        return baseline
+    @MainActor
+    private static func face(size: Double, weight: NSFont.Weight, italic: Bool) -> NSFont {
+        let key = "\(size)-\(weight.rawValue)-\(italic)"
+        if let known = faces[key] { return known }
+
+        let upright = NSFont.systemFont(ofSize: size, weight: weight)
+        let font = italic ? NSFontManager.shared.convert(upright, toHaveTrait: .italicFontMask) : upright
+        faces[key] = font
+        return font
     }
 
-    @MainActor private static var baselines: [Double: Double] = [:]
+    @MainActor
+    private static func mono(size: Double, weight: NSFont.Weight) -> NSFont {
+        let key = "mono-\(size)-\(weight.rawValue)"
+        if let known = faces[key] { return known }
+
+        let font = NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+        faces[key] = font
+        return font
+    }
 }
 
-/// A run of a reply's paragraphs as the system's text view draws them,
+/// One stretch of a reply's words as the reply's text view draws them,
 /// read from the words as they were parsed (`ReplyText`):
 ///
 /// - The words in the reply's ink; strongly emphasised words semibold,
-///   emphasised ones italic, inline code monospaced a step smaller on a faint
-///   fill, struck words struck through.
+///   emphasised ones italic, inline code monospaced a step smaller on a
+///   rounded faint fill, struck words struck through.
 /// - Every link, a markdown link and an address or path written out alike,
 ///   in the words' own ink with a faint underline, as the person's own
 ///   messages draw one. Where the pointer rests on it, it names where it
@@ -148,48 +173,32 @@ struct ChatProseStyle {
 ///   which a click is checked against (`ChatLinkGuard`), says why where the
 ///   pointer rests on it, and has a small caution mark after its words.
 /// - A search's matches marked, as `ChatText.marking` marks them.
+@MainActor
 enum ChatProseText {
     /// The tones the words are drawn in, each made once: a dynamic colour
     /// resolves for the appearance when it is drawn.
-    private static let ink = Palette.ink.nsColor
-    private static let faint = Palette.faint.nsColor
+    static let ink = Palette.ink.nsColor
+    static let secondary = Palette.secondary.nsColor
+    static let faint = Palette.faint.nsColor
     private static let codeFill = Palette.codeSpanFill.nsColor
     private static let warning = Palette.warning.nsColor
     private static let markTone = Palette.accentText.nsColor
 
-    static func attributed(
-        _ paragraphs: [AttributedString],
-        marked: [String],
-        titles: ChatLinkTitles,
-        style: ChatProseStyle
-    ) -> NSAttributedString {
-        let text = NSMutableAttributedString()
-        for (index, words) in paragraphs.enumerated() {
-            if index > 0 {
-                text.append(NSAttributedString(string: "\n", attributes: [.font: style.font(nil)]))
-            }
-            let start = text.length
-            text.append(paragraph(words, titles: titles, style: style))
-            text.addAttribute(
-                .paragraphStyle,
-                value: style.paragraph(first: index == 0),
-                range: NSRange(location: start, length: text.length - start)
-            )
-        }
-        mark(marked, in: text, style: style)
-
-        return text
-    }
-
-    /// A paragraph's words set in one piece, then each stretch drawn apart
+    /// The words set in one piece in `base`, then each stretch drawn apart
     /// from the rest, a link's mark set in after its words last to first so
-    /// every range read before stays where it was.
-    private static func paragraph(_ words: AttributedString, titles: ChatLinkTitles, style: ChatProseStyle) -> NSAttributedString {
-        let drawn = NSMutableAttributedString(string: String(words.characters), attributes: [.font: style.font(nil), .foregroundColor: ink])
+    /// every range read before stays where it was. `font` sets a stretch's
+    /// face for what inline markdown made of it.
+    static func words(
+        _ words: AttributedString,
+        titles: ChatLinkTitles,
+        style: ChatProseStyle,
+        font: (InlinePresentationIntent?) -> NSFont
+    ) -> NSMutableAttributedString {
+        let drawn = NSMutableAttributedString(string: String(words.characters), attributes: [.font: font(nil), .foregroundColor: ink])
         for run in words.runs {
             guard let intent = run.inlinePresentationIntent else { continue }
 
-            drawn.addAttributes(attributes(of: intent, style: style), range: NSRange(run.range, in: words))
+            drawn.addAttributes(attributes(of: intent, font: font(intent)), range: NSRange(run.range, in: words))
         }
         for link in links(in: words).reversed() {
             let range = NSRange(link.range, in: words)
@@ -202,10 +211,11 @@ enum ChatProseText {
         return drawn
     }
 
-    private static func attributes(of intent: InlinePresentationIntent, style: ChatProseStyle) -> [NSAttributedString.Key: Any] {
-        var attributes: [NSAttributedString.Key: Any] = [.font: style.font(intent)]
+    private static func attributes(of intent: InlinePresentationIntent, font: NSFont) -> [NSAttributedString.Key: Any] {
+        var attributes: [NSAttributedString.Key: Any] = [.font: font]
         if intent.contains(.code) {
             attributes[.backgroundColor] = codeFill
+            attributes[.chatCodeSpan] = true
         }
         if intent.contains(.strikethrough) {
             attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
@@ -247,7 +257,7 @@ enum ChatProseText {
     /// What a link says where the pointer rests on it: why it may not go
     /// where it seems to, or the title of its page, and under either the
     /// whole of where it goes.
-    static func tip(_ url: URL, title: String?, caution: LinkCaution?) -> String {
+    nonisolated static func tip(_ url: URL, title: String?, caution: LinkCaution?) -> String {
         let address = url.isFileURL ? url.path(percentEncoded: false) : url.absoluteString
         let heading = caution.map(ChatLinkCautionWords.sentence) ?? title
         return heading.map { $0 + "\n" + address } ?? address
@@ -255,16 +265,29 @@ enum ChatProseText {
 
     /// The caution mark after a link's words, kept on their line by a narrow
     /// space that never breaks: a small triangle in the warning tone, which
-    /// opens, says and is checked as the link is.
+    /// opens, says and is checked as the link is, and is copied as nothing.
     private static func cautionMark(_ caution: LinkCaution, url: URL, style: ChatProseStyle) -> NSAttributedString {
         let sentence = ChatLinkCautionWords.sentence(caution)
         let configuration = NSImage.SymbolConfiguration(pointSize: style.size * ChatMetrics.cautionMarkScale, weight: .semibold)
             .applying(NSImage.SymbolConfiguration(paletteColors: [warning]))
         let image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: sentence)?
             .withSymbolConfiguration(configuration)
+        let font = style.font(nil)
+        let mark = NSMutableAttributedString(string: "\u{202F}", attributes: [.font: font])
+        mark.append(attachment(image, centredOn: font))
+        mark.addAttributes([
+            .link: url,
+            .chatLinkCaution: caution,
+            .chatPlain: "",
+            .toolTip: tip(url, title: nil, caution: caution)
+        ], range: NSRange(location: 0, length: mark.length))
+        return mark
+    }
+
+    /// An image in the words, centred on the height of a capital of `font`.
+    static func attachment(_ image: NSImage?, centredOn font: NSFont) -> NSAttributedString {
         let attachment = NSTextAttachment()
         attachment.image = image
-        let font = style.font(nil)
         if let image {
             attachment.bounds = CGRect(
                 x: 0,
@@ -273,20 +296,12 @@ enum ChatProseText {
                 height: image.size.height
             )
         }
-
-        let mark = NSMutableAttributedString(string: "\u{202F}", attributes: [.font: font])
-        mark.append(NSAttributedString(attachment: attachment))
-        mark.addAttributes([
-            .link: url,
-            .chatLinkCaution: caution,
-            .toolTip: tip(url, title: nil, caution: caution)
-        ], range: NSRange(location: 0, length: mark.length))
-        return mark
+        return NSAttributedString(attachment: attachment)
     }
 
-    /// Every occurrence of each term, semibold in the text blue, case
-    /// ignored, as the search that found them ignored it.
-    private static func mark(_ terms: [String], in text: NSMutableAttributedString, style: ChatProseStyle) {
+    /// Every occurrence of each term, in the text blue and in `strong`'s
+    /// weight, case ignored, as the search that found them ignored it.
+    static func mark(_ terms: [String], in text: NSMutableAttributedString, strong: NSFont) {
         let string = text.string as NSString
         for term in terms where !term.isEmpty {
             var searched = NSRange(location: 0, length: string.length)
@@ -294,176 +309,10 @@ enum ChatProseText {
                 let found = string.range(of: term, options: .caseInsensitive, range: searched)
                 guard found.location != NSNotFound else { break }
 
-                text.addAttributes([
-                    .font: style.font(.stronglyEmphasized),
-                    .foregroundColor: markTone
-                ], range: found)
+                text.addAttributes([.font: strong, .foregroundColor: markTone], range: found)
                 let next = found.location + found.length
                 searched = NSRange(location: next, length: string.length - next)
             }
         }
-    }
-}
-
-/// Words of a reply drawn by the system's own text view rather than by
-/// SwiftUI's `Text` (`ChatProseText`), for what a reader does with them: a
-/// link names where it goes while the pointer rests on it and opens through
-/// the chat's check (`ChatLinkGuard`); its menu offers Copy Link; and a
-/// selection runs across every paragraph of the run, with the system's own
-/// menu of Copy, Look Up and Translate.
-///
-/// Compared by what it draws, so a turn still being written draws again only
-/// the run it is writing.
-struct ChatProse: View, Equatable {
-    /// The run's paragraphs as they were parsed, nothing coloured.
-    let paragraphs: [AttributedString]
-    /// Words to mark, where the reader was sent here by a search.
-    let marked: [String]
-    let titles: ChatLinkTitles
-    /// Who wrote it, which VoiceOver names it by.
-    let speaker: String?
-
-    @ScaledMetric(relativeTo: .body) private var size = ChatMetrics.readingType.size
-    @Environment(\.chatRows) private var rows
-
-    static func == (lhs: ChatProse, rhs: ChatProse) -> Bool {
-        lhs.paragraphs == rhs.paragraphs && lhs.marked == rhs.marked && lhs.titles == rhs.titles && lhs.speaker == rhs.speaker
-    }
-
-    var body: some View {
-        let style = ChatProseStyle(size: size)
-        let text = ChatProseText.attributed(paragraphs, marked: marked, titles: titles, style: style)
-        let baseline = style.firstBaseline
-        let check = rows?.linkGuard
-
-        ChatProseView(text: text, label: ChatSpeaker.name(role: speaker)) { url, caution in
-            check?.open(url, caution: caution)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .alignmentGuide(.firstTextBaseline) { _ in CGFloat(baseline) }
-    }
-}
-
-/// The system's text view in the transcript: as wide as the column gives it
-/// and as tall as its lines wrap to there.
-private struct ChatProseView: NSViewRepresentable {
-    let text: NSAttributedString
-    let label: String
-    let open: (URL, LinkCaution?) -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(open: open)
-    }
-
-    func makeNSView(context: Context) -> ChatProseTextView {
-        let view = ChatProseTextView()
-        view.delegate = context.coordinator
-        return view
-    }
-
-    func updateNSView(_ view: ChatProseTextView, context: Context) {
-        context.coordinator.open = open
-        view.show(text)
-        view.setAccessibilityLabel(label)
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView view: ChatProseTextView, context: Context) -> CGSize? {
-        view.size(fitting: proposal.width)
-    }
-
-    /// Opens a clicked link through the chat's check, with the caution its
-    /// words carry.
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var open: (URL, LinkCaution?) -> Void
-
-        init(open: @escaping (URL, LinkCaution?) -> Void) {
-            self.open = open
-        }
-
-        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
-            guard let url = link as? URL else { return false }
-
-            let caution = textView.textStorage?.attribute(.chatLinkCaution, at: charIndex, effectiveRange: nil) as? LinkCaution
-            open(url, caution)
-            return true
-        }
-    }
-}
-
-/// A text view that only shows its words: selectable, never editable, on no
-/// background of its own, with no inset, laid out by TextKit 1 so its height
-/// at a width is exact. It is measured by a second layout of the same words,
-/// so SwiftUI asking its size at one width never moves the lines it draws at
-/// another.
-final class ChatProseTextView: NSTextView {
-    private let measuring = NSLayoutManager()
-    private let measuringContainer = NSTextContainer()
-    /// The last width it was measured at, and its size there.
-    private var measured: (width: CGFloat, size: CGSize)?
-
-    init() {
-        let storage = NSTextStorage()
-        let layout = NSLayoutManager()
-        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0
-        container.widthTracksTextView = true
-        layout.addTextContainer(container)
-        storage.addLayoutManager(layout)
-        measuringContainer.lineFragmentPadding = 0
-        measuring.addTextContainer(measuringContainer)
-        storage.addLayoutManager(measuring)
-        super.init(frame: .zero, textContainer: container)
-
-        isEditable = false
-        isSelectable = true
-        isRichText = true
-        drawsBackground = false
-        textContainerInset = .zero
-        isVerticallyResizable = false
-        isHorizontallyResizable = false
-        displaysLinkToolTips = false
-        linkTextAttributes = [.cursor: NSCursor.pointingHand]
-        isAutomaticLinkDetectionEnabled = false
-        isAutomaticDataDetectionEnabled = false
-        isContinuousSpellCheckingEnabled = false
-        isGrammarCheckingEnabled = false
-        usesFontPanel = false
-        allowsUndo = false
-        writingToolsBehavior = .none
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        preconditionFailure("the text view is made in code")
-    }
-
-    /// The words to show, set only when they changed.
-    func show(_ text: NSAttributedString) {
-        guard let storage = textStorage, !storage.isEqual(to: text) else { return }
-
-        storage.setAttributedString(text)
-        measured = nil
-    }
-
-    /// Its size at a width: the width it is given, or its widest line where
-    /// it is given none, and the height its lines wrap to.
-    func size(fitting width: CGFloat?) -> CGSize {
-        let bound = width.map { $0.isFinite ? max(0, $0) : .greatestFiniteMagnitude } ?? .greatestFiniteMagnitude
-        if let measured, measured.width == bound { return measured.size }
-
-        let used = laidOut(at: bound)
-        let size = CGSize(width: bound == .greatestFiniteMagnitude ? ceil(used.width) : bound, height: ceil(used.height))
-        measured = (bound, size)
-        return size
-    }
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
-    }
-
-    private func laidOut(at width: CGFloat) -> CGRect {
-        measuringContainer.size = NSSize(width: width, height: .greatestFiniteMagnitude)
-        measuring.ensureLayout(for: measuringContainer)
-        return measuring.usedRect(for: measuringContainer)
     }
 }

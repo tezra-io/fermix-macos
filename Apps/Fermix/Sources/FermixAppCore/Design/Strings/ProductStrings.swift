@@ -532,6 +532,13 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// The turn answering now, while it has no reply text yet and while a
     /// tool it called runs.
     case chatThinking = "chat.thinking"
+    /// Over a turn that has started writing, how long it worked; the
+    /// duration is the system's short one ("1m 12s").
+    case chatWorkedFor = "chat.workedFor"
+    /// What the line over a turn does when pressed, for VoiceOver: opens or
+    /// closes the steps the turn said it took.
+    case chatStepsShow = "chat.steps.show"
+    case chatStepsHide = "chat.steps.hide"
     /// The button that takes a reader up the transcript back to its foot.
     case chatShowNewest = "chat.showNewest"
     case chatSearchPrompt = "chat.search.prompt"
@@ -560,8 +567,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatKindDocument = "chat.kind.document"
     case chatKindPage = "chat.kind.page"
     case chatKindFile = "chat.kind.file"
-    /// A reply's code block, as VoiceOver names it, its language after it.
-    case chatCode = "chat.code"
     /// The languages a code block's header names (`CodeLanguage`), each as
     /// its own makers write it.
     case chatCodeLanguageShell = "chat.code.language.shell"
@@ -606,9 +611,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatCodeLanguageDockerfile = "chat.code.language.dockerfile"
     case chatCodeLanguageMakefile = "chat.code.language.makefile"
     case chatCodeLanguageText = "chat.code.language.text"
-    /// A reply's table and quote, as VoiceOver names them.
-    case chatTable = "chat.table"
-    case chatQuote = "chat.quote"
     /// A list's marks: a bullet, a nested one, and a number with its point.
     case chatListBullet = "chat.list.bullet"
     case chatListBulletNested = "chat.list.bulletNested"

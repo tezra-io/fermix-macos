@@ -1,5 +1,4 @@
 import AppKit
-import CryptoKit
 import Foundation
 import Testing
 
@@ -12,14 +11,20 @@ import Testing
 @MainActor
 @Suite("Chat prose")
 struct ChatProseTests {
-    private static let style = ChatProseStyle(size: 15)
+    private static let style = ChatProseStyle(size: ChatMetrics.readingType.size)
 
-    private static func drawn(_ markdown: String, marked: [String] = [], titles: ChatLinkTitles = .none) -> NSAttributedString {
-        let paragraphs = ReplyText(markdown: markdown, home: "/Users/me").blocks.compactMap(\.prose)
-        return ChatProseText.attributed(paragraphs, marked: marked, titles: titles, style: style)
+    /// A reply's words as its text view holds them: every piece one after
+    /// another, the line feed after the last left out.
+    static func drawn(_ markdown: String, marked: [String] = [], titles: ChatLinkTitles = .none) -> NSAttributedString {
+        let blocks = ReplyText(markdown: markdown, home: "/Users/me").blocks
+        let document = ChatReplyComposer().document(blocks, marked: marked, titles: titles, style: style)
+        let text = NSMutableAttributedString()
+        document.pieces.forEach(text.append)
+        if text.string.hasSuffix("\n") { text.deleteCharacters(in: NSRange(location: text.length - 1, length: 1)) }
+        return text
     }
 
-    private static func range(of words: String, in text: NSAttributedString) throws -> NSRange {
+    static func range(of words: String, in text: NSAttributedString) throws -> NSRange {
         let found = (text.string as NSString).range(of: words)
         try #require(found.location != NSNotFound)
         return found
@@ -31,7 +36,7 @@ struct ChatProseTests {
 
     // MARK: - Paragraphs
 
-    @Test("a run of paragraphs is one text, a line apart, each later one a gap below the one before")
+    @Test("paragraphs are one text, a line apart, each later one a gap below the one before")
     func paragraphs() throws {
         let text = Self.drawn("One.\n\nTwo.\n\nThree.")
         let first = try #require(text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
@@ -48,10 +53,10 @@ struct ChatProseTests {
     /// words.
     @Test("the style grows its lines and gap with the reader's text size")
     func scaledStyle() {
-        let larger = ChatProseStyle(size: 30)
+        let larger = ChatProseStyle(size: 2 * ChatMetrics.readingType.size)
 
         #expect(larger.lineHeight == 2 * (ChatMetrics.readingType.leading ?? 0))
-        #expect(larger.paragraphGap == 2 * ChatMetrics.paragraphGap)
+        #expect(larger.scaled(ChatMetrics.paragraphGap) == 2 * ChatMetrics.paragraphGap)
     }
 
     @Test("strong words are semibold, emphasised ones italic, and inline code monospaced on its fill")
@@ -63,12 +68,13 @@ struct ChatProseTests {
         let code = try #require(text.attribute(.font, at: codeAt, effectiveRange: nil) as? NSFont)
         let plain = try #require(text.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
 
-        #expect(plain.familyName == ReadingFace.family)
-        #expect(strong.familyName == ReadingFace.family)
+        #expect(plain.familyName == NSFont.systemFont(ofSize: plain.pointSize).familyName)
+        #expect(strong.familyName == NSFont.systemFont(ofSize: plain.pointSize).familyName)
         #expect(Self.weight(of: strong) > Self.weight(of: plain))
         #expect(soft.fontDescriptor.symbolicTraits.contains(.italic))
         #expect(code.isFixedPitch)
         #expect(text.attribute(.backgroundColor, at: codeAt, effectiveRange: nil) != nil)
+        #expect(text.attribute(.chatCodeSpan, at: codeAt, effectiveRange: nil) != nil)
     }
 
     private static func weight(of font: NSFont) -> Double {
@@ -255,54 +261,5 @@ struct ChatProseTests {
         #expect(ChatTime.said("2026-09-25T05:14:00Z", now: now, calendar: calendar) == thisYear.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
         #expect(ChatTime.said("2025-09-25T05:14:00Z", now: now, calendar: calendar) == ChatTime.written("2025-09-25T05:14:00Z"))
         #expect(ChatTime.said("yesterday", now: now, calendar: calendar) == "yesterday")
-    }
-}
-
-/// The chat's reading face: shipped with its licence and its record, each
-/// file byte for byte as the record says, and registered for this process.
-@Suite("Reading face")
-struct ReadingFaceTests {
-    @Test("the face's files ship with their licence, each as its record says")
-    func provenance() throws {
-        let folder = try #require(AppResources.bundle.url(forResource: ReadingFace.folder, withExtension: nil))
-        let record = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent("PROVENANCE.json"))) as? [String: Any]
-        let fonts = try #require(record?["fonts"] as? [[String: Any]])
-        let files = try #require(fonts.first?["files"] as? [[String: String]])
-        let named = Set(files.compactMap { $0["file"] })
-
-        #expect(fonts.first?["family"] as? String == ReadingFace.family)
-        #expect(named == Set(ReadingFace.files + ["OFL.txt"]))
-        for file in files {
-            let name = try #require(file["file"])
-            let data = try Data(contentsOf: folder.appendingPathComponent(name))
-            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            #expect(digest == file["sha256"], "\(name) is not the file its record names")
-        }
-    }
-
-    @Test("the face is registered for this process, upright and italic, in its weights")
-    func registered() {
-        let regular = ReadingFace.nsFont(size: 15, weight: .regular)
-        let italic = ReadingFace.nsFont(size: 15, weight: .regular, italic: true)
-        let semibold = ReadingFace.nsFont(size: 15, weight: .semibold)
-
-        #expect(NSFontManager.shared.availableFontFamilies.contains(ReadingFace.family))
-        #expect(regular.familyName == ReadingFace.family)
-        #expect(italic.familyName == ReadingFace.family)
-        #expect(italic.fontDescriptor.symbolicTraits.contains(.italic))
-        #expect(semibold.familyName == ReadingFace.family)
-        #expect(semibold.fontName != regular.fontName)
-    }
-
-    /// The chat sets its words in the face and its code in the system's
-    /// monospaced one; every other surface keeps the system's.
-    @Test("a rung's face is the surface's, and a monospaced rung keeps the system's")
-    func faces() {
-        let body = Typography.style(.body)
-        let mono = Typography.style(.mono)
-
-        #expect(body.font(at: 15) == .system(size: 15, weight: .regular))
-        #expect(body.font(at: 15, face: .reading) == ReadingFace.font(size: 15, weight: .regular))
-        #expect(mono.font(at: 13, face: .reading) == .system(size: 13, weight: .regular, design: .monospaced))
     }
 }

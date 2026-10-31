@@ -97,16 +97,6 @@ enum ChatText {
         block.mappingWords { marking(terms, in: drawn($0)) }
     }
 
-    /// A table drawn: each cell's words as a block's are, and a search's
-    /// matches marked.
-    static func drawn(_ table: ReplyTable, marking terms: [String]) -> ReplyTable {
-        guard case .table(let drawn) = drawn(.table(table), marking: terms) else {
-            preconditionFailure("a table's words drawn are a table")
-        }
-
-        return drawn
-    }
-
     /// Words drawn with their links set inline. Every link, a markdown link
     /// and a path or an address written out alike, keeps the words' own
     /// `ink` and is underlined in `faint`, as a reply's words in the system's
@@ -159,10 +149,10 @@ enum ChatText {
     }
 
     /// The blocks as one text, for a place that draws a row's words as one, a
-    /// voice note's transcript: each part a row draws (`ChatReplyPart`) on
-    /// lines of its own, a run of paragraphs as a row draws it, code as code,
-    /// a list's items each after its mark (`ChatListBlock.label`) and a
-    /// table's rows as Copy writes them.
+    /// voice note's transcript: each part (`ChatReplyPart`) on lines of its
+    /// own, a run of paragraphs a blank line apart, a heading as its words,
+    /// code as code, a list's items each after its mark (`listMark`) and a
+    /// table's rows a line apart, their cells a tab apart.
     static func oneText(_ blocks: [ReplyBlock]) -> AttributedString {
         joined(ChatReplyPart.parts(of: blocks).map(oneText), by: "\n")
     }
@@ -176,14 +166,23 @@ enum ChatText {
 
     private static func oneText(_ block: ReplyBlock) -> AttributedString {
         switch block {
-        case .prose(let words), .quote(let words):
+        case .prose(let words), .quote(let words), .heading(_, let words):
             return words
         case .code(let code):
             return codeLines(code)
         case .list(let list):
-            return joined(list.items.map { AttributedString(ChatListBlock.label($0) + " ") + $0.words }, by: "\n")
+            return joined(list.items.map { AttributedString(listMark($0) + " ") + $0.words }, by: "\n")
         case .table(let table):
             return joined(([table.header] + table.rows).map { joined($0, by: "\t") }, by: "\n")
+        }
+    }
+
+    /// An item's mark as text: its number, or the dot at its depth, which a
+    /// task's box stands in for where the reply is drawn.
+    static func listMark(_ item: ReplyListItem) -> String {
+        switch item.marker {
+        case .number(let number): return String(format: ProductStrings[.chatListNumberFormat], number)
+        case .bullet, .task: return ProductStrings[item.depth == 0 ? .chatListBullet : .chatListBulletNested]
         }
     }
 
@@ -222,10 +221,9 @@ enum ChatText {
     }
 }
 
-/// A reply's blocks as a row draws them: each run of paragraphs one text, a
-/// blank line between each two as they were written, so a reader selects
-/// across them and the line between them follows the type; and every other
-/// block on its own.
+/// A reply's blocks as one text reads them (`ChatText.oneText`): each run of
+/// paragraphs together, a blank line between each two as they were written,
+/// and every other block on its own.
 enum ChatReplyPart: Equatable {
     /// A run of paragraphs, in reading order.
     case paragraphs([AttributedString])

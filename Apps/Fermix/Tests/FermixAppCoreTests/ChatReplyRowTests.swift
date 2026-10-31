@@ -3,11 +3,10 @@ import Testing
 
 @testable import FermixAppCore
 
-/// A finished row, and each part of a reply, is drawn again only when what
-/// it draws changes. SwiftUI asks a view marked equatable whether it changed
+/// A finished row, and a reply's words, are drawn again only when what they
+/// draw changes. SwiftUI asks a view marked equatable whether it changed
 /// before drawing it again, so a publish that changes one row leaves every
-/// other row, and every part of a turn but the one being written, as drawn,
-/// its words never coloured again.
+/// other row as drawn, its words never set again.
 @Suite("Reply rows")
 struct ChatReplyRowTests {
     private static func row(
@@ -31,8 +30,8 @@ struct ChatReplyRowTests {
         #expect(row != ChatRow(row: Self.row(), marked: ["saved"]))
     }
 
-    /// Paragraphs a blank line apart are one text, so a reader selects
-    /// across them; any other block ends the run.
+    /// Paragraphs a blank line apart read as one part where a reply is read
+    /// as one text (`ChatText.oneText`); any other block ends the run.
     @Test("a run of paragraphs is one part, and every other block is a part of its own")
     func parts() {
         let blocks = ReplyText(markdown: "One.\n\nTwo.\n\n- three\n\nFour.\n\n```\nfive\n```\nSix.", home: "/Users/me").blocks
@@ -46,27 +45,25 @@ struct ChatReplyRowTests {
         #expect(parts == ["One.+Two.", "list • three", "Four.", "code - five", "Six."])
     }
 
-    @Test("a part is drawn again only when its words, the words a search marks in it or its links' titles change")
-    func partEquality() {
-        let parts = ChatReplyPart.parts(of: ReplyText(markdown: "One.\n\nTwo.\n- three", home: "/Users/me").blocks)
-        let part = ChatReplyPartView(part: parts[0], marked: [], titles: .none, speaker: nil)
-        let again = ChatReplyPart.parts(of: ReplyText(markdown: "One.\n\nTwo.", home: "/Users/me").blocks)
+    @Test("a reply is drawn again only when its blocks, the words a search marks in it or its links' titles change")
+    func replyEquality() {
+        let blocks = ReplyText(markdown: "One.\n\nTwo.\n- three", home: "/Users/me").blocks
+        let reply = ChatReplyText(blocks: blocks, marked: [], titles: .none, speaker: nil)
         let titled = ChatLinkTitles([CompanionLinkPreview(link: "https://a.example", url: "https://a.example", site: "A", title: "A", description: nil, imageRef: nil)])
 
-        #expect(part == ChatReplyPartView(part: again[0], marked: [], titles: .none, speaker: nil))
-        #expect(part != ChatReplyPartView(part: parts[1], marked: [], titles: .none, speaker: nil))
-        #expect(part != ChatReplyPartView(part: parts[0], marked: ["one"], titles: .none, speaker: nil))
-        #expect(part != ChatReplyPartView(part: parts[0], marked: [], titles: titled, speaker: nil))
+        #expect(reply == ChatReplyText(blocks: ReplyText(markdown: "One.\n\nTwo.\n- three", home: "/Users/me").blocks, marked: [], titles: .none, speaker: nil))
+        #expect(reply != ChatReplyText(blocks: Array(blocks.dropLast()), marked: [], titles: .none, speaker: nil))
+        #expect(reply != ChatReplyText(blocks: blocks, marked: ["one"], titles: .none, speaker: nil))
+        #expect(reply != ChatReplyText(blocks: blocks, marked: [], titles: titled, speaker: nil))
     }
 
-    @Test("the transcript draws each finished row, each part of a reply and each run of its words through its equality")
+    @Test("the transcript draws each finished row and each reply's words through its equality")
     func drawnThroughEquality() throws {
         let rows = try #require(SourceTree.swiftFiles(matching: "Chat/ChatRows.swift").first?.text)
-        let prose = try #require(SourceTree.swiftFiles(matching: "Chat/ChatProse.swift").first?.text)
+        let reply = try #require(SourceTree.swiftFiles(matching: "Chat/ChatReplyText.swift").first?.text)
 
         #expect(rows.contains("ChatRow(row: row, marked: marked)\n                .equatable()"))
-        #expect(rows.contains("ChatReplyPartView(part: part, marked: marked, titles: titles, speaker: speaker)\n                    .equatable()"))
-        #expect(rows.contains("ChatProse(paragraphs: paragraphs, marked: marked, titles: titles, speaker: speaker)\n            .equatable()"))
-        #expect(prose.contains("static func == (lhs: ChatProse, rhs: ChatProse) -> Bool"))
+        #expect(rows.contains("ChatReplyText(blocks: blocks, marked: marked, titles: titles, speaker: speaker)\n            .equatable()"))
+        #expect(reply.contains("static func == (lhs: ChatReplyText, rhs: ChatReplyText) -> Bool"))
     }
 }

@@ -201,12 +201,11 @@ private struct ChatUserRow: View {
 }
 
 /// What Fermix wrote: on the leading side, its words straight on the ground
-/// with no fill of its own, each run of paragraphs one text (`ChatReplyPart`),
-/// and between them each code block, list, table and quote in its own view.
-/// A delivery, a row with no turn, and the turn still being written are drawn
-/// the same way.
+/// with no fill of its own, as one text a reader selects across
+/// (`ChatReplyText`). A delivery, a row with no turn, and the turn still
+/// being written are drawn the same way.
 private struct ChatReplyRow: View {
-    /// The blocks as they read, which each part's own view draws.
+    /// The blocks as they read.
     let blocks: [ReplyBlock]
     /// Words to mark, where the reader was sent here by a search.
     let marked: [String]
@@ -215,62 +214,32 @@ private struct ChatReplyRow: View {
     let speaker: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: ChatMetrics.codeBlockGap) {
-            ForEach(Array(ChatReplyPart.parts(of: blocks).enumerated()), id: \.offset) { _, part in
-                ChatReplyPartView(part: part, marked: marked, titles: titles, speaker: speaker)
-                    .equatable()
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// One part of what Fermix wrote: a run of paragraphs straight on the
-/// ground as one text (`ChatProse`), and every other block in its own view.
-/// Compared by what it draws, so its words are drawn once for each reading
-/// of them: a turn still being written draws only the part it is writing,
-/// and a row drawn again for a narrower column draws nothing new.
-struct ChatReplyPartView: View, Equatable {
-    let part: ChatReplyPart
-    /// Words to mark, where the reader was sent here by a search.
-    let marked: [String]
-    let titles: ChatLinkTitles
-    let speaker: String?
-
-    var body: some View {
-        switch part {
-        case .paragraphs(let run):
-            prose(run)
-        case .block(.prose(let paragraph)):
-            prose([paragraph])
-        case .block(.code(let code)):
-            ChatCodeBlock(code: code, marked: marked)
-        case .block(.list(let list)):
-            ChatListBlock(list: list, marked: marked, titles: titles, speaker: speaker)
-        case .block(.table(let table)):
-            ChatTableBlock(table: ChatText.drawn(table, marking: marked))
-        case .block(.quote(let quote)):
-            ChatQuoteBlock(words: quote, marked: marked, titles: titles, speaker: speaker)
-        }
-    }
-
-    private func prose(_ paragraphs: [AttributedString]) -> some View {
-        ChatProse(paragraphs: paragraphs, marked: marked, titles: titles, speaker: speaker)
+        ChatReplyText(blocks: blocks, marked: marked, titles: titles, speaker: speaker)
             .equatable()
     }
 }
 
-/// The turn answering now: its text so far, and under it the thinking line
-/// while it thinks (`ChatTurnStatus`). Its text is read as it arrives
-/// (`ReplyDraft`), so each piece reads only the block still being written.
+/// The turn answering now: over its text, what it is doing and has done
+/// (`ChatTurnActivity`), and its text so far. Its text is read as it
+/// arrives (`ReplyDraft`), so each piece reads only the block still being
+/// written. How long it has worked is counted from when this Mac saw it
+/// start, and stops when it starts writing.
 private struct ChatTurnRow: View {
     let turn: CompanionTurn
 
     @Environment(\.chatRows) private var rows
     @State private var draft = ReplyDraft()
+    @State private var started = Date.now
+    @State private var wrote: Date?
 
     var body: some View {
+        let progress = ChatTurnProgress(turn)
+
         VStack(alignment: .leading, spacing: Spacing.xs) {
+            if progress.shows {
+                ChatTurnActivity(progress: progress, started: started, wrote: wrote)
+            }
+
             if let rows, !turn.text.isEmpty {
                 ChatReplyRow(
                     blocks: draft.blocks(turn.text, home: rows.media.userHome),
@@ -279,12 +248,11 @@ private struct ChatTurnRow: View {
                     speaker: CompanionProtocol.assistantRole
                 )
             }
-
-            if ChatTurnStatus(turn) == .thinking {
-                ThinkingLine(word: ProductStrings[.chatThinking])
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: progress.working, initial: true) { _, working in
+            wrote = working ? nil : .now
+        }
     }
 }
 

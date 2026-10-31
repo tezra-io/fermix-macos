@@ -13,11 +13,13 @@ public enum CompanionProtocol {
     /// Version 4 adds a cue proposal's card, its answer and its resolution
     /// (M60 §3.7). Version 5 adds a watcher's follow-up card, which names the
     /// follow-up in place of a call and is answered and resolved as a
-    /// proposal is.
-    public static let version = 5
+    /// proposal is. Version 6 says what a turn is doing in a person's words:
+    /// the model's summary of each step of its reasoning (`reasoning`), and
+    /// the engine's sentence for a tool's step on its start (`activity`).
+    public static let version = 6
 
     /// The daemon's window at the pinned contract, which `version` sits inside.
-    public static let supportedWindow = CompanionVersionWindow(minimum: 4, maximum: 5)
+    public static let supportedWindow = CompanionVersionWindow(minimum: 5, maximum: 6)
 
     /// The longest client line the daemon reads. A longer one is refused with
     /// `line_too_large` and closes the connection, so `line()` refuses it first.
@@ -390,12 +392,17 @@ public struct CompanionAccepted: Equatable, Sendable, Decodable {
 
 public struct CompanionToolEvent: Equatable, Sendable, Decodable {
     public let turnId: String
+    /// The tool's id, which is never shown.
     public let tool: String
     public let phase: CompanionToolPhase
     public let detail: String?
+    /// On a start, the engine's sentence for the step ("Searching the web"),
+    /// which the chat shows in place of the tool (version 6, on every
+    /// version a daemon that has it sends).
+    public var activity: String? = nil
 
     private enum CodingKeys: String, CodingKey {
-        case tool, phase, detail
+        case tool, phase, detail, activity
         case turnId = "turn_id"
     }
 }
@@ -777,6 +784,9 @@ public enum CompanionServerEvent: Equatable, Sendable {
     /// Text to append to the turn's draft exactly as sent, never trimmed.
     case textDelta(turnId: String, text: String)
     case toolEvent(CompanionToolEvent)
+    /// Version 6: the model's summary of one step of its reasoning, as the
+    /// provider wrote it. Live-only, as a delta is.
+    case reasoning(turnId: String, text: String)
     /// A reply's canonical text at its timeline row; it replaces the draft.
     /// Its blocks (M72 §8.3) come with it, never mid-stream, so they appear
     /// once, under text that has finished.
@@ -817,6 +827,7 @@ public enum CompanionServerEvent: Equatable, Sendable {
         case .turnStarted: return "turn_started"
         case .textDelta: return "text_delta"
         case .toolEvent: return "tool_event"
+        case .reasoning: return "reasoning"
         case .textDone: return "text_done"
         case .turnError: return "turn_error"
         case .turnDone: return "turn_done"
@@ -922,6 +933,11 @@ extension CompanionServerEvent: Decodable {
             )
         case "tool_event":
             self = .toolEvent(try CompanionToolEvent(from: decoder))
+        case "reasoning":
+            self = .reasoning(
+                turnId: try fields.decode(String.self, forKey: .turnId),
+                text: try fields.decode(String.self, forKey: .text)
+            )
         case "text_done":
             self = .textDone(
                 turnId: try fields.decode(String.self, forKey: .turnId),

@@ -407,9 +407,11 @@ struct WindowCoordinatorTests {
     /// measured live, where the Integrations pane drove the primary window to
     /// 980 by 2115 points on a 3840 by 1080 point display.
     ///
-    /// The one other hosting view is no window's: a reply's live map draws
-    /// each place's pin face in it, inside the map (M72 §14.1), where it has
-    /// no window to size. It is named here, so any other one still fails.
+    /// The two other hosting views are no window's: a reply's live map draws
+    /// each place's pin face in one, inside the map (M72 §14.1), and a
+    /// reply's text view holds each code block's Copy in one, over the block;
+    /// neither has a window to size. They are named here, so any other one
+    /// still fails.
     @Test("every window content view is built by the one hosting builder")
     func hostingViewsNeverSizeTheirWindow() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
@@ -420,8 +422,11 @@ struct WindowCoordinatorTests {
             String(file.path.split(separator: "/").suffix(2).joined(separator: "/"))
         }
 
-        #expect(constructions == 2, "a hosting view is built outside the builder")
-        #expect(Set(builders) == ["App/AppKitWindowHost.swift", "Chat/ChatPlaces.swift"], "a hosting view is built outside the builder")
+        #expect(constructions == 3, "a hosting view is built outside the builder")
+        #expect(
+            Set(builders) == ["App/AppKitWindowHost.swift", "Chat/ChatPlaces.swift", "Chat/ChatReplyText.swift"],
+            "a hosting view is built outside the builder"
+        )
 
         let host = try SourceTree.swiftFiles(matching: "App/AppKitWindowHost.swift")
         let text = try #require(host.first?.text)
