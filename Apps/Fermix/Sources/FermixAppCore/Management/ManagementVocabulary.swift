@@ -45,8 +45,9 @@ extension ManagementVocabulary {
 ///
 /// The eleven the engine serves today have a minimum protocol version of 1; the
 /// thirty-one M34 §7.3 adds, the seven the phone channel added, the three the
-/// iMessage channel added, the twelve of MCP servers, the twenty-four of cues
-/// and the eight of the home have a minimum of 2. The
+/// iMessage channel added, the twelve of MCP servers, the twenty-four of cues,
+/// the nine of the home and the six of its Hetzner provisioner have a
+/// minimum of 2. The
 /// minimum is read from the contract (`ManagementContract.minimumVersion(for:)`),
 /// never restated here: one fact, in the checksum-pinned artifact.
 public enum ManagementMethod: String, CaseIterable, Sendable {
@@ -152,12 +153,24 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     // snapshots, enrolling a server and moving the home to it.
     case homeStatus = "home.status"
     case homeEnrollOpen = "home.enroll.open"
+    /// Closes the 24-hour code a server Fermix creates enrolls with. The app
+    /// never asks it: a desktop's engine forwards it to the server it
+    /// replaces.
+    case homeEnrollWithdraw = "home.enroll.withdraw"
     case homeCandidatesList = "home.candidates.list"
     case homeMoveReadiness = "home.move.readiness"
     case homeMoveStart = "home.move.start"
     case homeSnapshotsStatus = "home.snapshots.status"
     case homeSnapshotsRun = "home.snapshots.run"
     case homeSnapshotsPassphrase = "home.snapshots.passphrase"
+    // The Always On server on Hetzner (M75 lean v1 §4.3): the token, what
+    // Hetzner sells, the server Fermix creates, and the record of it.
+    case homeProvisionConnect = "home.provision.connect"
+    case homeProvisionOptions = "home.provision.options"
+    case homeProvisionCreate = "home.provision.create"
+    case homeProvisionPower = "home.provision.power"
+    case homeProvisionResources = "home.provision.resources"
+    case homeProvisionDelete = "home.provision.delete"
 
     /// The method name in a form the request-id pattern accepts.
     public var identifierSlug: String { rawValue.replacingOccurrences(of: ".", with: "-") }

@@ -35,7 +35,9 @@ struct SettingsPaneView: View {
             CodingAgentsPane(model: model)
         case .browser:
             BrowserPane(model: model)
-        case .personality, .memory, .search, .images, .alwaysOn, .sandbox, .secrets:
+        case .alwaysOn:
+            AlwaysOnPane(settings: model, model: model.alwaysOn)
+        case .personality, .memory, .search, .images, .sandbox, .secrets:
             DescriptorPane(pane: pane, model: model)
         }
     }

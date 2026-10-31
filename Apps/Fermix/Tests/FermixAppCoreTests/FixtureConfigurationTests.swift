@@ -189,7 +189,7 @@ struct FixtureConfigurationTests {
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
             + OnboardingStage.allCases.count + 7 + FixturePhoneStart.allCases.count + FixtureMCPStart.allCases.count
-            + FixtureUpdateStart.allCases.count)
+            + FixtureAlwaysOnStart.allCases.count + FixtureUpdateStart.allCases.count)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -330,6 +330,10 @@ struct FixtureConfigurationTests {
         case .mcp:
             #expect(harness.windows.presented == [.main])
             #expect(harness.settings.selectedPane == .integrations)
+            #expect(harness.presentation.isShowing)
+        case .alwaysOn:
+            #expect(harness.windows.presented == [.main])
+            #expect(harness.settings.selectedPane == .alwaysOn)
             #expect(harness.presentation.isShowing)
         case .update:
             // The update window is the prompt's, which the coordinator does not
@@ -745,6 +749,36 @@ struct FixtureConfigurationTests {
 
             #expect(frame?["request_id"] as? String == "req-fixture-1", "\(method.rawValue)")
             #expect(frame?["result"] != nil, "\(method.rawValue) has no result")
+        }
+    }
+
+    /// Each Always On start answers `home.status` with its own golden, and
+    /// every other start with the first, so the pane can be looked at on
+    /// each summary the contract publishes.
+    @Test("each Always On start answers home.status with its own summary")
+    func alwaysOnStartsAnswerTheirGolden() async throws {
+        let starts: [(String, String)] = [("settings/always_on", "undone")]
+            + FixtureAlwaysOnStart.allCases.map { ($0.rawValue, $0.golden) }
+
+        for (name, expected) in starts {
+            let start = try #require(FixtureStart(name: name))
+            let launch = FixtureLaunch(start: start)
+            let transport = try FixtureManagementTransport(
+                machine: FixtureMachine(daemonUp: true, homeStatusGolden: launch.homeStatusGolden),
+                readiness: .gatingFailure
+            )
+            let payload = try JSONSerialization.data(withJSONObject: [
+                "request_id": "req-fixture-1", "protocol_version": 2, "method": "home.status", "params": [String: Any]()
+            ])
+            let frame = try JSONSerialization.jsonObject(with: try await transport.exchange(payload, timeout: .seconds(1))) as? [String: Any]
+            let summary = (frame?["result"] as? [String: Any])?["summary"] as? [String: Any]
+            let golden: ManagementHomeStatus = try FakeDaemonGateway.fixtureResult(
+                named: expected == "undone" ? FixtureAlwaysOnStart.firstGolden : expected,
+                as: ManagementHomeStatus.self
+            )
+
+            #expect(summary?["state"] as? String == golden.summary?.state.wireValue, "\(name)")
+            #expect(launch.presentation == .settings(.alwaysOn), "\(name)")
         }
     }
 

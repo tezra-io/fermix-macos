@@ -41,7 +41,10 @@ public enum ProductCopyRules {
         "Applications", "Library", "Launchpad", "Spotlight", "Messages", "Finder", "Maps",
         "Homebrew", "Homebrew-managed",
         // The apps an MCP import reads, and the store their keys go to (M74).
-        "Cursor", "Windsurf", "Keychain"
+        "Cursor", "Windsurf", "Keychain",
+        // The host Always On creates its server on, the system the owner's
+        // own server runs, and the address it keeps (M75).
+        "Hetzner", "Linux", "IPv4"
     ]
 
     /// Multi-word product names the copy deck spells exactly.

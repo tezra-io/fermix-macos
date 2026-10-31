@@ -152,6 +152,15 @@ public protocol DaemonQuerying: Sendable {
     func snapshotsStatus() async throws -> ManagementHomeSnapshots
     func runSnapshot() async throws -> ManagementSnapshotsStarted
     func setRecoveryPassphrase(_ passphrase: String) async throws -> ManagementRecoveryKey
+
+    // The Always On server on Hetzner (M75 lean v1 §4.3). Found in
+    // `servedMethods()`: they arrived inside protocol 2.
+    func provisionConnect(token: String) async throws -> ManagementProvisionView
+    func provisionOptions() async throws -> ManagementProvisionOptions
+    func provisionCreate(_ pick: ManagementProvisionPick, replace: Bool) async throws -> ManagementJob
+    func provisionPower(_ action: ManagementProvisionPower) async throws -> ManagementJob
+    func provisionResources() async throws -> ManagementProvisionView
+    func provisionDelete() async throws -> ManagementJob
 }
 
 /// The production gateway: one negotiated client, shared by every surface.

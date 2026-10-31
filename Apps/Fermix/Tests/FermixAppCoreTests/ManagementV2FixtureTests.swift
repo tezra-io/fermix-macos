@@ -133,10 +133,22 @@ struct ManagementV2FixtureTests {
             ("enrollment state", Array(ManagementEnrollmentState.publishedValues.keys)),
             ("move phase", Array(ManagementMovePhase.publishedValues.keys)),
             ("readiness status", Array(ManagementReadinessStatus.publishedValues.keys)),
-            ("primary link state", Array(ManagementPrimaryLinkState.publishedValues.keys))
+            ("primary link state", Array(ManagementPrimaryLinkState.publishedValues.keys)),
+            ("summary state", Array(ManagementHomeSummaryState.publishedValues.keys)),
+            ("summary action", Array(ManagementHomeActionId.publishedValues.keys)),
+            ("summary problem", Array(ManagementHomeProblemKind.publishedValues.keys)),
+            ("hetzner location", Array(ManagementHetznerLocation.publishedValues.keys)),
+            ("provision state", Array(ManagementProvisionState.publishedValues.keys)),
+            ("provision token", Array(ManagementProvisionToken.publishedValues.keys)),
+            ("provision status", Array(ManagementProvisionStatus.publishedValues.keys)),
+            ("provision resource kind", Array(ManagementProvisionResourceKind.publishedValues.keys)),
+            ("provision power", ManagementProvisionPower.allCases.map(\.rawValue)),
+            ("provision replace state", Array(ManagementProvisionReplaceState.publishedValues.keys)),
+            ("provision replace current", Array(ManagementProvisionReplaceCurrent.publishedValues.keys)),
+            ("enrollment kind", Array(ManagementEnrollmentKind.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 57)
+        #expect(modelled.count == 69)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),
@@ -262,7 +274,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 168, "every success record was decoded")
+        #expect(seen.count == 182, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -359,7 +371,7 @@ struct ManagementV2FixtureTests {
             carried += 1
         }
 
-        #expect(carried == 19, "the contract publishes a detail sentence on nineteen records")
+        #expect(carried == 21, "the contract publishes a detail sentence on twenty-one records")
     }
 
     /// An MCP server form's refusal names the input it is about in the
@@ -587,7 +599,7 @@ struct ManagementV2FixtureTests {
     @Test("no job kind is doctor, in the schema or in the app")
     func doctorIsNotAJobKind() throws {
         #expect(ManagementJobKind.publishedValues["doctor"] == nil)
-        #expect(ManagementJobKind.publishedValues.count == 14)
+        #expect(ManagementJobKind.publishedValues.count == 15)
 
         let jobs: ManagementJobList = try FakeDaemonGateway.fixtureResult(
             named: "job_list",

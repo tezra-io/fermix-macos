@@ -198,6 +198,24 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var cueSourceUpdates: [CueValuesWrite] = []
     var cueMandateWrites: [CueValuesWrite] = []
     var cueProposalFilters: [ManagementCueProposalFilter] = []
+    /// The home (M75): the pictures `home.status` answers, one each in order,
+    /// an exhausted script keeping the last; empty means the golden. A
+    /// refusal in the script is thrown for that read.
+    var homeStatusScript: [Result<ManagementHomeStatus, any Error>] = []
+    var homeStatusIndex = 0
+    /// What the Always On pane asked of the home and the provisioner, in
+    /// order.
+    var provisionTokens: [String] = []
+    var provisionCreates: [ProvisionCreate] = []
+    var provisionPowers: [ManagementProvisionPower] = []
+    var readinessCandidates: [String] = []
+    var moveStarts: [MoveStart] = []
+    var recoveryPassphrases: [String] = []
+    var cancelledJobs: [String] = []
+    /// The answers a case needs that the goldens do not publish.
+    var moveReadinessResult: ManagementMoveReadiness?
+    var jobListResult: ManagementJobList?
+    var provisionResourcesResult: ManagementProvisionView?
 
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take

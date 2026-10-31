@@ -821,6 +821,51 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsKeywordsSandbox = "settings.keywords.sandbox"
     case settingsKeywordsPermissions = "settings.keywords.permissions"
 
+    // Always On (M75 lean v1 §7): the pane's own words. Every sentence and
+    // action label on a screen is the engine's; these are the field labels,
+    // the links, the sheets and the notification title around them.
+    /// The docs link every Always On screen carries.
+    case alwaysOnLearnMore = "alwaysOn.learnMore"
+    case alwaysOnLinkOpenFailed = "alwaysOn.linkOpenFailed"
+    case alwaysOnDetails = "alwaysOn.details"
+    case alwaysOnTokenField = "alwaysOn.token.field"
+    case alwaysOnTokenChecking = "alwaysOn.token.checking"
+    case alwaysOnHowToGetOne = "alwaysOn.token.howToGetOne"
+    case alwaysOnOpenHetzner = "alwaysOn.token.openHetzner"
+    case alwaysOnChange = "alwaysOn.choose.change"
+    case alwaysOnChangeTitle = "alwaysOn.choose.title"
+    /// The owner's own choice, in the words the engine's recommendation is said in: type, city and the monthly total with its IPv4 address.
+    case alwaysOnChoiceFormat = "alwaysOn.choose.choiceFormat"
+    case alwaysOnMonthlyFormat = "alwaysOn.choose.monthlyFormat"
+    case alwaysOnShapeFormat = "alwaysOn.choose.shapeFormat"
+    case alwaysOnPriceFormat = "alwaysOn.choose.priceFormat"
+    case alwaysOnPassphraseTitle = "alwaysOn.passphrase.title"
+    case alwaysOnPassphraseBody = "alwaysOn.passphrase.body"
+    case alwaysOnPassphraseMoveBody = "alwaysOn.passphrase.moveBody"
+    case alwaysOnPassphraseField = "alwaysOn.passphrase.field"
+    case alwaysOnPassphraseAgain = "alwaysOn.passphrase.again"
+    case alwaysOnPassphraseSave = "alwaysOn.passphrase.set"
+    case alwaysOnPassphraseContinue = "alwaysOn.passphrase.move"
+    case alwaysOnPassphraseMismatch = "alwaysOn.passphrase.mismatch"
+    case alwaysOnOwnServerFormat = "alwaysOn.ownServer.runFormat"
+    case alwaysOnCopyCommand = "alwaysOn.ownServer.copy"
+    case alwaysOnServerName = "alwaysOn.server.name"
+    case alwaysOnServerType = "alwaysOn.server.type"
+    case alwaysOnServerLocation = "alwaysOn.server.location"
+    case alwaysOnServerAddress = "alwaysOn.server.address"
+    case alwaysOnServerSystem = "alwaysOn.server.system"
+    case alwaysOnServerVersion = "alwaysOn.server.version"
+    case alwaysOnWaitsUntilFormat = "alwaysOn.server.waitsUntilFormat"
+    case alwaysOnBackupPlaceFormat = "alwaysOn.backup.placeFormat"
+    case alwaysOnCopies = "alwaysOn.backup.copies"
+    case alwaysOnDisk = "alwaysOn.server.disk"
+    case alwaysOnSeenFormat = "alwaysOn.problem.seenFormat"
+    case alwaysOnReplaceTitle = "alwaysOn.replace.title"
+    case alwaysOnReplaceBody = "alwaysOn.replace.body"
+    case alwaysOnReplaceCreate = "alwaysOn.replace.create"
+    /// The title of every Always On notification; the body is the engine's sentence.
+    case alwaysOnNoticeTitle = "alwaysOn.notice.title"
+
     // Settings: the presentation's own chrome, banners and the restart sheet
     /// The back control's label, and what VoiceOver reads on it (decision D1).
     case settingsBackAccessibility = "settings.back.accessibility"

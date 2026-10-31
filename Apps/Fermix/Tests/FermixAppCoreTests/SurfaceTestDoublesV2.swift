@@ -167,11 +167,14 @@ extension FakeDaemonGateway {
     }
 
     func cancelJob(id: String) async throws -> ManagementJob {
-        try answer(.jobCancel, "job_cancel")
+        cancelledJobs.append(id)
+        return try answer(.jobCancel, "job_cancel")
     }
 
     func jobs() async throws -> ManagementJobList {
-        try answer(.jobList, "job_list")
+        let published: ManagementJobList = try answer(.jobList, "job_list")
+
+        return jobListResult ?? published
     }
 
     // MARK: - Authentication
@@ -593,7 +596,12 @@ extension FakeDaemonGateway {
     // MARK: - The home (M75)
 
     func homeStatus() async throws -> ManagementHomeStatus {
-        try answer(.homeStatus, "home_status")
+        let published: ManagementHomeStatus = try answer(.homeStatus, "home_status")
+        guard !homeStatusScript.isEmpty else { return published }
+
+        let next = homeStatusScript[min(homeStatusIndex, homeStatusScript.count - 1)]
+        homeStatusIndex += 1
+        return try next.get()
     }
 
     func openEnrollment() async throws -> ManagementEnrollmentCode {
@@ -605,11 +613,15 @@ extension FakeDaemonGateway {
     }
 
     func moveReadiness(candidateId: String) async throws -> ManagementMoveReadiness {
-        try answer(.homeMoveReadiness, "home_move_readiness")
+        readinessCandidates.append(candidateId)
+        let published: ManagementMoveReadiness = try answer(.homeMoveReadiness, "home_move_readiness")
+
+        return moveReadinessResult ?? published
     }
 
     func startMove(candidateId: String, passphrase: String, keepAsDesktop: Bool) async throws -> ManagementMoveStarted {
-        try answer(.homeMoveStart, "home_move_start")
+        moveStarts.append(MoveStart(candidateId: candidateId, passphrase: passphrase, keepAsDesktop: keepAsDesktop))
+        return try answer(.homeMoveStart, "home_move_start")
     }
 
     func snapshotsStatus() async throws -> ManagementHomeSnapshots {
@@ -621,7 +633,39 @@ extension FakeDaemonGateway {
     }
 
     func setRecoveryPassphrase(_ passphrase: String) async throws -> ManagementRecoveryKey {
-        try answer(.homeSnapshotsPassphrase, "home_snapshots_passphrase")
+        recoveryPassphrases.append(passphrase)
+        return try answer(.homeSnapshotsPassphrase, "home_snapshots_passphrase")
+    }
+
+    // MARK: - The Always On server on Hetzner (M75)
+
+    func provisionConnect(token: String) async throws -> ManagementProvisionView {
+        provisionTokens.append(token)
+        return try answer(.homeProvisionConnect, "home_provision_connect")
+    }
+
+    func provisionOptions() async throws -> ManagementProvisionOptions {
+        try answer(.homeProvisionOptions, "home_provision_options")
+    }
+
+    func provisionCreate(_ pick: ManagementProvisionPick, replace: Bool) async throws -> ManagementJob {
+        provisionCreates.append(ProvisionCreate(pick: pick, replace: replace))
+        return try answer(.homeProvisionCreate, "home_provision_create")
+    }
+
+    func provisionPower(_ action: ManagementProvisionPower) async throws -> ManagementJob {
+        provisionPowers.append(action)
+        return try answer(.homeProvisionPower, "home_provision_power")
+    }
+
+    func provisionResources() async throws -> ManagementProvisionView {
+        let published: ManagementProvisionView = try answer(.homeProvisionResources, "home_provision_resources")
+
+        return provisionResourcesResult ?? published
+    }
+
+    func provisionDelete() async throws -> ManagementJob {
+        try answer(.homeProvisionDelete, "home_provision_delete")
     }
 
     // MARK: - One answer
@@ -881,4 +925,17 @@ final class FakeProviderReadiness: @unchecked Sendable {
             as: ManagementSetupState.self
         )
     }
+}
+
+/// One `home.provision.create` the pane asked for.
+struct ProvisionCreate: Equatable {
+    let pick: ManagementProvisionPick
+    let replace: Bool
+}
+
+/// One `home.move.start` the pane asked for.
+struct MoveStart: Equatable {
+    let candidateId: String
+    let passphrase: String
+    let keepAsDesktop: Bool
 }

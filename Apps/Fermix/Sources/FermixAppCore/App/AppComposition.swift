@@ -305,6 +305,12 @@ final class AppComposition {
         // A login launch opens nothing, so Home's own refresh never runs and
         // the menu bar would have no answer to draw.
         coordinator.readDaemonCondition = { [surfaces] in Task { await surfaces.home.refresh() } }
+        // Always On's notifications are the system's own, raised from the
+        // summary the follow reads for as long as the app runs, window or no
+        // window (M75 lean v1 §7). Its Update is the app's own update.
+        settings.alwaysOn.notifier = notifications
+        settings.alwaysOn.checkForUpdates = { [router] in router.perform(.checkForUpdates) }
+        Task { [settings] in await settings.alwaysOn.follow(with: MainQueueDeadlineScheduler()) }
 
         windowHost.surfaces = AppSurfaces(
             model: model,

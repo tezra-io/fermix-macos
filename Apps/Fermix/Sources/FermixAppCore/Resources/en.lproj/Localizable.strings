@@ -767,10 +767,50 @@
 "settings.keywords.search" = "web places brave tavily duckduckgo";
 "settings.keywords.images" = "picture generation render backend";
 "settings.keywords.browser" = "tabs profile hosts chrome chromium download";
-"settings.keywords.alwaysOn" = "server cloud linux move snapshots recovery backup";
+"settings.keywords.alwaysOn" = "server cloud hetzner linux move snapshots recovery backup";
 "settings.keywords.secrets" = "keychain file store password";
 "settings.keywords.sandbox" = "commands environment permissions strict";
 "settings.keywords.permissions" = "microphone screen accessibility login items";
+
+/* MARK: Always On (M75 lean v1 §7) */
+"alwaysOn.learnMore" = "Learn more";
+"alwaysOn.linkOpenFailed" = "The browser could not open the page.";
+"alwaysOn.details" = "Details";
+"alwaysOn.token.field" = "Hetzner API token";
+"alwaysOn.token.checking" = "Checking the token with Hetzner…";
+"alwaysOn.token.howToGetOne" = "How to get one";
+"alwaysOn.token.openHetzner" = "Open Hetzner";
+"alwaysOn.choose.change" = "Change";
+"alwaysOn.choose.title" = "Size and location";
+"alwaysOn.choose.choiceFormat" = "%1$@ in %2$@, %3$@ a month.";
+"alwaysOn.choose.monthlyFormat" = "%@ a month";
+"alwaysOn.choose.shapeFormat" = "%1$ld vCPU, %2$@ GB memory, %3$ld GB disk";
+"alwaysOn.choose.priceFormat" = "%1$@ a month, and %2$@ for its IPv4 address. Prices include VAT.";
+"alwaysOn.passphrase.title" = "Recovery passphrase";
+"alwaysOn.passphrase.body" = "Fermix encrypts every backup of your home to this passphrase and never stores it. Keep it in a password manager: no backup can be restored without it.";
+"alwaysOn.passphrase.moveBody" = "Type your recovery passphrase. The move encrypts the backups of your home to it, and Fermix never stores it.";
+"alwaysOn.passphrase.field" = "Passphrase";
+"alwaysOn.passphrase.again" = "Passphrase again";
+"alwaysOn.passphrase.set" = "Set passphrase";
+"alwaysOn.passphrase.move" = "Move now";
+"alwaysOn.passphrase.mismatch" = "The two passphrases are not the same.";
+"alwaysOn.ownServer.runFormat" = "Run this on your Linux server. The code inside works once, until %@.";
+"alwaysOn.ownServer.copy" = "Copy command";
+"alwaysOn.server.name" = "Name";
+"alwaysOn.server.type" = "Size";
+"alwaysOn.server.location" = "Location";
+"alwaysOn.server.address" = "IPv4 address";
+"alwaysOn.server.system" = "System";
+"alwaysOn.server.version" = "Version";
+"alwaysOn.server.waitsUntilFormat" = "It waits for the move until %@.";
+"alwaysOn.backup.placeFormat" = "Last backup in %@";
+"alwaysOn.backup.copies" = "Backups on this Mac";
+"alwaysOn.server.disk" = "Server disk in use";
+"alwaysOn.problem.seenFormat" = "Fermix last checked %@.";
+"alwaysOn.replace.title" = "Replace the server";
+"alwaysOn.replace.body" = "Fermix creates a new server for your home. Once you move to it, Fermix deletes the old one.";
+"alwaysOn.replace.create" = "Create server";
+"alwaysOn.notice.title" = "Always On";
 
 /* MARK: Settings chrome, banners and the restart sheet */
 "settings.back.accessibility" = "Back to Fermix";

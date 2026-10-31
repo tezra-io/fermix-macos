@@ -20,7 +20,14 @@ enum ManagementV2Calls {
     /// door and has no app caller since the hosted Setup pane was deleted
     /// (M34 §8). It is declared rather than dropped, so a method that loses its
     /// caller by accident still fails the coverage assertion.
-    static let unexercised: Set<String> = ["setup_session_create"]
+    ///
+    /// `home.enroll.withdraw` has no app caller either: a desktop's engine
+    /// forwards it to the server it replaces, so no surface ever asks it.
+    static let unexercised: Set<String> = ["setup_session_create", "home_enroll_withdraw"]
+
+    /// The methods no surface calls, whose every golden is unexercised, so
+    /// the N-1 gate is never reached for them.
+    static let uncalledMethods: Set<String> = ["home.enroll.withdraw"]
 
     /// Each golden request, mapped to the call that must produce it.
     static let byFixture: [String: @Sendable (ManagementClient) async throws -> Void] = [
@@ -323,7 +330,21 @@ enum ManagementV2Calls {
         },
         "home_snapshots_status": { _ = try await $0.snapshotsStatus() },
         "home_snapshots_run": { _ = try await $0.runSnapshot() },
-        "home_snapshots_passphrase": { _ = try await $0.setRecoveryPassphrase("invented-lighthouse-meridian") }
+        "home_snapshots_passphrase": { _ = try await $0.setRecoveryPassphrase("invented-lighthouse-meridian") },
+
+        // The Always On server on Hetzner (M75 lean v1 §4.3).
+        "home_provision_connect": { _ = try await $0.provisionConnect(token: "invented-hetzner-token-6d1f0c9a2b7e4f3a") },
+        "home_provision_options": { _ = try await $0.provisionOptions() },
+        "home_provision_create": {
+            _ = try await $0.provisionCreate(ManagementProvisionPick(type: "cpx22", location: .falkenstein))
+        },
+        // Replace the server, from the desktop whose home lives on it.
+        "home_provision_create_replace": {
+            _ = try await $0.provisionCreate(ManagementProvisionPick(type: "cpx32", location: .helsinki), replace: true)
+        },
+        "home_provision_power": { _ = try await $0.provisionPower(.reset) },
+        "home_provision_resources": { _ = try await $0.provisionResources() },
+        "home_provision_delete": { _ = try await $0.provisionDelete() }
     ]
 
 }

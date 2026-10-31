@@ -1,10 +1,11 @@
 import Foundation
 
-/// Always On (M75): the pane is the engine's published descriptor rows under
-/// `always_on`, the recovery snapshots' settings, and nothing of the app's
-/// own. It is drawn only where the daemon lists `home.status` in its `hello`:
-/// an engine from before Always On has neither the method nor the pane, and
-/// the sidebar then lists no row and says nothing.
+/// Always On (M75): the pane draws `home.status.summary` (`AlwaysOnPane`),
+/// with the engine's snapshot rows under `always_on` behind its Details. It is
+/// listed only where the daemon lists `home.status` in its `hello`: an engine
+/// from before Always On has neither the method nor the pane, and the sidebar
+/// then lists no row and says nothing. An engine that lists the method but
+/// answers no summary gets the pane's "update Fermix" answer.
 extension SettingsModel {
     public var drawsAlwaysOnPane: Bool {
         servedMethods.contains(.homeStatus)

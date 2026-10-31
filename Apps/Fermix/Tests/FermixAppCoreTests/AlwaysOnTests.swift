@@ -17,7 +17,9 @@ struct AlwaysOnTests {
         let home: ManagementHomeStatus = try Self.golden("home_status")
         #expect(home.role == .primary && home.epoch == 4)
         #expect(home.primary == nil && home.primaryHome == nil && home.primaryMissing == nil)
-        #expect(home.enrollment == ManagementEnrollmentWindow(state: .used, expiresAt: "2026-10-27T09:22:00Z"))
+        #expect(home.enrollment == ManagementEnrollmentWindow(
+            state: .used, expiresAt: "2026-10-27T09:22:00Z", kind: .manual, candidateId: "cand-5e2a9c1f7b3d4086"
+        ))
         #expect(home.candidates.map(\.candidateId) == ["cand-5e2a9c1f7b3d4086"])
         #expect(home.move?.phase == .aborted && home.move?.phase.isPending == false)
 
@@ -28,7 +30,6 @@ struct AlwaysOnTests {
 
         let candidates: ManagementCandidates = try Self.golden("home_candidates_list")
         let candidate = try #require(candidates.candidates.first)
-        #expect(candidate.instance == ManagementCandidateInstance(provider: "hetzner", instanceId: "61839204", region: "fsn1", accountId: nil))
         #expect(candidate.enrolledAt == "2026-10-27T09:12:00Z")
 
         let readiness: ManagementMoveReadiness = try Self.golden("home_move_readiness")

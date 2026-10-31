@@ -50,6 +50,10 @@ public struct DefaultManagementTimeoutPolicy: ManagementTimeoutPolicy {
     /// (management PROTOCOL.md, *Forward deadlines*): the client waits longer
     /// than that on every engine.
     public static let move: Duration = .seconds(65)
+    /// The provisioner's token check, its options and its record call
+    /// Hetzner inside the request, up to three calls of at most 10 s each,
+    /// so the client waits for all three.
+    public static let hetzner: Duration = .seconds(35)
 
     public init() {}
 
@@ -63,6 +67,8 @@ public struct DefaultManagementTimeoutPolicy: ManagementTimeoutPolicy {
             return Self.write
         case .homeMoveReadiness, .homeMoveStart:
             return Self.move
+        case .homeProvisionConnect, .homeProvisionOptions, .homeProvisionResources:
+            return Self.hetzner
         default:
             return Self.standard
         }

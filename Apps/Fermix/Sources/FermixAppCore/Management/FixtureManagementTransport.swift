@@ -126,10 +126,16 @@ struct FixtureManagementTransport: ManagementTransport {
     /// the general WebSocket source's, a stream asked for with no preset:
     /// those two requests are answered with their own, and every other with
     /// GitHub's, the one form the fixture has for them.
+    ///
+    /// `home.status` publishes one golden per Always On summary for the same
+    /// request: the one the machine's start names answers.
     private func candidates(for method: String, params: [String: Any]) -> [Record]? {
         if method == ManagementMethod.mcpServersGet.rawValue { return records[method].map { Array($0.prefix(1)) } }
         if method == ManagementMethod.cuesProposalsGet.rawValue { return records[method].map { Array($0.prefix(1)) } }
         if method == ManagementMethod.cuesSourcesForm.rawValue { return records[method].map { sourceForm($0, params) } }
+        if method == ManagementMethod.homeStatus.rawValue {
+            return records[method].map { $0.filter { $0.name == machine.homeStatusGolden } }
+        }
         guard method == ManagementMethod.mobilePairStart.rawValue else { return records[method] }
 
         let running = machine.phoneChannel.running

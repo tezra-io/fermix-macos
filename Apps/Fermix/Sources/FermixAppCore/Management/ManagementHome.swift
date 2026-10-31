@@ -154,29 +154,48 @@ public struct ManagementEnrollmentCode: Decodable, Equatable, Sendable {
     }
 }
 
+/// Which code a window holds: the one a person copies, or the one inside a
+/// server Fermix created (24 hours).
+public enum ManagementEnrollmentKind: ManagementVocabulary, Hashable {
+    case manual
+    case provisioned
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = ["manual": .manual, "provisioned": .provisioned]
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+}
+
+/// `home.enroll.withdraw`: the server's 24-hour window released. The app
+/// never asks it (`ManagementMethod.homeEnrollWithdraw`).
+public struct ManagementEnrollmentWithdrawn: Decodable, Equatable, Sendable {
+    public let withdrawn: Bool
+}
+
 /// `home.status`'s `enrollment`: the window, without its code.
 public struct ManagementEnrollmentWindow: Decodable, Equatable, Sendable {
     public let state: ManagementEnrollmentState
     public let expiresAt: String
+    /// Which code the window holds; absent from an engine before it.
+    public let kind: ManagementEnrollmentKind?
+    /// The server that enrolled with the window's code, which is how the
+    /// server Fermix created is known; null until one did.
+    public let candidateId: String?
 
-    private enum CodingKeys: String, CodingKey {
-        case state
-        case expiresAt = "expires_at"
+    public init(state: ManagementEnrollmentState, expiresAt: String, kind: ManagementEnrollmentKind? = nil, candidateId: String? = nil) {
+        self.state = state
+        self.expiresAt = expiresAt
+        self.kind = kind
+        self.candidateId = candidateId
     }
-}
-
-/// What a server said of its instance when it enrolled. Nobody verified any
-/// of it, so a surface shows it as the host's own claim.
-public struct ManagementCandidateInstance: Decodable, Equatable, Sendable {
-    public let provider: String?
-    public let instanceId: String?
-    public let region: String?
-    public let accountId: String?
 
     private enum CodingKeys: String, CodingKey {
-        case provider, region
-        case instanceId = "instance_id"
-        case accountId = "account_id"
+        case state, kind
+        case expiresAt = "expires_at"
+        case candidateId = "candidate_id"
     }
 }
 
@@ -188,12 +207,11 @@ public struct ManagementCandidate: Decodable, Equatable, Sendable {
     public let os: String
     public let arch: String
     public let version: String
-    public let instance: ManagementCandidateInstance?
     public let enrolledAt: String
     public let expiresAt: String
 
     private enum CodingKeys: String, CodingKey {
-        case name, os, arch, version, instance
+        case name, os, arch, version
         case candidateId = "candidate_id"
         case enrolledAt = "enrolled_at"
         case expiresAt = "expires_at"
@@ -458,9 +476,18 @@ public struct ManagementHomeStatus: Decodable, Equatable, Sendable {
     /// On a linked desktop, the daemon's sentence for why `primaryHome` is
     /// missing; null otherwise.
     public let primaryMissing: String?
+    /// Where Always On stands, in one sentence and at most one action. Absent
+    /// from an engine older than it, which the pane answers as one that needs
+    /// updating.
+    public let summary: ManagementHomeSummary?
+    /// On the primary, how full its disk is; null elsewhere and when it
+    /// cannot be read.
+    public let disk: ManagementHomeDisk?
+    /// This engine's version; absent from an engine older than the summary.
+    public let version: String?
 
     private enum CodingKeys: String, CodingKey {
-        case role, epoch, moved, primary, desktops, snapshots, enrollment, candidates, move
+        case role, epoch, moved, primary, desktops, snapshots, enrollment, candidates, move, summary, disk, version
         case secretsMissing = "secrets_missing"
         case primaryHome = "primary_home"
         case primaryMissing = "primary_missing"

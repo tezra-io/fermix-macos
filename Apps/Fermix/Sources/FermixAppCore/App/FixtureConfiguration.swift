@@ -70,6 +70,10 @@ enum FixtureStart: Equatable {
     /// The update window on one of its phases, and no primary window: an
     /// update is shown whether or not a window is open.
     case update(FixtureUpdateStart)
+    /// Settings, Always On, on one of the summaries the contract publishes a
+    /// `home.status` golden for. `settings/always_on` itself opens on the
+    /// first golden.
+    case alwaysOn(FixtureAlwaysOnStart)
 
     static let settingsPrefix = "settings/"
     static let assistantPrefix = "assistant/"
@@ -103,6 +107,8 @@ enum FixtureStart: Equatable {
             self = .failedChatCall
         } else if let servers = FixtureMCPStart(rawValue: name) {
             self = .mcp(servers)
+        } else if let summary = FixtureAlwaysOnStart(rawValue: name) {
+            self = .alwaysOn(summary)
         } else if let slug = name.dropping(prefix: Self.settingsPrefix) {
             guard let pane = SettingsPane(rawValue: slug) else { return nil }
             self = .settings(pane)
@@ -128,6 +134,7 @@ enum FixtureStart: Equatable {
             + OnboardingStage.allCases.map { assistantPrefix + $0.rawValue }
             + [restartSheetName, approvalStepName, emptyChatName, chatRepliesName, browserName, chatCallName, failedChatCallName]
             + FixtureMCPStart.allCases.map(\.rawValue)
+            + FixtureAlwaysOnStart.allCases.map(\.rawValue)
             + FixturePhoneStart.allCases.map { phonePrefix + $0.rawValue }
             + FixtureUpdateStart.allCases.map { updatePrefix + $0.rawValue }
     }
@@ -257,6 +264,32 @@ struct FixturePhoneChannel: Equatable {
 
     /// A channel nobody has turned on.
     static let switchedOff = FixturePhoneChannel(switchedOn: false, running: false, moment: nil)
+}
+
+/// The Always On summaries a fixture launch opens on (M75 lean v1 §7): one
+/// per `home.status` golden the contract publishes, each answered as it is.
+enum FixtureAlwaysOnStart: String, CaseIterable {
+    case creating = "always-on-creating"
+    case ready = "always-on-ready"
+    case on = "always-on-on"
+    case problem = "always-on-problem"
+    case candidate = "always-on-candidate"
+    case server = "always-on-server"
+
+    /// The golden every other start answers `home.status` with.
+    static let firstGolden = "home_status"
+
+    /// The golden `home.status` answers with.
+    var golden: String {
+        switch self {
+        case .creating: return "home_status_creating"
+        case .ready: return "home_status_ready"
+        case .on: return "home_status_on"
+        case .problem: return "home_status_problem"
+        case .candidate: return "home_status_candidate"
+        case .server: return "home_status_server"
+        }
+    }
 }
 
 /// The MCP servers a fixture launch opens on where the golden list is not
@@ -505,6 +538,7 @@ struct FixtureLaunch {
         case .chatCall, .failedChatCall: return .chatWithCall
         case .phone(let step): return .channelsWithPhone(step.intent)
         case .mcp: return .settings(.integrations)
+        case .alwaysOn: return .settings(.alwaysOn)
         case .update(let phase): return .updateWindow(phase)
         }
     }
@@ -516,6 +550,13 @@ struct FixtureLaunch {
         if case .phone(let step) = start { return step.channel }
 
         return home == .fresh ? .switchedOff : .published
+    }
+
+    /// The `home.status` golden the machine answers with.
+    var homeStatusGolden: String {
+        guard case .alwaysOn(let summary) = start else { return FixtureAlwaysOnStart.firstGolden }
+
+        return summary.golden
     }
 
     /// The MCP servers the machine opens on, where its start names them.
@@ -559,6 +600,7 @@ struct FixtureLaunch {
         case .failedChatCall: return FixtureStart.failedChatCallName
         case .phone(let step): return "phone-\(step.rawValue)"
         case .mcp(let servers): return servers.rawValue
+        case .alwaysOn(let summary): return summary.rawValue
         case .update(let phase): return "update-\(phase.rawValue)"
         }
     }
@@ -631,18 +673,22 @@ final class FixtureMachine: @unchecked Sendable {
     private var pid = FixtureMachine.firstPid
     private var phone: FixturePhoneChannel
     private var mcp: FixtureMCPServers
+    /// The `home.status` golden this machine answers with.
+    let homeStatusGolden: String
 
     init(
         daemonUp: Bool,
         agentHeldForApproval: Bool = false,
         phone: FixturePhoneChannel = .published,
-        mcpServers: FixtureMCPStart? = nil
+        mcpServers: FixtureMCPStart? = nil,
+        homeStatusGolden: String = FixtureAlwaysOnStart.firstGolden
     ) {
         launchdStartsTheDaemon = daemonUp
         running = daemonUp
         self.agentHeldForApproval = agentHeldForApproval
         self.phone = phone
         mcp = FixtureMCPServers(start: mcpServers)
+        self.homeStatusGolden = homeStatusGolden
         // A first install: nothing is registered until setup asks.
         if agentHeldForApproval { registered = [] }
     }
@@ -886,7 +932,8 @@ extension AppEnvironment {
             daemonUp: launch.home != .daemonStarting && launch.home != .awaitingApproval,
             agentHeldForApproval: launch.home == .awaitingApproval,
             phone: launch.phoneChannel,
-            mcpServers: launch.mcpServers
+            mcpServers: launch.mcpServers,
+            homeStatusGolden: launch.homeStatusGolden
         )
         let transport = try FixtureManagementTransport(
             machine: machine,

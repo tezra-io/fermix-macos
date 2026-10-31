@@ -1132,7 +1132,7 @@ struct SettingsPanesTests {
         let statuses = Set(try Self.pluginVocabulary("statuses"))
         let rows = IntegrationRowProjection.rows(catalog)
 
-        #expect(statuses.count == 22)
+        #expect(statuses.count == 23)
         for plugin in catalog.plugins {
             #expect(statuses.contains(plugin.status), "\(plugin.name) reports \(plugin.status)")
             let row = try #require(rows.first { $0.name == plugin.name })
