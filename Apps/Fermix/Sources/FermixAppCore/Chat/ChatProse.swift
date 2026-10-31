@@ -4,7 +4,7 @@ import SwiftUI
 extension ChatMetrics {
     /// A reply's words and a person's: the system's face at the body's size,
     /// with room between lines for reading at length.
-    static let readingType = TypeStyle(size: 16, leading: 26, weight: .regular, relativeTo: .body)
+    static let readingType = TypeStyle(size: 15, leading: 24, weight: .regular, relativeTo: .body)
     /// Above a paragraph, a list, a quote, a table or a code block that
     /// follows another block: less than a blank line, so a reply reads as one
     /// piece of writing.

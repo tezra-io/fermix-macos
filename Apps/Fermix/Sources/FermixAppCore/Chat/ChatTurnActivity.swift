@@ -4,42 +4,35 @@ extension ChatMetrics {
     /// How far a turn's steps sit in from its line, beside a faint bar.
     static let stepsInset: Double = Spacing.s
     static let stepsBarWidth: Double = 2
-    /// Between two steps, and between a step's heading and its words.
-    static let stepGap: Double = Spacing.xs
-    static let stepHeadingGap: Double = 2
+    /// Between two steps.
+    static let stepGap: Double = Spacing.xxs
     /// The chevron beside the line that opens the steps.
     static let stepsChevron: Double = 9
 }
 
 /// What the turn answering now shows of its work, read from its live events
 /// alone (`CompanionTurn`): whether it is working or writing (`ChatTurnStatus`),
-/// what it is doing now in a person's words, and every step it said it took.
+/// what it is doing now in a person's words, and every step it said it took,
+/// each one short line.
 ///
-/// What it is doing now is the step a tool is running, in the engine's
-/// sentence for it, or the heading of the newest summary of its reasoning,
-/// and otherwise that it is thinking. A tool is never named: a daemon that
-/// sends no sentence for one shows the turn thinking, as before.
+/// A tool's step is the engine's sentence for it, and a summary of the
+/// model's reasoning is its heading alone (owner, 2026-10-31: the heading
+/// says enough, the rest is clutter). What it is doing now is the step a tool
+/// is running, or the newest summary's heading, and otherwise that it is
+/// thinking. A tool is never named: a daemon that sends no sentence for one
+/// shows the turn thinking, as before.
 struct ChatTurnProgress: Equatable {
-    /// One step, as the list of steps draws it.
-    enum Step: Equatable {
-        /// A tool's step, in the engine's sentence for it.
-        case activity(String)
-        /// A summary of the model's reasoning: its heading, where it opens
-        /// with a bold line, and the words after it.
-        case reasoning(heading: String?, words: String)
-    }
-
     /// Whether the turn is working rather than writing its reply.
     let working: Bool
     /// What it is doing now, while it works.
     let current: String
     /// Every step so far, oldest first, a run of the same step once.
-    let steps: [Step]
+    let steps: [String]
 
     init(_ turn: CompanionTurn) {
         working = ChatTurnStatus(turn) == .thinking
         steps = Self.read(turn.steps)
-        current = Self.doing(turn, steps: steps)
+        current = Self.doing(turn)
     }
 
     /// Whether there is anything to show: a turn at work, or steps to open.
@@ -47,51 +40,49 @@ struct ChatTurnProgress: Equatable {
         working || !steps.isEmpty
     }
 
-    private static func doing(_ turn: CompanionTurn, steps: [Step]) -> String {
+    private static func doing(_ turn: CompanionTurn) -> String {
         if let tool = turn.tool, tool.phase == .start, let activity = tool.activity {
             return activity
         }
-        if case .reasoning(let heading, let words)? = steps.last, turn.tool?.phase != .start {
-            return heading ?? words.split(separator: "\n").first.map(String.init) ?? ProductStrings[.chatThinking]
+        if case .reasoning(let text)? = turn.steps.last, turn.tool?.phase != .start {
+            return heading(of: text) ?? ProductStrings[.chatThinking]
         }
         return ProductStrings[.chatThinking]
     }
 
-    private static func read(_ steps: [CompanionTurnStep]) -> [Step] {
-        var read: [Step] = []
+    private static func read(_ steps: [CompanionTurnStep]) -> [String] {
+        var read: [String] = []
         for step in steps {
-            let next: Step
+            let line: String?
             switch step {
-            case .activity(let sentence): next = .activity(sentence)
-            case .reasoning(let text): next = reasoning(text)
+            case .activity(let sentence): line = sentence
+            case .reasoning(let text): line = heading(of: text)
             }
-            if read.last != next { read.append(next) }
+            if let line, read.last != line { read.append(line) }
         }
         return read
     }
 
-    /// A summary's heading is its first line where that line is wholly bold
-    /// (`**Comparing hosting options**`), as the provider writes one; the
-    /// words are the rest.
-    static func reasoning(_ text: String) -> Step {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lines = trimmed.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-        let first = lines.first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
-        guard first.count > 4, first.hasPrefix("**"), first.hasSuffix("**") else {
-            return .reasoning(heading: nil, words: trimmed)
-        }
+    /// A summary's heading: its first line, as the provider writes one in
+    /// bold (`**Comparing hosting options**`), read as plain words, so a link
+    /// in it is words with nothing to open past the chat's check
+    /// (`ChatLinkGuard`). A summary with no words has none.
+    static func heading(of text: String) -> String? {
+        let first = text.split(whereSeparator: \.isNewline).first { !$0.allSatisfy(\.isWhitespace) }
+        guard let first else { return nil }
 
-        let heading = String(first.dropFirst(2).dropLast(2)).trimmingCharacters(in: .whitespaces)
-        let words = lines.count > 1 ? lines[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        return .reasoning(heading: heading, words: words)
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        let line = String(first)
+        let read = (try? AttributedString(markdown: line, options: options)).map { String($0.characters) } ?? line
+        let words = read.trimmingCharacters(in: .whitespaces)
+        return words.isEmpty ? nil : words
     }
 }
 
 /// The line over a turn being written: while it works, what it is doing now
 /// with the thinking line's motion (`ThinkingLine`) and how long it has been
 /// at it; once it writes, how long it worked. Where the turn said what it
-/// did, the line opens the steps under it, each tool's step a line and each
-/// summary of its reasoning its heading over its words.
+/// did, the line opens the steps under it, one short line each.
 struct ChatTurnActivity: View {
     let progress: ChatTurnProgress
     /// When this Mac saw the turn start, and when it started writing.
@@ -161,7 +152,10 @@ struct ChatTurnActivity: View {
     private var steps: some View {
         VStack(alignment: .leading, spacing: ChatMetrics.stepGap) {
             ForEach(Array(progress.steps.enumerated()), id: \.offset) { _, step in
-                ChatTurnStepView(step: step)
+                Text(step)
+                    .fermixType(Typography.style(.calloutSmall))
+                    .foregroundStyle(Palette.secondary.color)
+                    .lineLimit(1)
             }
         }
         .padding(.leading, ChatMetrics.stepsInset)
@@ -181,44 +175,5 @@ struct ChatTurnActivity: View {
 
     static func worked(since start: Date, until end: Date) -> String {
         String(format: ProductStrings[.chatWorkedFor], elapsed(since: start, until: end))
-    }
-}
-
-/// One step under a turn's line: a tool's step as its sentence, and a
-/// summary of the model's reasoning as its heading over its words, its
-/// inline markdown read but no link in it live: a summary is the model's
-/// words, which a page it read can shape, and a link here would open
-/// without the chat's check (`ChatLinkGuard`).
-struct ChatTurnStepView: View {
-    let step: ChatTurnProgress.Step
-
-    var body: some View {
-        switch step {
-        case .activity(let sentence):
-            Text(sentence)
-                .fermixType(Typography.style(.calloutSmall))
-                .foregroundStyle(Palette.secondary.color)
-        case .reasoning(let heading, let words):
-            VStack(alignment: .leading, spacing: ChatMetrics.stepHeadingGap) {
-                if let heading {
-                    Text(heading)
-                        .fermixType(Typography.style(.calloutSmall).weight(.semibold))
-                        .foregroundStyle(Palette.secondary.color)
-                }
-                if !words.isEmpty {
-                    Text(Self.inline(words))
-                        .fermixType(Typography.style(.calloutSmall))
-                        .foregroundStyle(Palette.faint.color)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-
-    static func inline(_ words: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        var read = (try? AttributedString(markdown: words, options: options)) ?? AttributedString(words)
-        read.link = nil
-        return read
     }
 }

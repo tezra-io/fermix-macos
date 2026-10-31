@@ -45,18 +45,24 @@ struct ChatTurnActivityTests {
         #expect(reasoned.current == "Comparing the options")
     }
 
-    @Test("a summary's bold first line is its heading, and one with none is its words")
+    /// A step is one short line: a summary shows its heading alone, never
+    /// the words under it (owner, 2026-10-31).
+    @Test("a summary is its heading alone, its first line read as plain words")
     func headings() {
-        #expect(ChatTurnProgress.reasoning("**Checking the calendar**\n\nToday's events first.") == .reasoning(heading: "Checking the calendar", words: "Today's events first."))
-        #expect(ChatTurnProgress.reasoning("Looking at the **calendar** first.") == .reasoning(heading: nil, words: "Looking at the **calendar** first."))
-        #expect(ChatTurnProgress.reasoning("**Only a heading**") == .reasoning(heading: "Only a heading", words: ""))
+        #expect(ChatTurnProgress.heading(of: "**Checking the calendar**\n\nToday's events first.") == "Checking the calendar")
+        #expect(ChatTurnProgress.heading(of: "\n\nLooking at the **calendar** first.\nThen the rest.") == "Looking at the calendar first.")
+        #expect(ChatTurnProgress.heading(of: "  \n ") == nil)
     }
 
-    @Test("a run of the same step shows once, and steps keep their order")
+    @Test("a run of the same step shows once, steps keep their order, and a summary's step is its heading")
     func steps() {
-        let progress = Self.turn(steps: [.activity("Searching the web"), .activity("Searching the web"), .activity("Reading a web page"), .activity("Searching the web")])
+        let progress = Self.turn(steps: [
+            .activity("Searching the web"), .activity("Searching the web"), .activity("Reading a web page"),
+            .reasoning("**Comparing the options**\n\nTwo of them fit, and the third pauses between turns."),
+            .activity("Searching the web"),
+        ])
 
-        #expect(progress.steps == [.activity("Searching the web"), .activity("Reading a web page"), .activity("Searching the web")])
+        #expect(progress.steps == ["Searching the web", "Reading a web page", "Comparing the options", "Searching the web"])
     }
 
     @Test("a turn writing with no steps shows nothing, and one with steps keeps its line")
@@ -71,11 +77,7 @@ struct ChatTurnActivityTests {
     /// links are read as words, never opened past the chat's check.
     @Test("a summary's links are its words, with nothing to open")
     func noLiveLinks() {
-        let words = ChatTurnStepView.inline("See [your bank](https://bank-login.example/verify) and **this**.")
-
-        #expect(String(words.characters) == "See your bank and this.")
-        #expect(words.runs.allSatisfy { $0.link == nil })
-        #expect(words.runs.contains { $0.inlinePresentationIntent == .stronglyEmphasized })
+        #expect(ChatTurnProgress.heading(of: "**See [your bank](https://bank-login.example/verify)**\n\nMore.") == "See your bank")
     }
 
     @Test("how long a turn worked is said in minutes and seconds")
