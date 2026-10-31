@@ -548,7 +548,7 @@ struct CuesTests {
 
     // MARK: - The add form
 
-    @Test("the sheet opens on the daemon's choices, featured first and the rest under Something else")
+    @Test("the sheet opens on the daemon's choices, featured first and the rest after them")
     func sheetOpensOnTheChoices() throws {
         let golden: ManagementCueSourceForm = try Self.golden("cues_sources_form")
         var form = CueSourceFormState()
@@ -1125,7 +1125,6 @@ struct CuesTests {
         #expect(ProductStrings[.cuesFirstRunAdd] == "Add a source")
         #expect(ProductStrings[.cuesJudgingTitle] == "How watchers judge items")
         #expect(ProductStrings[.cuesSourceAddTitle] == "What should Fermix watch?")
-        #expect(ProductStrings[.cuesSourceSomethingElse] == "Something else")
         #expect(ProductStrings[.cuesBack] == "Back")
         #expect(ProductStrings[.cuesSourceOpenPlugin] == "Open plugin")
         #expect(ProductStrings[.cuesSourceCopySecret] == "Copy secret")

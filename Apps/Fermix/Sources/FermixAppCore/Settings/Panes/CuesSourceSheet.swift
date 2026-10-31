@@ -61,7 +61,7 @@ public struct CueSourceFormState: Equatable, Sendable {
         rows.isEmpty ? 0 : CuesSheetMetrics.formPause
     }
 
-    /// The choices drawn first, and the ones under Something else.
+    /// The choices drawn first, and the rest after them in the same list.
     public var featuredChoices: [ManagementCueSourceForm.Choice] { (choices ?? []).filter(\.featured) }
     public var otherChoices: [ManagementCueSourceForm.Choice] { (choices ?? []).filter { !$0.featured } }
 
@@ -300,7 +300,6 @@ struct CuesSourceFormPage: View {
 
     @State private var sending = false
     @State private var advancedShown = DescriptorRowFold.startsOpen
-    @State private var othersShown = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.m) {
@@ -331,35 +330,37 @@ struct CuesSourceFormPage: View {
         }
     }
 
-    /// The first step: the featured choices, then Something else, which
-    /// shows the rest. An engine that publishes no choices says the one
-    /// sentence every surface says about an engine behind the app.
+    /// The first step: every choice in one list, the featured ones first,
+    /// nothing folded and nothing to scroll. An engine that publishes no
+    /// choices says the one sentence every surface says about an engine
+    /// behind the app.
     @ViewBuilder
     private var choiceList: some View {
         if let choices = form.choices {
             if choices.isEmpty {
                 CueNote(text: model.newerEngineSentence, attention: true)
             } else {
-                CuesPageForm { Section { choiceRows } }
+                choicePanel
             }
         } else if form.refusal == nil {
             ProgressView().controlSize(.small).accessibilityHidden(true)
         }
     }
 
-    @ViewBuilder
-    private var choiceRows: some View {
-        ForEach(form.featuredChoices, id: \.id) { choice in
-            CueChoiceRow(choice: choice) { choose(choice) }
-        }
-        if !form.otherChoices.isEmpty {
-            AdvancedRowsToggle(shown: $othersShown, title: .cuesSourceSomethingElse)
-            if othersShown {
-                ForEach(form.otherChoices, id: \.id) { choice in
-                    CueChoiceRow(choice: choice) { choose(choice) }
-                }
+    /// The choices in a rounded panel drawn here rather than as a grouped
+    /// form, whose row and section insets made seven choices too tall for
+    /// the sheet. The rows are set apart by their tiles and hover fill, with
+    /// no separator, since none is drawn by hand.
+    private var choicePanel: some View {
+        VStack(spacing: 0) {
+            ForEach(form.featuredChoices + form.otherChoices, id: \.id) { choice in
+                CueChoiceRow(choice: choice) { choose(choice) }
+                    .padding(.vertical, Spacing.xxs)
+                    .padding(.horizontal, Spacing.s)
             }
         }
+        .padding(.vertical, Spacing.xs)
+        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: SheetMetrics.listRadius, style: .continuous))
     }
 
     /// The second step's top: the choice's tile and label, and its line with

@@ -1214,7 +1214,6 @@
 "cues.source.addTitle" = "What should Fermix watch?";
 "cues.source.kind" = "Kind";
 "cues.source.url" = "URL";
-"cues.source.somethingElse" = "Something else";
 "cues.back" = "Back";
 "cues.source.openPlugin" = "Open plugin";
 "cues.source.copyURL" = "Copy URL";

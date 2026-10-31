@@ -847,12 +847,18 @@ struct CuesSheet: View {
         page
             .padding(WindowMetrics.contentPadding)
             .frame(width: CuesSheetMetrics.width)
-            // As tall as its page, up to the picker's height, past which the
-            // page's form scrolls (`CuesPageForm`).
-            .frame(maxHeight: SheetMetrics.pickerSize.height)
+            .frame(maxHeight: maxHeight)
             // Escape goes back a page, or closes the sheet from the page it
             // opened on. A field being edited answers it first.
             .onExitCommand(perform: escape)
+    }
+
+    /// As tall as its page, up to the picker's height, past which the
+    /// page's form scrolls (`CuesPageForm`). The add's first step is the
+    /// one exception: a short list the daemon publishes whole, drawn as
+    /// tall as it is so no choice sits below a scroll.
+    private var maxHeight: CGFloat? {
+        state.page == .addSource && sourceForm.choice == nil ? nil : SheetMetrics.pickerSize.height
     }
 
     @ViewBuilder

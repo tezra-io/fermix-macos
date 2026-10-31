@@ -1343,9 +1343,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case cuesSourceAddTitle = "cues.source.addTitle"
     case cuesSourceKind = "cues.source.kind"
     case cuesSourceURL = "cues.source.url"
-    /// The add sheet's first step: the row that shows the choices the
-    /// daemon does not feature, and the second step's way back to them.
-    case cuesSourceSomethingElse = "cues.source.somethingElse"
+    /// The add sheet's second step's way back to the choices.
     case cuesBack = "cues.back"
     /// The X accounts requirement's way to the plugin's page.
     case cuesSourceOpenPlugin = "cues.source.openPlugin"
