@@ -444,11 +444,44 @@ struct ChecklistLibraryTests {
 
         let lastThree = try Array(socket.sentObjects().suffix(3))
         #expect(lastThree == (try wire(
-            .checklistsPull(profileId: Self.main),
             .checklistEdit(clientMsgId: "mac-2", profileId: Self.main, listId: Groceries.id, op: .rename(text: "Weekly")),
+            .checklistsPull(profileId: Self.main),
             .checklistPull(profileId: Self.main, listId: Groceries.id)
         )))
         #expect(lists.store(Groceries.id).shown?.title == "Weekly")
+    }
+
+    /// An add the engine applied whose accepted was lost is sent again
+    /// before anything is pulled, so its duplicate accepted arrives before
+    /// the list it is in, which then confirms it: never drawn twice.
+    @Test("a handshake sends the edits it never had answered before it pulls, so an add already applied is drawn once")
+    func resendBeforePulling() throws {
+        connected()
+        index(Groceries.id)
+        lists.draw(Groceries.id)
+        socket.deliver(.checklist(profileId: Self.main, list: Groceries.list()))
+        lists.edit(Groceries.id, .add(text: "Milk", note: nil, place: nil))
+
+        socket.fail(.peerClosed)
+        scheduler.fireAll()
+        let before = try socket.sentObjects().count
+        socket.deliver(E.hello())
+
+        let add = CompanionClientEvent.checklistEdit(
+            clientMsgId: "mac-1",
+            profileId: Self.main,
+            listId: Groceries.id,
+            op: .add(text: "Milk", note: nil, place: nil)
+        )
+        #expect(try Array(socket.sentObjects().dropFirst(before + 1)) == wire(add, .checklistsPull(profileId: Self.main)), "after the catch-up read")
+
+        socket.deliver(E.accepted("mac-1", duplicate: true))
+        index(Groceries.id)
+        var rows = Groceries.list().rows
+        rows.insert(CompanionChecklistRow(rowId: "ci_9x9x9x9x9x", kind: .item, text: "Milk", done: false), at: 1)
+        socket.deliver(.checklist(profileId: Self.main, list: Groceries.list(rev: 8, rows: rows)))
+
+        #expect(lists.store(Groceries.id).shown?.rows.filter { $0.text == "Milk" }.count == 1)
     }
 
     @Test("a create says what it made once the engine pushes the new list, which is held from then on")

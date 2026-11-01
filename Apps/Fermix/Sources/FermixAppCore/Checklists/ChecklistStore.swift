@@ -312,8 +312,10 @@ public final class ChecklistLibrary {
     /// A handshake completed. A new connection holds nothing, so what the
     /// last one held waits to be pulled again, in the order it was pulled,
     /// ahead of anything drawn since. A daemon whose window reaches lists is
-    /// asked for the index, which pulls them, and sent every edit it has not
-    /// answered, in the order made.
+    /// first sent every edit it has not answered, in the order made, then
+    /// asked for the index, which pulls them: an edit it had applied is
+    /// answered duplicate before the list that carries it arrives, so that
+    /// list confirms it and it is never drawn twice.
     func negotiated(serves: Bool) {
         connected = true
         indexCurrent = false
@@ -323,10 +325,10 @@ public final class ChecklistLibrary {
         held = []
         withRemoved = []
 
-        pullIndex()
         for entry in unanswered {
             deliver(entry.event)
         }
+        pullIndex()
     }
 
     /// The connection ended: nothing asked on it will be answered. What is
