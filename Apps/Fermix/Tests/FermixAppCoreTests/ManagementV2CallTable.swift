@@ -21,13 +21,20 @@ enum ManagementV2Calls {
     /// (M34 §8). It is declared rather than dropped, so a method that loses its
     /// caller by accident still fails the coverage assertion.
     ///
-    /// `home.enroll.withdraw` has no app caller either: a desktop's engine
-    /// forwards it to the server it replaces, so no surface ever asks it.
-    static let unexercised: Set<String> = ["setup_session_create", "home_enroll_withdraw"]
+    /// The server's own Always On steps have no app caller either: they are
+    /// rail-only (Always On setup §3.5), refused on `daemon.sock`, and the
+    /// engine takes each one behind `home.act`. A waiting `home.status` is the
+    /// CLI's; the app reads when the engine says the summary changed.
+    static let unexercised: Set<String> = [
+        "setup_session_create", "home_enroll_open", "home_enroll_withdraw", "home_move_readiness", "home_move_start",
+        "home_move_start_replacing_the_server", "home_snapshots_run", "home_status_wait"
+    ]
 
     /// The methods no surface calls, whose every golden is unexercised, so
     /// the N-1 gate is never reached for them.
-    static let uncalledMethods: Set<String> = ["home.enroll.withdraw"]
+    static let uncalledMethods: Set<String> = [
+        "home.enroll.open", "home.enroll.withdraw", "home.move.readiness", "home.move.start", "home.snapshots.run"
+    ]
 
     /// Each golden request, mapped to the call that must produce it.
     static let byFixture: [String: @Sendable (ManagementClient) async throws -> Void] = [
@@ -312,47 +319,40 @@ enum ManagementV2Calls {
             _ = try await $0.decideCueProposal(id: "cpr_9f2c41d07a5e6b38c1d2e4f0", decision: .confirm)
         },
 
-        // The home (M75): the picture, the recovery snapshots, enrolling a
-        // server and moving to it.
+        // The home (M75): the picture, the recovery snapshots, and every
+        // Always On step as one home.act (Always On setup §3.4).
         "home_status": { _ = try await $0.homeStatus() },
-        "home_enroll_open": { _ = try await $0.openEnrollment() },
         "home_candidates_list": { _ = try await $0.candidates() },
-        "home_move_readiness": { _ = try await $0.moveReadiness(candidateId: "cand-5e2a9c1f7b3d4086") },
-        "home_move_start": {
-            _ = try await $0.startMove(candidateId: "cand-5e2a9c1f7b3d4086", passphrase: "invented-harbor-juniper-lantern")
-        },
-        // A desktop replacing its server: the server moves and is not kept.
-        "home_move_start_replacing_the_server": {
-            _ = try await $0.startMove(
-                candidateId: "cand-5e2a9c1f7b3d4086",
-                passphrase: "invented-harbor-juniper-lantern",
-                keepAsDesktop: false
-            )
-        },
         "home_snapshots_status": { _ = try await $0.snapshotsStatus() },
-        "home_snapshots_run": { _ = try await $0.runSnapshot() },
         "home_snapshots_passphrase": { _ = try await $0.setRecoveryPassphrase("invented-lighthouse-meridian") },
-
-        // The Always On server at a cloud provider (M75 lean v1 §4.3).
-        "home_provision_providers": { _ = try await $0.provisionProviders() },
-        "home_provision_connect": {
-            _ = try await $0.provisionConnect(provider: "hetzner", token: "invented-hetzner-token-6d1f0c9a2b7e4f3a")
-        },
-        "home_provision_options": { _ = try await $0.provisionOptions(provider: "hetzner") },
-        "home_provision_create": {
-            _ = try await $0.provisionCreate(provider: "hetzner", ManagementProvisionPick(type: "cpx22", location: "fsn1"))
-        },
-        // Replace the server, from the desktop whose home lives on it.
-        "home_provision_create_replace": {
-            _ = try await $0.provisionCreate(
-                provider: "hetzner",
-                ManagementProvisionPick(type: "cpx32", location: "hel1"),
-                replace: true
+        // Set up's token, for the one provider listed, so none is named.
+        "home_act": {
+            _ = try await $0.homeAct(
+                .pasteToken,
+                key: "ypJXbXCwrSQSdVK8_tXftA",
+                input: ManagementHomeActInput(token: "invented-hetzner-token-6d1f0c9a2b7e4f3a")
             )
         },
-        "home_provision_power": { _ = try await $0.provisionPower(.reset) },
-        "home_provision_resources": { _ = try await $0.provisionResources() },
-        "home_provision_delete": { _ = try await $0.provisionDelete() }
+        "home_act_create_server": {
+            _ = try await $0.homeAct(
+                .createServer,
+                key: "F09RF8MofBF6hdXN7NWtuA",
+                input: ManagementHomeActInput(type: "cpx22", location: "fsn1")
+            )
+        },
+        "home_act_move_now": {
+            _ = try await $0.homeAct(
+                .moveNow,
+                key: "4MxUwltAAhCgxPwBAncMZw",
+                input: ManagementHomeActInput(recoveryPassphrase: "invented-harbor-juniper-lantern")
+            )
+        },
+        // A step that collects nothing is sent with no input.
+        "home_act_cancel": { _ = try await $0.homeAct(.cancel, key: "G5z__UAdjaH9J2d38M3Zuw") },
+
+        // What the provider in use sells, for the choice (M75 lean v1 §4.3):
+        // the engine knows which, so none is named.
+        "home_provision_options": { _ = try await $0.provisionOptions() }
     ]
 
 }

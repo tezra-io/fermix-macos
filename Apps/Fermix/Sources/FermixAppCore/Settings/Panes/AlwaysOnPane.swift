@@ -1,110 +1,124 @@
 import SwiftUI
 
-/// Always On (M75 lean v1 §7): one sentence and at most one main action per
-/// screen, the engine's words, Details for the expert and Learn more to the
-/// docs. Which screen shows, and what it says, is `AlwaysOnPage`'s.
+/// Always On (Always On setup §8.3): the engine's summary drawn as it is, one
+/// sentence and at most one main action per screen, Details for the expert.
+/// Which screen shows is `AlwaysOnPage`'s; what a press does is the model's.
 struct AlwaysOnPane: View {
     @ObservedObject var settings: SettingsModel
     @ObservedObject var model: AlwaysOnModel
-
-    @State private var changing = false
 
     var body: some View {
         SettingsPaneForm(title: SettingsPane.alwaysOn.title) {
             switch model.page {
             case .reading:
-                Section { ProgressView().controlSize(.small) } header: { AlwaysOnLead(model: model) }
+                Section { ProgressView().controlSize(.small) }
             case .unreadable(let sentence):
-                Section { CueNote(text: sentence, attention: true) } header: { AlwaysOnLead(model: model) }
+                Section { CueNote(text: sentence, attention: true) }
             case .needsUpdate:
-                Section { NewerEngineNotice(sentence: settings.newerEngineSentence) } header: { AlwaysOnLead(model: model) }
+                Section { NewerEngineNotice(sentence: settings.newerEngineSentence) }
+            case .restarting:
+                AlwaysOnRestartingSection(model: model)
             case .screen(let screen):
-                AlwaysOnScreenView(screen: screen, settings: settings, model: model) { changing = true }
+                AlwaysOnScreenView(screen: screen, settings: settings, model: model)
             }
         }
         .task { await model.paneAppeared() }
         .onDisappear { model.paneDisappeared() }
-        .sheet(isPresented: $changing) {
-            AlwaysOnChangeSheet(model: model) { changing = false }
+        .sheet(item: sheet) { ask in
+            AlwaysOnAskContent(model: model, ask: ask)
                 .sheetGround()
         }
-        .sheet(isPresented: replacing) {
-            AlwaysOnReplaceSheet(model: model)
-                .sheetGround()
-        }
-        .sheet(isPresented: asksPassphrase) {
-            AlwaysOnMovePassphraseSheet(model: model)
-                .sheetGround()
+        .alert(confirming?.label ?? "", isPresented: confirmShown, presenting: confirming) { action in
+            let title = action.label
+            Button(title) {
+                Task { await model.accept(action) }
+            }
+            Button(ProductStrings[.settingsSheetCancel], role: .cancel) { model.dismissAsk() }
+        } message: { action in
+            Text(action.confirm ?? "")
         }
     }
 
-    private var replacing: Binding<Bool> {
-        Binding(get: { model.replacing }, set: { if !$0 { model.closeReplace() } })
+    /// The press whose needs a sheet collects.
+    private var sheet: Binding<AlwaysOnAsk?> {
+        Binding(
+            get: { model.asking?.isSheet == true ? model.asking : nil },
+            set: { if $0 == nil, model.asking?.isSheet == true { model.dismissAsk() } }
+        )
     }
 
-    private var asksPassphrase: Binding<Bool> {
-        Binding(get: { model.asksMovePassphrase }, set: { if !$0 { model.dismissMovePassphrase() } })
+    /// The action whose confirm is asked, for one that collects nothing.
+    private var confirming: ManagementHomeAction? {
+        guard case .confirm(let action)? = model.asking else { return nil }
+
+        return action
+    }
+
+    private var confirmShown: Binding<Bool> {
+        Binding(
+            get: { confirming != nil },
+            set: { if !$0, confirming != nil { model.dismissAsk() } }
+        )
     }
 }
 
-/// The pane's lead: Learn more, to the Always On docs page, over every
-/// screen; on a provider's token screen, to that provider's section of it.
-struct AlwaysOnLead: View {
+/// While the engine restarts to carry out this app's own Move now: the
+/// app's one word of its own, and why the engine is not answering yet.
+struct AlwaysOnRestartingSection: View {
     @ObservedObject var model: AlwaysOnModel
-    var provider: ManagementProvisionProvider?
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Spacing.s) {
-            Spacer(minLength: Spacing.s)
-            LinkButton(title: ProductStrings[.alwaysOnLearnMore], action: learnMore)
-                .fermixType(Typography.style(.calloutSmall))
+        Section {
+            Text(ProductStrings[.lifecycleRestarting])
+                .fermixType(Typography.style(.callout))
+                .foregroundStyle(Palette.ink.color)
+            ProgressView().progressViewStyle(.linear)
+            if case .unavailable(let sentence)? = model.readFailure {
+                CueNote(text: sentence)
+            }
         }
-        .textCase(nil)
-    }
-
-    private func learnMore() {
-        guard let provider else { return model.openGuide() }
-
-        model.openGuide(for: provider)
     }
 }
 
-/// One screen: the sentence, what the screen holds, its one action, then
-/// Details.
+/// One screen: the sentence, the step in hand, the engine's other sentences,
+/// the one action and the others, then Details.
 struct AlwaysOnScreenView: View {
     let screen: AlwaysOnScreen
     @ObservedObject var settings: SettingsModel
     @ObservedObject var model: AlwaysOnModel
-    let change: () -> Void
 
     @State private var detailsShown = false
 
     var body: some View {
         Section {
-            Text(sentence)
+            Text(screen.sentence)
                 .fermixType(Typography.style(.callout))
                 .foregroundStyle(Palette.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if screen.showsProgress {
+            if screen.showsBar {
                 ProgressView().progressViewStyle(.linear)
             }
-            if let failure = readFailure {
+            if let progress = screen.progress {
+                CueNote(text: progress)
+            }
+            if case .unavailable(let failure)? = model.readFailure {
                 CueNote(text: failure, attention: true)
             }
-            AlwaysOnScreenBody(screen: screen, model: model, newerEngine: settings.newerEngineSentence, change: change)
-            AlwaysOnMainAction(action: screen.action, model: model)
-        } header: {
-            AlwaysOnLead(model: model, provider: tokenProvider)
+            ForEach(screen.notes, id: \.self) { CueNote(text: $0) }
+            ForEach(screen.readiness, id: \.id) { item in
+                CueNote(text: item.sentence, attention: item.status == .block)
+            }
+            AlwaysOnMainAction(screen: screen, model: model)
+            ForEach(screen.alternatives, id: \.key) { alternative in
+                AlwaysOnLinkAction(action: alternative, model: model)
+            }
         }
 
-        if screen.asksPassphrase {
-            AlwaysOnPassphraseSection(model: model)
+        if let code = model.ownServer {
+            AlwaysOnOwnServerSection(model: model, code: code)
         }
-        if model.handout != nil || model.codeRefusal != nil {
-            AlwaysOnOwnServerSection(model: model)
-        }
-        if AlwaysOnDetails.shows(screen) {
+        if screen.hasDetails {
             Section {
                 DisclosureGroup(ProductStrings[.alwaysOnDetails], isExpanded: $detailsShown) {
                     AlwaysOnDetails(screen: screen, model: model)
@@ -115,79 +129,21 @@ struct AlwaysOnScreenView: View {
             }
         }
     }
-
-    /// The choose screen says the choice: the engine's recommendation, or the
-    /// owner's own once changed. Every other screen says the engine's.
-    private var sentence: String {
-        guard screen.kind == .choose, let options = model.options.value else { return screen.sentence }
-        guard let pick = model.chosen, pick != options.recommended, let offer = options.offer(pick) else {
-            return options.sentence
-        }
-
-        return AlwaysOnPrices.choice(offer, in: options)
-    }
-
-    /// A read that failed after one that answered: the screen stays as it was
-    /// and says so.
-    private var readFailure: String? {
-        guard case .unavailable(let sentence)? = model.readFailure else { return nil }
-
-        return sentence
-    }
-
-    /// The provider whose token the screen's field takes, whose section of
-    /// the docs page Learn more opens.
-    private var tokenProvider: ManagementProvisionProvider? {
-        guard screen.tokenField, case .provider(let provider) = model.tokenTarget(on: screen) else { return nil }
-
-        return provider
-    }
 }
 
-/// What a screen holds between its sentence and its action.
-struct AlwaysOnScreenBody: View {
+/// The one main action, or the token field in its place while a token is
+/// asked for, and the engine's refusal or note under it.
+struct AlwaysOnMainAction: View {
     let screen: AlwaysOnScreen
     @ObservedObject var model: AlwaysOnModel
-    /// What an engine without the provisioner is told, in place of the paste
-    /// field.
-    let newerEngine: String
-    let change: () -> Void
 
     var body: some View {
-        if screen.tokenField, model.servesProvisioner {
-            AlwaysOnTokenStep(model: model, target: model.tokenTarget(on: screen))
-        } else if screen.tokenField {
-            NewerEngineNotice(sentence: newerEngine)
-        }
-        if screen.kind == .token {
-            ForEach(screen.alternatives, id: \.self) { alternative in
-                AlwaysOnLinkAction(action: alternative, model: model)
-            }
-        }
-        if screen.kind == .choose {
-            LinkButton(title: ProductStrings[.alwaysOnChange], action: change)
-                .fermixType(Typography.style(.calloutSmall))
-                .disabled(model.options.value == nil)
-        }
-        if screen.kind == .ready {
-            ForEach(model.readiness(on: screen), id: \.id) { item in
-                CueNote(text: item.sentence, attention: item.status == .block)
-            }
-        }
-    }
-}
-
-/// The one main action, its progress while it waits on the daemon, and the
-/// daemon's refusal or note under it.
-struct AlwaysOnMainAction: View {
-    let action: ManagementHomeAction?
-    @ObservedObject var model: AlwaysOnModel
-
-    var body: some View {
-        if let action {
+        if model.asking?.isField == true, let target = screen.tokenTarget(picked: model.picked) {
+            AlwaysOnTokenStep(model: model, target: target, state: screen.state)
+        } else if let action = screen.action {
             HStack(spacing: Spacing.s) {
                 PrimaryAction(action.label, size: .row) {
-                    Task { await model.perform(action) }
+                    Task { await model.press(action) }
                 }
                 .disabled(model.working != nil)
 
@@ -205,8 +161,8 @@ struct AlwaysOnMainAction: View {
     }
 }
 
-/// An action offered as a link: the token screen's own-server link, and the
-/// other actions Details offers.
+/// An action offered as a link: the screen's alternatives and the actions
+/// Details offers.
 struct AlwaysOnLinkAction: View {
     let action: ManagementHomeAction
     @ObservedObject var model: AlwaysOnModel
@@ -214,62 +170,48 @@ struct AlwaysOnLinkAction: View {
     var body: some View {
         HStack(spacing: Spacing.s) {
             LinkButton(title: action.label) {
-                Task { await model.perform(action) }
+                Task { await model.press(action) }
             }
             .fermixType(Typography.style(.calloutSmall))
-            .disabled(model.working != nil || model.gettingCode)
+            .disabled(model.working != nil)
 
-            if model.working == action.id || (action.id == .ownServer && model.gettingCode) {
+            if model.working == action.id {
                 ProgressView().controlSize(.small)
             }
         }
     }
 }
 
-/// The token step: the field of the provider it is for, the pick where the
-/// engine offers more than one provider, or the providers' read.
+/// The token step: the pick where the summary lists more than one provider,
+/// then that provider's field.
 struct AlwaysOnTokenStep: View {
     @ObservedObject var model: AlwaysOnModel
     let target: AlwaysOnTokenTarget
+    let state: ManagementHomeSummaryState
 
     var body: some View {
         switch target {
         case .provider(let provider):
-            AlwaysOnTokenField(model: model, provider: provider)
+            AlwaysOnTokenField(model: model, provider: provider, saysSentence: state != .connect)
                 .id(provider.id)
         case .pick(let providers):
-            AlwaysOnProviderPick(model: model, providers: providers)
-        case .unknown:
-            if case .unavailable(let sentence) = model.providers {
-                CueNote(text: sentence, attention: true)
-            } else {
-                ProgressView().controlSize(.small)
+            CueNote(text: ProductStrings[.alwaysOnProviderChoose])
+            ForEach(providers, id: \.id) { provider in
+                LinkButton(title: provider.name) { model.pick(provider: provider) }
+                    .fermixType(Typography.style(.callout))
             }
         }
     }
 }
 
-/// Where the engine offers more than one provider, the owner picks one by
-/// its name before its token screen, from every one given.
-struct AlwaysOnProviderPick: View {
-    @ObservedObject var model: AlwaysOnModel
-    let providers: [ManagementProvisionProvider]
-
-    var body: some View {
-        CueNote(text: ProductStrings[.alwaysOnProviderChoose])
-        ForEach(providers, id: \.id) { provider in
-            LinkButton(title: provider.name) { model.pick(provider: provider) }
-                .fermixType(Typography.style(.callout))
-        }
-    }
-}
-
-/// One provider's paste field, checked as soon as a token is pasted, and
-/// "How to get one" with its steps and its console, all in the engine's
-/// words for that provider.
+/// One provider's token screen in the engine's words: its sentence, the
+/// paste field under its label, sent as soon as a token is pasted, "How to
+/// get one" with its steps and its console, and its part of the docs.
 struct AlwaysOnTokenField: View {
     @ObservedObject var model: AlwaysOnModel
-    let provider: ManagementProvisionProvider
+    let provider: ManagementHomeSummaryProvider
+    /// `connect`'s own sentence is the provider's, so it is not said twice.
+    let saysSentence: Bool
 
     @State private var token = ""
 
@@ -278,39 +220,45 @@ struct AlwaysOnTokenField: View {
     static let pasted = 16
 
     var body: some View {
+        if saysSentence {
+            CueNote(text: provider.sentence)
+        }
         LabeledContent(provider.tokenLabel) {
-            SecretInput(label: provider.tokenLabel, value: $token, onSubmit: check)
+            SecretInput(label: provider.tokenLabel, value: $token, onSubmit: submit)
                 .onChange(of: token) { before, after in
                     guard after.count - before.count >= Self.pasted else { return }
 
-                    check()
+                    submit()
                 }
         }
-        .disabled(model.checkingToken)
+        .disabled(model.working != nil)
 
-        if model.checkingToken {
+        if model.working == .pasteToken {
             HStack(spacing: Spacing.xs) {
                 ProgressView().controlSize(.small)
                 CueNote(text: String(format: ProductStrings[.alwaysOnTokenCheckingFormat], provider.name))
             }
         }
-        if let refusal = model.tokenRefusal {
-            CueNote(text: refusal, attention: true)
-        }
         DisclosureGroup(ProductStrings[.alwaysOnHowToGetOne]) {
             AlwaysOnSteps(steps: provider.steps)
             LinkButton(title: String(format: ProductStrings[.alwaysOnOpenConsoleFormat], provider.name)) {
-                model.openConsole(of: provider)
+                model.open(provider.consoleUrl)
             }
+        }
+        .fermixType(Typography.style(.calloutSmall))
+        HStack(spacing: Spacing.s) {
+            LinkButton(title: ProductStrings[.alwaysOnLearnMore]) { model.open(provider.docsUrl) }
+            LinkButton(title: ProductStrings[.settingsSheetCancel], action: model.dismissAsk)
+                .disabled(model.working != nil)
         }
         .fermixType(Typography.style(.calloutSmall))
     }
 
-    private func check() {
+    private func submit() {
         let pasted = token
         Task {
-            await model.checkToken(pasted, for: provider)
-            if model.tokenRefusal == nil { token = "" }
+            await model.submitToken(pasted, for: provider)
+            if model.refusal == nil { token = "" }
         }
     }
 }
@@ -331,82 +279,64 @@ struct AlwaysOnSteps: View {
     }
 }
 
-/// The recovery passphrase, typed twice, while the server starts and none is
-/// set (§2 step 4).
-struct AlwaysOnPassphraseSection: View {
+/// What Details holds: the engine's lines, each as it finished it, what lives
+/// on the server, and on `on` the actions it offers.
+struct AlwaysOnDetails: View {
+    let screen: AlwaysOnScreen
     @ObservedObject var model: AlwaysOnModel
 
-    @State private var passphrase = ""
-    @State private var again = ""
-
     var body: some View {
-        Section(ProductStrings[.alwaysOnPassphraseTitle]) {
-            CueNote(text: ProductStrings[.alwaysOnPassphraseBody])
-            AlwaysOnPassphraseFields(passphrase: $passphrase, again: $again)
-
-            HStack(spacing: Spacing.s) {
-                // Not the default button: the screen's own action, Cancel,
-                // keeps Return.
-                Button(ProductStrings[.alwaysOnPassphraseSave]) {
-                    let typed = (passphrase, again)
-                    Task {
-                        if await model.setPassphrase(typed.0, again: typed.1) {
-                            passphrase = ""
-                            again = ""
-                        }
-                    }
-                }
-                .buttonStyle(SecondaryButtonStyle(.row))
-                .disabled(passphrase.isEmpty || again.isEmpty || model.settingPassphrase)
-
-                if model.settingPassphrase { ProgressView().controlSize(.small) }
+        ForEach(screen.lines, id: \.self) { line in
+            LabeledContent(line.label) {
+                Text(line.value)
+                    .textSelection(.enabled)
             }
-            if let refusal = model.passphraseRefusal {
-                CueNote(text: refusal, attention: true)
-            }
+            .fermixType(Typography.style(.calloutSmall))
+        }
+        if let data = screen.data {
+            CueNote(text: data)
+        }
+        ForEach(screen.detailActions, id: \.key) { action in
+            AlwaysOnLinkAction(action: action, model: model)
         }
     }
 }
 
-/// The passphrase, and the same again, each in the one secure input.
-struct AlwaysOnPassphraseFields: View {
-    @Binding var passphrase: String
-    @Binding var again: String
-
-    var body: some View {
-        LabeledContent(ProductStrings[.alwaysOnPassphraseField]) {
-            SecretInput(label: ProductStrings[.alwaysOnPassphraseField], value: $passphrase, onSubmit: {}, prompt: "")
-        }
-        LabeledContent(ProductStrings[.alwaysOnPassphraseAgain]) {
-            SecretInput(label: ProductStrings[.alwaysOnPassphraseAgain], value: $again, onSubmit: {}, prompt: "")
-        }
-    }
-}
-
-/// The command for a server of the owner's own, with its code inside, shown
-/// once and copied for this Mac only.
+/// A server of the owner's own: the command it runs, which carries no code,
+/// and the code it asks for as it first boots, shown once and copied for
+/// this Mac only, until when it works.
 struct AlwaysOnOwnServerSection: View {
     @ObservedObject var model: AlwaysOnModel
+    let code: ManagementOwnServerCode
 
     @State private var copy = CueSecretCopy()
 
     var body: some View {
         Section {
-            if let handout = model.handout {
-                CueNote(text: String(format: ProductStrings[.alwaysOnOwnServerFormat], AlwaysOnFormat.time(handout.expiresAt)))
-                Text(AlwaysOnLinks.ownServerCommand(code: handout.code))
-                    .fermixType(Typography.style(.mono))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button(ProductStrings[.alwaysOnCopyCommand]) {
-                    copy.copy(AlwaysOnLinks.ownServerCommand(code: handout.code), on: .system)
-                }
+            CueNote(text: String(format: ProductStrings[.alwaysOnOwnServerFormat], AlwaysOnFormat.time(code.expiresAt)))
+            Text(code.command)
+                .fermixType(Typography.style(.mono))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(ProductStrings[.alwaysOnCopyCommand]) { Clipboard.write(code.command) }
                 .buttonStyle(SecondaryButtonStyle(.row))
-            }
-            if let refusal = model.codeRefusal {
-                CueNote(text: refusal, attention: true)
-            }
+            Text(code.code)
+                .fermixType(Typography.style(.mono))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(ProductStrings[.alwaysOnCopyCode]) { copy.copy(code.code, on: .system) }
+                .buttonStyle(SecondaryButtonStyle(.row))
         }
         .onDisappear { copy.takeBack(on: .system) }
+    }
+}
+
+/// The one time the pane formats itself: until when the code for a server
+/// of the owner's own works, which `own_server` answers as a time.
+enum AlwaysOnFormat {
+    static func time(_ text: String) -> String {
+        guard let date = ManagementCueTime.date(text) else { return text }
+
+        return date.formatted(date: .abbreviated, time: .shortened)
     }
 }

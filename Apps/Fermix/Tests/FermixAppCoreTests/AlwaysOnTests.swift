@@ -3,10 +3,10 @@ import Testing
 
 @testable import FermixAppCore
 
-/// Always On as this build knows it (M75): the home's management calls read
+/// Always On as this build knows it (M75): the home's management answers read
 /// from the contract's goldens, the Settings pane that draws the engine's own
-/// rows under `always_on`, and a desktop's inventory while its server's
-/// sections are missing.
+/// rows under `always_on`, listed where the engine takes `home.act`, and a
+/// desktop's inventory while its server's sections are missing.
 @Suite("Always On")
 @MainActor
 struct AlwaysOnTests {
@@ -78,24 +78,9 @@ struct AlwaysOnTests {
         #expect(ManagementMobileDeviceKind(wireValue: "watch") == .unrecognized("watch"))
     }
 
-    /// The two move calls walk the whole home before they answer, and a
-    /// desktop forwarding either waits 60 s for its server.
-    @Test("a move's review and its start wait 65 seconds, and the home's other calls the usual time")
-    func moveCallsWaitLonger() {
-        let policy = DefaultManagementTimeoutPolicy()
-
-        #expect(DefaultManagementTimeoutPolicy.move == .seconds(65))
-        for method in [ManagementMethod.homeMoveReadiness, .homeMoveStart] {
-            #expect(policy.timeout(for: method) == DefaultManagementTimeoutPolicy.move, "\(method.rawValue)")
-        }
-        for method in [ManagementMethod.homeStatus, .homeEnrollOpen, .homeCandidatesList, .homeSnapshotsRun] {
-            #expect(policy.timeout(for: method) == DefaultManagementTimeoutPolicy.standard, "\(method.rawValue)")
-        }
-    }
-
     // MARK: - The pane
 
-    @Test("the pane is drawn where the daemon lists home.status, first under System, as the engine's snapshot rows")
+    @Test("the pane is drawn where the daemon lists home.act, first under System, as the engine's snapshot rows")
     func paneDrawnFromTheEngine() async throws {
         let gateway = try Self.gateway()
         let harness = try SettingsHarness(gateway: gateway)
@@ -125,6 +110,21 @@ struct AlwaysOnTests {
         #expect(!harness.model.panes(matching: "", in: .system).contains(.alwaysOn))
         #expect(harness.model.refusesRoute(to: .alwaysOn))
         #expect(harness.model.selectedPane == .providers)
+    }
+
+    /// An engine from before the one Always On flow lists the home's picture
+    /// but no step the pane could send.
+    @Test("a daemon that lists home.status but not home.act draws no pane")
+    func noPaneWithoutTheAct() async throws {
+        let gateway = try Self.gateway()
+        gateway.hello = try Self.hello(without: .homeAct)
+        let harness = try SettingsHarness(gateway: gateway)
+
+        await harness.model.windowAppeared()
+
+        #expect(harness.model.servedMethods.contains(.homeStatus))
+        #expect(!harness.model.drawsAlwaysOnPane)
+        #expect(harness.model.refusesRoute(to: .alwaysOn))
     }
 
     /// The sentence a desktop's engine composes its inventory with while its
@@ -170,6 +170,21 @@ struct AlwaysOnTests {
 
     static func decode<Value: Decodable>(_ type: Value.Type, _ object: [String: Any]) throws -> Value {
         try JSONDecoder().decode(type, from: try JSONSerialization.data(withJSONObject: object))
+    }
+
+    /// The contract's `hello` with one method taken out of its catalog: an
+    /// engine from before it.
+    static func hello(without method: ManagementMethod) throws -> ManagementHello {
+        var object = try goldenObject("hello")
+        var capabilities = try #require(object["capabilities"] as? [String: Any])
+        capabilities["methods"] = (capabilities["methods"] as? [String])?.filter { $0 != method.rawValue }
+        if var minimums = capabilities["minimum_versions"] as? [String: Any] {
+            minimums[method.rawValue] = nil
+            capabilities["minimum_versions"] = minimums
+        }
+        object["capabilities"] = capabilities
+
+        return try decode(ManagementHello.self, object)
     }
 
     /// A gateway whose `hello` is the contract's own, which lists every home

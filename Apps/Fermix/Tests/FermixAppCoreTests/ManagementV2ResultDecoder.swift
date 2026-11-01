@@ -141,19 +141,16 @@ enum ManagementV2ResultDecoder {
             try read(ManagementSnapshotsStarted.self, payload, identifier, method)
         case .homeSnapshotsPassphrase:
             try read(ManagementRecoveryKey.self, payload, identifier, method)
-        case .homeProvisionConnect, .homeProvisionResources:
-            try read(ManagementProvisionView.self, payload, identifier, method)
+        case .homeAct:
+            try read(ManagementHomeActed.self, payload, identifier, method)
         case .homeProvisionOptions:
             try read(ManagementProvisionOptions.self, payload, identifier, method)
-        case .homeProvisionProviders:
-            try read(ManagementProvisionProviders.self, payload, identifier, method)
 
         // Every remaining method answers the uniform job view.
         case .providersProbeStart, .jobGet, .jobCancel, .authImportStart, .pluginsInstallStart,
              .pluginsCheckStart, .pluginsWorkspacesDiscoverStart, .pluginsWorkspaceSelectStart,
              .capabilitiesInstallStart, .meetingsSigninStart, .computerUseGrantStart,
-             .browserInstallStart, .imessageGrantStart, .imessagePolicyConfirm, .mcpServersCheckStart,
-             .homeProvisionCreate, .homeProvisionPower, .homeProvisionDelete:
+             .browserInstallStart, .imessageGrantStart, .imessagePolicyConfirm, .mcpServersCheckStart:
             try read(ManagementJob.self, payload, identifier, method)
         }
     }

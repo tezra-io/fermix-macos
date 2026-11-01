@@ -1,14 +1,14 @@
 import Foundation
 
-/// Always On (M75): the pane draws `home.status.summary` (`AlwaysOnPane`),
-/// with the engine's snapshot rows under `always_on` behind its Details. It is
-/// listed only where the daemon lists `home.status` in its `hello`: an engine
-/// from before Always On has neither the method nor the pane, and the sidebar
-/// then lists no row and says nothing. An engine that lists the method but
-/// answers no summary gets the pane's "update Fermix" answer.
+/// Always On (M75, Always On setup §8.3): the pane draws `home.status.summary`
+/// (`AlwaysOnPane`) and sends every press as `home.act`, with the engine's
+/// snapshot rows under `always_on` behind its Details. It is listed only
+/// where the daemon lists `home.act` in its `hello`: an engine from before
+/// the one Always On flow has no step the pane could send, and the sidebar
+/// then lists no row and says nothing.
 extension SettingsModel {
     public var drawsAlwaysOnPane: Bool {
-        servedMethods.contains(.homeStatus)
+        servedMethods.contains(.homeAct)
     }
 
     /// Whether a route to Always On lands on Providers instead: on a daemon

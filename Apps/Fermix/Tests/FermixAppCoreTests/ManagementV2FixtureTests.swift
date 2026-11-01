@@ -137,17 +137,11 @@ struct ManagementV2FixtureTests {
             ("summary state", Array(ManagementHomeSummaryState.publishedValues.keys)),
             ("summary action", Array(ManagementHomeActionId.publishedValues.keys)),
             ("summary problem", Array(ManagementHomeProblemKind.publishedValues.keys)),
-            ("provision state", Array(ManagementProvisionState.publishedValues.keys)),
-            ("provision token", Array(ManagementProvisionToken.publishedValues.keys)),
-            ("provision status", Array(ManagementProvisionStatus.publishedValues.keys)),
-            ("provision resource kind", Array(ManagementProvisionResourceKind.publishedValues.keys)),
-            ("provision power", ManagementProvisionPower.allCases.map(\.rawValue)),
-            ("provision replace state", Array(ManagementProvisionReplaceState.publishedValues.keys)),
-            ("provision replace current", Array(ManagementProvisionReplaceCurrent.publishedValues.keys)),
+            ("summary need", Array(ManagementHomeActionNeed.publishedValues.keys)),
             ("enrollment kind", Array(ManagementEnrollmentKind.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 68)
+        #expect(modelled.count == 62)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),
@@ -273,7 +267,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 184, "every success record was decoded")
+        #expect(seen.count == 180, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen
@@ -306,7 +300,7 @@ struct ManagementV2FixtureTests {
         }
 
         #expect(seen == Set(ManagementErrorCode.publishedValues.keys))
-        #expect(seen.count == 20)
+        #expect(seen.count == 21)
     }
 
     /// The per-method refusal of M34 §7.1 carries the version the method needs,
@@ -370,7 +364,7 @@ struct ManagementV2FixtureTests {
             carried += 1
         }
 
-        #expect(carried == 21, "the contract publishes a detail sentence on twenty-one records")
+        #expect(carried == 23, "the contract publishes a detail sentence on twenty-three records")
     }
 
     /// An MCP server form's refusal names the input it is about in the

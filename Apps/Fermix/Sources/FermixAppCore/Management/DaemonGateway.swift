@@ -143,26 +143,18 @@ public protocol DaemonQuerying: Sendable {
     func cueProposal(id: String) async throws -> ManagementCueProposalCardAnswer
     func decideCueProposal(id: String, decision: ManagementCueDecision) async throws -> ManagementCueProposalAnswer
 
-    // The home (M75). Found in `servedMethods()`: they arrived inside
-    // protocol 2.
+    // The home (M75, Always On setup §3.5). Found in `servedMethods()`:
+    // they arrived inside protocol 2. Every Always On step is one `homeAct`.
     func homeStatus() async throws -> ManagementHomeStatus
-    func openEnrollment() async throws -> ManagementEnrollmentCode
     func candidates() async throws -> ManagementCandidates
-    func moveReadiness(candidateId: String) async throws -> ManagementMoveReadiness
-    func startMove(candidateId: String, passphrase: String, keepAsDesktop: Bool) async throws -> ManagementMoveStarted
     func snapshotsStatus() async throws -> ManagementHomeSnapshots
-    func runSnapshot() async throws -> ManagementSnapshotsStarted
     func setRecoveryPassphrase(_ passphrase: String) async throws -> ManagementRecoveryKey
-
-    // The Always On server at a cloud provider (M75 lean v1 §4.3). Found in
-    // `servedMethods()`: they arrived inside protocol 2.
-    func provisionProviders() async throws -> ManagementProvisionProviders
-    func provisionConnect(provider: String, token: String) async throws -> ManagementProvisionView
-    func provisionOptions(provider: String) async throws -> ManagementProvisionOptions
-    func provisionCreate(provider: String, _ pick: ManagementProvisionPick, replace: Bool) async throws -> ManagementJob
-    func provisionPower(_ action: ManagementProvisionPower) async throws -> ManagementJob
-    func provisionResources() async throws -> ManagementProvisionView
-    func provisionDelete() async throws -> ManagementJob
+    func homeAct(
+        _ action: ManagementHomeActionId,
+        key: String,
+        input: ManagementHomeActInput?
+    ) async throws -> ManagementHomeActed
+    func provisionOptions() async throws -> ManagementProvisionOptions
 }
 
 /// The production gateway: one negotiated client, shared by every surface.
@@ -291,14 +283,16 @@ public enum ManagementMessage {
     /// refusals and carry the sentence that separates them in `details.sentence`
     /// — `invalid_params` (`This provider has no browser sign-in.`, `A secret
     /// cannot be empty.`, every settings validation), `config_unreadable`
-    /// (the parser's own line), `unavailable`, and after a move
+    /// (the parser's own line), `unavailable`, after a move
     /// `primary_unreachable` (the server named), `device_class_method` and
-    /// `unconfirmed` (where a lost answer's outcome shows). For those, the
-    /// detail sentence IS the message the operator has to read; everywhere
-    /// else `message` already is.
+    /// `unconfirmed` (where a lost answer's outcome shows), and `changed` (an
+    /// Always On step drawn on an older screen). For those, the detail
+    /// sentence IS the message the operator has to read; everywhere else
+    /// `message` already is.
     private static func daemonSentence(_ failure: ManagementFailure) -> String {
         switch failure.code {
-        case .invalidParams, .configUnreadable, .unavailable, .primaryUnreachable, .deviceClassMethod, .unconfirmed:
+        case .invalidParams, .configUnreadable, .unavailable, .primaryUnreachable, .deviceClassMethod, .unconfirmed,
+             .changed:
             guard let sentence = failure.details.sentence, !sentence.isEmpty else {
                 return failure.message
             }

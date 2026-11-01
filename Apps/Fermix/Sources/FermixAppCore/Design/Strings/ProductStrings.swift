@@ -870,10 +870,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsKeywordsSandbox = "settings.keywords.sandbox"
     case settingsKeywordsPermissions = "settings.keywords.permissions"
 
-    // Always On (M75 lean v1 §7): the pane's own words. Every sentence and
-    // action label on a screen is the engine's; these are the field labels,
-    // the links, the sheets and the notification title around them.
-    /// The docs link every Always On screen carries.
+    // Always On (Always On setup §8.3): the pane's own words. Every sentence,
+    // label, line and confirm on a screen is the engine's; these are how the
+    // pane asks for a secret, how it draws the choice of size and place, and
+    // the notification title around them.
+    /// A provider's part of the Always On docs, on its token screen.
     case alwaysOnLearnMore = "alwaysOn.learnMore"
     case alwaysOnLinkOpenFailed = "alwaysOn.linkOpenFailed"
     case alwaysOnDetails = "alwaysOn.details"
@@ -885,37 +886,21 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case alwaysOnHowToGetOne = "alwaysOn.token.howToGetOne"
     /// The provider's name, as the engine gives it.
     case alwaysOnOpenConsoleFormat = "alwaysOn.token.openConsoleFormat"
-    case alwaysOnChange = "alwaysOn.choose.change"
     case alwaysOnChangeTitle = "alwaysOn.choose.title"
-    /// The owner's own choice, in the words the engine's recommendation is said in: type, city and the monthly total with its IPv4 address.
-    case alwaysOnChoiceFormat = "alwaysOn.choose.choiceFormat"
     case alwaysOnMonthlyFormat = "alwaysOn.choose.monthlyFormat"
     case alwaysOnShapeFormat = "alwaysOn.choose.shapeFormat"
-    case alwaysOnPriceFormat = "alwaysOn.choose.priceFormat"
     case alwaysOnPassphraseTitle = "alwaysOn.passphrase.title"
+    /// Where no recovery passphrase is set: it is typed twice.
     case alwaysOnPassphraseBody = "alwaysOn.passphrase.body"
+    /// Where one is set: it is typed once, and the engine checks it.
     case alwaysOnPassphraseMoveBody = "alwaysOn.passphrase.moveBody"
     case alwaysOnPassphraseField = "alwaysOn.passphrase.field"
     case alwaysOnPassphraseAgain = "alwaysOn.passphrase.again"
-    case alwaysOnPassphraseSave = "alwaysOn.passphrase.set"
-    case alwaysOnPassphraseContinue = "alwaysOn.passphrase.move"
     case alwaysOnPassphraseMismatch = "alwaysOn.passphrase.mismatch"
+    /// Until when the code works.
     case alwaysOnOwnServerFormat = "alwaysOn.ownServer.runFormat"
     case alwaysOnCopyCommand = "alwaysOn.ownServer.copy"
-    case alwaysOnServerName = "alwaysOn.server.name"
-    case alwaysOnServerType = "alwaysOn.server.type"
-    case alwaysOnServerLocation = "alwaysOn.server.location"
-    case alwaysOnServerAddress = "alwaysOn.server.address"
-    case alwaysOnServerSystem = "alwaysOn.server.system"
-    case alwaysOnServerVersion = "alwaysOn.server.version"
-    case alwaysOnWaitsUntilFormat = "alwaysOn.server.waitsUntilFormat"
-    case alwaysOnBackupPlaceFormat = "alwaysOn.backup.placeFormat"
-    case alwaysOnCopies = "alwaysOn.backup.copies"
-    case alwaysOnDisk = "alwaysOn.server.disk"
-    case alwaysOnSeenFormat = "alwaysOn.problem.seenFormat"
-    case alwaysOnReplaceTitle = "alwaysOn.replace.title"
-    case alwaysOnReplaceBody = "alwaysOn.replace.body"
-    case alwaysOnReplaceCreate = "alwaysOn.replace.create"
+    case alwaysOnCopyCode = "alwaysOn.ownServer.copyCode"
     /// The title of every Always On notification; the body is the engine's sentence.
     case alwaysOnNoticeTitle = "alwaysOn.notice.title"
 

@@ -204,22 +204,14 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// refusal in the script is thrown for that read.
     var homeStatusScript: [Result<ManagementHomeStatus, any Error>] = []
     var homeStatusIndex = 0
-    /// What the Always On pane asked of the home and the provisioner, in
-    /// order.
-    var provisionTokens: [ProvisionToken] = []
-    var provisionOptionsAsked: [String] = []
-    var provisionCreates: [ProvisionCreate] = []
-    var provisionPowers: [ManagementProvisionPower] = []
-    var readinessCandidates: [String] = []
-    var moveStarts: [MoveStart] = []
-    var recoveryPassphrases: [String] = []
-    var cancelledJobs: [String] = []
-    /// The answers a case needs that the goldens do not publish.
-    var moveReadinessResult: ManagementMoveReadiness?
-    var jobListResult: ManagementJobList?
-    var provisionResourcesResult: ManagementProvisionView?
-    var provisionConnectResult: ManagementProvisionView?
-    var provisionProvidersResult: ManagementProvisionProviders?
+    /// What the Always On pane pressed and read, in order.
+    var homeActs: [HomeAct] = []
+    var provisionOptionsReads = 0
+    /// The answers `home.act` gives, one each in order, an exhausted script
+    /// keeping the last; empty means the golden. A refusal in the script is
+    /// thrown for that press.
+    var homeActScript: [Result<ManagementHomeActed, any Error>] = []
+    var homeActIndex = 0
 
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take

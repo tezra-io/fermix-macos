@@ -1,100 +1,27 @@
 import Foundation
 
-/// What the Always On pane draws (M75 lean v1 §7), worked out from what the
-/// engine said and the few things the app keeps itself.
+/// What the Always On pane draws (Always On setup §8.3): the engine's
+/// summary, as it is.
 ///
-/// Every sentence and action label is the engine's (`home.status.summary`),
-/// and so is every cloud provider's word (`home.provision.providers`). The app
-/// keeps only the steps nothing in the engine records: Set up, which opens
-/// the token screen; the provider picked there where the engine offers more
-/// than one; Paste a new token, which opens the field in place; and the
-/// restart after its own Move now, while the engine is away.
-
-/// The steps the app keeps itself.
-public struct AlwaysOnLocal: Equatable, Sendable {
-    /// Set up was pressed on `off`: the token screen shows until a token or a
-    /// code exists.
-    public var settingUp = false
-    /// The provider the owner picked on the token screen, by its id, while
-    /// the pane shows.
-    public var provider: String?
-    /// Paste a new token was pressed on a problem that offers it.
-    public var pastingToken = false
-    /// The engine's sentence for the move this app started, while the engine
-    /// restarts to carry it out and until it answers again.
-    public var moveStarted: String?
-
-    public init(settingUp: Bool = false, provider: String? = nil, pastingToken: Bool = false, moveStarted: String? = nil) {
-        self.settingUp = settingUp
-        self.provider = provider
-        self.pastingToken = pastingToken
-        self.moveStarted = moveStarted
-    }
-}
-
-/// Which provider's token a token field takes.
-public enum AlwaysOnTokenTarget: Equatable, Sendable {
-    /// The providers, or the one in use, are not read yet, or could not be.
-    case unknown
-    /// The engine offers more than one and none is picked: the owner picks
-    /// first, from every one given, in the engine's order.
-    case pick([ManagementProvisionProvider])
-    case provider(ManagementProvisionProvider)
-}
-
-/// The screen a summary maps to.
-public enum AlwaysOnScreenKind: Equatable, Sendable {
-    case off
-    /// The token screen: the paste field, "How to get one" and the own-server
-    /// link. Opened by Set up, and the engine's `connect`.
-    case token
-    case choose
-    case creating
-    case ready
-    case moving
-    case on
-    case undone
-    case retired
-    /// The server's own page, before its move.
-    case candidate
-    /// The server's own page, after its move.
-    case primary
-    case problem(ManagementHomeProblemKind)
-    /// A state this build does not know: its sentence, and nothing more.
-    case unknown
-}
-
-/// One screen: one sentence, at most one main action, and what Details and
-/// the screen's links hold.
-public struct AlwaysOnScreen: Equatable, Sendable {
-    public let kind: AlwaysOnScreenKind
-    public let sentence: String
-    /// The one main action, or none when all is well.
-    public let action: ManagementHomeAction?
-    /// The other actions the screen offers: Details on a problem and on `on`,
-    /// the own-server link on the token screen.
-    public let alternatives: [ManagementHomeAction]
-    /// The paste field shows (the token screen, or Paste a new token); its
-    /// provider's label and steps are `tokenTarget`'s.
-    public let tokenField: Bool
-    /// The bar that claims no percentage shows (creating and moving).
-    public let showsProgress: Bool
-    /// The recovery passphrase fields sit below while none is set.
-    public let asksPassphrase: Bool
-    /// What Details holds.
-    public let detail: ManagementHomeSummaryDetail
-}
+/// Every sentence, label, line and confirm is the engine's
+/// (`home.status.summary`), and every press is one `home.act` the engine
+/// runs. The app keeps three things of its own: how it asks for a secret
+/// (the token field and the passphrase sheet), how it draws the choice of
+/// size and place, and that the engine is restarting after this app's own
+/// Move now.
 
 /// What the pane shows as a whole.
 public enum AlwaysOnPage: Equatable, Sendable {
     /// The first read is out.
     case reading
-    /// `home.status` was refused, or not answered: the daemon's sentence, or
-    /// the app's for a daemon that is not there.
+    /// `home.status` was refused, or not answered, before any summary was:
+    /// the daemon's sentence, or the app's for a daemon that is not there.
     case unreadable(String)
-    /// The engine answers no summary, or does not serve what the screen
-    /// needs: the existing "update Fermix" answer.
+    /// The engine answers no summary: the existing "update Fermix" answer.
     case needsUpdate
+    /// The engine restarts to carry out this app's own Move now, until it
+    /// answers again with a summary that moved.
+    case restarting
     case screen(AlwaysOnScreen)
 
     public var screen: AlwaysOnScreen? {
@@ -104,210 +31,140 @@ public enum AlwaysOnPage: Equatable, Sendable {
 }
 
 extension AlwaysOnPage {
-    /// The page for what the reads answered.
+    /// The page for what the engine last answered.
     ///
     /// - Parameters:
-    ///   - status: the last `home.status` the daemon answered, kept while a
+    ///   - summary: the last summary a read or an act answered, kept while a
     ///     later read fails, so the screen does not blank between reads.
+    ///   - olderEngine: the last read answered a `home.status` with no
+    ///     summary.
     ///   - failure: the last read's refusal, while it is the latest word.
-    ///   - local: the steps the app keeps itself.
-    ///   - served: the methods the daemon's `hello` lists; the provisioner's
-    ///     screens are drawn only where every `home.provision.*` method is
-    ///     there.
+    ///   - restarting: this app's own Move now is waiting for the engine's
+    ///     restart.
     public static func page(
-        status: ManagementHomeStatus?,
+        summary: ManagementHomeSummary?,
+        olderEngine: Bool,
         failure: SettingsReadState<ManagementHomeStatus>?,
-        local: AlwaysOnLocal,
-        served: Set<ManagementMethod>
+        restarting: Bool
     ) -> AlwaysOnPage {
-        if let started = local.moveStarted, awaitsOwnMove(status, failed: failure != nil) {
-            return .screen(.moving(started))
-        }
-        guard let status else { return unread(failure) }
-        guard let summary = status.summary else { return .needsUpdate }
+        if restarting { return .restarting }
+        if olderEngine { return .needsUpdate }
+        if let summary { return .screen(AlwaysOnScreen(summary)) }
 
-        let screen = AlwaysOnScreen.screen(summary, home: status, local: local)
-        let provisioner = served.isSuperset(of: ManagementMethod.homeProvisionMethods)
-        return !provisioner && screen.needsProvisioner ? .needsUpdate : .screen(screen)
-    }
-
-    /// Nothing answered yet: still reading, an engine too old for the home's
-    /// methods, or the daemon's sentence for why not.
-    private static func unread(_ failure: SettingsReadState<ManagementHomeStatus>?) -> AlwaysOnPage {
         switch failure {
         case .requiresNewerEngine?: return .needsUpdate
         case .unavailable(let sentence)?: return .unreadable(sentence)
         default: return .reading
         }
     }
+}
 
-    /// Whether the engine has not yet answered for the move this app
-    /// started: it is away while it restarts, or still says what it said
-    /// before the move began.
-    private static func awaitsOwnMove(_ status: ManagementHomeStatus?, failed: Bool) -> Bool {
-        failed || !saysWhereTheMoveStands(status?.summary?.state)
+/// One screen: the summary's sentence, the step in hand, the engine's other
+/// sentences, its one action and the others, and what Details holds.
+public struct AlwaysOnScreen: Equatable, Sendable {
+    public let state: ManagementHomeSummaryState
+    public let sentence: String
+    /// The sentence of the step in hand while a step's job runs.
+    public let progress: String?
+    /// The bar that claims no percentage shows: creating and moving.
+    public let showsBar: Bool
+    /// The engine's other sentences for the screen: how the provider bills,
+    /// a problem's note.
+    public let notes: [String]
+    /// The last review's warnings and blocks.
+    public let readiness: [ManagementReadinessItem]
+    /// The one main action, or none when all is well.
+    public let action: ManagementHomeAction?
+    /// The other actions, drawn as links.
+    public let alternatives: [ManagementHomeAction]
+    /// Details: the engine's lines, what lives on the server, and on `on`
+    /// its actions.
+    public let lines: [ManagementHomeSummaryLine]
+    public let data: String?
+    public let detailActions: [ManagementHomeAction]
+    /// Every provider's token screen, where a token is asked for.
+    public let providers: [ManagementHomeSummaryProvider]
+
+    public init(_ summary: ManagementHomeSummary) {
+        let detail = summary.detail
+        state = summary.state
+        sentence = summary.sentence
+        progress = detail.progress
+        showsBar = summary.state == .creating || summary.state == .moving
+        notes = [detail.billing, detail.note].compactMap { $0 }
+        readiness = detail.readiness ?? []
+        action = summary.action.flatMap { $0.isOffered ? $0 : nil }
+        alternatives = (detail.alternatives ?? []).filter(\.isOffered)
+        lines = detail.lines ?? []
+        data = detail.data
+        detailActions = (detail.actions ?? []).filter(\.isOffered)
+        providers = detail.providers ?? []
     }
 
-    /// Whether a summary in this state says where a move stands: under way,
-    /// done, undone, or gone wrong.
-    public static func saysWhereTheMoveStands(_ state: ManagementHomeSummaryState?) -> Bool {
-        switch state {
-        case .moving?, .on?, .undone?, .retired?, .problem?: return true
-        default: return false
-        }
+    /// Whether Details has anything to hold.
+    public var hasDetails: Bool { !lines.isEmpty || data != nil || !detailActions.isEmpty }
+
+    /// Which provider's token the field takes: the only one listed, else the
+    /// one the owner picked, else a pick from every one listed, in the
+    /// engine's order. None where the summary lists no provider.
+    public func tokenTarget(picked: String?) -> AlwaysOnTokenTarget? {
+        if providers.count == 1, let only = providers.first { return .provider(only) }
+        if let chosen = providers.first(where: { $0.id == picked }) { return .provider(chosen) }
+
+        return providers.isEmpty ? nil : .pick(providers)
     }
 }
 
-extension AlwaysOnScreen {
-    /// The actions that call the provisioner.
-    static let provisionerActions: Set<ManagementHomeActionId> = [
-        .createServer, .cancel, .turnOn, .restartServer, .startAgain, .createIn, .pasteToken,
-        .deleteServer, .replaceServer, .openConsole
-    ]
+/// Which provider's token a token field takes.
+public enum AlwaysOnTokenTarget: Equatable, Sendable {
+    /// More than one is listed and none is picked: the owner picks first.
+    case pick([ManagementHomeSummaryProvider])
+    case provider(ManagementHomeSummaryProvider)
+}
 
-    /// The review's warnings and blocks the summary carries, which a screen
-    /// lists only when there are some.
-    public var warnings: [ManagementReadinessItem] {
-        (detail.readiness ?? []).filter { $0.status != .ok }
+/// A press waiting on the owner: what its action needs, or its confirm.
+public enum AlwaysOnAsk: Equatable, Sendable, Identifiable {
+    /// The token field, in place of the action.
+    case token(ManagementHomeAction)
+    /// The sheet of size and place, with the action's confirm.
+    case choice(ManagementHomeAction)
+    /// The passphrase sheet, with the action's confirm: typed twice where
+    /// none is set, once where one is.
+    case passphrase(ManagementHomeAction, twice: Bool)
+    /// The confirm of an action that collects nothing.
+    case confirm(ManagementHomeAction)
+
+    /// What the action needs collected first, then its confirm; nil when it
+    /// is sent at once.
+    public static func asking(for action: ManagementHomeAction) -> AlwaysOnAsk? {
+        switch action.need {
+        case .token?: return .token(action)
+        case .choice?: return .choice(action)
+        case .newRecoveryPassphrase?: return .passphrase(action, twice: true)
+        case .recoveryPassphrase?: return .passphrase(action, twice: false)
+        case .unrecognized?, nil: return action.confirm.map { _ in .confirm(action) }
+        }
     }
 
-    /// Whether this screen calls the provisioner.
-    var needsProvisioner: Bool {
-        if kind == .choose { return true }
-        if let action, Self.provisionerActions.contains(action.id) { return true }
+    public var action: ManagementHomeAction {
+        switch self {
+        case .token(let action), .choice(let action), .passphrase(let action, _), .confirm(let action): return action
+        }
+    }
+
+    public var id: String { action.key }
+
+    /// Whether this ask is drawn as a sheet.
+    public var isSheet: Bool {
+        switch self {
+        case .choice, .passphrase: return true
+        case .token, .confirm: return false
+        }
+    }
+
+    /// Whether this ask is the token field, drawn in place of the action.
+    public var isField: Bool {
+        if case .token = self { return true }
         return false
     }
-
-    /// Which provider's token this screen's field takes: on a problem that
-    /// asks for a new token, the one in use, which the provisioner's record
-    /// names; else the one the owner picked here, or the only one offered.
-    ///
-    /// - Parameters:
-    ///   - providers: `home.provision.providers`, or nil while unread.
-    ///   - picked: the id the owner picked on this pane.
-    ///   - inUse: the provisioner's record's provider, or nil while unread.
-    public func tokenTarget(providers: [ManagementProvisionProvider]?, picked: String?, inUse: String?) -> AlwaysOnTokenTarget {
-        guard let providers else { return .unknown }
-
-        if case .problem = kind {
-            return providers.first { $0.id == inUse }.map(AlwaysOnTokenTarget.provider) ?? .unknown
-        }
-        if let chosen = providers.first(where: { $0.id == picked }) { return .provider(chosen) }
-        if providers.count == 1, let only = providers.first { return .provider(only) }
-        return providers.isEmpty ? .unknown : .pick(providers)
-    }
-
-    /// The screen for one summary.
-    static func screen(_ summary: ManagementHomeSummary, home: ManagementHomeStatus, local: AlwaysOnLocal) -> AlwaysOnScreen {
-        switch summary.state {
-        case .off where local.settingUp:
-            return token(summary.detail.connect, fallback: summary)
-        case .connect:
-            return AlwaysOnScreen(
-                kind: .token, sentence: summary.sentence, action: nil,
-                alternatives: offered(summary.detail.alternatives), tokenField: true, showsProgress: false,
-                asksPassphrase: false, detail: summary.detail
-            )
-        case .problem:
-            return problem(summary, local: local)
-        default:
-            return plain(summary, kind: kind(of: summary.state), home: home)
-        }
-    }
-
-    /// The app's own Set up step: `off`'s token words.
-    private static func token(_ connect: ManagementHomeSummaryConnect?, fallback summary: ManagementHomeSummary) -> AlwaysOnScreen {
-        AlwaysOnScreen(
-            kind: .token,
-            sentence: connect?.sentence ?? summary.sentence,
-            action: nil,
-            alternatives: offered(connect?.alternatives),
-            tokenField: true,
-            showsProgress: false,
-            asksPassphrase: false,
-            detail: summary.detail
-        )
-    }
-
-    private static func problem(_ summary: ManagementHomeSummary, local: AlwaysOnLocal) -> AlwaysOnScreen {
-        let kind = summary.detail.kind ?? .unrecognized("problem")
-        let pasting = local.pastingToken && summary.action?.id == .pasteToken
-
-        return AlwaysOnScreen(
-            kind: .problem(kind),
-            sentence: summary.sentence,
-            action: pasting ? nil : offered(summary.action),
-            alternatives: offered(summary.detail.alternatives),
-            tokenField: pasting,
-            showsProgress: false,
-            asksPassphrase: false,
-            detail: summary.detail
-        )
-    }
-
-    private static func plain(_ summary: ManagementHomeSummary, kind: AlwaysOnScreenKind, home: ManagementHomeStatus) -> AlwaysOnScreen {
-        AlwaysOnScreen(
-            kind: kind,
-            sentence: summary.sentence,
-            action: offered(summary.action),
-            alternatives: offered(summary.detail.actions),
-            tokenField: false,
-            showsProgress: kind == .creating || kind == .moving,
-            asksPassphrase: kind == .creating && home.role == .primary && !home.snapshots.recipientSet,
-            detail: summary.detail
-        )
-    }
-
-    /// The moving screen while the engine restarts for this app's own move.
-    static func moving(_ sentence: String) -> AlwaysOnScreen {
-        AlwaysOnScreen(
-            kind: .moving, sentence: sentence, action: nil, alternatives: [], tokenField: false,
-            showsProgress: true, asksPassphrase: false, detail: Self.noDetail
-        )
-    }
-
-    private static func kind(of state: ManagementHomeSummaryState) -> AlwaysOnScreenKind {
-        switch state {
-        case .off: return .off
-        case .connect: return .token
-        case .choose: return .choose
-        case .creating: return .creating
-        case .ready: return .ready
-        case .moving: return .moving
-        case .on: return .on
-        case .undone: return .undone
-        case .retired: return .retired
-        case .candidate: return .candidate
-        case .primary: return .primary
-        case .problem: return .problem(.unrecognized("problem"))
-        case .unrecognized: return .unknown
-        }
-    }
-
-    /// An action this build knows, or none: a button whose id it does not
-    /// know would do nothing.
-    private static func offered(_ action: ManagementHomeAction?) -> ManagementHomeAction? {
-        guard let action, action.id.isPublished else { return nil }
-
-        return action
-    }
-
-    /// The alternatives this build knows. "Use my own Linux server" is left
-    /// out while a server Fermix created stands (Details then offers to
-    /// delete it): only one code is open at a time, and a new one would strand
-    /// that server (L15).
-    private static func offered(_ actions: [ManagementHomeAction]?) -> [ManagementHomeAction] {
-        let known = (actions ?? []).filter(\.id.isPublished)
-        guard known.contains(where: { $0.id == .deleteServer }) else { return known }
-
-        return known.filter { $0.id != .ownServer }
-    }
-
-    private static let noDetail: ManagementHomeSummaryDetail = {
-        guard let detail = try? JSONDecoder().decode(ManagementHomeSummaryDetail.self, from: Data("{}".utf8)) else {
-            preconditionFailure("an empty detail decodes")
-        }
-
-        return detail
-    }()
 }

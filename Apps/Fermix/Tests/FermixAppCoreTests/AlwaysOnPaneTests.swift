@@ -3,327 +3,470 @@ import Testing
 
 @testable import FermixAppCore
 
-/// The Always On pane (M75 lean v1 §7): the summary's goldens, the screen each
-/// summary maps to, the calls each action makes, the notifications raised
-/// from changes of state, when the summary is read (never on a timer, never
-/// while Always On is off and the pane is closed), the providers the engine
-/// names, and the gates.
+/// The Always On pane (Always On setup §8.3): goldens of what the renderer
+/// draws for each summary the contract publishes, what each press sends (one
+/// `home.act`, with what its needs collected, after its confirm), the
+/// restart after this app's own Move now, the notifications from the
+/// summary's notice, when the summary is read (never on a timer, never while
+/// Always On is off and the pane is closed), and the copy.
 @Suite("Always On pane")
 @MainActor
 struct AlwaysOnPaneTests {
     // MARK: - The contract
 
-    @Test("every home.status golden carries a summary that decodes under the Swift names")
+    @Test("every home.status golden carries a summary whose actions are records with what they need and their key")
     func summaryGoldensDecode() throws {
         let states: [String: ManagementHomeSummaryState] = [
             "home_status": .undone, "home_status_creating": .creating, "home_status_ready": .ready,
-            "home_status_candidate": .candidate, "home_status_server": .primary, "home_status_on": .on,
-            "home_status_problem": .problem
+            "home_status_ready_first_move": .ready, "home_status_candidate": .candidate, "home_status_server": .primary,
+            "home_status_on": .on, "home_status_problem": .problem
         ]
         for (name, state) in states {
-            let home: ManagementHomeStatus = try AlwaysOnTests.golden(name)
-            #expect(home.summary?.state == state, "\(name)")
-            #expect(home.summary?.sentence.isEmpty == false, "\(name)")
-            #expect(home.version != nil, "\(name)")
+            let summary = try Self.summary(name)
+            #expect(summary.state == state, "\(name)")
+            #expect(!summary.key.isEmpty && !summary.sentence.isEmpty, "\(name)")
         }
 
-        let ready: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_ready")
-        let detail = try #require(ready.summary?.detail)
-        #expect(ready.summary?.action == ManagementHomeAction(id: .moveNow, label: "Move now"))
-        #expect(detail.server?.type == "CPX22" && detail.server?.location == "Falkenstein")
-        #expect(detail.readiness?.map(\.id) == ["stays_here"] && detail.waitsUntil == "2031-05-05T11:00:00Z")
-
-        let on: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_on")
-        #expect(on.summary?.detail.actions?.map(\.id) == [.backUpNow, .replaceServer])
-        #expect(on.summary?.detail.copiesBytes == 144_633 && on.summary?.detail.diskUsed == 0.42)
-        #expect(on.summary?.detail.backups == [ManagementHomeSummaryBackup(place: "S3", at: "2031-05-04T10:00:00Z")])
-
-        let problem: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_problem")
-        #expect(problem.summary?.problem == .cannotReach && problem.summary?.detail.seenAt == "2031-05-04T11:50:00Z")
-        let creating: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_creating")
-        #expect(creating.disk == ManagementHomeDisk(used: 0.31, nearlyFull: false))
+        let ready = try Self.summary("home_status_ready")
+        let move = try #require(ready.action)
+        #expect(move.id == .moveNow && move.needs == [.recoveryPassphrase] && move.key == "0Unu8V_R8dFwxCLgUqa1fw")
+        #expect(move.confirm?.hasPrefix("Move Fermix to your server now?") == true && move.url == nil)
+        #expect(ready.notice == ManagementHomeNotice(id: "ready:cand-5e2a9c1f7b3d4086", sentence: "Your server is ready for the move."))
+        #expect(try Self.summary("home_status_ready_first_move").action?.needs == [.newRecoveryPassphrase])
+        #expect(try Self.summary("home_status_problem").notice?.id == "cannot_reach:2031-05-04T11:49:00Z")
+        #expect(try Self.summary("home_status_on").detail.actions?.map(\.id) == [.backUpNow, .replaceServer])
     }
 
-    @Test("the provisioner's goldens decode, and its jobs are of the home_provision kind")
-    func provisionGoldensDecode() throws {
-        let connected: ManagementProvisionView = try AlwaysOnTests.golden("home_provision_connect")
-        #expect(connected.state == .connected && connected.token == .accepted && connected.otherServers == false)
-        #expect(connected.provider == "hetzner")
+    @Test("home.act answers the summary after the step, and a step's result is the code once or the move begun")
+    func actGoldenDecodes() throws {
+        let acted: ManagementHomeActed = try AlwaysOnTests.golden("home_act")
+        #expect(acted.summary.state == .choose && acted.result == nil)
+        #expect(acted.summary.action?.needs == [.choice] && acted.summary.action?.key == "F09RF8MofBF6hdXN7NWtuA")
 
-        let options: ManagementProvisionOptions = try AlwaysOnTests.golden("home_provision_options")
-        #expect(options.recommended == ManagementProvisionPick(type: "cpx22", location: "fsn1"))
-        #expect(options.moreRoom == ManagementProvisionPick(type: "cpx32", location: "fsn1"))
-        #expect(options.sentence == "Recommended: CPX22 in Falkenstein, €20 a month.")
-        #expect(options.offer(ManagementProvisionPick(type: "cpx32", location: "nbg1")) == nil, "not in stock there")
-        #expect(options.city("hel1") == "Helsinki")
+        let code = try Self.acted(Self.offSummary, result: [
+            "code": Self.code, "expires_at": "2031-05-04T12:30:00Z", "command": Self.command
+        ])
+        #expect(code.result == .ownServer(ManagementOwnServerCode(code: Self.code, expiresAt: "2031-05-04T12:30:00Z", command: Self.command)))
+        let move = try Self.acted(Self.offSummary, result: ["move_id": "mv-01a17cb1f5c04c1e9a7b"])
+        #expect(move.result == .move(id: "mv-01a17cb1f5c04c1e9a7b"))
+    }
 
-        let resources: ManagementProvisionView = try AlwaysOnTests.golden("home_provision_resources")
-        #expect(resources.provider == "hetzner")
-        #expect(resources.server?.location == "hel1" && resources.server?.power == "running")
-        #expect(resources.resources.map(\.kind) == [.server, .firewall, .primaryIp, .primaryIp, .server, .firewall, .primaryIp, .primaryIp])
-        #expect(resources.resources.first?.id == "61840117", "a resource's id is the provider's own, as a string")
-        #expect(resources.checked == true)
+    @Test("the token, the passphrase and the code are withheld from every print")
+    func secretsWithheld() throws {
+        let input = ManagementHomeActInput(token: "invented-hetzner-token-6d1f0c9a2b7e4f3a", recoveryPassphrase: "invented-harbor-juniper-lantern")
+        let code = ManagementOwnServerCode(code: Self.code, expiresAt: "2031-05-04T12:30:00Z", command: Self.command)
 
-        for name in ["home_provision_create", "home_provision_power", "home_provision_delete", "job_get_home_provision_completed"] {
-            let job: ManagementJob = try AlwaysOnTests.golden(name)
-            #expect(job.kind == .homeProvision, "\(name)")
+        for printed in [String(describing: input), String(reflecting: input), "\(input)", String(describing: code), String(reflecting: code)] {
+            #expect(!printed.contains("invented-hetzner-token") && !printed.contains("invented-harbor") && !printed.contains(Self.code), "\(printed)")
         }
+        #expect(Mirror(reflecting: input).children.isEmpty && Mirror(reflecting: code).children.isEmpty)
     }
 
-    /// Connect, options and resources call the provider in the request, up
-    /// to three calls of 10 s each; the providers and the jobs answer at once.
-    @Test("the provisioner's three reads of the provider wait 35 seconds, and the rest the usual time")
-    func provisionTimeouts() {
+    @Test("a press drawn on an older screen is refused as changed, in the engine's sentence")
+    func changedRefusalDecodes() throws {
+        let fixture = try #require(try ManagementFixtures.load(.errors, from: .management).first { $0.name == "changed" })
+        let published = try #require(try fixture.object("response")["error"] as? [String: Any])
+        let failure = try JSONDecoder().decode(ManagementFailure.self, from: try ManagementFixtures.encode(published))
+
+        #expect(failure.code == .changed)
+        #expect(ManagementMessage.sentence(for: ManagementError.daemon(failure)) == Self.changedSentence)
+    }
+
+    /// A token check takes up to about 45 seconds and a review sent to the
+    /// server up to 60, so a press waits 90; the offers call the provider.
+    @Test("a press waits 90 seconds, the offers 35, and the summary the usual time")
+    func timeouts() {
         let policy = DefaultManagementTimeoutPolicy()
 
-        for method in [ManagementMethod.homeProvisionConnect, .homeProvisionOptions, .homeProvisionResources] {
-            #expect(policy.timeout(for: method) == .seconds(35), "\(method.rawValue)")
-        }
-        for method in [ManagementMethod.homeProvisionProviders, .homeProvisionCreate, .homeProvisionPower, .homeProvisionDelete] {
+        #expect(policy.timeout(for: .homeAct) == .seconds(90))
+        #expect(policy.timeout(for: .homeProvisionOptions) == .seconds(35))
+        for method in [ManagementMethod.homeStatus, .homeCandidatesList, .homeSnapshotsStatus] {
             #expect(policy.timeout(for: method) == DefaultManagementTimeoutPolicy.standard, "\(method.rawValue)")
         }
     }
 
-    // MARK: - The screens
+    // MARK: - What the renderer draws
 
-    @Test("an engine that answers no summary gets the update answer, and one that has not answered is read")
-    func noSummary() throws {
-        var object = try AlwaysOnTests.goldenObject("home_status")
-        object["summary"] = nil
-        let old = try AlwaysOnTests.decode(ManagementHomeStatus.self, object)
-
-        #expect(Self.page(old) == .needsUpdate)
-        #expect(AlwaysOnPage.page(status: nil, failure: nil, local: AlwaysOnLocal(), served: Self.all) == .reading)
-        #expect(AlwaysOnPage.page(status: nil, failure: .unavailable("Fermix is not running."), local: AlwaysOnLocal(), served: Self.all) == .unreadable("Fermix is not running."))
-        #expect(AlwaysOnPage.page(status: nil, failure: .requiresNewerEngine, local: AlwaysOnLocal(), served: Self.all) == .needsUpdate)
-    }
-
-    @Test("off says the engine's sentence with Set up, and Set up opens the token screen in the engine's words")
-    func offAndSetUp() throws {
-        let off = try Self.home(Self.off)
-
-        let screen = try #require(Self.page(off).screen)
-        #expect(screen.kind == .off && screen.sentence == Self.offSentence)
-        #expect(screen.action?.id == .setUp && !screen.tokenField)
-
-        let token = try #require(Self.page(off, local: AlwaysOnLocal(settingUp: true)).screen)
-        #expect(token.kind == .token && token.tokenField && token.action == nil)
-        #expect(token.sentence == Self.connectSentence)
-        #expect(token.tokenTarget(providers: [Self.hetzner], picked: nil, inUse: nil) == .provider(Self.hetzner))
-        #expect(token.alternatives.map(\.id) == [.ownServer])
-    }
-
-    @Test("connect is the token screen, with the steps and the own-server link")
-    func connect() throws {
-        let screen = try #require(Self.page(try Self.home(Self.summary("connect", Self.connectSentence, detail: [
-            "steps": Self.steps, "alternatives": [Self.action("own_server", "Use my own Linux server")]
-        ]))).screen)
-
-        #expect(screen.kind == .token && screen.tokenField && screen.action == nil)
-        #expect(screen.alternatives.map(\.label) == ["Use my own Linux server"])
-    }
-
-    @Test("choose offers Create server, and only where every provisioner method is listed")
-    func choose() throws {
-        let choose = try Self.home(Self.summary("choose", "Your Hetzner token works, so choose the server Fermix creates.",
-                                                action: Self.action("create_server", "Create server"),
-                                                detail: ["billing": "Hetzner bills by the hour until the server is deleted."]))
-
-        let screen = try #require(Self.page(choose).screen)
-        #expect(screen.kind == .choose && screen.action?.id == .createServer)
-        #expect(screen.detail.billing == "Hetzner bills by the hour until the server is deleted.")
-
-        let withoutDelete = Self.all.subtracting([.homeProvisionDelete])
-        #expect(AlwaysOnPage.page(status: choose, failure: nil, local: AlwaysOnLocal(), served: withoutDelete) == .needsUpdate)
-        let withoutProviders = Self.all.subtracting([.homeProvisionProviders])
-        #expect(
-            AlwaysOnPage.page(status: choose, failure: nil, local: AlwaysOnLocal(), served: withoutProviders) == .needsUpdate,
-            "an engine whose calls take no provider is too old for the provisioner"
-        )
-        let token = AlwaysOnPage.page(status: try Self.home(Self.off), failure: nil, local: AlwaysOnLocal(settingUp: true), served: withoutDelete)
-        #expect(token.screen?.kind == .token, "the own-server path stays")
-    }
-
-    @Test("creating shows a bar, Cancel, and the passphrase fields while none is set")
-    func creating() throws {
-        let golden: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_creating")
-        let screen = try #require(Self.page(golden).screen)
-
-        #expect(screen.kind == .creating && screen.showsProgress)
-        #expect(screen.sentence == "Installing Fermix on your server…" && screen.action?.id == .cancel)
-        #expect(screen.asksPassphrase == !golden.snapshots.recipientSet)
-
-        let unset = try Self.home(Self.summary("creating", "Starting your server…", action: Self.action("cancel", "Cancel")), recipientSet: false)
-        #expect(Self.page(unset).screen?.asksPassphrase == true)
-        let set = try Self.home(Self.summary("creating", "Starting your server…", action: Self.action("cancel", "Cancel")), recipientSet: true)
-        #expect(Self.page(set).screen?.asksPassphrase == false)
-    }
-
-    @Test("ready says the no-way-back sentence with Move now, and lists warnings only when there are some")
-    func ready() throws {
-        let golden: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_ready")
-        let screen = try #require(Self.page(golden).screen)
-
-        #expect(screen.kind == .ready && screen.action?.id == .moveNow)
-        #expect(screen.sentence.contains("There is no way back to this Mac in this version."))
-        #expect(screen.warnings.map(\.id) == ["stays_here"])
-
-        let quiet = try Self.home(Self.summary("ready", "Your server is ready for the move.", action: Self.action("move_now", "Move now"),
-                                               detail: ["readiness": [["id": "disk", "status": "ok", "sentence": "There is room."]]]))
-        #expect(try #require(Self.page(quiet).screen).warnings.isEmpty)
-    }
-
-    @Test("on asks for nothing, and its Details offers Back up now and Replace the server")
-    func on() throws {
-        let screen = try #require(Self.page(try AlwaysOnTests.golden("home_status_on")).screen)
-
-        #expect(screen.kind == .on && screen.action == nil && !screen.showsProgress)
-        #expect(screen.alternatives.map(\.id) == [.backUpNow, .replaceServer])
-        #expect(screen.detail.data?.contains("Hetzner can technically read its disk") == true)
-        #expect(AlwaysOnDetails.shows(screen))
-    }
-
-    @Test("moving, undone and retired map to their screens with the engine's action")
-    func movingUndoneRetired() throws {
-        let moving = try #require(Self.page(try Self.home(Self.summary("moving", "Moving."))).screen)
-        #expect(moving.kind == .moving && moving.showsProgress && moving.action == nil)
-
-        let undone = try #require(Self.page(try AlwaysOnTests.golden("home_status")).screen)
-        #expect(undone.kind == .undone && undone.action?.id == .tryAgain)
-
-        let retired = try #require(Self.page(try Self.home(Self.summary("retired", "Fermix moved.", action: Self.action("learn_more", "Learn more")))).screen)
-        #expect(retired.kind == .retired && retired.action?.id == .learnMore)
-
-        let later = try #require(Self.page(try Self.home(Self.summary("paused", "Something newer."))).screen)
-        #expect(later.kind == .unknown && later.sentence == "Something newer.")
-    }
-
-    /// The one action of each problem the design names, as the engine sends
-    /// it: the pane draws it under its label and the model runs it
-    /// (`problemActionsCallTheirMethods`).
-    @Test("every problem kind is its own screen with the engine's one action")
-    func problems() throws {
-        for (kind, action) in Self.problemActions {
-            let screen = try #require(Self.page(try Self.home(Self.problem(kind, action: action))).screen)
-            #expect(screen.kind == .problem(ManagementHomeProblemKind(wireValue: kind)), "\(kind)")
-            #expect(screen.action?.id == ManagementHomeActionId(wireValue: action), "\(kind)")
+    /// One golden per summary the contract publishes: what the pane draws, in
+    /// order, every word the engine's.
+    @Test("each published summary draws as its golden")
+    func publishedSummariesDraw() throws {
+        for (name, golden) in Self.publishedGoldens {
+            let summary = name == "home_act"
+                ? (try AlwaysOnTests.golden(name) as ManagementHomeActed).summary
+                : try Self.summary(name)
+            #expect(AlwaysOnRendering.lines(.screen(AlwaysOnScreen(summary))) == golden, "\(name)")
         }
-
-        let gone = try Self.home(Self.problem("turned_off", action: "turn_on", alternatives: [Self.action("delete_server", "Delete your server")]))
-        #expect(Self.page(gone).screen?.alternatives.map(\.id) == [.deleteServer])
     }
 
-    @Test("Get a code is hidden while a server Fermix created stands, and offered once it is gone")
-    func ownServerHidden() throws {
-        let standing = try Self.home(Self.problem("not_set_up", action: "start_again", alternatives: [
-            Self.action("own_server", "Use my own Linux server"), Self.action("open_console", "Open Hetzner"),
-            Self.action("delete_server", "Delete your server")
-        ]))
-        #expect(Self.page(standing).screen?.alternatives.map(\.id) == [.openConsole, .deleteServer])
-
-        let none = try Self.home(Self.problem("account_limit", action: "open_console", alternatives: [Self.action("own_server", "Use my own Linux server")]))
-        #expect(Self.page(none).screen?.alternatives.map(\.id) == [.ownServer])
+    /// The engine's own summaries of the states the contract publishes no
+    /// home.status golden for (handoff A's appendix).
+    @Test("off, connect and retired draw as their goldens")
+    func appendixSummariesDraw() throws {
+        #expect(AlwaysOnRendering.lines(.screen(AlwaysOnScreen(try Self.decodeSummary(Self.offSummary)))) == [
+            "sentence: Keep Fermix running when this Mac sleeps. It moves to a server you own.",
+            "action: Set up, needs token",
+            "link: Use my own Linux server",
+            "token screen: Hetzner, Hetzner API token"
+        ])
+        #expect(AlwaysOnRendering.lines(.screen(AlwaysOnScreen(try Self.decodeSummary(Self.connectSummary)))) == [
+            "sentence: Paste a Hetzner API token to let Fermix create your server.",
+            "action: Set up, needs token",
+            "link: Use my own Linux server",
+            "link: Cancel the code",
+            "token screen: Hetzner, Hetzner API token"
+        ])
+        #expect(AlwaysOnRendering.lines(.screen(AlwaysOnScreen(try Self.decodeSummary(Self.retiredSummary)))) == [
+            "sentence: Fermix moved to your server, and this Mac is no longer connected to it.",
+            "action: Learn more, opens https://fermix.ai/docs/always-on/#hetzner"
+        ])
     }
 
-    @Test("an action this build does not know is not drawn")
-    func unknownActionDropped() throws {
-        let screen = try #require(Self.page(try Self.home(Self.problem("disk_full", action: "grow_disk"))).screen)
+    @Test("an action this build does not know, or one whose need it cannot collect, is not drawn")
+    func unknownActionsNotDrawn() throws {
+        var summary = Self.offSummary
+        summary["action"] = Self.action("grow_disk", "Grow the disk")
+        summary["detail"] = ["alternatives": [Self.action("own_server", "Use my own Linux server", needs: ["fingerprint"])]]
 
-        #expect(screen.action == nil)
+        let screen = AlwaysOnScreen(try Self.decodeSummary(summary))
+        #expect(screen.action == nil && screen.alternatives.isEmpty)
     }
 
-    @Test("Paste a new token opens the field in place of the action")
-    func pasteToken() throws {
-        let refused = try Self.home(Self.problem("token_refused", action: "paste_token"))
+    @Test("the pages around a screen: reading, the daemon's refusal, an engine with no summary, and the restart")
+    func pages() {
+        let summary = try? Self.summary("home_status_on")
 
-        #expect(Self.page(refused).screen?.tokenField == false)
-        let pasting = try #require(Self.page(refused, local: AlwaysOnLocal(pastingToken: true)).screen)
-        #expect(pasting.tokenField && pasting.action == nil)
+        #expect(AlwaysOnPage.page(summary: nil, olderEngine: false, failure: nil, restarting: false) == .reading)
+        #expect(AlwaysOnPage.page(summary: nil, olderEngine: false, failure: .unavailable("Fermix isn’t running"), restarting: false)
+            == .unreadable("Fermix isn’t running"))
+        #expect(AlwaysOnPage.page(summary: nil, olderEngine: false, failure: .requiresNewerEngine, restarting: false) == .needsUpdate)
+        #expect(AlwaysOnPage.page(summary: nil, olderEngine: true, failure: nil, restarting: false) == .needsUpdate)
+        #expect(AlwaysOnPage.page(summary: summary, olderEngine: false, failure: nil, restarting: true) == .restarting)
+        #expect(AlwaysOnPage.page(summary: summary, olderEngine: false, failure: .unavailable("x"), restarting: false).screen?.state == .on)
     }
 
-    @Test("after this app's own Move now the pane says it is moving until the engine says where the move is")
-    func ownMove() throws {
-        let local = AlwaysOnLocal(moveStarted: "Moving to fermix-general-a3f9.")
+    // MARK: - What a press sends
+
+    @Test("a press that needs nothing and confirms nothing is one home.act with its key, and the answer is drawn")
+    func pressSendsOneAct() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_on") as ManagementHomeStatus)
+        pane.gateway.homeActScript = [.success(try Self.acted("home_status_creating"))]
+        let mark = pane.gateway.calls.count
+        let backUp = try #require(pane.model.page.screen?.detailActions.first)
+
+        await pane.model.press(backUp)
+
+        #expect(pane.gateway.homeActs == [HomeAct(action: .backUpNow, key: "HAtkdLOslkPTtZfhMrpeQg", input: nil)])
+        #expect(Self.methods(pane.gateway, after: mark) == [.homeAct], "the answer is the read after the press")
+        #expect(pane.model.page.screen?.state == .creating)
+    }
+
+    @Test("a press with a confirm asks it first: declined sends nothing, accepted sends one home.act")
+    func confirmFirst() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_creating") as ManagementHomeStatus)
+        let cancel = try #require(pane.model.page.screen?.action)
+
+        await pane.model.press(cancel)
+        #expect(pane.model.asking == .confirm(cancel) && pane.gateway.homeActs.isEmpty)
+        #expect(cancel.confirm == "Cancel and delete your server? Everything Fermix created for it is deleted.")
+
+        pane.model.dismissAsk()
+        #expect(pane.model.asking == nil && pane.gateway.homeActs.isEmpty)
+
+        await pane.model.press(cancel)
+        await pane.model.accept(cancel)
+        #expect(pane.gateway.homeActs == [HomeAct(action: .cancel, key: "lW7Sx3Zz1dpg_Diwa6TmhA", input: nil)])
+        #expect(pane.model.asking == nil)
+    }
+
+    @Test("Set up opens the token field for the one provider, and a pasted token is one home.act that names none")
+    func tokenForTheOneProvider() async throws {
+        let pane = try await Self.opened(try Self.home(Self.offSummary))
+        let setUp = try #require(pane.model.page.screen?.action)
+
+        await pane.model.press(setUp)
+        #expect(pane.model.asking == .token(setUp) && pane.gateway.homeActs.isEmpty)
+        let screen = try #require(pane.model.page.screen)
+        #expect(screen.tokenTarget(picked: nil) == .provider(Self.hetzner))
+
+        await pane.model.submitToken("  invented-hetzner-token-6d1f0c9a2b7e4f3a\n", for: Self.hetzner)
+
+        #expect(pane.gateway.homeActs == [
+            HomeAct(action: .pasteToken, key: "ypJXbXCwrSQSdVK8_tXftA", input: ManagementHomeActInput(token: "invented-hetzner-token-6d1f0c9a2b7e4f3a"))
+        ])
+        #expect(pane.model.page.screen?.state == .choose, "the answer's summary is drawn")
+        #expect(pane.model.asking == nil, "the summary no longer offers the token")
+    }
+
+    /// A provider the engine adds is one more record: the app draws it and
+    /// names it, with nothing of its own to change.
+    @Test("with two providers the owner picks first, and the token names the one picked")
+    func tokenForAPickedProvider() async throws {
+        var off = Self.offSummary
+        off["detail"] = ["providers": [Self.hetznerRecord, Self.nimbusRecord]]
+        let pane = try await Self.opened(try Self.home(off))
+        let setUp = try #require(pane.model.page.screen?.action)
+
+        await pane.model.press(setUp)
+        let screen = try #require(pane.model.page.screen)
+        #expect(screen.tokenTarget(picked: pane.model.picked) == .pick([Self.hetzner, Self.nimbus]))
+
+        pane.model.pick(provider: Self.nimbus)
+        #expect(screen.tokenTarget(picked: pane.model.picked) == .provider(Self.nimbus))
+        await pane.model.submitToken("invented-nimbus-key-0a1b2c3d4e5f", for: Self.nimbus)
+
+        #expect(pane.gateway.homeActs.map(\.input) == [ManagementHomeActInput(token: "invented-nimbus-key-0a1b2c3d4e5f", provider: "nimbus")])
+    }
+
+    @Test("a token the provider refuses is the engine's sentence under the field, which stays open, and the summary is read again")
+    func tokenRefused() async throws {
+        let off = try Self.home(Self.offSummary)
+        let pane = try await Self.opened(off)
+        let sentence = "Hetzner does not accept this token, so paste a Read & Write API token from the Hetzner project you made for Fermix."
+        pane.gateway.homeActScript = [.failure(Self.refusal(.invalidParams, sentence, field: "token"))]
+        let setUp = try #require(pane.model.page.screen?.action)
+        await pane.model.press(setUp)
+        let mark = pane.gateway.calls.count
+
+        await pane.model.submitToken("invented-hetzner-token-6d1f0c9a2b7e4f3a", for: Self.hetzner)
+
+        #expect(pane.model.refusal == sentence)
+        #expect(pane.model.asking == .token(setUp), "the field stays while the summary offers it")
+        #expect(Self.methods(pane.gateway, after: mark) == [.homeAct, .homeStatus])
+    }
+
+    /// The engine knows the provider in use, so the choice names none, even
+    /// on a pane opened straight on `choose`.
+    @Test("Create server reads what the provider in use sells, naming none, and sends the recommendation unless changed")
+    func createServer() async throws {
+        let pane = try await Self.opened(try Self.home(Self.summaryObject("home_act")))
+        let create = try #require(pane.model.page.screen?.action)
+
+        await pane.model.press(create)
+        #expect(pane.model.asking == .choice(create) && pane.gateway.homeActs.isEmpty)
+        #expect(pane.gateway.provisionOptionsReads == 1)
+        let recommended = try #require(pane.model.options.value?.recommended)
+        await pane.model.submitChoice(recommended)
+
+        await pane.model.press(create)
+        await pane.model.submitChoice(ManagementProvisionPick(type: "cpx32", location: "hel1"))
+
+        #expect(pane.gateway.homeActs.map(\.input) == [
+            ManagementHomeActInput(type: "cpx22", location: "fsn1"), ManagementHomeActInput(type: "cpx32", location: "hel1")
+        ])
+        #expect(pane.gateway.homeActs.map(\.key) == ["F09RF8MofBF6hdXN7NWtuA", "F09RF8MofBF6hdXN7NWtuA"])
+    }
+
+    @Test("Replace the server opens the same choice, and sends what it collected under its own key")
+    func replaceServer() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_on") as ManagementHomeStatus)
+        let replace = try #require(pane.model.page.screen?.detailActions.last)
+
+        await pane.model.press(replace)
+        #expect(pane.model.asking == .choice(replace))
+        await pane.model.submitChoice(ManagementProvisionPick(type: "cpx32", location: "hel1"))
+
+        #expect(pane.gateway.homeActs == [
+            HomeAct(action: .replaceServer, key: "ysD6fueqfNRZpiywBU6HPA", input: ManagementHomeActInput(type: "cpx32", location: "hel1"))
+        ])
+    }
+
+    @Test("Move now asks for the recovery passphrase once where one is set, and sends it in the one press")
+    func moveNowOnce() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_ready") as ManagementHomeStatus)
+        let move = try #require(pane.model.page.screen?.action)
+
+        await pane.model.press(move)
+        #expect(pane.model.asking == .passphrase(move, twice: false) && pane.gateway.homeActs.isEmpty)
+        #expect(await pane.model.submitPassphrase("invented-harbor-juniper-lantern", again: nil))
+
+        #expect(pane.gateway.homeActs == [
+            HomeAct(action: .moveNow, key: "0Unu8V_R8dFwxCLgUqa1fw", input: ManagementHomeActInput(recoveryPassphrase: "invented-harbor-juniper-lantern"))
+        ])
+    }
+
+    @Test("Move now where none is set asks twice, and two that differ send nothing")
+    func moveNowTwice() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_ready_first_move") as ManagementHomeStatus)
+        let move = try #require(pane.model.page.screen?.action)
+
+        await pane.model.press(move)
+        #expect(pane.model.asking == .passphrase(move, twice: true))
+        #expect(!(await pane.model.submitPassphrase("invented-harbor-juniper-lantern", again: "invented-harbor-juniper")))
+        #expect(pane.gateway.homeActs.isEmpty && pane.model.asking == .passphrase(move, twice: true))
+
+        #expect(await pane.model.submitPassphrase("invented-harbor-juniper-lantern", again: "invented-harbor-juniper-lantern"))
+        #expect(pane.gateway.homeActs.map(\.input) == [ManagementHomeActInput(recoveryPassphrase: "invented-harbor-juniper-lantern")])
+        #expect(pane.gateway.homeActs.map(\.key) == ["2AqtcHJopcwn24x76cpKEQ"])
+    }
+
+    /// The engine restarts right after answering Move now, so the answer
+    /// still reads the screen it was pressed on: the pane says it restarts
+    /// while the engine is away and while it still answers that screen, and
+    /// lets go once a summary moved, the restart being read as one.
+    @Test("after this app's own Move now the pane says it restarts until the engine answers a summary that moved, then Settings is read again")
+    func ownMoveRestarts() async throws {
         let ready: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_ready")
+        let pane = try await Self.opened(ready)
+        pane.gateway.homeActScript = [.success(try Self.acted("home_status_ready", result: ["move_id": "mv-01a17cb1f5c04c1e9a7b"]))]
+        let move = try #require(pane.model.page.screen?.action)
+        await pane.model.press(move)
+        _ = await pane.model.submitPassphrase("invented-harbor-juniper-lantern", again: nil)
+        #expect(pane.model.page == .restarting)
 
-        #expect(AlwaysOnPage.page(status: ready, failure: nil, local: local, served: Self.all).screen == .moving("Moving to fermix-general-a3f9."))
-        #expect(AlwaysOnPage.page(status: ready, failure: .unavailable("Fermix is not running."), local: local, served: Self.all).screen?.kind == .moving)
-        let on: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_on")
-        #expect(AlwaysOnPage.page(status: on, failure: nil, local: local, served: Self.all).screen?.kind == .on)
+        pane.gateway.homeStatusScript = [.failure(Self.away), .success(ready), .success(try AlwaysOnTests.golden("home_status_on"))]
+        pane.gateway.homeStatusIndex = 0
+        await pane.model.refresh()
+        #expect(pane.model.page == .restarting, "while the engine is away")
+        await pane.model.refresh()
+        #expect(pane.model.page == .restarting, "while it still answers the screen the move was pressed on")
+        let mark = pane.gateway.calls.count
+
+        await pane.model.refresh()
+        #expect(pane.model.page.screen?.state == .on && pane.model.restartingFrom == nil)
+        #expect(Self.methods(pane.gateway, after: mark).contains(.settingsSections), "the restart was read as one")
+    }
+
+    @Test("a linked desktop's replace answers moving, and nothing restarts here")
+    func replaceMoveDoesNotRestart() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_ready") as ManagementHomeStatus)
+        pane.gateway.homeActScript = [.success(try Self.acted(Self.movingSummary, result: ["move_id": "mv-01a17cb1f5c04c1e9a7b"]))]
+        let move = try #require(pane.model.page.screen?.action)
+
+        await pane.model.press(move)
+        _ = await pane.model.submitPassphrase("invented-harbor-juniper-lantern", again: nil)
+
+        #expect(pane.model.restartingFrom == nil)
+        #expect(pane.model.page.screen?.state == .moving && pane.model.page.screen?.showsBar == true)
+    }
+
+    @Test("a press drawn on an older screen is changed: its sentence under the action, and the summary read again")
+    func changedReadsAgain() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_problem") as ManagementHomeStatus)
+        pane.gateway.homeActScript = [.failure(Self.refusal(.changed, Self.changedSentence))]
+        let restart = try #require(pane.model.page.screen?.action)
+        await pane.model.press(restart)
+        let mark = pane.gateway.calls.count
+
+        await pane.model.accept(restart)
+
+        #expect(pane.model.refusal == Self.changedSentence)
+        #expect(Self.methods(pane.gateway, after: mark) == [.homeAct, .homeStatus])
+    }
+
+    @Test("a step the server took whose answer was lost is said as no failure")
+    func unconfirmedIsNoFailure() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_ready") as ManagementHomeStatus)
+        let sentence = "The server fermix-vm did not confirm in time whether the move started. Its state shows once the server answers again, and starting it again never starts a second move."
+        pane.gateway.homeActScript = [.failure(Self.refusal(.unconfirmed, sentence))]
+        let move = try #require(pane.model.page.screen?.action)
+        await pane.model.press(move)
+
+        _ = await pane.model.submitPassphrase("invented-harbor-juniper-lantern", again: nil)
+
+        #expect(pane.model.notice == sentence && pane.model.refusal == nil)
+        #expect(pane.model.asking == nil, "the sheet closes on the answer")
+    }
+
+    @Test("Use my own Linux server shows the command and the code once, until the pane goes")
+    func ownServer() async throws {
+        let pane = try await Self.opened(try Self.home(Self.offSummary))
+        pane.gateway.homeActScript = [.success(try Self.acted(Self.connectSummary, result: [
+            "code": Self.code, "expires_at": "2031-05-04T12:30:00Z", "command": Self.command
+        ]))]
+        let own = try #require(pane.model.page.screen?.alternatives.first)
+
+        await pane.model.press(own)
+
+        #expect(pane.gateway.homeActs == [HomeAct(action: .ownServer, key: "Mx_U6542oONDPqGb3qliTQ", input: nil)])
+        #expect(pane.model.ownServer?.command == "curl -fsSL https://fermix.ai/always-on | sudo sh", "the command carries no code")
+        #expect(pane.model.ownServer?.code == Self.code)
+        pane.model.paneDisappeared()
+        #expect(pane.model.ownServer == nil)
+    }
+
+    @Test("Learn more and Open console open the page the engine gave, and Update the app's own update, sending nothing")
+    func pagesOpenedHere() async throws {
+        let opener = RecordingExternalOpener()
+        let pane = try await Self.opened(try Self.home(Self.retiredSummary), opener: opener)
+        var updated = 0
+        pane.model.checkForUpdates = { updated += 1 }
+        let learnMore = try #require(pane.model.page.screen?.action)
+        let console = try Self.decodeAction(Self.action("open_console", "Open Hetzner", url: "https://console.hetzner.cloud/"))
+        let update = try Self.decodeAction(Self.action("update", "Update"))
+        let before = pane.gateway.calls.count
+
+        await pane.model.press(learnMore)
+        await pane.model.press(console)
+        await pane.model.press(update)
+        pane.model.open(Self.hetzner.docsUrl)
+
+        #expect(opener.urls.map(\.absoluteString) == [
+            "https://fermix.ai/docs/always-on/#hetzner", "https://console.hetzner.cloud/", "https://fermix.ai/docs/always-on/#hetzner"
+        ])
+        #expect(updated == 1 && pane.gateway.calls.count == before)
+    }
+
+    @Test("a summary that no longer offers the action asked for lets go of the press")
+    func staleAskCloses() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_creating") as ManagementHomeStatus, then: [
+            try AlwaysOnTests.golden("home_status_ready")
+        ])
+        let cancel = try #require(pane.model.page.screen?.action)
+        await pane.model.press(cancel)
+
+        await pane.model.refresh()
+
+        #expect(pane.model.asking == nil && pane.gateway.homeActs.isEmpty)
     }
 
     // MARK: - Notifications
 
-    @Test("the server is ready: raised when a summary turns ready, once, and never for a first read")
-    func serverReadyNotice() throws {
-        let creating = try Self.reading("home_status_creating")
-        let ready = try Self.reading("home_status_ready")
-
-        #expect(AlwaysOnNotices.notice(after: creating, ready, ownMove: false) == AlwaysOnNotice(kind: .serverReady, body: ready.status.summary?.sentence ?? ""))
-        #expect(AlwaysOnNotices.notice(after: ready, ready, ownMove: false) == nil)
-        #expect(AlwaysOnNotices.notice(after: nil, ready, ownMove: false) == nil)
-    }
-
-    @Test("the move is done: raised from moving to on, or after this app's own move")
-    func moveDoneNotice() throws {
-        let moving = try Self.reading(Self.summary("moving", "Moving."))
-        let on = try Self.reading("home_status_on")
-        let ready = try Self.reading("home_status_ready")
-
-        #expect(AlwaysOnNotices.notice(after: moving, on, ownMove: false)?.kind == .moveDone)
-        #expect(AlwaysOnNotices.notice(after: ready, on, ownMove: true)?.kind == .moveDone)
-        #expect(AlwaysOnNotices.notice(after: ready, on, ownMove: false) == nil)
-        #expect(AlwaysOnNotices.notice(after: on, on, ownMove: false) == nil)
-    }
-
-    @Test("no answer for 10 minutes and must be set up again: raised as each problem begins")
-    func problemNotices() throws {
-        let on = try Self.reading("home_status_on")
-        let silent = try Self.reading("home_status_problem")
-        let ready = try Self.reading("home_status_ready")
-        let tooLong = try Self.reading(Self.problem("waited_too_long", action: "start_again"))
-        let off = try Self.reading(Self.problem("turned_off", action: "turn_on"))
-
-        #expect(AlwaysOnNotices.notice(after: on, silent, ownMove: false) == AlwaysOnNotice(kind: .cannotReach, body: silent.status.summary?.sentence ?? ""))
-        #expect(AlwaysOnNotices.notice(after: silent, silent, ownMove: false) == nil)
-        #expect(AlwaysOnNotices.notice(after: ready, tooLong, ownMove: false)?.kind == .setUpAgain)
-        #expect(AlwaysOnNotices.notice(after: tooLong, tooLong, ownMove: false) == nil)
-        #expect(AlwaysOnNotices.notice(after: on, off, ownMove: false) == nil, "the other problems raise nothing")
-    }
-
-    @Test("the last backup is 7 days old: raised once that backup's age passes a week")
-    func backupNotice() throws {
-        let taken = "2031-05-01T10:00:00Z"
-        let since = try #require(ManagementCueTime.date(taken))
-        let old = Self.problem("backup_old", action: "back_up_now", seenAt: taken)
-        let day: TimeInterval = 86_400
-
-        let five = try Self.reading(old, at: since.addingTimeInterval(5 * day))
-        let seven = try Self.reading(old, at: since.addingTimeInterval(7 * day + 60))
-        let eight = try Self.reading(old, at: since.addingTimeInterval(8 * day))
-
-        #expect(AlwaysOnNotices.notice(after: five, five, ownMove: false) == nil)
-        #expect(AlwaysOnNotices.notice(after: five, seven, ownMove: false)?.kind == .backupOld)
-        #expect(AlwaysOnNotices.notice(after: seven, eight, ownMove: false) == nil, "once for that backup")
-        let on = try Self.reading("home_status_on", at: since.addingTimeInterval(7 * day + 60))
-        #expect(AlwaysOnNotices.notice(after: on, seven, ownMove: false)?.kind == .backupOld)
-    }
-
-    @Test("the model raises a notification from a change it read, under the Always On title, and none twice")
-    func modelPostsNotices() async throws {
+    @Test("a notice is raised the first time its id is seen, under the Always On title, and once, an outage between or not")
+    func noticesOnce() async throws {
         let gateway = try AlwaysOnTests.gateway()
         let pane = try Self.harness(gateway)
         let notifier = RecordingAlwaysOnNotifier()
         pane.model.notifier = notifier
-        gateway.homeStatusScript = [.success(try AlwaysOnTests.golden("home_status_creating")), .success(try AlwaysOnTests.golden("home_status_ready"))]
-
-        await pane.model.refresh()
-        await pane.model.refresh()
-        await pane.model.refresh()
-
         let ready: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_ready")
-        #expect(notifier.posted.map(\.title) == ["Always On"])
-        #expect(notifier.posted.map(\.body) == [ready.summary?.sentence])
+        let silent: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_problem")
+        gateway.homeStatusScript = [
+            .success(try AlwaysOnTests.golden("home_status_creating")), .success(ready), .success(ready), .success(silent), .success(ready)
+        ]
+
+        for _ in 0..<5 { await pane.model.refresh() }
+
+        #expect(notifier.posted.map(\.title) == ["Always On", "Always On"])
+        #expect(notifier.posted.map(\.body) == [
+            "Your server is ready for the move.", "Fermix cannot reach your server. Your messages wait until it is back."
+        ])
+    }
+
+    @Test("the notices raised are the last sixteen")
+    func postedBound() {
+        var posted = AlwaysOnPosted()
+        var raised = 0
+        for epoch in 0..<17 where posted.first("moved:\(epoch)") { raised += 1 }
+
+        #expect(raised == 17 && posted.ids.count == AlwaysOnPosted.bound)
+        let again = [posted.first("moved:16"), posted.first("moved:1")]
+        #expect(again == [false, false])
+        let oldest = posted.first("moved:0")
+        #expect(oldest, "the oldest is forgotten past the bound")
+    }
+
+    @Test("a press's answer raises its notice too")
+    func pressRaisesNotice() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_creating") as ManagementHomeStatus)
+        let notifier = RecordingAlwaysOnNotifier()
+        pane.model.notifier = notifier
+        pane.gateway.homeActScript = [.success(try Self.acted("home_status_ready"))]
+        let cancel = try #require(pane.model.page.screen?.action)
+
+        await pane.model.press(cancel)
+        await pane.model.accept(cancel)
+
+        #expect(notifier.posted.map(\.body) == ["Your server is ready for the move."])
     }
 
     // MARK: - When the summary is read
@@ -335,9 +478,9 @@ struct AlwaysOnPaneTests {
     @Test("while Always On is off and the pane is closed, the app asks the engine nothing about it")
     func offAsksNothing() async throws {
         let gateway = try AlwaysOnTests.gateway()
-        gateway.homeStatusScript = [.success(try Self.home(Self.off))]
+        gateway.homeStatusScript = [.success(try Self.home(Self.offSummary))]
         let pane = try Self.harness(gateway)
-        let chat = Self.chat()
+        let chat = AlwaysOnChat.make()
         pane.model.listen(to: chat.session)
 
         chat.session.connect()
@@ -351,21 +494,20 @@ struct AlwaysOnPaneTests {
         #expect(chat.scheduler.liveCount == 0, "nothing waits to read it later")
 
         await pane.model.paneAppeared()
-        let shown: [ManagementMethod] = [.homeProvisionProviders, .homeStatus]
-        #expect(Self.alwaysOnCalls(gateway) == shown, "the pane reads the off line it is never told of")
+        #expect(Self.alwaysOnCalls(gateway) == [.homeStatus], "the pane reads the off line it is never told of")
         pane.model.paneDisappeared()
         await pane.settings.restartCompleted()
-        #expect(Self.alwaysOnCalls(gateway) == shown, "a restart with the pane closed reads nothing")
+        #expect(Self.alwaysOnCalls(gateway) == [.homeStatus], "a restart with the pane closed reads nothing")
     }
 
-    @Test("each notice reads the summary once, and the change it shows raises its notification")
+    @Test("each notice from the chat wire reads the summary once, and its notice is raised")
     func noticeReads() async throws {
         let gateway = try AlwaysOnTests.gateway()
         gateway.homeStatusScript = [.success(try AlwaysOnTests.golden("home_status_creating")), .success(try AlwaysOnTests.golden("home_status_ready"))]
         let pane = try Self.harness(gateway)
         let notifier = RecordingAlwaysOnNotifier()
         pane.model.notifier = notifier
-        let chat = Self.chat()
+        let chat = AlwaysOnChat.make()
         pane.model.listen(to: chat.session)
         chat.session.connect()
         chat.socket.deliver(CompanionEvents.hello())
@@ -373,13 +515,12 @@ struct AlwaysOnPaneTests {
         chat.socket.deliver(.homeStatusChanged)
         await pane.model.cued?.value
         #expect(Self.alwaysOnCalls(gateway) == [.homeStatus])
-        #expect(notifier.posted.isEmpty, "the first read after a launch raises nothing")
+        #expect(notifier.posted.isEmpty, "creating carries no notice")
 
         chat.socket.deliver(.homeStatusChanged)
         await pane.model.cued?.value
         #expect(Self.alwaysOnCalls(gateway) == [.homeStatus, .homeStatus])
-        let ready: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_ready")
-        #expect(notifier.posted.map(\.body) == [ready.summary?.sentence])
+        #expect(notifier.posted.map(\.body) == ["Your server is ready for the move."])
         #expect(chat.scheduler.liveCount == 0, "no read is scheduled after one")
     }
 
@@ -392,396 +533,52 @@ struct AlwaysOnPaneTests {
         let pane = try Self.harness(gateway)
         let notifier = RecordingAlwaysOnNotifier()
         pane.model.notifier = notifier
-        let chat = Self.chat()
+        let chat = AlwaysOnChat.make()
         pane.model.listen(to: chat.session)
         chat.session.connect()
         chat.socket.deliver(CompanionEvents.hello())
         chat.socket.deliver(.homeStatusChanged)
         await pane.model.cued?.value
 
-        chat.socket.deliver(Self.unreachable)
+        chat.socket.deliver(AlwaysOnChat.unreachable)
         await pane.model.cued?.value
         chat.scheduler.fireAll()
-        chat.socket.deliver(Self.unreachable)
+        chat.socket.deliver(AlwaysOnChat.unreachable)
         await pane.model.cued?.value
 
         #expect(Self.alwaysOnCalls(gateway) == [.homeStatus, .homeStatus, .homeStatus])
         #expect(notifier.posted.map(\.title) == ["Always On"], "the server that stopped answering, once")
     }
 
-    @Test("the pane reads as it shows, and this app's own action reads after it, with nothing scheduled")
-    func paneAndActionRead() async throws {
-        let gateway = try AlwaysOnTests.gateway()
-        gateway.homeStatusScript = [.success(try AlwaysOnTests.golden("home_status_on"))]
-        let pane = try Self.harness(gateway)
-
-        await pane.model.paneAppeared()
-        #expect(Self.alwaysOnCalls(gateway) == [.homeProvisionProviders, .homeStatus])
-
-        await pane.model.perform(Self.typed("back_up_now"))
-        #expect(Self.alwaysOnCalls(gateway) == [.homeProvisionProviders, .homeStatus, .homeSnapshotsRun, .homeStatus])
-    }
-
-    @Test("the app's own moving screen goes when the engine says where the move is, or at the first read past ten minutes")
-    func ownMoveBound() {
-        let started = Date(timeIntervalSince1970: 1_950_000_000)
-
-        #expect(AlwaysOnModel.ownMoveEnds(.on, since: started, now: started))
-        #expect(AlwaysOnModel.ownMoveEnds(.moving, since: started, now: started))
-        #expect(!AlwaysOnModel.ownMoveEnds(.ready, since: started, now: started.addingTimeInterval(599)))
-        #expect(AlwaysOnModel.ownMoveEnds(.ready, since: started, now: started.addingTimeInterval(601)))
-        #expect(!AlwaysOnModel.ownMoveEnds(nil, since: started, now: started.addingTimeInterval(60)))
-    }
-
     @Test("a read that fails after one answered keeps the screen and says so")
     func failureKeepsTheScreen() async throws {
         let gateway = try AlwaysOnTests.gateway()
         let pane = try Self.harness(gateway)
-        gateway.homeStatusScript = [.success(try AlwaysOnTests.golden("home_status_on")), .failure(ManagementError.transport(.socketMissing(path: "/tmp/fermix-test.sock")))]
+        gateway.homeStatusScript = [.success(try AlwaysOnTests.golden("home_status_on")), .failure(Self.away)]
 
         await pane.model.refresh()
         await pane.model.refresh()
 
-        #expect(pane.model.page.screen?.kind == .on)
+        #expect(pane.model.page.screen?.state == .on)
         #expect(pane.model.readFailure == .unavailable(ProductStrings[.daemonStateNotRunning]))
     }
 
-    // MARK: - The calls each action makes
+    @Test("an engine that answers home.status with no summary gets the update answer")
+    func noSummary() async throws {
+        var object = try AlwaysOnTests.goldenObject("home_status")
+        object["summary"] = nil
+        let pane = try await Self.opened(try AlwaysOnTests.decode(ManagementHomeStatus.self, object))
 
-    @Test("Set up opens the token screen and asks the daemon nothing")
-    func setUpCallsNothing() async throws {
-        let pane = try await Self.opened(Self.off)
-        let before = pane.gateway.calls.count
-
-        await pane.model.perform(Self.typed("set_up"))
-
-        #expect(pane.model.page.screen?.kind == .token)
-        #expect(pane.gateway.calls.count == before)
+        #expect(pane.model.page == .needsUpdate)
     }
 
-    @Test("a pasted token is checked for its provider, then the summary and that provider's offers are read")
-    func tokenChecked() async throws {
-        let choose = try Self.home(Self.summary("choose", "Your Hetzner token works.", action: Self.action("create_server", "Create server")))
-        let pane = try await Self.opened(Self.off, then: [choose])
-        let mark = pane.gateway.calls.count
+    // MARK: - The copy
 
-        await pane.model.checkToken("  invented-hetzner-token-6d1f0c9a2b7e4f3a\n", for: Self.hetzner)
-
-        #expect(pane.gateway.provisionTokens == [ProvisionToken(provider: "hetzner", token: "invented-hetzner-token-6d1f0c9a2b7e4f3a")])
-        #expect(Self.methods(pane.gateway, after: mark) == [.homeProvisionConnect, .homeStatus, .homeProvisionOptions])
-        #expect(pane.gateway.provisionOptionsAsked == ["hetzner"], "the connect answer names the provider in use")
-        #expect(pane.model.page.screen?.kind == .choose && pane.model.tokenRefusal == nil)
-    }
-
-    @Test("a token the provider refuses is said under the field in the engine's words")
-    func tokenRefused() async throws {
-        let pane = try await Self.opened(Self.off)
-        let sentence = "Hetzner does not accept this token, so paste a Read & Write API token from the Hetzner project you made for Fermix."
-        pane.gateway.v2Failures[.homeProvisionConnect] = Self.refusal(.invalidParams, sentence, field: "token")
-
-        await pane.model.checkToken("invented-hetzner-token-6d1f0c9a2b7e4f3a", for: Self.hetzner)
-
-        #expect(pane.model.tokenRefusal == sentence)
-    }
-
-    @Test("Create server creates the recommendation, or the owner's own choice once changed, at the provider in use")
-    func createServer() async throws {
-        let choose = Self.summary("choose", "Your Hetzner token works.", action: Self.action("create_server", "Create server"))
-        let pane = try await Self.opened(choose)
-
-        await pane.model.perform(Self.typed("create_server"))
-        pane.model.choose(ManagementProvisionPick(type: "cpx32", location: "hel1"))
-        await pane.model.perform(Self.typed("create_server"))
-
-        #expect(pane.gateway.provisionCreates == [
-            ProvisionCreate(provider: "hetzner", pick: ManagementProvisionPick(type: "cpx22", location: "fsn1"), replace: false),
-            ProvisionCreate(provider: "hetzner", pick: ManagementProvisionPick(type: "cpx32", location: "hel1"), replace: false)
-        ])
-        #expect(pane.gateway.provisionOptionsAsked == ["hetzner"])
-    }
-
-    @Test("Cancel stops the running create, then deletes what it made")
-    func cancel() async throws {
-        let pane = try await Self.opened(Self.summary("creating", "Starting your server…", action: Self.action("cancel", "Cancel")))
-        let running: ManagementJob = try AlwaysOnTests.golden("home_provision_create")
-        pane.gateway.jobListResult = ManagementJobList(jobs: [running])
-        let mark = pane.gateway.calls.count
-
-        await pane.model.perform(Self.typed("cancel"))
-
-        #expect(pane.gateway.cancelledJobs == [running.jobId])
-        let asked = Self.methods(pane.gateway, after: mark)
-        #expect(asked.first == .jobList && asked.contains(.jobCancel))
-        let stopped = try #require(asked.firstIndex(of: .jobCancel))
-        let deleted = try #require(asked.firstIndex(of: .homeProvisionDelete))
-        #expect(stopped < deleted, "delete is refused while a job runs")
-        #expect(asked.last == .homeStatus)
-    }
-
-    @Test("Move now with the passphrase set while the server started reviews, then starts the move as a desktop")
-    func moveNow() async throws {
-        let ready: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_ready")
-        let pane = try await Self.opened(ready)
-        pane.gateway.moveReadinessResult = Self.reviewShown
-        #expect(await pane.model.setPassphrase("invented-harbor-juniper-lantern", again: "invented-harbor-juniper-lantern"))
-
-        await pane.model.perform(Self.typed("move_now"))
-
-        let candidate = try #require(ready.candidates.first?.candidateId)
-        #expect(pane.gateway.readinessCandidates == [candidate])
-        #expect(pane.gateway.moveStarts == [MoveStart(candidateId: candidate, passphrase: "invented-harbor-juniper-lantern", keepAsDesktop: true)])
-        let started: ManagementMoveStarted = try AlwaysOnTests.golden("home_move_start")
-        #expect(pane.model.page.screen == .moving(started.sentence))
-        #expect(pane.model.passphrase == nil, "the passphrase leaves memory once the move starts")
-    }
-
-    /// The engine restarts to carry the move out; once it answers where the
-    /// move stands, the app's own moving screen goes and everything Settings
-    /// shows is read again, the restart being one.
-    @Test("the app's own moving screen goes once the engine says where the move is, and Settings is read again")
-    func ownMoveSettles() async throws {
-        let ready: ManagementHomeStatus = try AlwaysOnTests.golden("home_status_ready")
-        let away = ManagementError.transport(.socketMissing(path: "/tmp/fermix-test.sock"))
-        let pane = try await Self.opened(ready)
-        pane.gateway.moveReadinessResult = Self.reviewShown
-        _ = await pane.model.setPassphrase("invented-harbor-juniper-lantern", again: "invented-harbor-juniper-lantern")
-        await pane.model.perform(Self.typed("move_now"))
-        pane.gateway.homeStatusScript = [.failure(away), .success(try AlwaysOnTests.golden("home_status_on"))]
-        pane.gateway.homeStatusIndex = 0
-
-        await pane.model.refresh()
-        #expect(pane.model.page.screen?.kind == .moving, "while the engine is away")
-        let mark = pane.gateway.calls.count
-
-        await pane.model.refresh()
-        #expect(pane.model.local.moveStarted == nil)
-        #expect(pane.model.page.screen?.kind == .on)
-        #expect(Self.methods(pane.gateway, after: mark).contains(.settingsSections), "the restart was read as one")
-    }
-
-    @Test("Move now asks for the passphrase where none is held, and a mismatch sends nothing")
-    func moveAsksPassphrase() async throws {
-        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_ready") as ManagementHomeStatus)
-        pane.gateway.moveReadinessResult = Self.reviewShown
-
-        await pane.model.perform(Self.typed("move_now"))
-        #expect(pane.model.asksMovePassphrase && pane.gateway.readinessCandidates.isEmpty)
-
-        await pane.model.moveWithPassphrase("invented-harbor-juniper-lantern", again: "invented-harbor-juniper")
-        #expect(pane.model.passphraseRefusal == ProductStrings[.alwaysOnPassphraseMismatch] && pane.gateway.moveStarts.isEmpty)
-
-        await pane.model.moveWithPassphrase("invented-harbor-juniper-lantern", again: "invented-harbor-juniper-lantern")
-        #expect(!pane.model.asksMovePassphrase && pane.gateway.moveStarts.map(\.passphrase) == ["invented-harbor-juniper-lantern"])
-    }
-
-    @Test("a review that warns of something the screen did not show stops before the start, and the next Move now starts")
-    func unseenWarningStops() async throws {
-        let quiet = try Self.home(Self.summary("ready", "Your server is ready for the move.", action: Self.action("move_now", "Move now")),
-                                  candidates: true)
-        // The passphrase's own read answers the quiet summary again; the read
-        // after the review answers the summary that lists its warning.
-        let pane = try await Self.opened(quiet, then: [quiet, try AlwaysOnTests.golden("home_status_ready")])
-        pane.gateway.moveReadinessResult = Self.reviewShown
-        _ = await pane.model.setPassphrase("invented-harbor-juniper-lantern", again: "invented-harbor-juniper-lantern")
-
-        await pane.model.perform(Self.typed("move_now"))
-        #expect(pane.gateway.moveStarts.isEmpty, "the warning is shown first")
-
-        await pane.model.perform(Self.typed("move_now"))
-        #expect(pane.gateway.moveStarts.count == 1)
-    }
-
-    @Test("a linked desktop moves to the server its own server's code enrolled")
-    func replaceTarget() throws {
-        let status = try Self.replacing(Self.summary("ready", "Your new server is ready for the move.", action: Self.action("move_now", "Move now")))
-
-        #expect(status.role == .device)
-        #expect(AlwaysOnTarget.candidate(status) == "cand-5e2a9c1f7b3d4086")
-    }
-
-    /// During a replace the review is the old server's own, which the
-    /// summary never lists: the pane lists the one it asked for, and the
-    /// move keeps nothing of the old server.
-    @Test("Move now during a replace shows the review it asked for, then moves keeping nothing")
-    func replaceMove() async throws {
-        let ready = try Self.replacing(Self.summary("ready", "Your new server is ready for the move.", action: Self.action("move_now", "Move now")))
-        let pane = try await Self.opened(ready)
-        pane.gateway.moveReadinessResult = Self.reviewShown
-        _ = await pane.model.setPassphrase("invented-harbor-juniper-lantern", again: "invented-harbor-juniper-lantern")
-
-        await pane.model.perform(Self.typed("move_now"))
-        #expect(pane.gateway.moveStarts.isEmpty)
-        let screen = try #require(pane.model.page.screen)
-        #expect(pane.model.readiness(on: screen).map(\.id) == ["stays_here"], "the review's warning is listed")
-
-        await pane.model.perform(Self.typed("move_now"))
-        #expect(pane.gateway.moveStarts == [
-            MoveStart(candidateId: "cand-5e2a9c1f7b3d4086", passphrase: "invented-harbor-juniper-lantern", keepAsDesktop: false)
-        ])
-    }
-
-    @Test("Start again and Create in on a linked desktop create the replacement")
-    func replaceProblems() async throws {
-        let problem = try Self.replacing(Self.problem("no_capacity", action: "create_in", nextLocation: "hel1"))
-        let pane = try await Self.opened(problem)
-
-        await pane.model.perform(Self.typed("create_in"))
-        await pane.model.perform(Self.typed("start_again"))
-
-        #expect(pane.gateway.provisionCreates.map(\.replace) == [true, true])
-        #expect(pane.gateway.provisionCreates.first?.pick.location == "hel1")
-    }
-
-    @Test("deleting the old server after a replace is a problem of its own, with Delete as its one action")
-    func deleteFailed() throws {
-        let failed = try Self.replacing(Self.problem("delete_failed", action: "delete_server"))
-        let screen = try #require(Self.page(failed).screen)
-
-        #expect(screen.kind == .problem(.deleteFailed) && screen.action?.id == .deleteServer)
-    }
-
-    @Test("a replace's record decodes: the old server, which holds the home until the move, and each resource's side")
-    func replaceRecordDecodes() throws {
-        let view: ManagementProvisionView = try AlwaysOnTests.golden("home_provision_resources")
-        let replace = try #require(view.replace)
-
-        #expect(replace.current == .old && replace.old?.name == "fermix-general-a3f9")
-        #expect(view.resources.contains { $0.replaced } && view.resources.contains { !$0.replaced })
-    }
-
-    /// Each problem's action, in the calls PROTOCOL.md's action table names.
-    @Test("each problem's action calls its methods, in order")
-    func problemActionsCallTheirMethods() async throws {
-        let expected: [(String, [ManagementMethod])] = [
-            ("turn_on", [.homeProvisionPower, .jobGet, .homeProvisionResources, .homeStatus]),
-            ("restart_server", [.homeProvisionPower, .jobGet, .homeProvisionResources, .homeStatus]),
-            ("start_again", [.homeProvisionResources, .homeProvisionDelete, .jobGet, .homeStatus, .homeProvisionCreate, .homeStatus]),
-            ("create_in", [.homeProvisionResources, .homeProvisionOptions, .homeProvisionCreate, .homeStatus]),
-            ("delete_server", [.homeProvisionDelete, .jobGet, .homeStatus]),
-            ("back_up_now", [.homeSnapshotsRun, .homeStatus]),
-            ("check_again", [.homeMoveReadiness, .homeStatus])
-        ]
-        for (action, methods) in expected {
-            let problem = Self.problem("cannot_reach", action: action, nextLocation: "nbg1")
-            let pane = try await Self.opened(try Self.home(problem, candidates: true))
-            let mark = pane.gateway.calls.count
-
-            await pane.model.perform(Self.typed(action))
-
-            #expect(Self.methods(pane.gateway, after: mark) == methods, "\(action)")
-        }
-    }
-
-    @Test("Turn it on and Restart server power the server on and reset it; Start again and Create in name the type and place")
-    func provisionArguments() async throws {
-        let pane = try await Self.opened(Self.problem("no_capacity", action: "create_in", nextLocation: "nbg1"))
-
-        await pane.model.perform(Self.typed("turn_on"))
-        await pane.model.perform(Self.typed("restart_server"))
-        await pane.model.perform(Self.typed("start_again"))
-        await pane.model.perform(Self.typed("create_in"))
-
-        #expect(pane.gateway.provisionPowers == [.on, .reset])
-        #expect(pane.gateway.provisionCreates == [
-            ProvisionCreate(provider: "hetzner", pick: ManagementProvisionPick(type: "cpx32", location: "hel1"), replace: false),
-            ProvisionCreate(provider: "hetzner", pick: ManagementProvisionPick(type: "cpx22", location: "nbg1"), replace: false)
-        ])
-    }
-
-    @Test("Learn more and Update open their pages and ask the daemon nothing")
-    func linksCallNothing() async throws {
-        let opener = RecordingExternalOpener()
-        let pane = try await Self.opened(Self.problem("deleted", action: "learn_more"), opener: opener)
-        var updated = 0
-        pane.model.checkForUpdates = { updated += 1 }
-        let before = pane.gateway.calls.count
-
-        await pane.model.perform(Self.typed("learn_more"))
-        await pane.model.perform(Self.typed("update"))
-
-        #expect(opener.urls == [AlwaysOnLinks.guide])
-        #expect(updated == 1 && pane.gateway.calls.count == before)
-    }
-
-    @Test("Open console opens the console of the provider in use, reading the record and the providers once")
-    func openConsole() async throws {
-        let opener = RecordingExternalOpener()
-        let pane = try await Self.opened(Self.problem("account_limit", action: "open_console"), opener: opener)
-        let mark = pane.gateway.calls.count
-
-        await pane.model.perform(Self.typed("open_console"))
-        await pane.model.perform(Self.typed("open_console"))
-
-        #expect(opener.urls == [Self.hetzner.consoleUrl, Self.hetzner.consoleUrl])
-        #expect(Self.methods(pane.gateway, after: mark) == [.homeProvisionResources, .homeProvisionProviders])
-    }
-
-    @Test("Use my own Linux server opens a code and shows the one command with it inside, until the pane goes")
-    func ownServer() async throws {
-        let pane = try await Self.opened(Self.off)
-
-        await pane.model.perform(Self.typed("own_server"))
-
-        let code: ManagementEnrollmentCode = try AlwaysOnTests.golden("home_enroll_open")
-        #expect(pane.gateway.calls.contains(.v2(.homeEnrollOpen)))
-        #expect(pane.model.handout == code)
-        #expect(AlwaysOnLinks.ownServerCommand(code: code.code) == "curl -fsSL https://fermix.ai/always-on | sudo FERMIX_ENROLL_CODE=\(code.code) sh")
-
-        pane.model.paneDisappeared()
-        #expect(pane.model.handout == nil)
-    }
-
-    @Test("Replace the server opens its sheet and creates the new server with replace")
-    func replaceServer() async throws {
-        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_on") as ManagementHomeStatus)
-
-        await pane.model.perform(Self.typed("replace_server"))
-        #expect(pane.model.replacing && pane.gateway.provisionCreates.isEmpty)
-
-        await pane.model.replaceServer(with: ManagementProvisionPick(type: "cpx32", location: "hel1"))
-        #expect(!pane.model.replacing)
-        #expect(pane.gateway.provisionCreates == [
-            ProvisionCreate(provider: "hetzner", pick: ManagementProvisionPick(type: "cpx32", location: "hel1"), replace: true)
-        ])
-    }
-
-    @Test("the recovery passphrase is set once typed twice the same, and refused here otherwise")
-    func passphrase() async throws {
-        let pane = try await Self.opened(Self.summary("creating", "Starting your server…", action: Self.action("cancel", "Cancel")))
-
-        #expect(!(await pane.model.setPassphrase("invented-harbor-juniper-lantern", again: "invented")))
-        #expect(pane.gateway.recoveryPassphrases.isEmpty && pane.model.passphraseRefusal == ProductStrings[.alwaysOnPassphraseMismatch])
-
-        #expect(await pane.model.setPassphrase("invented-harbor-juniper-lantern", again: "invented-harbor-juniper-lantern"))
-        #expect(pane.gateway.recoveryPassphrases == ["invented-harbor-juniper-lantern"])
-        #expect(pane.model.passphrase == "invented-harbor-juniper-lantern", "held for the move")
-    }
-
-    // MARK: - The gates and the copy
-
-    @Test("the provisioner is served only where hello lists every one of its methods, the providers among them")
-    func provisionerGate() async throws {
-        let gateway = try AlwaysOnTests.gateway()
-        let pane = try Self.harness(gateway)
-
-        await pane.model.paneAppeared()
-        #expect(pane.model.servesProvisioner)
-        #expect(ManagementMethod.homeProvisionMethods.count == 7)
-        #expect(ManagementMethod.homeProvisionMethods.contains(.homeProvisionProviders))
-
-        let old = try AlwaysOnTests.gateway()
-        old.hello = try Self.helloWithout(.homeProvisionProviders)
-        let older = try Self.harness(old)
-        await older.model.paneAppeared()
-        #expect(!older.model.servesProvisioner)
-        #expect(!old.calls.contains(.v2(.homeProvisionProviders)), "an engine without it is not asked")
-    }
-
-    @Test("the pane's own words keep the copy rules, and none names a cloud provider")
+    @Test("the pane's own words are twenty, keep the copy rules, and none names a cloud provider")
     func copy() {
         let own = ProductStringKey.allCases.filter { $0.rawValue.hasPrefix("alwaysOn.") }
 
-        #expect(own.count > 20)
+        #expect(own.count == 20, "every word the engine says is the engine's")
         for key in own {
             #expect(ProductCopyRules.violations(in: ProductStrings[key]).isEmpty, "\(key.rawValue)")
         }
@@ -791,160 +588,204 @@ struct AlwaysOnPaneTests {
         #expect(!ProductCopyRules.properNouns.contains("Hetzner"))
     }
 
-    // MARK: - The providers, from the engine
-
-    @Test("the providers' golden decodes: the token screen's words, its console and its section of the docs")
-    func providersGoldenDecodes() throws {
-        let answer: ManagementProvisionProviders = try AlwaysOnTests.golden("home_provision_providers")
-
-        #expect(answer.providers == [Self.hetzner])
-        #expect(Self.hetzner.tokenLabel == "Hetzner API token" && Self.hetzner.steps.count == 4)
-        #expect(AlwaysOnLinks.guide(at: Self.hetzner.docsAnchor).absoluteString == "https://fermix.ai/docs/always-on/#hetzner")
-    }
-
-    @Test("a token field takes the only provider, the one picked among several, or on a problem the one in use")
-    func tokenTarget() throws {
-        let token = try #require(Self.page(try Self.home(Self.off), local: AlwaysOnLocal(settingUp: true)).screen)
-        let refused = try #require(Self.page(try Self.home(Self.problem("token_refused", action: "paste_token")),
-                                             local: AlwaysOnLocal(pastingToken: true)).screen)
-        let both = [Self.hetzner, Self.nimbus]
-
-        #expect(token.tokenTarget(providers: nil, picked: nil, inUse: nil) == .unknown)
-        #expect(token.tokenTarget(providers: [Self.nimbus], picked: nil, inUse: "hetzner") == .provider(Self.nimbus))
-        #expect(token.tokenTarget(providers: both, picked: nil, inUse: nil) == .pick(both))
-        #expect(token.tokenTarget(providers: both, picked: "nimbus", inUse: nil) == .provider(Self.nimbus))
-        #expect(refused.tokenTarget(providers: both, picked: "hetzner", inUse: "nimbus") == .provider(Self.nimbus))
-        #expect(refused.tokenTarget(providers: both, picked: nil, inUse: nil) == .unknown)
-    }
-
-    /// A provider the engine adds is one more row: the app draws it, and
-    /// names it on every call, with nothing of its own to change.
-    @Test("with two providers Set up asks which, and the token, the offers and the server name the one picked")
-    func secondProvider() async throws {
-        let gateway = try AlwaysOnTests.gateway()
-        gateway.homeStatusScript = [.success(try Self.home(Self.off)),
-                                    .success(try Self.home(Self.summary("choose", "Your Nimbus token works.",
-                                                                        action: Self.action("create_server", "Create server"))))]
-        gateway.provisionProvidersResult = ManagementProvisionProviders(providers: [Self.hetzner, Self.nimbus])
-        gateway.provisionConnectResult = try Self.record(provider: "nimbus")
-        let pane = try Self.harness(gateway)
-        await pane.model.paneAppeared()
-
-        await pane.model.perform(Self.typed("set_up"))
-        let screen = try #require(pane.model.page.screen)
-        #expect(pane.model.tokenTarget(on: screen) == .pick([Self.hetzner, Self.nimbus]))
-
-        pane.model.pick(provider: Self.nimbus)
-        #expect(pane.model.tokenTarget(on: screen) == .provider(Self.nimbus))
-        await pane.model.checkToken("invented-nimbus-token-0a1b2c3d4e5f", for: Self.nimbus)
-        await pane.model.perform(Self.typed("create_server"))
-
-        #expect(pane.gateway.provisionTokens.map(\.provider) == ["nimbus"])
-        #expect(pane.gateway.provisionOptionsAsked == ["nimbus"])
-        #expect(pane.gateway.provisionCreates.map(\.provider) == ["nimbus"])
-        #expect(!pane.gateway.calls.contains(.v2(.homeProvisionResources)), "the connect answer named the provider")
-
-        pane.model.paneDisappeared()
-        #expect(pane.model.local.provider == nil, "the pick leaves with the pane")
-    }
-
-    @Test("the token screen's links open its provider's console and its section of the docs")
-    func tokenScreenLinks() async throws {
-        let opener = RecordingExternalOpener()
-        let pane = try await Self.opened(Self.off, opener: opener)
-        let before = pane.gateway.calls.count
-
-        pane.model.openConsole(of: Self.nimbus)
-        pane.model.openGuide(for: Self.nimbus)
-
-        #expect(opener.urls == [Self.nimbus.consoleUrl, AlwaysOnLinks.guide(at: "nimbus")])
-        #expect(pane.gateway.calls.count == before)
-    }
-
-    @Test("a location is any id the provider names, a failure may be the provider's own, and a pick names both")
-    func openLocations() throws {
-        var options = try AlwaysOnTests.goldenObject("home_provision_options")
-        options["locations"] = [["id": "lis1", "city": "Lisbon", "country": "PT"]]
-        let read = try AlwaysOnTests.decode(ManagementProvisionOptions.self, options)
-        #expect(read.city("lis1") == "Lisbon")
-
-        let failure = try AlwaysOnTests.decode(ManagementProvisionFailure.self, [
-            "reason": "other", "sentence": "Nimbus refused the request: the plan is retired.", "next_location": "lis2",
-            "at": "2031-05-04T11:50:00Z"
-        ])
-        #expect(failure.reason == "other" && failure.nextLocation == "lis2")
-
-        let problem = try Self.home(Self.problem("no_capacity", action: "create_in", nextLocation: "lis2"))
-        #expect(problem.summary?.detail.nextLocation == "lis2")
-    }
-
     // MARK: - Fixtures
 
-    static let all = Set(ManagementMethod.allCases)
-    /// A review whose one warning is the one the ready golden shows.
-    static let reviewShown = ManagementMoveReadiness(ready: true, items: [
-        ManagementReadinessItem(id: "disk", status: .ok, sentence: "There is room for the move."),
-        ManagementReadinessItem(id: "stays_here", status: .warn, sentence: "iMessage, voice calls and meetings stop after the move.")
-    ])
-    static let offSentence = "Keep Fermix running when this Mac sleeps. It moves to a server you own. iMessage, voice calls and meetings stop after the move."
-    static let connectSentence = "Paste a Hetzner API token to let Fermix create your server."
+    /// What the renderer draws for each summary the contract publishes.
+    static let publishedGoldens: [String: [String]] = [
+        "home_status": [
+            "sentence: The move was undone. Fermix still runs on this Mac.",
+            "action: Try again, needs recovery_passphrase, confirms"
+        ],
+        "home_status_creating": [
+            "sentence: Installing Fermix on your server…",
+            "bar",
+            "action: Cancel, confirms",
+            "line: Server: fermix-general-a3f9",
+            "line: Size: CPX22",
+            "line: Place: Falkenstein",
+            "line: Address: 203.0.113.7",
+            "line: Last checked: Sunday, May 4, 2031 at 1:59 PM CEST",
+            "line: Costs: €8.33 a month, billed by the hour until deleted"
+        ],
+        "home_status_ready": [
+            "sentence: Your server is ready for the move. There is no way back to this Mac in this version.",
+            "warn: iMessage, voice calls and meetings stop after the move: neither this Mac nor fermix-general-a3f9 runs them.",
+            "action: Move now, needs recovery_passphrase, confirms",
+            "line: Server: fermix-general-a3f9",
+            "line: Size: CPX22",
+            "line: Place: Falkenstein",
+            "line: Address: 203.0.113.7",
+            "line: System: linux x86_64",
+            "line: Version: 1.2.3",
+            "line: Waits until: Monday, May 5, 2031 at 1:00 PM CEST",
+            "line: Last checked: Sunday, May 4, 2031 at 1:59 PM CEST",
+            "line: Costs: €8.33 a month, billed by the hour until deleted"
+        ],
+        "home_status_ready_first_move": [
+            "sentence: Your server is ready for the move. There is no way back to this Mac in this version.",
+            "warn: iMessage, voice calls and meetings stop after the move: neither this Mac nor fermix-general-a3f9 runs them.",
+            "action: Move now, needs new_recovery_passphrase, confirms",
+            "line: Server: fermix-general-a3f9",
+            "line: Size: CPX22",
+            "line: Place: Falkenstein",
+            "line: Address: 203.0.113.7",
+            "line: System: linux x86_64",
+            "line: Version: 1.2.3",
+            "line: Waits until: Monday, May 5, 2031 at 1:00 PM CEST",
+            "line: Last checked: Sunday, May 4, 2031 at 1:59 PM CEST",
+            "line: Costs: €8.33 a month, billed by the hour until deleted"
+        ],
+        "home_status_candidate": [
+            "sentence: This server is waiting for its move."
+        ],
+        "home_status_server": [
+            "sentence: Fermix runs here."
+        ],
+        "home_status_on": [
+            "sentence: Fermix runs on your server. Last backup 2 hours ago.",
+            "line: Server: fermix-general-a3f9",
+            "line: Place: Falkenstein",
+            "line: Version: 1.2.3",
+            "line: Last backup to S3: Sunday, May 4, 2031 at 12:00 PM CEST",
+            "line: Backups on this Mac: 1 MiB",
+            "line: Server disk: 42% used",
+            "line: Last checked: Sunday, May 4, 2031 at 1:59 PM CEST",
+            "line: Costs: €8.33 a month, billed by the hour until deleted",
+            "data: Your conversations and memories, the secrets, the browser and traces live on your server, and Hetzner can technically read its disk. Backups are encrypted to your recovery passphrase.",
+            "details link: Back up now",
+            "details link: Replace the server, needs choice, confirms"
+        ],
+        "home_status_problem": [
+            "sentence: Fermix cannot reach your server. Your messages wait until it is back.",
+            "action: Restart server, confirms",
+            "line: Server: fermix-general-a3f9",
+            "line: Size: CPX22",
+            "line: Place: Falkenstein",
+            "line: Address: 203.0.113.7",
+            "line: Last checked: Sunday, May 4, 2031 at 1:59 PM CEST",
+            "line: Costs: €8.33 a month, billed by the hour until deleted"
+        ],
+        "home_act": [
+            "sentence: Your Hetzner token works, so choose the server Fermix creates.",
+            "note: Hetzner bills by the hour until the server is deleted.",
+            "action: Create server, needs choice, confirms"
+        ]
+    ]
+
+    static let changedSentence = "Always On changed since this was shown, so look at it again."
+    static let code = "fxenroll1.aW52ZW50ZWQtY29kZS1mb3ItdGhlLXBhbmU"
+    static let command = "curl -fsSL https://fermix.ai/always-on | sudo sh"
+    static let away = ManagementError.transport(.socketMissing(path: "/tmp/fermix-test.sock"))
     static let steps = [
         "Sign in to Hetzner's console and turn on two-factor sign-in for your account.",
         "Make a new project for Fermix alone, so the token reaches nothing else.",
         "In that project, open Security, then API Tokens, and generate a token with Read & Write permission.",
         "Paste the token here: Fermix checks it at once."
     ]
-    static let off = summary("off", offSentence, action: action("set_up", "Set up"), detail: [
-        "connect": ["sentence": connectSentence, "steps": steps, "alternatives": [action("own_server", "Use my own Linux server")]]
-    ])
-    /// The one provider the contract's golden lists.
-    static let hetzner = ManagementProvisionProvider(
-        id: "hetzner", name: "Hetzner", tokenLabel: "Hetzner API token", steps: steps,
-        consoleUrl: url("https://console.hetzner.cloud/"), docsAnchor: "hetzner"
-    )
+    static let hetznerRecord: [String: Any] = [
+        "id": "hetzner", "name": "Hetzner", "token_label": "Hetzner API token",
+        "sentence": "Paste a Hetzner API token to let Fermix create your server.", "steps": steps,
+        "console_url": "https://console.hetzner.cloud/", "docs_url": "https://fermix.ai/docs/always-on/#hetzner"
+    ]
     /// An invented second provider, as a later engine could list one.
-    static let nimbus = ManagementProvisionProvider(
-        id: "nimbus", name: "Nimbus", tokenLabel: "Nimbus access key",
-        steps: ["Sign in to Nimbus and turn on two-factor sign-in.", "Make an access key for Fermix alone."],
-        consoleUrl: url("https://console.nimbus.example/"), docsAnchor: "nimbus"
-    )
-    /// A desktop's server out of reach, as its engine refuses the chat then.
-    static let unreachable = CompanionServerEvent.error(CompanionServerError(
-        reason: CompanionProtocol.primaryUnreachableReason, message: "The server fermix-vm is unreachable.",
-        field: nil, event: nil, clientMsgId: nil, direction: nil, clientVersion: nil, minVersion: nil, maxVersion: nil, ref: nil
-    ))
+    static let nimbusRecord: [String: Any] = [
+        "id": "nimbus", "name": "Nimbus", "token_label": "Nimbus access key",
+        "sentence": "Paste a Nimbus access key to let Fermix create your server.",
+        "steps": ["Sign in to Nimbus and turn on two-factor sign-in.", "Make an access key for Fermix alone."],
+        "console_url": "https://console.nimbus.example/", "docs_url": "https://fermix.ai/docs/always-on/#nimbus"
+    ]
+    static var hetzner: ManagementHomeSummaryProvider { provider(hetznerRecord) }
+    static var nimbus: ManagementHomeSummaryProvider { provider(nimbusRecord) }
 
-    static func url(_ text: String) -> URL {
-        guard let url = URL(string: text) else { preconditionFailure("an invented url forms: \(text)") }
+    /// `off`, `connect` and `retired` as the engine words them (handoff A's
+    /// appendix, generated from the engine's code).
+    static let offSummary: [String: Any] = [
+        "key": "WwwCtpM5-2otfTa1t5s38A", "state": "off", "notice": NSNull(),
+        "sentence": "Keep Fermix running when this Mac sleeps. It moves to a server you own.",
+        "action": action("paste_token", "Set up", needs: ["token"], key: "ypJXbXCwrSQSdVK8_tXftA"),
+        "detail": [
+            "alternatives": [action("own_server", "Use my own Linux server", key: "Mx_U6542oONDPqGb3qliTQ")],
+            "providers": [hetznerRecord]
+        ]
+    ]
+    static let connectSummary: [String: Any] = [
+        "key": "1beYgzYKYRJoEBvPpLz31A", "state": "connect", "notice": NSNull(),
+        "sentence": "Paste a Hetzner API token to let Fermix create your server.",
+        "action": action("paste_token", "Set up", needs: ["token"], key: "ypJXbXCwrSQSdVK8_tXftA"),
+        "detail": [
+            "alternatives": [
+                action("own_server", "Use my own Linux server", key: "Mx_U6542oONDPqGb3qliTQ"),
+                action("cancel", "Cancel the code", key: "PGFKmgUa3i48MJgwQSKf-g")
+            ],
+            "providers": [hetznerRecord]
+        ]
+    ]
+    static let retiredSummary: [String: Any] = [
+        "key": "pE4etWKyHkFBceL_axOMzw", "state": "retired", "notice": NSNull(),
+        "sentence": "Fermix moved to your server, and this Mac is no longer connected to it.",
+        "action": action("learn_more", "Learn more", key: "AevTAJ1PC7bJ23Nb6779IQ", url: "https://fermix.ai/docs/always-on/#hetzner"),
+        "detail": [String: Any]()
+    ]
+    /// A linked desktop's replace, once its move is sent to the server.
+    static let movingSummary: [String: Any] = [
+        "key": "DXMsAJ5oa8GcFfqMnPOUWQ", "state": "moving", "notice": NSNull(), "action": NSNull(),
+        "sentence": "Moving. This Mac restarts and reconnects to your server. Messages wait until it is done.",
+        "detail": [String: Any]()
+    ]
 
-        return url
+    static func action(
+        _ id: String,
+        _ label: String,
+        needs: [String] = [],
+        confirm: String? = nil,
+        key: String = "invented-key-0f1e2d3c",
+        url: String? = nil
+    ) -> [String: Any] {
+        ["id": id, "label": label, "needs": needs, "confirm": confirm ?? NSNull(), "key": key, "url": url ?? NSNull()]
     }
 
-    /// The connect golden, at another provider.
-    static func record(provider: String) throws -> ManagementProvisionView {
-        var object = try AlwaysOnTests.goldenObject("home_provision_connect")
-        object["provider"] = provider
+    static func provider(_ record: [String: Any]) -> ManagementHomeSummaryProvider {
+        guard let provider = try? AlwaysOnTests.decode(ManagementHomeSummaryProvider.self, record) else {
+            preconditionFailure("an invented provider record decodes")
+        }
 
-        return try AlwaysOnTests.decode(ManagementProvisionView.self, object)
+        return provider
     }
 
-    /// A chat session over a fake socket, built as the composition builds it.
-    struct Chat {
-        let socket: FakeCompanionSocket
-        let scheduler: ManualDeadlineScheduler
-        let session: CompanionSession
+    static func decodeSummary(_ object: [String: Any]) throws -> ManagementHomeSummary {
+        try AlwaysOnTests.decode(ManagementHomeSummary.self, object)
     }
 
-    static func chat() -> Chat {
-        let socket = FakeCompanionSocket()
-        let scheduler = ManualDeadlineScheduler()
-        let session = CompanionSession(
-            transport: CompanionSocketClient(lines: socket),
-            socketPath: { "/tmp/fermix-test/companion.sock" },
-            deadlines: scheduler
-        )
+    static func decodeAction(_ object: [String: Any]) throws -> ManagementHomeAction {
+        try AlwaysOnTests.decode(ManagementHomeAction.self, object)
+    }
 
-        return Chat(socket: socket, scheduler: scheduler, session: session)
+    /// A golden's summary, decoded.
+    static func summary(_ golden: String) throws -> ManagementHomeSummary {
+        try #require((try AlwaysOnTests.golden(golden) as ManagementHomeStatus).summary)
+    }
+
+    /// A golden's summary as the engine sent it: `home.status`'s, or the one
+    /// `home.act` answered.
+    static func summaryObject(_ golden: String) throws -> [String: Any] {
+        try #require(try AlwaysOnTests.goldenObject(golden)["summary"] as? [String: Any])
+    }
+
+    /// `home.act`'s answer: a summary, and a step's result.
+    static func acted(_ summary: [String: Any], result: [String: Any]? = nil) throws -> ManagementHomeActed {
+        try AlwaysOnTests.decode(ManagementHomeActed.self, ["summary": summary, "result": result ?? NSNull()])
+    }
+
+    static func acted(_ golden: String, result: [String: Any]? = nil) throws -> ManagementHomeActed {
+        try acted(try summaryObject(golden), result: result)
+    }
+
+    /// The contract's own picture with another summary in it.
+    static func home(_ summary: [String: Any]) throws -> ManagementHomeStatus {
+        var object = try AlwaysOnTests.goldenObject("home_status")
+        object["summary"] = summary
+
+        return try AlwaysOnTests.decode(ManagementHomeStatus.self, object)
     }
 
     /// Every Always On method asked, in order: each `home.*` call.
@@ -952,77 +793,19 @@ struct AlwaysOnPaneTests {
         methods(gateway, after: 0).filter { $0.rawValue.hasPrefix("home.") }
     }
 
-    /// The one action each problem kind the design names, as the engine
-    /// sends it.
-    static let problemActions: [(String, String)] = [
-        ("turned_off", "turn_on"), ("cannot_reach", "restart_server"), ("deleted", "learn_more"),
-        ("not_set_up", "start_again"), ("waited_too_long", "start_again"), ("no_capacity", "create_in"),
-        ("account_limit", "open_console"), ("read_only_token", "paste_token"), ("token_refused", "paste_token"),
-        ("create_failed", "start_again"), ("update", "update"), ("disk_full", "learn_more"),
-        ("backup_old", "back_up_now"), ("not_ready", "check_again"), ("unreadable", "learn_more")
-    ]
-
-    static func action(_ id: String, _ label: String) -> [String: Any] {
-        ["id": id, "label": label]
-    }
-
-    static func typed(_ id: String) -> ManagementHomeAction {
-        ManagementHomeAction(id: ManagementHomeActionId(wireValue: id), label: id)
-    }
-
-    static func summary(_ state: String, _ sentence: String, action: [String: Any]? = nil, detail: [String: Any] = [:]) -> [String: Any] {
-        ["state": state, "sentence": sentence, "action": action ?? NSNull(), "detail": detail]
-    }
-
-    static func problem(
-        _ kind: String,
-        action: String,
-        alternatives: [[String: Any]] = [],
-        seenAt: String? = nil,
-        nextLocation: String? = nil
-    ) -> [String: Any] {
-        var detail: [String: Any] = ["kind": kind, "note": NSNull(), "seen_at": seenAt ?? NSNull(), "alternatives": alternatives]
-        if let nextLocation { detail["next_location"] = nextLocation }
-
-        return summary("problem", "Something went wrong with \(kind).", action: Self.action(action, action), detail: detail)
-    }
-
-    /// The contract's own picture with another summary in it.
-    static func home(_ summary: [String: Any], recipientSet: Bool = true, candidates: Bool = false) throws -> ManagementHomeStatus {
-        var object = try AlwaysOnTests.goldenObject(candidates ? "home_status_ready" : "home_status")
-        object["summary"] = summary
-        if var snapshots = object["snapshots"] as? [String: Any] {
-            snapshots["recipient_set"] = recipientSet
-            object["snapshots"] = snapshots
+    /// The protocol v2 methods asked since `mark`, in order.
+    static func methods(_ gateway: FakeDaemonGateway, after mark: Int) -> [ManagementMethod] {
+        gateway.calls.dropFirst(mark).compactMap { call in
+            if case .v2(let method) = call { return method }
+            return nil
         }
-
-        return try AlwaysOnTests.decode(ManagementHomeStatus.self, object)
     }
 
-    /// A linked desktop whose server is being replaced: its own picture with
-    /// `summary`, and the server's, whose 24-hour code the new server used.
-    static func replacing(_ summary: [String: Any]) throws -> ManagementHomeStatus {
-        var server = try AlwaysOnTests.goldenObject("home_status_ready")
-        server["enrollment"] = ["state": "used", "expires_at": "2031-05-05T11:00:00Z", "kind": "provisioned",
-                                "candidate_id": "cand-5e2a9c1f7b3d4086"]
-        var desktop = try AlwaysOnTests.goldenObject("home_status_on")
-        desktop["role"] = "device"
-        desktop["primary_home"] = server
-        desktop["summary"] = summary
+    static func refusal(_ code: ManagementErrorCode, _ sentence: String, field: String? = nil) -> ManagementError {
+        var details: [String: ManagementScalar] = ["sentence": .string(sentence)]
+        if let field { details["field"] = .string(field) }
 
-        return try AlwaysOnTests.decode(ManagementHomeStatus.self, desktop)
-    }
-
-    static func page(_ status: ManagementHomeStatus, local: AlwaysOnLocal = AlwaysOnLocal()) -> AlwaysOnPage {
-        AlwaysOnPage.page(status: status, failure: nil, local: local, served: all)
-    }
-
-    static func reading(_ golden: String, at: Date = Date(timeIntervalSince1970: 1_950_000_000)) throws -> AlwaysOnReading {
-        AlwaysOnReading(status: try AlwaysOnTests.golden(golden), at: at)
-    }
-
-    static func reading(_ summary: [String: Any], at: Date = Date(timeIntervalSince1970: 1_950_000_000)) throws -> AlwaysOnReading {
-        AlwaysOnReading(status: try home(summary), at: at)
+        return .daemon(ManagementFailure(code: code, message: "The request was refused.", details: ManagementScalarMap(values: details)))
     }
 
     /// The one settings model and its Always On model. Every read of the
@@ -1040,16 +823,8 @@ struct AlwaysOnPaneTests {
         Harness(settings: SettingsFixture.model(gateway: gateway, opener: opener), gateway: gateway)
     }
 
-    /// A model whose pane has appeared on `summary`, then answers `then` in
-    /// order, the last kept.
-    static func opened(
-        _ summary: [String: Any],
-        then: [ManagementHomeStatus] = [],
-        opener: RecordingExternalOpener = RecordingExternalOpener()
-    ) async throws -> Harness {
-        try await opened(try home(summary), then: then, opener: opener)
-    }
-
+    /// A model whose pane read `status`, then answers `then` in order, the
+    /// last kept.
     static func opened(
         _ status: ManagementHomeStatus,
         then: [ManagementHomeStatus] = [],
@@ -1058,41 +833,73 @@ struct AlwaysOnPaneTests {
         let gateway = try AlwaysOnTests.gateway()
         gateway.homeStatusScript = ([status] + then).map { .success($0) }
         let pane = try Self.harness(gateway, opener: opener)
-        await pane.model.readServed()
         await pane.model.refresh()
 
         return pane
     }
+}
 
-    /// The contract's `hello` with one method taken out of its catalog: an
-    /// engine from before it.
-    static func helloWithout(_ method: ManagementMethod) throws -> ManagementHello {
-        var object = try AlwaysOnTests.goldenObject("hello")
-        var capabilities = try #require(object["capabilities"] as? [String: Any])
-        capabilities["methods"] = (capabilities["methods"] as? [String])?.filter { $0 != method.rawValue }
-        if var minimums = capabilities["minimum_versions"] as? [String: Any] {
-            minimums[method.rawValue] = nil
-            capabilities["minimum_versions"] = minimums
-        }
-        object["capabilities"] = capabilities
-
-        return try AlwaysOnTests.decode(ManagementHello.self, object)
-    }
-
-    /// The protocol v2 methods asked since `mark`, in order.
-    static func methods(_ gateway: FakeDaemonGateway, after mark: Int) -> [ManagementMethod] {
-        gateway.calls.dropFirst(mark).compactMap { call in
-            if case .v2(let method) = call { return method }
-            return nil
+/// What the renderer draws, as lines in order: the golden form of a page.
+/// It reads the same `AlwaysOnScreen` the pane draws from.
+enum AlwaysOnRendering {
+    static func lines(_ page: AlwaysOnPage) -> [String] {
+        switch page {
+        case .reading: return ["reading"]
+        case .unreadable(let sentence): return ["unreadable: \(sentence)"]
+        case .needsUpdate: return ["update Fermix"]
+        case .restarting: return ["restarting"]
+        case .screen(let screen): return lines(screen)
         }
     }
 
-    static func refusal(_ code: ManagementErrorCode, _ sentence: String, field: String? = nil) -> ManagementError {
-        var details: [String: ManagementScalar] = ["sentence": .string(sentence)]
-        if let field { details["field"] = .string(field) }
-
-        return .daemon(ManagementFailure(code: code, message: "Request parameters are invalid.", details: ManagementScalarMap(values: details)))
+    static func lines(_ screen: AlwaysOnScreen) -> [String] {
+        var drawn = ["sentence: \(screen.sentence)"]
+        if screen.showsBar { drawn.append("bar") }
+        if let progress = screen.progress { drawn.append("progress: \(progress)") }
+        drawn += screen.notes.map { "note: \($0)" }
+        drawn += screen.readiness.map { "\($0.status.wireValue): \($0.sentence)" }
+        if let action = screen.action { drawn.append("action: \(describe(action))") }
+        drawn += screen.alternatives.map { "link: \(describe($0))" }
+        drawn += screen.providers.map { "token screen: \($0.name), \($0.tokenLabel)" }
+        drawn += screen.lines.map { "line: \($0.label): \($0.value)" }
+        if let data = screen.data { drawn.append("data: \(data)") }
+        drawn += screen.detailActions.map { "details link: \(describe($0))" }
+        return drawn
     }
+
+    static func describe(_ action: ManagementHomeAction) -> String {
+        var text = action.label
+        if let need = action.need { text += ", needs \(need.wireValue)" }
+        if action.confirm != nil { text += ", confirms" }
+        if let url = action.url { text += ", opens \(url.absoluteString)" }
+        return text
+    }
+}
+
+/// A chat session over a fake socket, built as the composition builds it.
+@MainActor
+struct AlwaysOnChat {
+    let socket: FakeCompanionSocket
+    let scheduler: ManualDeadlineScheduler
+    let session: CompanionSession
+
+    static func make() -> AlwaysOnChat {
+        let socket = FakeCompanionSocket()
+        let scheduler = ManualDeadlineScheduler()
+        let session = CompanionSession(
+            transport: CompanionSocketClient(lines: socket),
+            socketPath: { "/tmp/fermix-test/companion.sock" },
+            deadlines: scheduler
+        )
+
+        return AlwaysOnChat(socket: socket, scheduler: scheduler, session: session)
+    }
+
+    /// A desktop's server out of reach, as its engine refuses the chat then.
+    static let unreachable = CompanionServerEvent.error(CompanionServerError(
+        reason: CompanionProtocol.primaryUnreachableReason, message: "The server fermix-vm is unreachable.",
+        field: nil, event: nil, clientMsgId: nil, direction: nil, clientVersion: nil, minVersion: nil, maxVersion: nil, ref: nil
+    ))
 }
 
 /// The notifications a case raised, in order.

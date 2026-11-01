@@ -279,6 +279,7 @@ struct FixturePhoneChannel: Equatable {
 enum FixtureAlwaysOnStart: String, CaseIterable {
     case creating = "always-on-creating"
     case ready = "always-on-ready"
+    case readyFirstMove = "always-on-ready-first-move"
     case on = "always-on-on"
     case problem = "always-on-problem"
     case candidate = "always-on-candidate"
@@ -292,6 +293,7 @@ enum FixtureAlwaysOnStart: String, CaseIterable {
         switch self {
         case .creating: return "home_status_creating"
         case .ready: return "home_status_ready"
+        case .readyFirstMove: return "home_status_ready_first_move"
         case .on: return "home_status_on"
         case .problem: return "home_status_problem"
         case .candidate: return "home_status_candidate"

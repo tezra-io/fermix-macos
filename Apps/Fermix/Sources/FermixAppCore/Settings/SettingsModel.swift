@@ -151,10 +151,10 @@ public final class SettingsModel: ObservableObject {
     /// the one sheet, so there is one instance for both.
     public private(set) lazy var phone = PhonePairingModel(settings: self, sleeper: sleeper)
 
-    /// The Always On pane's reads, actions and follow (M75). It hangs off this
-    /// model for the phone's reason: the pane and the follow that raises its
+    /// The Always On pane's reads and presses (M75). It hangs off this model
+    /// for the phone's reason: the pane and the notice that raises its
     /// notifications read one summary, so there is one instance for both.
-    public private(set) lazy var alwaysOn = AlwaysOnModel(settings: self, sleeper: sleeper)
+    public private(set) lazy var alwaysOn = AlwaysOnModel(settings: self)
 
     /// The website logins the Browser pane lists and edits (M84 §11), over the
     /// one store the composition built. The store is the app's, not the

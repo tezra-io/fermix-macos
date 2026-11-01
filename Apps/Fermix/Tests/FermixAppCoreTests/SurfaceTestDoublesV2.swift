@@ -167,14 +167,11 @@ extension FakeDaemonGateway {
     }
 
     func cancelJob(id: String) async throws -> ManagementJob {
-        cancelledJobs.append(id)
-        return try answer(.jobCancel, "job_cancel")
+        try answer(.jobCancel, "job_cancel")
     }
 
     func jobs() async throws -> ManagementJobList {
-        let published: ManagementJobList = try answer(.jobList, "job_list")
-
-        return jobListResult ?? published
+        try answer(.jobList, "job_list")
     }
 
     // MARK: - Authentication
@@ -610,77 +607,37 @@ extension FakeDaemonGateway {
         return try next.get()
     }
 
-    func openEnrollment() async throws -> ManagementEnrollmentCode {
-        try answer(.homeEnrollOpen, "home_enroll_open")
-    }
-
     func candidates() async throws -> ManagementCandidates {
         try answer(.homeCandidatesList, "home_candidates_list")
-    }
-
-    func moveReadiness(candidateId: String) async throws -> ManagementMoveReadiness {
-        readinessCandidates.append(candidateId)
-        let published: ManagementMoveReadiness = try answer(.homeMoveReadiness, "home_move_readiness")
-
-        return moveReadinessResult ?? published
-    }
-
-    func startMove(candidateId: String, passphrase: String, keepAsDesktop: Bool) async throws -> ManagementMoveStarted {
-        moveStarts.append(MoveStart(candidateId: candidateId, passphrase: passphrase, keepAsDesktop: keepAsDesktop))
-        return try answer(.homeMoveStart, "home_move_start")
     }
 
     func snapshotsStatus() async throws -> ManagementHomeSnapshots {
         try answer(.homeSnapshotsStatus, "home_snapshots_status")
     }
 
-    func runSnapshot() async throws -> ManagementSnapshotsStarted {
-        try answer(.homeSnapshotsRun, "home_snapshots_run")
-    }
-
     func setRecoveryPassphrase(_ passphrase: String) async throws -> ManagementRecoveryKey {
-        recoveryPassphrases.append(passphrase)
-        return try answer(.homeSnapshotsPassphrase, "home_snapshots_passphrase")
+        try answer(.homeSnapshotsPassphrase, "home_snapshots_passphrase")
     }
 
-    // MARK: - The Always On server at a cloud provider (M75)
+    /// One press, recorded as it was sent, answered by the script or the
+    /// golden.
+    func homeAct(
+        _ action: ManagementHomeActionId,
+        key: String,
+        input: ManagementHomeActInput?
+    ) async throws -> ManagementHomeActed {
+        homeActs.append(HomeAct(action: action, key: key, input: input))
+        let published: ManagementHomeActed = try answer(.homeAct, "home_act")
+        guard !homeActScript.isEmpty else { return published }
 
-    func provisionProviders() async throws -> ManagementProvisionProviders {
-        let published: ManagementProvisionProviders = try answer(.homeProvisionProviders, "home_provision_providers")
-
-        return provisionProvidersResult ?? published
+        let next = homeActScript[min(homeActIndex, homeActScript.count - 1)]
+        homeActIndex += 1
+        return try next.get()
     }
 
-    func provisionConnect(provider: String, token: String) async throws -> ManagementProvisionView {
-        provisionTokens.append(ProvisionToken(provider: provider, token: token))
-        let published: ManagementProvisionView = try answer(.homeProvisionConnect, "home_provision_connect")
-
-        return provisionConnectResult ?? published
-    }
-
-    func provisionOptions(provider: String) async throws -> ManagementProvisionOptions {
-        provisionOptionsAsked.append(provider)
+    func provisionOptions() async throws -> ManagementProvisionOptions {
+        provisionOptionsReads += 1
         return try answer(.homeProvisionOptions, "home_provision_options")
-    }
-
-    func provisionCreate(provider: String, _ pick: ManagementProvisionPick, replace: Bool) async throws -> ManagementJob {
-        provisionCreates.append(ProvisionCreate(provider: provider, pick: pick, replace: replace))
-        return try answer(.homeProvisionCreate, "home_provision_create")
-    }
-
-    func provisionPower(_ action: ManagementProvisionPower) async throws -> ManagementJob {
-        provisionPowers.append(action)
-        return try answer(.homeProvisionPower, "home_provision_power")
-    }
-
-    func provisionResources() async throws -> ManagementProvisionView {
-        let published: ManagementProvisionView = try answer(.homeProvisionResources, "home_provision_resources")
-
-        return provisionResourcesResult ?? published
-    }
-
-    func provisionDelete() async throws -> ManagementJob {
-        try answer(.homeProvisionDelete, "home_provision_delete")
     }
 
     // MARK: - One answer
@@ -942,22 +899,9 @@ final class FakeProviderReadiness: @unchecked Sendable {
     }
 }
 
-/// One `home.provision.create` the pane asked for.
-struct ProvisionCreate: Equatable {
-    let provider: String
-    let pick: ManagementProvisionPick
-    let replace: Bool
-}
-
-/// One `home.provision.connect` the pane asked for.
-struct ProvisionToken: Equatable {
-    let provider: String
-    let token: String
-}
-
-/// One `home.move.start` the pane asked for.
-struct MoveStart: Equatable {
-    let candidateId: String
-    let passphrase: String
-    let keepAsDesktop: Bool
+/// One `home.act` the pane sent.
+struct HomeAct: Equatable {
+    let action: ManagementHomeActionId
+    let key: String
+    let input: ManagementHomeActInput?
 }
