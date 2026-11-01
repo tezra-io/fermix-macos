@@ -138,10 +138,11 @@ struct ManagementV2FixtureTests {
             ("summary action", Array(ManagementHomeActionId.publishedValues.keys)),
             ("summary problem", Array(ManagementHomeProblemKind.publishedValues.keys)),
             ("summary need", Array(ManagementHomeActionNeed.publishedValues.keys)),
+            ("summary outcome", Array(ManagementHomeOutcome.publishedValues.keys)),
             ("enrollment kind", Array(ManagementEnrollmentKind.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 62)
+        #expect(modelled.count == 63)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),
@@ -364,7 +365,7 @@ struct ManagementV2FixtureTests {
             carried += 1
         }
 
-        #expect(carried == 23, "the contract publishes a detail sentence on twenty-three records")
+        #expect(carried == 24, "the contract publishes a detail sentence on twenty-four records")
     }
 
     /// An MCP server form's refusal names the input it is about in the

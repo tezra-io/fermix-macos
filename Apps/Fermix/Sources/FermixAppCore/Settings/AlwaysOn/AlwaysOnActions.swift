@@ -82,12 +82,20 @@ extension AlwaysOnModel {
         }
     }
 
-    /// Sends the size and place the owner chose, the recommendation unless
-    /// changed; pressing the sheet's action is accepting its confirm.
-    public func submitChoice(_ pick: ManagementProvisionPick) async {
+    /// Sends the row the owner chose, else the recommended one, as itself:
+    /// the engine makes no choice of its own, so with neither nothing is
+    /// sent. Pressing the sheet's action is accepting its confirm.
+    public func submitChoice(_ pick: ManagementProvisionPick?) async {
         guard case .choice(let action)? = asking, working == nil else { return }
+        guard let row = row(picked: pick) else { return }
 
-        await act(action, input: ManagementHomeActInput(type: pick.type, location: pick.location))
+        await act(action, input: ManagementHomeActInput(type: row.type, location: row.location))
+    }
+
+    /// The row a choice sends and draws checked: the one the owner picked,
+    /// else the recommendation, else none.
+    public func row(picked pick: ManagementProvisionPick?) -> ManagementProvisionPick? {
+        pick ?? options.value?.recommended
     }
 
     // MARK: - The recovery passphrase

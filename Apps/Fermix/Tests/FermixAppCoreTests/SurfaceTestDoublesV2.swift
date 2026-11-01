@@ -637,7 +637,9 @@ extension FakeDaemonGateway {
 
     func provisionOptions() async throws -> ManagementProvisionOptions {
         provisionOptionsReads += 1
-        return try answer(.homeProvisionOptions, "home_provision_options")
+        let published: ManagementProvisionOptions = try answer(.homeProvisionOptions, "home_provision_options")
+
+        return provisionOptionsResult ?? published
     }
 
     // MARK: - One answer

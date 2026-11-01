@@ -35,6 +35,9 @@ struct AlwaysOnPaneTests {
         #expect(try Self.summary("home_status_ready_first_move").action?.needs == [.newRecoveryPassphrase])
         #expect(try Self.summary("home_status_problem").notice?.id == "cannot_reach:2031-05-04T11:49:00Z")
         #expect(try Self.summary("home_status_on").detail.actions?.map(\.id) == [.backUpNow, .replaceServer])
+        #expect(ready.detail.alternatives?.map(\.id) == [.deleteServer], "a server Fermix created that waits can be deleted")
+        let outcomes = try ["home_status_creating", "home_status_ready", "home_status_problem"].map { try Self.summary($0).outcome }
+        #expect(outcomes == [.running, .done, .failed])
     }
 
     @Test("home.act answers the summary after the step, and a step's result is the code once or the move begun")
@@ -245,8 +248,7 @@ struct AlwaysOnPaneTests {
         await pane.model.press(create)
         #expect(pane.model.asking == .choice(create) && pane.gateway.homeActs.isEmpty)
         #expect(pane.gateway.provisionOptionsReads == 1)
-        let recommended = try #require(pane.model.options.value?.recommended)
-        await pane.model.submitChoice(recommended)
+        await pane.model.submitChoice(nil)
 
         await pane.model.press(create)
         await pane.model.submitChoice(ManagementProvisionPick(type: "cpx32", location: "hel1"))
@@ -255,6 +257,69 @@ struct AlwaysOnPaneTests {
             ManagementHomeActInput(type: "cpx22", location: "fsn1"), ManagementHomeActInput(type: "cpx32", location: "hel1")
         ])
         #expect(pane.gateway.homeActs.map(\.key) == ["F09RF8MofBF6hdXN7NWtuA", "F09RF8MofBF6hdXN7NWtuA"])
+    }
+
+    /// The engine makes no choice itself: a choice with no row to send,
+    /// none picked and none recommended, sends nothing.
+    @Test("a choice with nothing recommended and nothing picked sends nothing")
+    func choiceWithNoRow() async throws {
+        let pane = try await Self.opened(try Self.home(Self.summaryObject("home_act")))
+        var none = try AlwaysOnTests.goldenObject("home_provision_options")
+        none["recommended"] = NSNull()
+        none["more_room"] = NSNull()
+        none["offers"] = [[String: Any]]()
+        pane.gateway.provisionOptionsResult = try AlwaysOnTests.decode(ManagementProvisionOptions.self, none)
+        let create = try #require(pane.model.page.screen?.action)
+
+        await pane.model.press(create)
+        await pane.model.submitChoice(nil)
+
+        #expect(pane.gateway.homeActs.isEmpty && pane.model.asking == .choice(create))
+    }
+
+    /// Start again needs a choice only where the engine keeps no size and
+    /// place: the same sheet as Create server, and the row it sends.
+    @Test("Start again that needs a choice opens the same sheet and sends the recommended row")
+    func startAgainWithAChoice() async throws {
+        var problem = try Self.summaryObject("home_status_problem")
+        problem["action"] = Self.action("start_again", "Start again", needs: ["choice"],
+                                        confirm: "Delete what Fermix made and create your server again?", key: "invented-start-again-7a1c")
+        let pane = try await Self.opened(try Self.home(problem))
+        let again = try #require(pane.model.page.screen?.action)
+
+        await pane.model.press(again)
+        #expect(pane.model.asking == .choice(again) && pane.gateway.provisionOptionsReads == 1)
+        await pane.model.submitChoice(nil)
+
+        #expect(pane.gateway.homeActs == [
+            HomeAct(action: .startAgain, key: "invented-start-again-7a1c", input: ManagementHomeActInput(type: "cpx22", location: "fsn1"))
+        ])
+    }
+
+    @Test("Delete your server beside Move now asks its confirm, then deletes the waiting server")
+    func deleteWaitingServer() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_ready") as ManagementHomeStatus)
+        let delete = try #require(pane.model.page.screen?.alternatives.first)
+
+        await pane.model.press(delete)
+        #expect(pane.model.asking == .confirm(delete) && pane.gateway.homeActs.isEmpty)
+        await pane.model.accept(delete)
+
+        #expect(pane.gateway.homeActs == [HomeAct(action: .deleteServer, key: "c1yXdvadZiiMCMzJaPBJhg", input: nil)])
+    }
+
+    /// The bar is the engine's word that the screen moves on by itself: a
+    /// step's job, the server setting up, a move from its request on.
+    @Test("the bar shows while the engine says the screen moves on by itself, and only then")
+    func barFollowsTheOutcome() throws {
+        var requested = try Self.summaryObject("home_status_ready")
+        requested["outcome"] = "running"
+        var settled = try Self.summaryObject("home_status_creating")
+        settled["outcome"] = "done"
+
+        #expect(AlwaysOnScreen(try Self.decodeSummary(requested)).showsBar, "a move requested here, before the restart")
+        #expect(!AlwaysOnScreen(try Self.decodeSummary(settled)).showsBar)
+        #expect(AlwaysOnScreen(try Self.summary("home_status_creating")).showsBar)
     }
 
     @Test("Replace the server opens the same choice, and sends what it collected under its own key")
@@ -653,6 +718,7 @@ struct AlwaysOnPaneTests {
             "sentence: Your server is ready for the move. There is no way back to this Mac in this version.",
             "warn: iMessage, voice calls and meetings stop after the move: neither this Mac nor fermix-general-a3f9 runs them.",
             "action: Move now, needs recovery_passphrase, confirms",
+            "link: Delete your server, confirms",
             "line: Server: fermix-general-a3f9",
             "line: Size: CPX22",
             "line: Place: Falkenstein",
@@ -667,6 +733,7 @@ struct AlwaysOnPaneTests {
             "sentence: Your server is ready for the move. There is no way back to this Mac in this version.",
             "warn: iMessage, voice calls and meetings stop after the move: neither this Mac nor fermix-general-a3f9 runs them.",
             "action: Move now, needs new_recovery_passphrase, confirms",
+            "link: Delete your server, confirms",
             "line: Server: fermix-general-a3f9",
             "line: Size: CPX22",
             "line: Place: Falkenstein",
@@ -758,7 +825,7 @@ struct AlwaysOnPaneTests {
     /// `off`, `connect` and `retired` as the engine words them (handoff A's
     /// appendix, generated from the engine's code).
     static let offSummary: [String: Any] = [
-        "key": "WwwCtpM5-2otfTa1t5s38A", "state": "off", "notice": NSNull(),
+        "key": "WwwCtpM5-2otfTa1t5s38A", "state": "off", "notice": NSNull(), "outcome": "done",
         "sentence": "Keep Fermix running when this Mac sleeps. It moves to a server you own.",
         "action": action("paste_token", "Set up", needs: ["token"], key: "ypJXbXCwrSQSdVK8_tXftA"),
         "detail": [
@@ -767,7 +834,7 @@ struct AlwaysOnPaneTests {
         ]
     ]
     static let connectSummary: [String: Any] = [
-        "key": "1beYgzYKYRJoEBvPpLz31A", "state": "connect", "notice": NSNull(),
+        "key": "1beYgzYKYRJoEBvPpLz31A", "state": "connect", "notice": NSNull(), "outcome": "waiting",
         "sentence": "Paste a Hetzner API token to let Fermix create your server.",
         "action": action("paste_token", "Set up", needs: ["token"], key: "ypJXbXCwrSQSdVK8_tXftA"),
         "detail": [
@@ -779,14 +846,14 @@ struct AlwaysOnPaneTests {
         ]
     ]
     static let retiredSummary: [String: Any] = [
-        "key": "pE4etWKyHkFBceL_axOMzw", "state": "retired", "notice": NSNull(),
+        "key": "pE4etWKyHkFBceL_axOMzw", "state": "retired", "notice": NSNull(), "outcome": "done",
         "sentence": "Fermix moved to your server, and this Mac is no longer connected to it.",
         "action": action("learn_more", "Learn more", key: "AevTAJ1PC7bJ23Nb6779IQ", url: "https://fermix.ai/docs/always-on/#hetzner"),
         "detail": [String: Any]()
     ]
     /// A linked desktop's replace, once its move is sent to the server.
     static let movingSummary: [String: Any] = [
-        "key": "DXMsAJ5oa8GcFfqMnPOUWQ", "state": "moving", "notice": NSNull(), "action": NSNull(),
+        "key": "DXMsAJ5oa8GcFfqMnPOUWQ", "state": "moving", "notice": NSNull(), "action": NSNull(), "outcome": "running",
         "sentence": "Moving. This Mac restarts and reconnects to your server. Messages wait until it is done.",
         "detail": [String: Any]()
     ]

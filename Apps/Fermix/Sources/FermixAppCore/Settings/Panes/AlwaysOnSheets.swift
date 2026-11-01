@@ -46,8 +46,8 @@ struct AlwaysOnChoiceSheet: View {
                     .keyboardShortcut(.cancelAction)
                     .disabled(model.working != nil)
                 PrimaryAction(action.label, size: .row) {
-                    guard let selected else { return }
-                    Task { await model.submitChoice(selected) }
+                    let picked = choice
+                    Task { await model.submitChoice(picked) }
                 }
                 .disabled(selected == nil || model.working != nil)
             }
@@ -58,7 +58,7 @@ struct AlwaysOnChoiceSheet: View {
 
     /// The owner's pick, else the recommendation.
     private var selected: ManagementProvisionPick? {
-        choice ?? model.options.value?.recommended
+        model.row(picked: choice)
     }
 }
 

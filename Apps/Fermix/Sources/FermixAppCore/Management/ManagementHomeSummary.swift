@@ -143,6 +143,33 @@ public enum ManagementHomeActionNeed: ManagementVocabulary, Hashable {
     }
 }
 
+/// Where the screen stands, in the engine's word: what a surface following
+/// a step reads.
+public enum ManagementHomeOutcome: ManagementVocabulary, Hashable {
+    /// Always On is at something that moves the screen on by itself: a
+    /// step's job, the server setting up, a move from its request on.
+    case running
+    /// It waits on a server of the owner's own to use its code.
+    case waiting
+    /// The next step is the owner's.
+    case done
+    /// A problem.
+    case failed
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = [
+        "running": .running,
+        "waiting": .waiting,
+        "done": .done,
+        "failed": .failed
+    ]
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+}
+
 /// What went wrong, on a `problem` summary.
 public enum ManagementHomeProblemKind: ManagementVocabulary, Hashable {
     case turnedOff
@@ -293,6 +320,9 @@ public struct ManagementHomeSummary: Decodable, Equatable, Sendable {
     public let detail: ManagementHomeSummaryDetail
     /// The occurrence to raise as a notification, or none.
     public let notice: ManagementHomeNotice?
+    /// Whether the screen moves on by itself, waits, failed or waits for the
+    /// owner.
+    public let outcome: ManagementHomeOutcome
 
     /// The problem's kind, on a `problem` summary.
     public var problem: ManagementHomeProblemKind? {

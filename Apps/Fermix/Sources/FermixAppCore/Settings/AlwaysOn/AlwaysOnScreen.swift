@@ -66,7 +66,8 @@ public struct AlwaysOnScreen: Equatable, Sendable {
     public let sentence: String
     /// The sentence of the step in hand while a step's job runs.
     public let progress: String?
-    /// The bar that claims no percentage shows: creating and moving.
+    /// The bar that claims no percentage shows while the engine says the
+    /// screen moves on by itself (`outcome` `running`).
     public let showsBar: Bool
     /// The engine's other sentences for the screen: how the provider bills,
     /// a problem's note.
@@ -90,7 +91,7 @@ public struct AlwaysOnScreen: Equatable, Sendable {
         state = summary.state
         sentence = summary.sentence
         progress = detail.progress
-        showsBar = summary.state == .creating || summary.state == .moving
+        showsBar = summary.outcome == .running
         notes = [detail.billing, detail.note].compactMap { $0 }
         readiness = detail.readiness ?? []
         action = summary.action.flatMap { $0.isOffered ? $0 : nil }

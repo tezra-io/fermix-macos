@@ -207,6 +207,7 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// What the Always On pane pressed and read, in order.
     var homeActs: [HomeAct] = []
     var provisionOptionsReads = 0
+    var provisionOptionsResult: ManagementProvisionOptions?
     /// The answers `home.act` gives, one each in order, an exhausted script
     /// keeping the last; empty means the golden. A refusal in the script is
     /// thrown for that press.
