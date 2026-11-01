@@ -587,6 +587,36 @@ struct ChecklistLibraryTests {
         #expect(try pulls() == ids + [ids[0]], "the first was let go when the engine held the new list")
     }
 
+    /// A row added here has no id the engine knows until a push names it,
+    /// so no op that names it, as its row or as its place, is ever sent.
+    @Test("an op that names a row the engine has not named yet is neither drawn nor sent")
+    func opsNamingASendingRowAreRefused() throws {
+        connected()
+        index(Groceries.id)
+        lists.draw(Groceries.id)
+        socket.deliver(.checklist(profileId: Self.main, list: Groceries.list()))
+        lists.edit(Groceries.id, .add(text: "Milk", note: nil, place: nil))
+        let local = try #require(lists.store(Groceries.id).shown?.rows.first { ChecklistState.isSending($0.rowId) }?.rowId)
+        let sent = try socket.sentObjects().count
+
+        for op: CompanionChecklistOp in [
+            .check(rowId: local),
+            .uncheck(rowId: local),
+            .edit(rowId: local, text: "Oat milk", note: nil),
+            .remove(rowId: local),
+            .move(rowId: local, place: .after(Groceries.bread), toListId: nil),
+            .move(rowId: Groceries.rice, place: .after(local), toListId: nil),
+            .add(text: "Eggs", note: nil, place: .after(local)),
+            .add(text: "Eggs", note: nil, place: .section(local)),
+            .section(text: "Dairy", afterId: local)
+        ] {
+            lists.edit(Groceries.id, op)
+        }
+
+        #expect(try socket.sentObjects().count == sent)
+        #expect(lists.store(Groceries.id).state.pending.count == 1, "only the add itself")
+    }
+
     @Test("a blank text is no edit and no new list")
     func blankTextIsNoEdit() throws {
         connected()

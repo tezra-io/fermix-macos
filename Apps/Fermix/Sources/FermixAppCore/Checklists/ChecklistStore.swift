@@ -270,9 +270,11 @@ public final class ChecklistLibrary {
     }
 
     /// One edit of a list: drawn at once and sent. A text the engine would
-    /// trim to nothing is no edit.
+    /// trim to nothing is no edit, and neither is an op that names a row
+    /// added here that the engine has not named yet: it has no id the
+    /// engine knows. This is the one place every edit passes.
     public func edit(_ listId: String, _ op: CompanionChecklistOp) {
-        guard Self.isSendable(op) else { return }
+        guard Self.isSendable(op), !op.namedRows.contains(where: ChecklistDraft.isLocal) else { return }
 
         let entry = ChecklistOutboxEntry(clientMsgId: messageIds(), listId: listId, op: op)
         store(listId).change { $0.edit(op, clientMsgId: entry.clientMsgId) }

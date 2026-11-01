@@ -430,7 +430,7 @@ private struct ChecklistPanelList: View {
             ForEach(lines) { line in
                 row(line)
                     .listRowSeparator(.hidden)
-                    .moveDisabled(line.editable == nil || line.editable?.isDone == true)
+                    .moveDisabled(!Self.movable(line))
             }
             .onMove { from, to in
                 guard let moved = from.first.map({ lines[$0] }), let row = moved.editable else { return }
@@ -443,7 +443,7 @@ private struct ChecklistPanelList: View {
         .showsAmbientGround()
         .scrollIndicators(.never)
         .contextMenu(forSelectionType: String.self) { ids in
-            if let row = editableRow(ids.first, in: lines) {
+            if let row = editableRow(ids.first, in: lines), !ChecklistState.isSending(row.rowId) {
                 rowMenu(row, lines: lines)
             }
         } primaryAction: { ids in
@@ -459,7 +459,9 @@ private struct ChecklistPanelList: View {
             return .handled
         }
         .onKeyPress(.return) {
-            guard rewording == nil, let row = editableRow(selection, in: lines) else { return .ignored }
+            guard rewording == nil, let row = editableRow(selection, in: lines), !ChecklistState.isSending(row.rowId) else {
+                return .ignored
+            }
 
             rewording = row.rowId
             return .handled
@@ -590,6 +592,14 @@ private struct ChecklistPanelList: View {
 
     // MARK: - Edits
 
+    /// An open item the engine has named moves; a heading, a done item and a
+    /// row still being sent do not.
+    private static func movable(_ line: ChecklistLine) -> Bool {
+        guard case .item(let row) = line else { return false }
+
+        return !ChecklistState.isSending(row.rowId)
+    }
+
     private func edit(_ op: CompanionChecklistOp) {
         panel.library.edit(entry.listId, op)
     }
@@ -625,7 +635,7 @@ private struct ChecklistPanelList: View {
     }
 
     private func step(_ row: CompanionChecklistRow, up: Bool) {
-        guard let list = store.shown else { return }
+        guard let list = store.shown, !ChecklistState.isSending(row.rowId) else { return }
 
         let lines = ChecklistLine.lines(of: list, folded: folded, doneOpen: false, settling: [], removedShown: false)
         guard let place = ChecklistMoves.step(row.rowId, up: up, in: lines) else { return }

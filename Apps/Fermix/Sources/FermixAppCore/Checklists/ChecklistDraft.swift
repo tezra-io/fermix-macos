@@ -127,6 +127,36 @@ enum ChecklistDraft {
     }
 }
 
+extension CompanionChecklistOp {
+    /// Every row the op names, as the row it acts on or as its place.
+    var namedRows: [String] {
+        switch self {
+        case .check(let rowId), .uncheck(let rowId), .remove(let rowId), .edit(let rowId, _, _):
+            return [rowId]
+        case .move(let rowId, let place, _):
+            return [rowId] + place.map(Self.row).map { [$0] }.orEmpty
+        case .add(_, _, let place):
+            return place.map(Self.row).map { [$0] }.orEmpty
+        case .section(_, let afterId):
+            return afterId.map { [$0] }.orEmpty
+        case .restore(let rowId, _):
+            return rowId.map { [$0] }.orEmpty
+        case .create, .folder, .rename, .removeList, .clearDone:
+            return []
+        }
+    }
+
+    private static func row(_ place: CompanionChecklistPlace) -> String {
+        switch place {
+        case .section(let id), .after(let id): return id
+        }
+    }
+}
+
+private extension Optional where Wrapped == [String] {
+    var orEmpty: [String] { self ?? [] }
+}
+
 /// One edit this Mac sent and the engine has not yet confirmed with a push:
 /// applied over the engine's list until then.
 struct ChecklistPendingEdit: Equatable, Sendable {
