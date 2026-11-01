@@ -307,6 +307,29 @@ struct ChecklistLibraryTests {
         #expect(pulled == ids + [ids[0]], "the first was let go when the seventeenth was pulled; the second is still held")
     }
 
+    /// Every pull makes its list the newest held, as the engine's
+    /// `Checklists.hold` does, the pull a refused edit sends again included:
+    /// otherwise the two let go of different lists past sixteen, and the one
+    /// the app thinks it still holds hears nothing more.
+    @Test("a list pulled again after a refused edit is the newest held, so the seventeenth lets go of the same list the engine does")
+    func refusalPullIsTheNewestHeld() throws {
+        connected()
+        let ids = (1...17).map { String(format: "ck_%010d", $0) }
+        socket.deliver(.checklists(profileId: Self.main, lists: ids.map {
+            CompanionChecklistEntry(listId: $0, title: $0, folder: nil, open: 0, done: 0, rev: 1)
+        }))
+
+        ids.prefix(16).forEach { lists.draw($0) }
+        lists.edit(ids[0], .rename(text: "Weekly"))
+        socket.deliver(Self.refusal("That list is gone.", clientMsgId: "mac-1"))
+        lists.draw(ids[16])
+        lists.draw(ids[1])
+        lists.draw(ids[0])
+
+        let pulled = try listLines().compactMap { $0["type"] as? String == "checklist_pull" ? $0["list_id"] as? String : nil }
+        #expect(pulled == Array(ids.prefix(16)) + [ids[0], ids[16], ids[1]], "the engine let the second go; the first, pulled again, is held")
+    }
+
     @Test("what is drawn before the handshake is pulled at it, after the index")
     func drawBeforeHandshake() throws {
         lists.draw(Groceries.id)

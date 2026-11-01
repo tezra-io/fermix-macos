@@ -253,7 +253,6 @@ public final class ChecklistLibrary {
         let holds = held.contains(listId) && (!removed || withRemoved.contains(listId))
         guard !holds else { return }
 
-        hold(listId, removed: removed)
         pull(listId, removed: removed)
     }
 
@@ -420,7 +419,13 @@ public final class ChecklistLibrary {
         pullsOut.append(.index)
     }
 
+    /// The one way a list is pulled. The engine makes every list it is
+    /// asked for the newest it holds (`Checklists.hold`), whether or not it
+    /// held it already, so the mirror does the same with every pull, the one
+    /// a refused edit sends again included: past sixteen the two then let go
+    /// of the same list.
     private func pull(_ listId: String, removed: Bool) {
+        hold(listId, removed: removed)
         guard deliver(.checklistPull(profileId: CompanionProtocol.profileId, listId: listId, removed: removed)) else { return }
 
         pullsOut.append(.list(listId))
