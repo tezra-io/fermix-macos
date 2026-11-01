@@ -12,9 +12,10 @@ enum ChecklistCards {
 
     /// The replies whose card is live, by seq: only the newest card that
     /// draws a given list is live (§08), so a card is live when no newer
-    /// card draws any of its lists. Every other card folds to one line, so
-    /// a month of daily check-ins is thirty chips and one card, and no list
-    /// is ever drawn live twice.
+    /// card draws any of the lists it draws. Every other card folds to one
+    /// line, so a month of daily check-ins is thirty chips and one card, and
+    /// no list is ever drawn live twice. A list a card of several only names
+    /// past its three groups is not drawn there, so it does not count.
     static func live(in rows: [CompanionRow]) -> Set<Int> {
         var drawnNewer: Set<String> = []
         var live: Set<Int> = []
@@ -22,12 +23,18 @@ enum ChecklistCards {
         for row in rows.reversed() {
             guard let refs = lists(of: row) else { continue }
 
-            let ids = refs.map(\.listId)
+            let ids = drawn(refs).map(\.listId)
             if drawnNewer.isDisjoint(with: ids) { live.insert(row.serverSeq) }
             drawnNewer.formUnion(ids)
         }
 
         return live
+    }
+
+    /// The lists a live card draws: a one-list card its one, a card of
+    /// several its first three groups.
+    static func drawn(_ refs: [CompanionChecklistRef]) -> [CompanionChecklistRef] {
+        Array(refs.prefix(groupLists))
     }
 
     /// The lists a row's `checklists` block names, where it has one.
@@ -74,7 +81,7 @@ enum ChecklistCards {
         _ refs: [CompanionChecklistRef],
         lists: (String) -> CompanionChecklistList?
     ) -> (groups: [Group], moreLists: Int) {
-        let shown = refs.prefix(groupLists).map { ref in
+        let shown = drawn(refs).map { ref in
             let rows = lists(ref.listId)?.rows ?? []
             let touched = ref.rows.compactMap { id in rows.first { $0.rowId == id && $0.kind == .item } }
             return Group(ref: ref, rows: Array(touched.prefix(groupRows)))

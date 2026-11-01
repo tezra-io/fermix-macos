@@ -192,7 +192,7 @@ private struct ChecklistGroupedCard: View {
     let panel: ChecklistPanelModel
 
     var body: some View {
-        let shown = Array(refs.prefix(ChecklistCards.groupLists))
+        let shown = ChecklistCards.drawn(refs)
         let more = refs.count - shown.count
 
         VStack(alignment: .leading, spacing: 0) {

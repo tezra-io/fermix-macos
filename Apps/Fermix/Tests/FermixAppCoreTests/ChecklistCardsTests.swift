@@ -37,6 +37,20 @@ struct ChecklistCardsTests {
         #expect(ChecklistCards.live(in: []) == [])
     }
 
+    /// A card of several lists draws three and names the rest; a list it
+    /// only names is drawn by no group there, so an older card that draws
+    /// it stays live.
+    @Test("only the lists a card draws count: a fourth list it only names keeps its older card live")
+    func onlyDrawnListsCount() {
+        let rows = [
+            Self.reply(1, [Self.ref("garden")]),
+            Self.reply(2, [Self.ref("fermix"), Self.ref("portfolio"), Self.ref("groceries"), Self.ref("garden")])
+        ]
+
+        #expect(ChecklistCards.live(in: rows) == [1, 2])
+        #expect(ChecklistCards.live(in: rows + [Self.reply(3, [Self.ref("groceries")])]) == [1, 3])
+    }
+
     @Test("a row's lists are its checklists block's, and a row with none has none")
     func listsOfARow() {
         let place = CompanionBlock.places([CompanionBlocksTests.example])
