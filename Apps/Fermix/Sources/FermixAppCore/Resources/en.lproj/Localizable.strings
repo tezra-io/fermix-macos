@@ -557,6 +557,7 @@
 "lists.openFormat" = "%d open";
 "lists.doneFormat" = "%d done";
 "lists.moreFormat" = "%d more";
+"lists.showLess" = "Show less";
 "lists.moreListsFormat" = "and %d more lists";
 "lists.done" = "Done";
 "lists.newList" = "New list";

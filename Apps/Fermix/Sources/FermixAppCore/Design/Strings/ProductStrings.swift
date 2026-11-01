@@ -657,6 +657,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case listsOpenFormat = "lists.openFormat"
     case listsDoneFormat = "lists.doneFormat"
     case listsMoreFormat = "lists.moreFormat"
+    case listsShowLess = "lists.showLess"
     case listsMoreListsFormat = "lists.moreListsFormat"
     case listsDone = "lists.done"
     case listsNewList = "lists.newList"

@@ -48,19 +48,22 @@ enum ChecklistCards {
 
     /// A one-list card's rows (§08): at most four open items, the ones the
     /// turn touched first, each part in the list's own order, and how many
-    /// open items are left for "%d more". A row ticked here a moment ago
-    /// (`settling`) keeps its place while it settles.
+    /// open items are left for "%d more". Expanded, the card holds every open
+    /// item in the same order, so the first four stay where they were, and
+    /// `fewer` says whether "Show less" has anything to fold. A row ticked
+    /// here a moment ago (`settling`) keeps its place while it settles.
     static func oneList(
         _ list: CompanionChecklistList,
         touched: [String],
-        settling: Set<String> = []
-    ) -> (rows: [CompanionChecklistRow], more: Int) {
+        settling: Set<String> = [],
+        expanded: Bool = false
+    ) -> (rows: [CompanionChecklistRow], more: Int, fewer: Bool) {
         let open = list.items.filter { !$0.isDone || settling.contains($0.rowId) }
         let touchedIds = Set(touched)
         let ordered = open.filter { touchedIds.contains($0.rowId) } + open.filter { !touchedIds.contains($0.rowId) }
-        let rows = Array(ordered.prefix(oneListRows))
+        let rows = expanded ? ordered : Array(ordered.prefix(oneListRows))
 
-        return (rows, max(0, open.count - rows.count))
+        return (rows, open.count - rows.count, expanded && open.count > oneListRows)
     }
 
     /// One group of a card of several lists: the list's name and open count

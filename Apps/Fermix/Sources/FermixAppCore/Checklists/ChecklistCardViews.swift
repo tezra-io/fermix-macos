@@ -99,8 +99,9 @@ struct ChecklistIconButton: View {
 }
 
 /// A reply's card of one list (M85 §08): at most four open items, the ones
-/// its turn touched first, then "%d more", which opens the panel, and an
-/// add field. A tick keeps its row in place for a moment, so a mis-tick is
+/// its turn touched first, then "%d more", which grows the card in place to
+/// every open item until "Show less", and an add field. The header's button
+/// opens the panel, where sections, order and Done live. A tick keeps its row in place for a moment, so a mis-tick is
 /// easy to undo, then folds it away. Done items are counted, not shown.
 private struct ChecklistOneListCard: View {
     let ref: CompanionChecklistRef
@@ -110,6 +111,7 @@ private struct ChecklistOneListCard: View {
     @ObservedObject var index: ChecklistIndexStore
 
     @State private var settling: Set<String> = []
+    @State private var expanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -134,7 +136,7 @@ private struct ChecklistOneListCard: View {
             if store.isRemoved || index.lacks(ref.listId) {
                 ChecklistCardSentence(text: ProductStrings[.listsListRemoved])
             } else if let list {
-                let card = ChecklistCards.oneList(list, touched: ref.rows, settling: settling)
+                let card = ChecklistCards.oneList(list, touched: ref.rows, settling: settling, expanded: expanded)
                 ForEach(card.rows) { row in
                     ChecklistCardItem(
                         row: row,
@@ -146,24 +148,32 @@ private struct ChecklistOneListCard: View {
                 if let refusal = store.refusal {
                     ChecklistCardSentence(text: refusal)
                 }
-                footer(more: card.more)
+                footer(more: card.more, fewer: card.fewer)
             }
         }
     }
 
-    private func footer(more: Int) -> some View {
+    private func footer(more: Int, fewer: Bool) -> some View {
         HStack(spacing: Spacing.xs) {
             ChecklistAddField { panel.library.edit(ref.listId, .add(text: $0, note: nil, place: nil)) }
             if more > 0 {
-                Button(String(format: ProductStrings[.listsMoreFormat], more)) { panel.show(ref.listId) }
-                    .buttonStyle(.plain)
-                    .fermixType(Typography.style(.calloutSmall))
-                    .foregroundStyle(Palette.secondary.color)
+                footerButton(String(format: ProductStrings[.listsMoreFormat], more), expands: true)
+            } else if fewer {
+                footerButton(ProductStrings[.listsShowLess], expands: false)
             }
         }
         .padding(.top, Spacing.xxs)
         .overlay(alignment: .top) { ChecklistHairline() }
         .padding(.top, Spacing.xxs)
+    }
+
+    private func footerButton(_ title: String, expands: Bool) -> some View {
+        Button(title) {
+            withAnimation(Motion(reduceMotion: reduceMotion).animation(.checklistStrike)) { expanded = expands }
+        }
+        .buttonStyle(.plain)
+        .fermixType(Typography.style(.calloutSmall))
+        .foregroundStyle(Palette.secondary.color)
     }
 
     private func tick(_ row: CompanionChecklistRow, _ done: Bool) {

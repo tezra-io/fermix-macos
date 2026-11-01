@@ -85,6 +85,15 @@ struct ChecklistCardsTests {
         let short = ChecklistCards.oneList(CompanionChecklistList(listId: "l", title: "L", rev: 1, rows: [Self.item("a")]), touched: [])
         #expect(short.rows.map(\.rowId) == ["a"])
         #expect(short.more == 0)
+        #expect(!card.fewer && !short.fewer, "a card that is not expanded has nothing to fold")
+
+        let expanded = ChecklistCards.oneList(list, touched: ["jacket", "sunscreen", "passport"], expanded: true)
+        #expect(expanded.rows.map(\.rowId) == ["sunscreen", "jacket", "charger", "boots", "book", "adapter"], "expanded, every open item, the first four where they were")
+        #expect(expanded.more == 0)
+        #expect(expanded.fewer, "Show less folds the card back to four")
+
+        let shortExpanded = ChecklistCards.oneList(CompanionChecklistList(listId: "l", title: "L", rev: 1, rows: [Self.item("a")]), touched: [], expanded: true)
+        #expect(!shortExpanded.fewer, "a list that fits in four has nothing to fold")
     }
 
     @Test("a card of several lists draws three groups of at most three touched rows, a ticked row as it stands, and names the rest")
