@@ -4,7 +4,8 @@ import SwiftUI
 /// The composer: a capsule field that grows to a few lines, and one capsule
 /// action at its trailing edge.
 ///
-/// Return sends and Shift-Return starts a new line. The action is Send, the
+/// Return sends and Shift-Return starts a new line, and Enter, the keypad's
+/// key or fn-Return on a laptop, does what Return does. The action is Send, the
 /// surface's primary action and so its default button, until a turn is
 /// running; then it is Cancel, which is never the default, so a Return typed
 /// while a reply is coming cannot cancel it. Blank text is never sent: the
@@ -57,8 +58,13 @@ struct ChatComposer: View {
             .lineLimit(ChatMetrics.composerLines)
             .fermixType(Typography.style(.body))
             .focused($focused)
-            .onKeyPress(.return, phases: .down, action: returnPressed)
+            .onKeyPress(keys: Self.sendKeys, phases: .down, action: returnPressed)
     }
+
+    /// Return, and Enter: a key of its own, which the default button's Return
+    /// never matches, so left to the field it would end editing and select
+    /// the draft rather than send it.
+    static let sendKeys: Set<KeyEquivalent> = [.return, KeyEquivalent("\u{3}")]
 
     /// Send and Cancel stand in one place and one is shown. Both stay in the
     /// layout, so the one that appears while the composer is still moving to
@@ -85,8 +91,8 @@ struct ChatComposer: View {
     /// Shift-Return is a line break where the caret is, which is what the
     /// field editor inserts for Option-Return; left to itself it would end
     /// editing. Return alone sends. The send button's own Return reaches it
-    /// first while it can send, so this answers the Return it leaves: a blank
-    /// draft, or a turn running.
+    /// first while it can send, so this answers the Return it leaves, a blank
+    /// draft or a turn running, and every Enter.
     private func returnPressed(_ press: KeyPress) -> KeyPress.Result {
         guard press.modifiers.contains(.shift) else {
             if turn == nil, !isBlank { send() }
