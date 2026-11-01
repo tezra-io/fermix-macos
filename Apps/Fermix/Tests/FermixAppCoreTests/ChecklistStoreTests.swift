@@ -501,6 +501,92 @@ struct ChecklistLibraryTests {
         #expect(try listLines().count == 2, "the engine holds a list its create made, so drawing it pulls nothing")
     }
 
+    private func reconnected() {
+        socket.fail(.peerClosed)
+        scheduler.fireAll()
+        socket.deliver(E.hello())
+    }
+
+    private func packingIndex(_ title: String = "Packing") {
+        socket.deliver(.checklists(profileId: Self.main, lists: [
+            CompanionChecklistEntry(listId: "ck_2b7n5r8c3j", title: title, folder: "Trips", open: 0, done: 0, rev: 1)
+        ]))
+    }
+
+    /// The connection drops inside the window after the create was
+    /// accepted, so the push that names what it made never comes. The index
+    /// of the next connection holds the new list's title, which no other
+    /// live list may hold, and that is the list it made.
+    @Test("a create accepted just before the connection dropped is found in the next index by its title, pulled and shown")
+    func createFoundByTitleAfterADrop() throws {
+        connected()
+        index()
+        lists.create(title: "Packing", folder: "Trips")
+        socket.deliver(E.accepted("mac-1", duplicate: false))
+
+        reconnected()
+        packingIndex()
+
+        #expect(lists.index.created == ChecklistCreated(clientMsgId: "mac-1", listId: "ck_2b7n5r8c3j"))
+        #expect(try pulls() == ["ck_2b7n5r8c3j"])
+        #expect(lists.creating.isEmpty)
+    }
+
+    /// The accepted is lost with the connection; the create sent again is a
+    /// duplicate, which the engine sends to no one, so only the index can
+    /// say what it made, whatever the case of its title.
+    @Test("a create whose accepted was lost comes back duplicate, and the index names what it made, its title compared case-blind")
+    func duplicateCreateFoundByTitle() throws {
+        connected()
+        index()
+        lists.create(title: "packing", folder: "Trips")
+
+        reconnected()
+        socket.deliver(E.accepted("mac-1", duplicate: true))
+        packingIndex()
+
+        #expect(lists.index.created == ChecklistCreated(clientMsgId: "mac-1", listId: "ck_2b7n5r8c3j"))
+        #expect(try pulls() == ["ck_2b7n5r8c3j"])
+        #expect(lists.creating.isEmpty)
+    }
+
+    @Test("a create the next connection's index cannot name is let go, and a later index does not turn the panel to it")
+    func createNeverOutlivesAReconnect() throws {
+        connected()
+        index()
+        lists.create(title: "Packing", folder: "Trips")
+        socket.deliver(E.accepted("mac-1", duplicate: false))
+
+        reconnected()
+        index()
+        #expect(lists.creating.isEmpty)
+
+        packingIndex()
+        #expect(lists.index.created == nil)
+    }
+
+    /// The engine holds the list a create makes from the moment it applies
+    /// it, so with sixteen held it lets the oldest go then, before the push
+    /// that names the new list.
+    @Test("a create the engine applied counts among the sixteen held before its push names it")
+    func createIsHeldFromItsAccepted() throws {
+        connected()
+        let ids = (1...16).map { String(format: "ck_%010d", $0) }
+        socket.deliver(.checklists(profileId: Self.main, lists: ids.map {
+            CompanionChecklistEntry(listId: $0, title: $0, folder: nil, open: 0, done: 0, rev: 1)
+        }))
+        ids.forEach { lists.draw($0) }
+
+        lists.create(title: "Packing", folder: nil)
+        socket.deliver(E.accepted("mac-1", duplicate: false))
+        lists.draw(ids[0])
+        let packing = CompanionChecklistList(listId: "ck_2b7n5r8c3j", title: "Packing", rev: 1, rows: [])
+        socket.deliver(.checklist(profileId: Self.main, list: packing, made: ["mac-1": "ck_2b7n5r8c3j"]))
+        lists.draw("ck_2b7n5r8c3j")
+
+        #expect(try pulls() == ids + [ids[0]], "the first was let go when the engine held the new list")
+    }
+
     @Test("a blank text is no edit and no new list")
     func blankTextIsNoEdit() throws {
         connected()

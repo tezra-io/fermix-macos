@@ -220,9 +220,11 @@ public final class ChecklistLibrary {
     /// Every edit sent and not yet answered, in the order made: a create
     /// names no list.
     private var unanswered: [ChecklistOutboxEntry] = []
-    /// The creates the engine accepted, waiting for the push that says what
-    /// each made.
-    private var creating: Set<String> = []
+    /// The creates the engine took, by id, with the title each asked for:
+    /// each waits for the push that names what it made, or for an index
+    /// that holds its title, which no other live list may hold. None
+    /// outlives the first index of the next connection.
+    private(set) var creating: [String: String] = [:]
     private var connected = false
 
     private let send: (CompanionClientEvent) -> Bool
@@ -320,7 +322,7 @@ public final class ChecklistLibrary {
         connected = true
         indexCurrent = false
         index.serve(serves)
-        let again = held.map { (listId: $0, removed: withRemoved.contains($0)) }
+        let again = held.filter { !Self.isMade($0) }.map { (listId: $0, removed: withRemoved.contains($0)) }
         waiting = again + waiting.filter { drawn in !held.contains(drawn.listId) }
         held = []
         withRemoved = []
@@ -339,13 +341,17 @@ public final class ChecklistLibrary {
         indexCurrent = false
     }
 
-    /// A list event, which only this owns. An index pulls every list waiting
-    /// that it names.
+    /// A list event, which only this owns. An index names what the creates
+    /// waiting made, by their titles, and pulls every list waiting that it
+    /// names; the first of a connection lets go of the creates it cannot
+    /// name.
     func receive(_ event: CompanionServerEvent) {
         switch event {
         case .checklists(_, let lists):
             index.show(lists)
+            let first = !indexCurrent
             indexCurrent = true
+            findCreates(lettingGo: first)
             pullWaiting()
         case .checklist(_, let list, let made):
             received(list, made: made)
@@ -363,12 +369,19 @@ public final class ChecklistLibrary {
     }
 
     /// An `accepted` for one of the edits sent here, or false for any other.
+    /// The engine holds the list a create made from the moment it applies
+    /// it, as the newest, so the mirror holds a place for it until a push
+    /// or an index names it; a duplicate it applied on an earlier
+    /// connection, which holds nothing of this one.
     func accepted(_ receipt: CompanionAccepted) -> Bool {
         guard let at = unanswered.firstIndex(where: { $0.clientMsgId == receipt.clientMsgId }) else { return false }
 
         let entry = unanswered.remove(at: at)
         guard let listId = entry.listId else {
-            creating.insert(entry.clientMsgId)
+            if case .create(let title, _) = entry.op {
+                creating[entry.clientMsgId] = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if !receipt.duplicate { hold(Self.made(entry.clientMsgId), removed: false) }
             return true
         }
 
@@ -407,12 +420,47 @@ public final class ChecklistLibrary {
     // MARK: - The wire
 
     private func received(_ list: CompanionChecklistList, made: [String: String]) {
-        for (clientMsgId, madeId) in made where creating.remove(clientMsgId) != nil {
-            hold(madeId, removed: false)
-            index.made(ChecklistCreated(clientMsgId: clientMsgId, listId: madeId))
+        for (clientMsgId, madeId) in made where creating[clientMsgId] != nil {
+            found(clientMsgId, madeId)
         }
 
         store(list.listId).change { $0.received(list, made: made) }
+    }
+
+    /// The creates an index names by their titles, compared case-blind as
+    /// the engine keeps them apart: each is the list it made, pulled unless
+    /// held and shown. On the first index of a connection a create it does
+    /// not name is let go.
+    private func findCreates(lettingGo: Bool) {
+        for (clientMsgId, title) in creating {
+            if let entry = index.entries?.first(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) {
+                found(clientMsgId, entry.listId)
+                draw(entry.listId)
+            } else if lettingGo {
+                creating[clientMsgId] = nil
+                held.removeAll { $0 == Self.made(clientMsgId) }
+            }
+        }
+    }
+
+    /// A create named what it made: the place the mirror held for it is that
+    /// list's, and the panel turns to it.
+    private func found(_ clientMsgId: String, _ listId: String) {
+        creating[clientMsgId] = nil
+        if let at = held.firstIndex(of: Self.made(clientMsgId)) {
+            if held.contains(listId) { held.remove(at: at) } else { held[at] = listId }
+        }
+        index.made(ChecklistCreated(clientMsgId: clientMsgId, listId: listId))
+    }
+
+    /// The place the mirror holds for the list a create made before the
+    /// engine names it.
+    private static func made(_ clientMsgId: String) -> String {
+        "made:" + clientMsgId
+    }
+
+    private static func isMade(_ held: String) -> Bool {
+        held.hasPrefix("made:")
     }
 
     /// Mirrors the engine's holding: the list becomes the newest pulled, and
