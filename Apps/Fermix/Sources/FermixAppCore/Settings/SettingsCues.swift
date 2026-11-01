@@ -281,6 +281,28 @@ extension SettingsModel {
         opener.open(CueGuide.url) ? nil : ProductStrings[.cuesGuideOpenFailed]
     }
 
+    // MARK: - The Screen
+
+    /// The Screen's value as the pane shows it: the option just chosen while
+    /// its write is out, the daemon's once it answers. The segmented control
+    /// draws it and the decision model row is shown by it, so the two never
+    /// disagree.
+    public func cueScreenValue(_ screen: ManagementSettingRow) -> String {
+        precondition(screen.key == CuesPaneKeys.screen, "the Screen's value is the cues_screen row's")
+        return DescriptorValue.text(value(of: screen, in: CueFilterPair.section))
+    }
+
+    /// Whether the pane draws a row of the `cues` section: every row it
+    /// publishes, but the decision model only while the Screen shows
+    /// Decision model. The daemon publishes that row whatever the Screen is,
+    /// so it is shown and hidden here with no read.
+    public func drawsCueRow(_ row: ManagementSettingRow) -> Bool {
+        guard row.key == CuesPaneKeys.decisionProvider else { return true }
+
+        let screen = section(CueFilterPair.section).value?.rows.first { $0.key == CuesPaneKeys.screen }
+        return screen.map(cueScreenValue) == CueScreenProjection.decisionModel
+    }
+
     // MARK: - The default filter model
 
     /// The provider the daemon has in force for the default filter model,

@@ -313,9 +313,10 @@ struct CuesPaneLead: View {
 /// The `cues` section's rows in one group (§4.2, §4.6, simpler setup §4),
 /// in the order the section publishes them: Run cues with the status under
 /// it, Let watchers act, then how watchers judge items, the Screen where the
-/// section publishes one, its two options side by side, and the filter
-/// model, then any other row, and the door's port with the door's line
-/// folded under Advanced. A door that could not open says so in the open.
+/// section publishes one, its two options side by side, its decision model
+/// under it while the Screen shows Decision model, and the filter model,
+/// then any other row, and the door's port with the door's line folded under
+/// Advanced. A door that could not open says so in the open.
 struct CuesSettingsSection: View {
     @ObservedObject var model: SettingsModel
     let router: any CommandPerforming
@@ -343,8 +344,11 @@ struct CuesSettingsSection: View {
 
     /// The row the pane places itself, under the heading where it is the
     /// first of how watchers judge items. Every other row is drawn as the
-    /// section publishes it.
+    /// section publishes it, the decision model a pop-up like any choice row,
+    /// and none while the Screen hides it.
     private func specialised(_ row: ManagementSettingRow) -> AnyView? {
+        guard model.drawsCueRow(row) else { return AnyView(EmptyView()) }
+
         let placed = placedRow(row)
         guard row.key == judgingHeadingKey else { return placed }
 
@@ -462,6 +466,7 @@ struct CuesSettingsSection: View {
 enum CuesPaneKeys {
     static let enabled = "cues_enabled"
     static let screen = "cues_screen"
+    static let decisionProvider = "cues_decision_provider"
     static let doorPort = "cues_door_port"
 
     /// The one choice row the app draws as a segmented control: the Screen,
@@ -489,6 +494,10 @@ public struct CueScreenHint: Equatable, Sendable {
 /// What the Screen says and takes, from its options as the daemon publishes
 /// them: the app never decides which option can be chosen.
 public enum CueScreenProjection {
+    /// The option that checks items by meaning, the one the decision model
+    /// row is drawn under.
+    public static let decisionModel = "decision_model"
+
     /// The hint of the option in use, then every disabled option's hint, which
     /// says what to set up first, each once.
     public static func hints(_ row: ManagementSettingRow, value: String) -> [CueScreenHint] {
@@ -547,7 +556,7 @@ struct CuesScreenRow: View {
     }
 
     private var value: String {
-        DescriptorValue.text(model.value(of: row, in: CueFilterPair.section))
+        model.cueScreenValue(row)
     }
 
     private var selection: Binding<String> {

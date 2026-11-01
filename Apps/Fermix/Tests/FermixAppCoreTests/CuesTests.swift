@@ -333,8 +333,10 @@ struct CuesTests {
         #expect(CuesPaneKeys.judgingHeadingKey(in: newer) == "cues_screen")
         let top = DescriptorRowFold(newer)
         #expect(
-            top.open.map(\.key) == ["cues_enabled", "cues_mandates_enabled", "cues_screen", "filter_provider", "filter_model"],
-            "Let watchers act follows Run cues, and the Screen is drawn where and as the section publishes it"
+            top.open.map(\.key) == [
+                "cues_enabled", "cues_mandates_enabled", "cues_screen", "cues_decision_provider", "filter_provider", "filter_model"
+            ],
+            "Let watchers act follows Run cues, and the Screen and its decision model are drawn where and as the section publishes them"
         )
         #expect(top.folded.map(\.key) == ["cues_door_port"], "the door's port stays under Advanced")
     }
@@ -671,6 +673,130 @@ struct CuesTests {
 
         let descriptorRow = try #require(try SourceTree.swiftFiles(matching: "Settings/Rows/DescriptorRow.swift").first).text
         #expect(!descriptorRow.contains(".segmented"), "a descriptor choice row is a menu")
+    }
+
+    // MARK: - The Screen's decision model
+
+    @Test("the decision model row is drawn only while the Screen is Decision model, and no other row is hidden")
+    func decisionModelRowFollowsTheScreen() async throws {
+        let gateway = try Self.gateway()
+        let harness = try SettingsHarness(gateway: gateway)
+        await harness.model.loadSection("cues")
+
+        let golden = try #require(harness.model.section("cues").value?.rows)
+        #expect(golden.filter { !harness.model.drawsCueRow($0) }.map(\.key) == [CuesPaneKeys.decisionProvider], "Keyword match hides it")
+
+        var choices: [ManagementSettingRow] = []
+        for fixture in try ManagementFixtures.load(.success, from: .management) where fixture.name.hasPrefix("settings_get_") {
+            let result = try #require(try fixture.object("response")["result"] as? [String: Any])
+            let rows = try JSONSerialization.data(withJSONObject: try #require(result["rows"] as? [[String: Any]]))
+            choices += try JSONDecoder().decode([ManagementSettingRow].self, from: rows).filter { $0.kind == .choice }
+        }
+        #expect(choices.count > 10, "the scan found the goldens' choice rows")
+        #expect(choices.filter { !harness.model.drawsCueRow($0) }.map(\.key) == [CuesPaneKeys.decisionProvider], "no other choice row moves")
+
+        gateway.sectionResults["cues"] = try Self.cueSection(screen: "decision_model", provider: "")
+        await harness.model.loadSection("cues")
+        let decision = try #require(harness.model.section("cues").value?.rows)
+        #expect(decision.allSatisfy(harness.model.drawsCueRow), "Decision model draws every row the section publishes")
+    }
+
+    @Test("the decision model row shows and hides with the segment as it changes, before the daemon answers")
+    func decisionModelRowFollowsTheSegmentLive() async throws {
+        let gateway = try Self.gateway()
+        let harness = try SettingsHarness(gateway: gateway)
+        gateway.sectionResults["cues"] = try Self.cueSection(screen: "keyword", provider: "")
+        await harness.model.loadSection("cues")
+        let rows = try #require(harness.model.section("cues").value?.rows)
+        let screen = try #require(rows.first { $0.key == CuesPaneKeys.screen })
+        let decision = try #require(rows.first { $0.key == CuesPaneKeys.decisionProvider })
+        #expect(!harness.model.drawsCueRow(decision))
+
+        let seen = ObservedCueScreen()
+        let model = harness.model
+        gateway.settingsGate = { @Sendable in
+            await MainActor.run {
+                seen.screens.append(model.cueScreenValue(screen))
+                seen.draws.append(model.drawsCueRow(decision))
+            }
+        }
+
+        gateway.sectionResults["cues"] = try Self.cueSection(screen: "decision_model", provider: "")
+        await harness.model.apply(section: "cues", key: CuesPaneKeys.screen, value: .text("decision_model"))
+        #expect(harness.model.drawsCueRow(decision), "it stays once the daemon's value lands")
+
+        gateway.sectionResults["cues"] = try Self.cueSection(screen: "keyword", provider: "")
+        await harness.model.apply(section: "cues", key: CuesPaneKeys.screen, value: .text("keyword"))
+        #expect(!harness.model.drawsCueRow(decision))
+
+        #expect(seen.screens == ["decision_model", "keyword"], "the segment showed each choice while its write was out")
+        #expect(seen.draws == [true, false], "the row followed the segment, never the daemon's older answer")
+    }
+
+    @Test("the decision model's options are the row's own labels, and a disabled option keeps its hint")
+    func decisionModelOptionsAreTheRows() throws {
+        let golden = try #require(try Self.cueSettingRows(withScreen: true).first { $0.key == CuesPaneKeys.decisionProvider })
+        #expect(golden.kind == .choice && !golden.suggestions && !golden.restart, "a closed choice that applies live")
+        #expect(golden.label == "Decision model" && golden.explanation != nil)
+        #expect(!CuesPaneKeys.drawsSegmented(golden), "a pop-up, as every other choice row")
+        #expect(golden.options.map(\.label) == ["Automatic", "OpenAI · gpt-6-luna", "OpenRouter · Jev", "Venice · Jev"])
+        #expect(golden.options.map(\.hint) == [
+            "Set up OpenAI, OpenRouter or Venice first.", "Set up this provider first.", "Set up this provider first.", "Set up this provider first."
+        ])
+        #expect(golden.options.allSatisfy { $0.disabled }, "nothing is set up in the golden")
+        #expect(
+            DescriptorRowModel(row: golden, value: golden.value).control == .choice(selected: "", options: golden.options),
+            "the pop-up draws the options as the row publishes them, Automatic chosen"
+        )
+    }
+
+    @Test("a saved decision model that is no longer set up stays the value shown, and the Screen says what to set up")
+    func staleDecisionModelStaysShown() async throws {
+        let gateway = try Self.gateway()
+        let harness = try SettingsHarness(gateway: gateway)
+        let setUpFirst = "Set up OpenRouter first: the screen's decision model runs on its key."
+        gateway.sectionResults["cues"] = try Self.cueSection(screen: "decision_model", provider: "openrouter", screenHint: setUpFirst)
+        await harness.model.loadSection("cues")
+        let rows = try #require(harness.model.section("cues").value?.rows)
+        let screen = try #require(rows.first { $0.key == CuesPaneKeys.screen })
+        let decision = try #require(rows.first { $0.key == CuesPaneKeys.decisionProvider })
+
+        #expect(harness.model.drawsCueRow(decision))
+        let control = DescriptorRowModel(row: decision, value: harness.model.value(of: decision, in: "cues")).control
+        #expect(control == .choice(selected: "openrouter", options: decision.options))
+        let saved = try #require(decision.options.first { $0.value == "openrouter" }, "the value is an option, so it is drawn, never Not set")
+        #expect(saved.disabled && saved.hint == "Set up this provider first.")
+        #expect(CueScreenProjection.hints(screen, value: harness.model.cueScreenValue(screen)).map(\.text) == [setUpFirst])
+    }
+
+    @Test("choosing a decision model writes it alone through settings.apply, as the daemon's decision_provider")
+    func decisionModelChoiceIsOneApply() async throws {
+        let gateway = try Self.gateway()
+        let harness = try SettingsHarness(gateway: gateway)
+        gateway.sectionResults["cues"] = try Self.cueSection(screen: "decision_model", provider: "")
+        await harness.model.loadSection("cues")
+
+        await harness.model.apply(section: "cues", key: CuesPaneKeys.decisionProvider, value: .text("openai"))
+
+        #expect(gateway.appliedSettings == [SettingsWrite(section: "cues", values: ["cues_decision_provider": .text("openai")])])
+    }
+
+    @Test("a refused decision model is the daemon's sentence under its row, the value goes back, and the row stays")
+    func decisionModelRefused() async throws {
+        let gateway = try Self.gateway()
+        let harness = try SettingsHarness(gateway: gateway)
+        let sentence = "Set up OpenRouter first: the screen's decision model runs on its key."
+        gateway.v2Failures[.settingsApply] = Self.refusedValue(CuesPaneKeys.decisionProvider, sentence)
+        gateway.sectionResults["cues"] = try Self.cueSection(screen: "decision_model", provider: "")
+        await harness.model.loadSection("cues")
+        let decision = try #require(harness.model.section("cues").value?.rows.first { $0.key == CuesPaneKeys.decisionProvider })
+
+        await harness.model.apply(section: "cues", key: CuesPaneKeys.decisionProvider, value: .text("openrouter"))
+
+        #expect(harness.model.message(for: SettingsDraftKey(section: "cues", key: CuesPaneKeys.decisionProvider)) == sentence)
+        #expect(harness.model.value(of: decision, in: "cues") == .text(""), "the pop-up is back on the daemon's value")
+        #expect(harness.model.drawsCueRow(decision), "the Screen did not move, so the row stays with its refusal")
+        #expect(harness.model.message(for: SettingsDraftKey(section: "cues", key: CuesPaneKeys.screen)) == nil)
     }
 
     @Test("a watcher filter kind this build does not know draws no Filter row")
@@ -1426,15 +1552,16 @@ struct CuesTests {
         return try JSONDecoder().decode(ManagementCueWatcherList.self, from: try JSONSerialization.data(withJSONObject: empty))
     }
 
-    /// The golden `cues` section's rows, with the Screen row it publishes
-    /// just before the filter model, or as an engine from before the Screen
-    /// publishes them, without it.
+    /// The golden `cues` section's rows, with the Screen and its decision
+    /// model it publishes just before the filter model, or as an engine from
+    /// before the Screen publishes them, without either.
     static func cueSettingRows(withScreen: Bool) throws -> [ManagementSettingRow] {
         let fixture = try #require(try ManagementFixtures.load(.success, from: .management).first { $0.name == "settings_get_cues" })
         let result = try #require(try fixture.object("response")["result"] as? [String: Any])
         let rows = try #require(result["rows"] as? [[String: Any]])
         #expect(rows.contains { $0["key"] as? String == "cues_screen" }, "the golden publishes the Screen")
-        let published = withScreen ? rows : rows.filter { $0["key"] as? String != "cues_screen" }
+        let screenKeys: Set<String> = ["cues_screen", "cues_decision_provider"]
+        let published = withScreen ? rows : rows.filter { !screenKeys.contains($0["key"] as? String ?? "") }
 
         return try JSONDecoder().decode([ManagementSettingRow].self, from: try JSONSerialization.data(withJSONObject: published))
     }
@@ -1453,6 +1580,60 @@ struct CuesTests {
         row["options"] = options
 
         return try JSONDecoder().decode(ManagementSettingRow.self, from: try JSONSerialization.data(withJSONObject: row))
+    }
+
+    /// The golden `cues` section as a daemon with OpenAI set up and
+    /// OpenRouter and Venice not publishes it: the Screen on `screen`, its
+    /// decision model on `provider`, and the decision model option's hint.
+    static func cueSection(
+        screen: String,
+        provider: String,
+        screenHint: String = "Uses OpenAI · gpt-6-luna"
+    ) throws -> ManagementSettingsSectionRows {
+        let fixture = try #require(try ManagementFixtures.load(.success, from: .management).first { $0.name == "settings_get_cues" })
+        var result = try #require(try fixture.object("response")["result"] as? [String: Any])
+        var rows = try #require(result["rows"] as? [[String: Any]])
+        for index in rows.indices {
+            switch rows[index]["key"] as? String {
+            case CuesPaneKeys.screen:
+                rows[index]["value"] = screen
+                rows[index]["options"] = try openOptions(rows[index], ["decision_model": nil], hint: screenHint)
+            case CuesPaneKeys.decisionProvider:
+                rows[index]["value"] = provider
+                rows[index]["options"] = try openOptions(rows[index], ["": "Automatic (Uses OpenAI · gpt-6-luna)", "openai": nil], hint: nil)
+            default:
+                continue
+            }
+        }
+        result["rows"] = rows
+
+        return try JSONDecoder().decode(ManagementSettingsSectionRows.self, from: try JSONSerialization.data(withJSONObject: result))
+    }
+
+    /// A row's options with the ones named enabled, each relabelled where a
+    /// label is given, and given `hint`.
+    private static func openOptions(_ row: [String: Any], _ open: [String: String?], hint: String?) throws -> [[String: Any]] {
+        var options = try #require(row["options"] as? [[String: Any]])
+        for index in options.indices {
+            guard let value = options[index]["value"] as? String, let label = open[value] else { continue }
+
+            options[index]["disabled"] = false
+            options[index]["hint"] = hint ?? NSNull()
+            if let label { options[index]["label"] = label }
+        }
+        return options
+    }
+
+    /// The daemon's refusal of a `settings.apply` value: `invalid_params`
+    /// naming the row, with its sentence.
+    static func refusedValue(_ key: String, _ sentence: String) -> ManagementError {
+        .daemon(
+            ManagementFailure(
+                code: .invalidParams,
+                message: "Request parameters are invalid.",
+                details: ManagementErrorDetails(values: ["field": .string(key), "sentence": .string(sentence)])
+            )
+        )
     }
 
     /// The golden stream form with its `secret` row under another key.
@@ -1498,4 +1679,11 @@ final class RecordingSecretPasteboard: @unchecked Sendable {
             withdraw: { count in self.lock.withLock { self.withdrawn.append(count) } }
         )
     }
+}
+
+/// What the Screen and its decision model row showed while each write was
+/// out, read from inside the re-read the write waits on.
+final class ObservedCueScreen: @unchecked Sendable {
+    var screens: [String] = []
+    var draws: [Bool] = []
 }
