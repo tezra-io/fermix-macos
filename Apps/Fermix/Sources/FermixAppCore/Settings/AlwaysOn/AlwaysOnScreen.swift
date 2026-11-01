@@ -115,6 +115,30 @@ public struct AlwaysOnScreen: Equatable, Sendable {
     }
 }
 
+/// The choice of size and place as its sheet draws it: the engine's sentence
+/// for the recommendation, then each city's offers in the engine's order,
+/// each its label and price as sent. A city with nothing in stock has no
+/// rows, so it is not drawn.
+public struct AlwaysOnChoice: Equatable, Sendable {
+    public struct City: Equatable, Sendable {
+        public let city: String
+        public let offers: [ManagementProvisionOffer]
+    }
+
+    public let sentence: String
+    public let cities: [City]
+    /// The pick chosen until the owner picks another.
+    public let recommended: ManagementProvisionPick?
+
+    public init(_ options: ManagementProvisionOptions) {
+        sentence = options.sentence
+        cities = options.locations
+            .map { location in City(city: location.city, offers: options.offers.filter { $0.location == location.id }) }
+            .filter { !$0.offers.isEmpty }
+        recommended = options.recommended
+    }
+}
+
 /// Which provider's token a token field takes.
 public enum AlwaysOnTokenTarget: Equatable, Sendable {
     /// More than one is listed and none is picked: the owner picks first.

@@ -33,6 +33,9 @@ struct AppEnvironment {
     /// Mac holds for the running bundle.
     let notificationCenter: any UserNotificationCentering
     let settingsPanes: any SettingsPaneStoring
+    /// The Always On notices this Mac raised, kept so a relaunch does not
+    /// raise a standing one again.
+    let alwaysOnNotices: any AlwaysOnNoticeStoring
     let sidebarVisibility: any SidebarVisibilityStoring
     /// Where a clicked link opens: the pane or the person's own browser.
     let linkPreference: any LinkPreferenceStoring
@@ -169,6 +172,7 @@ extension AppEnvironment {
             microphone: SystemMicrophoneAuthorization(),
             notificationCenter: SystemUserNotificationCenter(),
             settingsPanes: UserDefaultsSettingsPaneStore(),
+            alwaysOnNotices: UserDefaultsAlwaysOnNoticeStore(),
             sidebarVisibility: UserDefaultsSidebarStore(),
             linkPreference: UserDefaultsLinkPreferenceStore(),
             checklistPanel: UserDefaultsChecklistPanelStore(),

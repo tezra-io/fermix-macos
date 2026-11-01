@@ -901,6 +901,13 @@ final class FixtureSidebarStore: SidebarVisibilityStoring {
     var sidebarVisible: Bool?
 }
 
+/// The Always On notices raised, in memory, never written to the operator's
+/// defaults.
+@MainActor
+final class FixtureAlwaysOnNoticeStore: AlwaysOnNoticeStoring {
+    var postedNotices: [String] = []
+}
+
 /// Whether the Lists panel is open: open on the lists start, closed on every
 /// other, and never written to the operator's defaults.
 @MainActor
@@ -981,6 +988,7 @@ extension AppEnvironment {
             microphone: FixtureMicrophone(),
             notificationCenter: FixtureNotificationCenter(),
             settingsPanes: FixturePaneStore(),
+            alwaysOnNotices: FixtureAlwaysOnNoticeStore(),
             sidebarVisibility: FixtureSidebarStore(),
             linkPreference: FixtureLinkPreferenceStore(),
             checklistPanel: FixtureChecklistPanelStore(open: launch.start == .lists),

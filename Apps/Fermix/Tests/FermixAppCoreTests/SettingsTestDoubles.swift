@@ -15,6 +15,17 @@ final class FakeSettingsPaneStore: SettingsPaneStoring {
     }
 }
 
+/// The Always On notices raised, in memory, as a relaunch would read them
+/// back. Nothing here reaches `UserDefaults`.
+@MainActor
+final class FakeAlwaysOnNoticeStore: AlwaysOnNoticeStoring {
+    var postedNotices: [String]
+
+    init(postedNotices: [String] = []) {
+        self.postedNotices = postedNotices
+    }
+}
+
 /// The microphone right, scripted. The real reader answers for the running
 /// process, so a test that touched it would assert against whatever this Mac
 /// happens to have granted.
@@ -78,7 +89,8 @@ enum SettingsFixture {
         notifications: MacNotifications? = nil,
         loginItems: FakeLoginItemService = FakeLoginItemService(),
         sleeper: any Sleeping = NoWaitSleeper(),
-        logins: any LoginStore = InMemoryLoginStore()
+        logins: any LoginStore = InMemoryLoginStore(),
+        alwaysOnNotices: FakeAlwaysOnNoticeStore? = nil
     ) -> SettingsModel {
         SettingsModel(
             gateway: gateway,
@@ -92,7 +104,8 @@ enum SettingsFixture {
                 notifications: notifications ?? Self.notifications(),
                 settingsOpener: settingsOpener
             ),
-            logins: logins
+            logins: logins,
+            alwaysOnNotices: alwaysOnNotices ?? FakeAlwaysOnNoticeStore()
         )
     }
 

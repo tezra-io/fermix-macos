@@ -21,9 +21,9 @@ struct AlwaysOnAskContent: View {
     }
 }
 
-/// The choice (`needs` `choice`): what the provider sells, by city, each
-/// offer with its monthly price as given, the recommendation chosen until
-/// the owner picks another.
+/// The choice (`needs` `choice`): what the provider in use sells, by city,
+/// each offer its label and price in the engine's words, the recommendation
+/// chosen until the owner picks another.
 struct AlwaysOnChoiceSheet: View {
     @ObservedObject var model: AlwaysOnModel
     let action: ManagementHomeAction
@@ -62,8 +62,8 @@ struct AlwaysOnChoiceSheet: View {
     }
 }
 
-/// The offers, by location, cheapest first, the one selected marked, under
-/// the engine's sentence for the recommendation.
+/// The offers, by city, in the engine's order, the one selected marked,
+/// under the engine's sentence for the recommendation.
 struct AlwaysOnOffers: View {
     let options: SettingsReadState<ManagementProvisionOptions>
     let selected: ManagementProvisionPick?
@@ -72,12 +72,13 @@ struct AlwaysOnOffers: View {
     var body: some View {
         switch options {
         case .loaded(let options):
-            CueNote(text: options.sentence)
+            let choice = AlwaysOnChoice(options)
+            CueNote(text: choice.sentence)
             Form {
-                ForEach(options.locations, id: \.id) { location in
-                    Section(location.city) {
-                        ForEach(options.offers.filter { $0.location == location.id }, id: \.type) { offer in
-                            row(offer, currency: options.currency)
+                ForEach(choice.cities, id: \.city) { city in
+                    Section(city.city) {
+                        ForEach(city.offers, id: \.type) { offer in
+                            row(offer)
                         }
                     }
                 }
@@ -92,7 +93,7 @@ struct AlwaysOnOffers: View {
         }
     }
 
-    private func row(_ offer: ManagementProvisionOffer, currency: String) -> some View {
+    private func row(_ offer: ManagementProvisionOffer) -> some View {
         let offered = ManagementProvisionPick(type: offer.type, location: offer.location)
 
         return Button {
@@ -100,12 +101,10 @@ struct AlwaysOnOffers: View {
         } label: {
             HStack(spacing: Spacing.s) {
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    Text(offer.description).fermixType(Typography.style(.callout))
-                    CueNote(text: AlwaysOnPrices.shape(offer))
+                    Text(offer.label).fermixType(Typography.style(.callout))
+                    CueNote(text: offer.price)
                 }
                 Spacer()
-                Text(String(format: ProductStrings[.alwaysOnMonthlyFormat], AlwaysOnPrices.money(offer.totalMonthly, currency: currency)))
-                    .fermixType(Typography.style(.calloutSmall))
                 if selected == offered {
                     Image(systemName: "checkmark").foregroundStyle(Palette.accent.color).accessibilityHidden(true)
                 }
@@ -113,26 +112,6 @@ struct AlwaysOnOffers: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-}
-
-/// An offer as the choice draws it: its shape, and its monthly total with
-/// the IPv4 address, in the account's currency, as the provider gave it,
-/// never rounded or summed here.
-enum AlwaysOnPrices {
-    static func money(_ amount: String, currency: String) -> String {
-        guard let value = Decimal(string: amount, locale: Locale(identifier: "en_US_POSIX")) else { return amount }
-
-        return value.formatted(.currency(code: currency))
-    }
-
-    static func shape(_ offer: ManagementProvisionOffer) -> String {
-        String(
-            format: ProductStrings[.alwaysOnShapeFormat],
-            offer.cores,
-            offer.memoryGb.formatted(.number.precision(.fractionLength(0...1))),
-            offer.diskGb
-        )
     }
 }
 

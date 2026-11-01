@@ -62,8 +62,8 @@ public final class AlwaysOnModel: ObservableObject {
     unowned let settings: SettingsModel
     let log = AppLog.logger(.app)
 
-    /// The notices raised already, so each is raised once.
-    private var posted = AlwaysOnPosted()
+    /// The notices raised already, across launches, so each is raised once.
+    private let posted: AlwaysOnPosted
     /// The reads in order: each waits for the one before it.
     private var reading: Task<Void, Never>?
     /// The read the last cue from the chat wire started; each cue's read
@@ -75,8 +75,9 @@ public final class AlwaysOnModel: ObservableObject {
     /// done.
     private var restartSeen = false
 
-    public init(settings: SettingsModel) {
+    public init(settings: SettingsModel, notices: any AlwaysOnNoticeStoring) {
         self.settings = settings
+        posted = AlwaysOnPosted(store: notices)
     }
 
     var gateway: any DaemonQuerying { settings.gateway }

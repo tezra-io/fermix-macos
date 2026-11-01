@@ -540,7 +540,8 @@ final class AppComposition {
                 notifications: notifications
             ),
             // The same one store the browser host reads (M84 §7).
-            logins: environment.loginStore
+            logins: environment.loginStore,
+            alwaysOnNotices: environment.alwaysOnNotices
         )
 
         return (gateway, settings)

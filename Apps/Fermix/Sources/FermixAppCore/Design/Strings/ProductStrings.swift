@@ -887,8 +887,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// The provider's name, as the engine gives it.
     case alwaysOnOpenConsoleFormat = "alwaysOn.token.openConsoleFormat"
     case alwaysOnChangeTitle = "alwaysOn.choose.title"
-    case alwaysOnMonthlyFormat = "alwaysOn.choose.monthlyFormat"
-    case alwaysOnShapeFormat = "alwaysOn.choose.shapeFormat"
     case alwaysOnPassphraseTitle = "alwaysOn.passphrase.title"
     /// Where no recovery passphrase is set: it is typed twice.
     case alwaysOnPassphraseBody = "alwaysOn.passphrase.body"

@@ -420,6 +420,22 @@ struct AlwaysOnPaneTests {
         #expect(pane.model.asking == nil && pane.gateway.homeActs.isEmpty)
     }
 
+    // MARK: - The choice
+
+    /// What the provider in use sells, as the engine words each offer: the
+    /// sheet draws its label and price as sent, under the city of its place.
+    @Test("the choice draws each offer's label and price as the engine sent them, by city, the recommendation marked")
+    func choiceDraws() throws {
+        let options: ManagementProvisionOptions = try AlwaysOnTests.golden("home_provision_options")
+
+        #expect(AlwaysOnRendering.lines(AlwaysOnChoice(options)) == Self.choiceGolden)
+
+        var soldOut = try AlwaysOnTests.goldenObject("home_provision_options")
+        soldOut["offers"] = (soldOut["offers"] as? [[String: Any]])?.filter { $0["location"] as? String != "nbg1" }
+        let cities = AlwaysOnChoice(try AlwaysOnTests.decode(ManagementProvisionOptions.self, soldOut)).cities.map(\.city)
+        #expect(cities == ["Falkenstein", "Helsinki"], "a city with nothing in stock has no rows to draw")
+    }
+
     // MARK: - Notifications
 
     @Test("a notice is raised the first time its id is seen, under the Always On title, and once, an outage between or not")
@@ -442,17 +458,43 @@ struct AlwaysOnPaneTests {
         ])
     }
 
-    @Test("the notices raised are the last sixteen")
+    @Test("the notices raised are kept in the store, the last sixteen, and a relaunch reads them")
     func postedBound() {
-        var posted = AlwaysOnPosted()
+        let store = FakeAlwaysOnNoticeStore()
+        let posted = AlwaysOnPosted(store: store)
         var raised = 0
         for epoch in 0..<17 where posted.first("moved:\(epoch)") { raised += 1 }
 
-        #expect(raised == 17 && posted.ids.count == AlwaysOnPosted.bound)
-        let again = [posted.first("moved:16"), posted.first("moved:1")]
+        #expect(raised == 17 && store.postedNotices.count == AlwaysOnPosted.bound)
+        #expect(store.postedNotices.first == "moved:1", "oldest first, the oldest forgotten past the bound")
+        let relaunched = AlwaysOnPosted(store: store)
+        let again = [relaunched.first("moved:16"), relaunched.first("moved:1")]
         #expect(again == [false, false])
-        let oldest = posted.first("moved:0")
-        #expect(oldest, "the oldest is forgotten past the bound")
+        let oldest = relaunched.first("moved:0")
+        #expect(oldest)
+    }
+
+    /// The owner quits and opens the app while the server is ready: the
+    /// notification is not raised a second time.
+    @Test("a notice raised before the app last quit is not raised again at launch")
+    func noticesAcrossLaunches() async throws {
+        let notices = FakeAlwaysOnNoticeStore(postedNotices: ["ready:cand-5e2a9c1f7b3d4086"])
+        let gateway = try AlwaysOnTests.gateway()
+        gateway.homeStatusScript = [.success(try AlwaysOnTests.golden("home_status_ready")), .success(try AlwaysOnTests.golden("home_status_problem"))]
+        let pane = try Self.harness(gateway, notices: notices)
+        let notifier = RecordingAlwaysOnNotifier()
+        pane.model.notifier = notifier
+
+        await pane.model.refresh()
+        await pane.model.refresh()
+
+        #expect(notifier.posted.map(\.body) == ["Fermix cannot reach your server. Your messages wait until it is back."])
+        #expect(notices.postedNotices == ["ready:cand-5e2a9c1f7b3d4086", "cannot_reach:2031-05-04T11:49:00Z"])
+    }
+
+    @Test("the shipped notice store keeps its ids under its published key")
+    func noticeStoreKey() {
+        #expect(UserDefaultsAlwaysOnNoticeStore.key == "alwaysOn.notices.posted")
     }
 
     @Test("a press's answer raises its notice too")
@@ -574,11 +616,11 @@ struct AlwaysOnPaneTests {
 
     // MARK: - The copy
 
-    @Test("the pane's own words are twenty, keep the copy rules, and none names a cloud provider")
+    @Test("the pane's own words are eighteen, keep the copy rules, and none names a cloud provider")
     func copy() {
         let own = ProductStringKey.allCases.filter { $0.rawValue.hasPrefix("alwaysOn.") }
 
-        #expect(own.count == 20, "every word the engine says is the engine's")
+        #expect(own.count == 18, "every word the engine says is the engine's")
         for key in own {
             #expect(ProductCopyRules.violations(in: ProductStrings[key]).isEmpty, "\(key.rawValue)")
         }
@@ -670,6 +712,22 @@ struct AlwaysOnPaneTests {
             "note: Hetzner bills by the hour until the server is deleted.",
             "action: Create server, needs choice, confirms"
         ]
+    ]
+
+    /// What the choice draws for the options the contract publishes.
+    static let choiceGolden = [
+        "sentence: Recommended: CPX22 in Falkenstein, €20 a month.",
+        "city: Falkenstein",
+        "offer: CPX22: 2 cores, 4 GB memory, 80 GB disk, €20.09 a month, billed by the hour until deleted, recommended",
+        "offer: CPX32: 4 cores, 8 GB memory, 160 GB disk, €36.09 a month, billed by the hour until deleted",
+        "offer: CCX13: 2 dedicated cores, 8 GB memory, 80 GB disk, €42.24 a month, billed by the hour until deleted",
+        "city: Nuremberg",
+        "offer: CPX22: 2 cores, 4 GB memory, 80 GB disk, €20.09 a month, billed by the hour until deleted",
+        "offer: CCX13: 2 dedicated cores, 8 GB memory, 80 GB disk, €42.24 a month, billed by the hour until deleted",
+        "city: Helsinki",
+        "offer: CPX22: 2 cores, 4 GB memory, 80 GB disk, €20.09 a month, billed by the hour until deleted",
+        "offer: CPX32: 4 cores, 8 GB memory, 160 GB disk, €36.09 a month, billed by the hour until deleted",
+        "offer: CCX13: 2 dedicated cores, 8 GB memory, 80 GB disk, €42.24 a month, billed by the hour until deleted"
     ]
 
     static let changedSentence = "Always On changed since this was shown, so look at it again."
@@ -819,8 +877,12 @@ struct AlwaysOnPaneTests {
         var model: AlwaysOnModel { settings.alwaysOn }
     }
 
-    static func harness(_ gateway: FakeDaemonGateway, opener: RecordingExternalOpener = RecordingExternalOpener()) throws -> Harness {
-        Harness(settings: SettingsFixture.model(gateway: gateway, opener: opener), gateway: gateway)
+    static func harness(
+        _ gateway: FakeDaemonGateway,
+        opener: RecordingExternalOpener = RecordingExternalOpener(),
+        notices: FakeAlwaysOnNoticeStore? = nil
+    ) throws -> Harness {
+        Harness(settings: SettingsFixture.model(gateway: gateway, opener: opener, alwaysOnNotices: notices), gateway: gateway)
     }
 
     /// A model whose pane read `status`, then answers `then` in order, the
@@ -864,6 +926,18 @@ enum AlwaysOnRendering {
         drawn += screen.lines.map { "line: \($0.label): \($0.value)" }
         if let data = screen.data { drawn.append("data: \(data)") }
         drawn += screen.detailActions.map { "details link: \(describe($0))" }
+        return drawn
+    }
+
+    static func lines(_ choice: AlwaysOnChoice) -> [String] {
+        var drawn = ["sentence: \(choice.sentence)"]
+        for city in choice.cities {
+            drawn.append("city: \(city.city)")
+            drawn += city.offers.map { offer in
+                let pick = ManagementProvisionPick(type: offer.type, location: offer.location)
+                return "offer: \(offer.label), \(offer.price)" + (pick == choice.recommended ? ", recommended" : "")
+            }
+        }
         return drawn
     }
 

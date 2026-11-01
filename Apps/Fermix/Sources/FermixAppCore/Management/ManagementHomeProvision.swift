@@ -17,28 +17,15 @@ public struct ManagementProvisionLocation: Decodable, Equatable, Sendable {
     public let country: String
 }
 
-/// One type in one location. The prices are monthly and gross, as decimal
-/// strings in the account's currency, drawn as they are given;
-/// `totalMonthly` adds the IPv4 address.
+/// One type in one location, in the engine's words: `label` its name and
+/// shape, `price` its monthly total as the summary's Costs line words it.
+/// Both are drawn as they are sent; the choice sends `type` and `location`.
+/// The engine sends the figures behind them too, which the app never words.
 public struct ManagementProvisionOffer: Decodable, Equatable, Sendable {
     public let type: String
-    public let description: String
-    public let cores: Int
-    public let memoryGb: Double
-    public let diskGb: Int
-    public let dedicated: Bool
     public let location: String
-    public let monthly: String
-    public let ipv4Monthly: String
-    public let totalMonthly: String
-
-    private enum CodingKeys: String, CodingKey {
-        case type, description, cores, dedicated, location, monthly
-        case memoryGb = "memory_gb"
-        case diskGb = "disk_gb"
-        case ipv4Monthly = "ipv4_monthly"
-        case totalMonthly = "total_monthly"
-    }
+    public let label: String
+    public let price: String
 }
 
 /// A type in a location: what the choice sends.
@@ -54,9 +41,8 @@ public struct ManagementProvisionPick: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// `home.provision.options`: what a provider sells now, read live.
+/// `home.provision.options`: what the provider in use sells now, read live.
 public struct ManagementProvisionOptions: Decodable, Equatable, Sendable {
-    public let currency: String
     public let locations: [ManagementProvisionLocation]
     public let offers: [ManagementProvisionOffer]
     public let recommended: ManagementProvisionPick?
@@ -65,13 +51,8 @@ public struct ManagementProvisionOptions: Decodable, Equatable, Sendable {
     public let sentence: String
 
     private enum CodingKeys: String, CodingKey {
-        case currency, locations, offers, recommended, sentence
+        case locations, offers, recommended, sentence
         case moreRoom = "more_room"
-    }
-
-    /// The offer a pick names, where the provider sells it.
-    public func offer(_ pick: ManagementProvisionPick) -> ManagementProvisionOffer? {
-        offers.first { $0.type == pick.type && $0.location == pick.location }
     }
 }
 

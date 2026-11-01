@@ -154,7 +154,7 @@ public final class SettingsModel: ObservableObject {
     /// The Always On pane's reads and presses (M75). It hangs off this model
     /// for the phone's reason: the pane and the notice that raises its
     /// notifications read one summary, so there is one instance for both.
-    public private(set) lazy var alwaysOn = AlwaysOnModel(settings: self)
+    public private(set) lazy var alwaysOn = AlwaysOnModel(settings: self, notices: alwaysOnNotices)
 
     /// The website logins the Browser pane lists and edits (M84 §11), over the
     /// one store the composition built. The store is the app's, not the
@@ -169,6 +169,8 @@ public final class SettingsModel: ObservableObject {
 
     let gateway: any DaemonQuerying
     private let store: any SettingsPaneStoring
+    /// Where the Always On notices raised are kept across launches.
+    private let alwaysOnNotices: any AlwaysOnNoticeStoring
     let sleeper: any Sleeping
     /// The system browser, for the hop a sign-in needs (RFC 8252) and the one
     /// to ChatGPT's usage settings.
@@ -181,10 +183,12 @@ public final class SettingsModel: ObservableObject {
         sleeper: any Sleeping,
         opener: any ExternalOpening,
         permissions: PermissionLedger,
-        logins: any LoginStore
+        logins: any LoginStore,
+        alwaysOnNotices: any AlwaysOnNoticeStoring
     ) {
         self.gateway = gateway
         self.store = store
+        self.alwaysOnNotices = alwaysOnNotices
         self.sleeper = sleeper
         self.opener = opener
         self.permissions = permissions
