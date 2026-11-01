@@ -49,9 +49,12 @@ enum ProposalLines {
 
     /// A watcher's follow-up card, as the engine writes it at version 5: the
     /// follow-up in place of the mandate, the tool and the call's arguments.
+    /// A daemon with Always allow adds `offers_always_allow`; an older one
+    /// leaves it out.
     static func followUpCardObject(
         _ id: String = "cft_01",
         asks: String = "run",
+        offersAlwaysAllow: Bool = false,
         outside: [String: Any] = ["reason": "The post says the limits reset.", "cue": cueObject()]
     ) -> [String: Any] {
         var followUp: [String: Any] = [
@@ -61,9 +64,8 @@ enum ProposalLines {
             "tools": ["codex_run"],
             "reports_to": "Telegram (owner-1)"
         ]
-        if asks == "automatic" {
-            followUp["daily_cap"] = 3
-            followUp["set_off_by"] = "eng-blogs; listens for reset"
+        if offersAlwaysAllow {
+            followUp["offers_always_allow"] = true
         }
 
         return [
@@ -185,17 +187,19 @@ struct CompanionProposalWireTests {
         }
         #expect(followUp.asks == .run)
         #expect(followUp.instructions == ProposalLines.followUpInstructions)
-        #expect(followUp.dailyCap == nil && followUp.setOffBy == nil)
+        #expect(followUp.offersAlwaysAllow == nil && !proposal.offersAlwaysAllow, "a card that leaves it out does not offer it")
         #expect(proposal.outside.argsText == nil)
         #expect(proposal.outside.reason == "The post says the limits reset.")
         #expect(CompanionServerWire.object(event) as NSDictionary == object as NSDictionary)
 
-        let automatic = try ProposalLines.proposal(ProposalLines.followUpCardObject("cfa_01", asks: "automatic", outside: [:]))
-        guard case .followUp(let approval) = automatic.ask else {
-            Issue.record("the approval's prompt did not decode as a follow-up's")
+        let offeredObject = ProposalLines.eventObject(ProposalLines.followUpCardObject(offersAlwaysAllow: true))
+        let offered = try CompanionServerEvent.decode(ProposalLines.line(offeredObject))
+        guard case .proposal(_, let offeredCard) = offered else {
+            Issue.record("the card offering Always allow did not decode as a proposal")
             return
         }
-        #expect(approval.asks == .automatic && approval.dailyCap == 3)
+        #expect(offeredCard.offersAlwaysAllow)
+        #expect(CompanionServerWire.object(offered) as NSDictionary == offeredObject as NSDictionary)
 
         let unknown = try ProposalLines.proposal(ProposalLines.followUpCardObject(asks: "later"))
         guard case .followUp(let later) = unknown.ask else {
@@ -316,7 +320,7 @@ struct CompanionProposalWireTests {
     /// never a token, never a value it edited.
     @Test("a proposal answer carries the request, the profile, the id and the word, and nothing else")
     func answerCarriesOnlyIdAndDecision() throws {
-        for decision in [CompanionProposalDecision.confirm, .deny] {
+        for decision in [CompanionProposalDecision.confirm, .deny, .alwaysAllow] {
             let event = CompanionClientEvent.proposalAnswer(
                 clientMsgId: "mac-1", profileId: "main", proposalId: "prop_01", decision: decision
             )
@@ -366,6 +370,24 @@ struct CompanionProposalChatTests {
         #expect(chat.answer("prop_01", .confirm, as: "mac-2").isEmpty)
         #expect(chat.pending.count == 1)
         #expect(chat.card("prop_01")?.standing == .answered(.deny))
+    }
+
+    @Test("Always allow is sent only to a follow-up's card that offers it, and a mandate's card never takes it")
+    func alwaysAllowOnlyWhereOffered() throws {
+        var chat = try CompanionChat.holding([
+            ProposalLines.followUpCardObject("cft_offered", offersAlwaysAllow: true),
+            ProposalLines.followUpCardObject("cft_older"),
+            ProposalLines.cardObject("prop_01")
+        ])
+
+        #expect(chat.answer("cft_older", .alwaysAllow).isEmpty, "a card that does not offer it is never sent it")
+        #expect(chat.answer("prop_01", .alwaysAllow, as: "mac-2").isEmpty, "a mandate's card refuses it")
+        #expect(chat.pending.isEmpty)
+        #expect(chat.card("cft_older")?.awaitsDecision == true && chat.card("prop_01")?.awaitsDecision == true)
+
+        let sent = chat.answer("cft_offered", .alwaysAllow, as: "mac-3")
+        #expect(sent == [.proposalAnswer(clientMsgId: "mac-3", profileId: "main", proposalId: "cft_offered", decision: .alwaysAllow)])
+        #expect(chat.card("cft_offered")?.standing == .answered(.alwaysAllow))
     }
 
     @Test("a card the daemon does not say waits, in a word it knows or one it does not, draws no button and takes no answer")
@@ -698,6 +720,24 @@ struct CompanionProposalSessionTests {
         #expect(harness.model.waitingProposalIds.isEmpty)
     }
 
+    @Test("Always allow on a follow-up's card puts always_allow on the wire, and the card waits running as Run's does")
+    func alwaysAllowOnTheWire() throws {
+        let harness = try ProposalHarness()
+        harness.connected()
+        harness.socket.deliver(try ProposalLines.event(ProposalLines.followUpCardObject("cft_5d2e", offersAlwaysAllow: true)))
+
+        harness.session.answerProposal("cft_5d2e", decision: .alwaysAllow)
+
+        let line = try #require(try harness.socket.sentObjects().last)
+        #expect(line == (try wireObject(companion: .proposalAnswer(
+            clientMsgId: "mac-1", profileId: "main", proposalId: "cft_5d2e", decision: .alwaysAllow
+        ))))
+        #expect(line["decision"] as? String == "always_allow")
+        #expect(harness.model.proposals.first?.standing == .answered(.alwaysAllow))
+        #expect(ChatProposalCard.runs(after: .alwaysAllow) && ChatProposalCard.runs(after: .confirm))
+        #expect(!ChatProposalCard.runs(after: .deny))
+    }
+
     @Test("the menu line's request to show a card is published once and taken back when served")
     func revealIsServedOnce() throws {
         let harness = try ProposalHarness()
@@ -854,19 +894,60 @@ struct OutsideTextTests {
     @Test("a follow-up's lines are its owner's words and Fermix's, and none of the item's")
     func followUpLines() throws {
         let run = try ProposalLines.proposal(ProposalLines.followUpCardObject())
-        let automatic = try ProposalLines.proposal(ProposalLines.followUpCardObject("cfa_01", asks: "automatic", outside: [:]))
-        guard case .followUp(let once) = run.ask, case .followUp(let always) = automatic.ask else {
-            Issue.record("the cards did not decode as follow-ups")
+        guard case .followUp(let once) = run.ask else {
+            Issue.record("the card did not decode as a follow-up's")
             return
         }
 
         #expect(ChatProposalCard.facts(of: once) == "Reports to Telegram (owner-1) · Tools: codex_run")
-        #expect(
-            ChatProposalCard.facts(of: always)
-                == "Reports to Telegram (owner-1) · Tools: codex_run · At most 3 a day · Set off by eng-blogs; listens for reset"
-        )
         #expect(!ChatProposalCard.facts(of: once).contains("Lantern"))
         #expect(ChatProposalCard.facts(of: run).hasPrefix("Task: Daily review · Watcher: limits-watch · Waits until "))
+    }
+
+    @Test("a follow-up's card answers Run, Skip and, where it offers it, Always allow; a mandate's keeps Deny and Confirm")
+    func answersByCard() throws {
+        let offered = try ProposalLines.proposal(ProposalLines.followUpCardObject(offersAlwaysAllow: true))
+        let older = try ProposalLines.proposal(ProposalLines.followUpCardObject())
+        let mandate = try ProposalLines.proposal()
+
+        #expect(ChatProposalCard.answers(of: offered) == [
+            ProposalAnswer(title: "Always allow", decision: .alwaysAllow),
+            ProposalAnswer(title: "Skip", decision: .deny),
+            ProposalAnswer(title: "Run", decision: .confirm)
+        ])
+        #expect(ChatProposalCard.answers(of: older) == [
+            ProposalAnswer(title: "Skip", decision: .deny),
+            ProposalAnswer(title: "Run", decision: .confirm)
+        ])
+        #expect(ChatProposalCard.answers(of: mandate) == [
+            ProposalAnswer(title: "Deny", decision: .deny),
+            ProposalAnswer(title: "Confirm", decision: .confirm)
+        ])
+    }
+
+    /// Always allow replaced the automatic follow-up: its approval prompt
+    /// (`cfa_`), its cap and what set it off are gone from the wire, so no
+    /// source names them.
+    @Test("no cfa_ approval prompt, automatic follow-up, daily cap or set-off line is handled any more")
+    func noApprovalPromptRemains() throws {
+        let files = try SourceTree.swiftFiles(under: "", excluding: false).filter {
+            $0.path.contains("/Companion/") || $0.path.contains("/Chat/")
+        }
+        #expect(!files.isEmpty, "the scan found no file at all")
+
+        for file in files {
+            for gone in ["cfa_", "dailyCap", "setOffBy", "daily_cap", "set_off_by", "case automatic"] {
+                #expect(!file.text.contains(gone), "\(file.path) still names \(gone)")
+            }
+        }
+        #expect(!ProductStringKey.allCases.contains { $0.rawValue.hasPrefix("proposal.followUp.dailyCap") || $0.rawValue.hasPrefix("proposal.followUp.setOffBy") })
+
+        let automatic = try ProposalLines.proposal(ProposalLines.followUpCardObject("cft_02", asks: "automatic"))
+        guard case .followUp(let followUp) = automatic.ask else {
+            Issue.record("the card did not decode as a follow-up's")
+            return
+        }
+        #expect(followUp.asks == .unrecognized("automatic"), "an old daemon's word is kept, never drawn as a mode")
     }
 
     @Test("the card's own lines are Fermix's record and none of the outside text")

@@ -273,9 +273,7 @@ enum CompanionServerWire {
                 "name": followUp.name,
                 "instructions": followUp.instructions,
                 "tools": followUp.tools,
-                "reports_to": followUp.reportsTo,
-                "daily_cap": followUp.dailyCap,
-                "set_off_by": followUp.setOffBy
+                "reports_to": followUp.reportsTo
             ])]
         }
     }
@@ -283,7 +281,6 @@ enum CompanionServerWire {
     private static func word(_ asks: CompanionFollowUpAsks) -> String {
         switch asks {
         case .run: return "run"
-        case .automatic: return "automatic"
         case .unrecognized(let word): return word
         }
     }

@@ -197,6 +197,7 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var cueFormRequests: [ManagementCueFormRequest] = []
     var cueSourceUpdates: [CueValuesWrite] = []
     var cueMandateWrites: [CueValuesWrite] = []
+    var cueWatcherRevokes: [String] = []
     var cueProposalFilters: [ManagementCueProposalFilter] = []
     /// The home (M75): the pictures `home.status` answers, one each in order,
     /// an exhausted script keeping the last; empty means the golden. A

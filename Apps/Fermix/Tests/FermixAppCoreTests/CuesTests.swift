@@ -130,6 +130,7 @@ struct CuesTests {
         #expect(try published("source_states") == Set(ManagementCueSourceState.publishedValues.keys))
         #expect(try published("source_actions") == Set(ManagementCueSourceAction.publishedValues.keys))
         #expect(try published("watcher_states") == Set(ManagementCueWatcherState.publishedValues.keys))
+        #expect(try published("follow_up_states") == Set(ManagementCueFollowUpState.publishedValues.keys))
         #expect(try published("mandate_actions") == Set(ManagementCueMandateAction.publishedValues.keys))
         #expect(try published("proposal_states") == Set(ManagementCueProposalState.publishedValues.keys))
         #expect(try published("decided_from") == Set(ManagementCueDecidedFrom.publishedValues.keys))
@@ -532,6 +533,144 @@ struct CuesTests {
         #expect(watcher.state.drawsAttention)
         #expect(CueTone.watcher(watcher) == .warn)
         #expect(watcher.statusSentence == sentence)
+    }
+
+    // MARK: - Follow-ups
+
+    @Test("a watcher's follow-up decodes in the daemon's words, null as none, and a missing always_allowed as asking first")
+    func followUpDecodes() throws {
+        let watchers: ManagementCueWatcherList = try Self.golden("cues_watchers_list")
+        #expect(watchers.watchers.first?.followUp == ManagementCueWatcher.FollowUp(
+            jobId: "deploy_check_3",
+            name: "Deploy check",
+            alwaysAllowed: true,
+            state: .ready,
+            statusSentence: "Always allowed: it runs on each passing item with no card."
+        ))
+        let revoked: ManagementCueWatcherRowAnswer = try Self.golden("cues_watchers_always_allow_revoke")
+        #expect(revoked.watcher.followUp?.alwaysAllowed == false)
+
+        #expect(try Self.watcher(editing: { $0["follow_up"] = NSNull() }).followUp == nil)
+        #expect(try Self.watcher(editing: { $0["follow_up"] = nil }).followUp == nil, "a daemon older than follow-ups omits it")
+
+        let older = try Self.watcher(editing: { row in
+            row["follow_up"] = [
+                "job_id": "deploy_check_3", "name": "Deploy check", "mode": "auto", "approved": true,
+                "state": "ready", "status_sentence": "Runs on its own once approved."
+            ]
+        })
+        #expect(older.followUp?.alwaysAllowed == false, "a daemon before Always allow is read as asking first")
+
+        let unknown = try Self.watcher(editing: { row in
+            var followUp = row["follow_up"] as? [String: Any] ?? [:]
+            followUp["state"] = "resting"
+            row["follow_up"] = followUp
+        })
+        #expect(unknown.followUp?.state == .unrecognized("resting"))
+        #expect(unknown.followUp?.state.drawsAttention == false)
+    }
+
+    @Test("a watcher's follow-up is drawn by its name and the daemon's sentence, a held one for attention")
+    func followUpWords() throws {
+        let watchers: ManagementCueWatcherList = try Self.golden("cues_watchers_list")
+        let followUp = try #require(watchers.watchers.first?.followUp)
+        #expect(
+            CueWatcherDetailWords.followUpLine(followUp)
+                == "Follow-up: Deploy check · Always allowed: it runs on each passing item with no card."
+        )
+        #expect(!followUp.state.drawsAttention)
+        #expect(CueWatcherDetailWords.offersAskFirstAgain(followUp))
+
+        let sentence = "Held: Let watchers act is off. Turn it on in Settings, Cues."
+        let held = try #require(try Self.watcher(editing: { row in
+            row["follow_up"] = [
+                "job_id": "deploy_check_3", "name": "Deploy check", "always_allowed": false,
+                "state": "held", "status_sentence": sentence
+            ]
+        }).followUp)
+        #expect(held.state.drawsAttention)
+        #expect(CueWatcherDetailWords.followUpLine(held) == "Follow-up: Deploy check · \(sentence)")
+        #expect(!CueWatcherDetailWords.offersAskFirstAgain(held), "a follow-up that asks first has nothing to take back")
+    }
+
+    @Test("Ask first again calls cues.watchers.always_allow.revoke, then reads the list and the watcher again")
+    func askFirstAgainRevokesAndRereads() async throws {
+        let gateway = try Self.gateway()
+        let harness = try SettingsHarness(gateway: gateway)
+        await harness.model.refreshCueWatchers()
+        let mark = gateway.calls.count
+
+        #expect(await harness.model.revokeCueWatcherAlwaysAllow("release-watch") == nil)
+        #expect(
+            Array(gateway.calls.dropFirst(mark))
+                == [.v2(.cuesWatchersAlwaysAllowRevoke), .v2(.cuesWatchersList), .v2(.cuesWatchersGet)]
+        )
+        #expect(gateway.cueWatcherRevokes == ["release-watch"])
+    }
+
+    @Test("a refused Ask first again is the daemon's sentence for under the control, and nothing is read again")
+    func askFirstAgainRefused() async throws {
+        let gateway = try Self.gateway()
+        gateway.v2Failures[.cuesWatchersAlwaysAllowRevoke] = try ManagementRefusal.published("unavailable_cues_owner_decision")
+        let harness = try SettingsHarness(gateway: gateway)
+        let mark = gateway.calls.count
+
+        let refusal = await harness.model.revokeCueWatcherAlwaysAllow("release-watch")
+
+        #expect(refusal?.sentence == "Only the owner can change cues: use the Fermix app or your own terminal.")
+        #expect(Array(gateway.calls.dropFirst(mark)) == [.v2(.cuesWatchersAlwaysAllowRevoke)])
+    }
+
+    // MARK: - The Screen
+
+    @Test("the Screen's line is the hint of the option in use, and a disabled option's hint always, in the warning tone")
+    func screenHints() throws {
+        let golden = try #require(try Self.cueSettingRows(withScreen: true).first { $0.key == CuesPaneKeys.screen })
+        #expect(golden.options.map(\.value) == ["keyword", "decision_model"])
+        #expect(
+            CueScreenProjection.hints(golden, value: "keyword")
+                == [CueScreenHint(text: "Set up OpenAI, OpenRouter or Venice first.", tone: .warn)]
+        )
+
+        let ready = try Self.screenRow(decisionHint: "Uses OpenAI · gpt-6-luna", disabled: false)
+        #expect(CueScreenProjection.hints(ready, value: "decision_model") == [CueScreenHint(text: "Uses OpenAI · gpt-6-luna", tone: .neutral)])
+        #expect(CueScreenProjection.hints(ready, value: "keyword").isEmpty, "an option not in use says nothing until it is chosen")
+
+        let lost = try Self.screenRow(decisionHint: "Set up OpenAI, OpenRouter or Venice first.", disabled: true)
+        #expect(
+            CueScreenProjection.hints(lost, value: "decision_model")
+                == [CueScreenHint(text: "Set up OpenAI, OpenRouter or Venice first.", tone: .warn)],
+            "the option in use that is disabled says so once"
+        )
+    }
+
+    @Test("a disabled Screen option is never written, and an enabled one is")
+    func screenWritesOnlyEnabledOptions() throws {
+        let golden = try #require(try Self.cueSettingRows(withScreen: true).first { $0.key == CuesPaneKeys.screen })
+        #expect(CueScreenProjection.accepts(golden, value: "keyword"))
+        #expect(!CueScreenProjection.accepts(golden, value: "decision_model"))
+        #expect(!CueScreenProjection.accepts(golden, value: "regex"), "a value the row does not offer is never written")
+
+        let ready = try Self.screenRow(decisionHint: "Uses OpenAI · gpt-6-luna", disabled: false)
+        #expect(CueScreenProjection.accepts(ready, value: "decision_model"))
+    }
+
+    @Test("only the cues_screen row is drawn as a segmented control; every other choice row stays a menu")
+    func onlyTheScreenIsSegmented() throws {
+        let sections = try ManagementFixtures.load(.success, from: .management).filter { $0.name.hasPrefix("settings_get_") }
+        var choices: [ManagementSettingRow] = []
+        for fixture in sections {
+            let result = try #require(try fixture.object("response")["result"] as? [String: Any])
+            let rows = try #require(result["rows"] as? [[String: Any]])
+            let decoded = try JSONDecoder().decode([ManagementSettingRow].self, from: try JSONSerialization.data(withJSONObject: rows))
+            choices += decoded.filter { $0.kind == .choice }
+        }
+
+        #expect(choices.count > 10, "the scan found the goldens' choice rows")
+        #expect(choices.filter(CuesPaneKeys.drawsSegmented).map(\.key) == [CuesPaneKeys.screen])
+
+        let descriptorRow = try #require(try SourceTree.swiftFiles(matching: "Settings/Rows/DescriptorRow.swift").first).text
+        #expect(!descriptorRow.contains(".segmented"), "a descriptor choice row is a menu")
     }
 
     @Test("a watcher filter kind this build does not know draws no Filter row")
@@ -1130,6 +1269,8 @@ struct CuesTests {
         #expect(ProductStrings[.cuesSourceCopySecret] == "Copy secret")
         #expect(ProductStrings[.cuesSourceSecretAccessibilityFormat] == "Secret for %@, shown once")
         #expect(ProductStrings[.cuesWatcherListenFor] == "Keywords", "the engine calls a watcher's words keywords")
+        #expect(ProductStrings[.cuesWatcherFollowUp] == "Follow-up")
+        #expect(ProductStrings[.cuesWatcherAskFirstAgain] == "Ask first again")
         #expect(ProductStrings[.cuesWaitingTitle] == "Waiting for you")
         #expect(ProductStrings[.cuesWaitingShowInChat] == "Show in chat")
         #expect(ProductStrings[.cuesLearnMore] == "Learn more")
@@ -1296,6 +1437,22 @@ struct CuesTests {
         let published = withScreen ? rows : rows.filter { $0["key"] as? String != "cues_screen" }
 
         return try JSONDecoder().decode([ManagementSettingRow].self, from: try JSONSerialization.data(withJSONObject: published))
+    }
+
+    /// The golden Screen row with its decision model's hint and whether it
+    /// is disabled set as a daemon would publish them.
+    static func screenRow(decisionHint: String, disabled: Bool) throws -> ManagementSettingRow {
+        let fixture = try #require(try ManagementFixtures.load(.success, from: .management).first { $0.name == "settings_get_cues" })
+        let result = try #require(try fixture.object("response")["result"] as? [String: Any])
+        var row = try #require((result["rows"] as? [[String: Any]])?.first { $0["key"] as? String == CuesPaneKeys.screen })
+        var options = try #require(row["options"] as? [[String: Any]])
+        for index in options.indices where options[index]["value"] as? String == "decision_model" {
+            options[index]["hint"] = decisionHint
+            options[index]["disabled"] = disabled
+        }
+        row["options"] = options
+
+        return try JSONDecoder().decode(ManagementSettingRow.self, from: try JSONSerialization.data(withJSONObject: row))
     }
 
     /// The golden stream form with its `secret` row under another key.

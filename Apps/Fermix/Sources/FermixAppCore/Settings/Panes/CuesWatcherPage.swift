@@ -26,6 +26,18 @@ public enum CueWatcherDetailWords {
         return parts.dropFirst().reduce(parts[0]) { ProductStrings.middot($0, $1) }
     }
 
+    /// "Follow-up: Deploy check · " and the daemon's sentence for it, the
+    /// line a watcher's row draws under its own.
+    public static func followUpLine(_ followUp: ManagementCueWatcher.FollowUp) -> String {
+        ProductStrings.middot(String(format: ProductStrings[.cuesWatcherFollowUpFormat], followUp.name), followUp.statusSentence)
+    }
+
+    /// Ask first again is offered only while the owner's Always allow holds:
+    /// it only ever takes that back, and nothing in the app grants it.
+    public static func offersAskFirstAgain(_ followUp: ManagementCueWatcher.FollowUp) -> Bool {
+        followUp.alwaysAllowed
+    }
+
     public static func dailyLimit(_ watcher: ManagementCueWatcher) -> String {
         watcher.dailyCap == 0 ? ProductStrings[.cuesNone] : String(format: ProductStrings[.cuesWatcherItemsFormat], watcher.dailyCap)
     }
@@ -70,13 +82,19 @@ public enum CueWatcherDetailWords {
     }
 }
 
-/// A watcher's detail, read-only (§4.4). Watchers are made and changed in a
-/// chat with Fermix, and the page's one way there opens Chat with an empty
-/// composer: the app never writes a message for the owner.
+/// A watcher's detail (§4.4). Watchers are made and changed in a chat with
+/// Fermix, and the page's one way there opens Chat with an empty composer:
+/// the app never writes a message for the owner. The one write here is Ask
+/// first again, which takes back the owner's Always allow of its follow-up
+/// and never grants it.
 struct CuesWatcherPage: View {
     let name: String
     @ObservedObject var model: SettingsModel
     let done: () -> Void
+
+    /// The daemon's refusal of Ask first again, under the control.
+    @State private var revokeRefusal: String?
+    @State private var revoking = false
 
     private var detail: ManagementCueWatcherDetail? { model.cueWatcherDetails[name]?.value }
     private var watcher: ManagementCueWatcher? { detail?.row ?? model.cueWatcher(name) }
@@ -142,6 +160,45 @@ struct CuesWatcherPage: View {
             if let examples = detail?.examples {
                 LabeledContent(ProductStrings[.cuesWatcherExamples]) { CueValue(text: CueWatcherDetailWords.examples(examples)) }
             }
+        }
+
+        if let followUp = watcher.followUp {
+            followUpSection(followUp)
+        }
+    }
+
+    /// The follow-up: its name, the daemon's sentence under it, in the
+    /// attention style while it is held, and Ask first again beside the
+    /// sentence while the owner's Always allow holds.
+    private func followUpSection(_ followUp: ManagementCueWatcher.FollowUp) -> some View {
+        Section {
+            LabeledContent(ProductStrings[.cuesWatcherFollowUp]) { CueValue(text: followUp.name) }
+
+            VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.s) {
+                    CueNote(text: followUp.statusSentence, attention: followUp.state.drawsAttention)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if CueWatcherDetailWords.offersAskFirstAgain(followUp) {
+                        Button(ProductStrings[.cuesWatcherAskFirstAgain], action: askFirstAgain)
+                            .buttonStyle(SecondaryButtonStyle(.row))
+                            .disabled(revoking || model.writesBlocked)
+                    }
+                }
+
+                if let revokeRefusal {
+                    CueNote(text: revokeRefusal, attention: true)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
+            }
+        }
+    }
+
+    private func askFirstAgain() {
+        revoking = true
+        Task {
+            revokeRefusal = await model.revokeCueWatcherAlwaysAllow(name)?.sentence
+            revoking = false
         }
     }
 

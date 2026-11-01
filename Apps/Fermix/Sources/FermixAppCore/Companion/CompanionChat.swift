@@ -175,10 +175,10 @@ public struct CompanionOutboxEntry: Equatable, Sendable, Identifiable {
 
 /// Where the owner's answer to a proposal stands on this Mac.
 public enum CompanionProposalStanding: Equatable, Sendable {
-    /// Nothing sent: Deny and Confirm.
+    /// Nothing sent: the card's buttons.
     case open
-    /// An answer is on its way or accepted: both buttons wait for the daemon,
-    /// so the card is never answered twice.
+    /// An answer is on its way or accepted: every button waits for the
+    /// daemon, so the card is never answered twice.
     case answered(CompanionProposalDecision)
     /// Past its `expires_at` on this Mac's own clock with no answer sent.
     case expired
@@ -197,8 +197,8 @@ public struct CompanionProposalCard: Equatable, Sendable, Identifiable {
 
     /// Whether the card asks the owner now: the daemon says it waits, nothing
     /// was sent, and this Mac's clock has not passed its expiry. Only such a
-    /// card draws Deny and Confirm, and only such cards are counted as
-    /// waiting for a decision.
+    /// card draws its buttons, and only such cards are counted as waiting
+    /// for a decision.
     public var awaitsDecision: Bool {
         proposal.state == .waiting && standing == .open
     }

@@ -402,6 +402,25 @@ extension SettingsModel {
         return answer
     }
 
+    // MARK: - Watcher writes
+
+    /// Ask first again: takes back the owner's Always allow of a watcher's
+    /// follow-up, then reads the list and the watcher again, so its row and
+    /// its page say what the daemon now says. A refusal is the daemon's
+    /// sentence, for under the control.
+    public func revokeCueWatcherAlwaysAllow(_ name: String) async -> CueRefusal? {
+        precondition(!name.isEmpty, "a watcher is named")
+
+        switch await cueWrite({ try await self.gateway.revokeCueWatcherAlwaysAllow(name: name) }) {
+        case .failure(let refusal):
+            return refusal
+        case .success:
+            await refreshCueWatchers()
+            await readCueWatcher(name)
+            return nil
+        }
+    }
+
     // MARK: - Mandate writes
 
     public func addCueMandate(_ name: String, values: [String: ManagementCueValue]) async -> CueRefusal? {

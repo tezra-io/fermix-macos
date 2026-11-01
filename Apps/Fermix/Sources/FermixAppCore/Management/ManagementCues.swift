@@ -209,6 +209,25 @@ public enum ManagementCueWatcherState: ManagementVocabulary, Hashable {
     }
 }
 
+/// Whether a watcher's follow-up can run (`x-cue-vocabulary.follow_up_states`):
+/// ready, or held while something it needs is off or not set up, which its
+/// sentence names.
+public enum ManagementCueFollowUpState: ManagementVocabulary, Hashable {
+    case ready
+    case held
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = ["ready": .ready, "held": .held]
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+
+    /// Whether its sentence is drawn in the attention style: a held one is.
+    public var drawsAttention: Bool { self == .held }
+}
+
 /// Whether a watcher asks a model about each item, or passes everything.
 public enum ManagementCueWatcherFilter: ManagementVocabulary, Hashable {
     case llm
@@ -689,8 +708,9 @@ public struct ManagementCueSourceAddress: Decodable, Equatable, Sendable {
 
 // MARK: - Watchers
 
-/// One watcher, read-only: watchers are made and changed in chat. Never an
-/// item's text, a reason or a hint.
+/// One watcher: watchers are made and changed in chat, and the app only takes
+/// back its follow-up's Always allow. Never an item's text, a reason or a
+/// hint.
 public struct ManagementCueWatcher: Decodable, Equatable, Sendable {
     public struct FilterModel: Decodable, Equatable, Sendable {
         public let provider: String?
@@ -718,6 +738,19 @@ public struct ManagementCueWatcher: Decodable, Equatable, Sendable {
         public let failed: Int
     }
 
+    /// The job an item that passes sets off, in the daemon's words. It always
+    /// asks first on a card unless the owner's Always allow on one lets it
+    /// run with no card.
+    public struct FollowUp: Equatable, Sendable {
+        public let jobId: String
+        public let name: String
+        /// False while each run asks first. A daemon older than Always allow
+        /// publishes no such field, which is asking first.
+        public let alwaysAllowed: Bool
+        public let state: ManagementCueFollowUpState
+        public let statusSentence: String
+    }
+
     public let id: String
     public let name: String
     public let enabled: Bool
@@ -737,9 +770,12 @@ public struct ManagementCueWatcher: Decodable, Equatable, Sendable {
     public let counts: Counts
     public let instructionCount: Int
     public let createdAt: String?
+    /// Nil for a watcher with none, and from a daemon older than follow-ups.
+    public let followUp: FollowUp?
 
     private enum CodingKeys: String, CodingKey {
         case id, name, enabled, filter, state, sources, task, counts
+        case followUp = "follow_up"
         case filterModel = "filter_model"
         case statusSentence = "status_sentence"
         case taskNotes = "task_notes"
@@ -747,6 +783,24 @@ public struct ManagementCueWatcher: Decodable, Equatable, Sendable {
         case filterBudget = "filter_budget"
         case instructionCount = "instruction_count"
         case createdAt = "created_at"
+    }
+}
+
+extension ManagementCueWatcher.FollowUp: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case name, state
+        case jobId = "job_id"
+        case alwaysAllowed = "always_allowed"
+        case statusSentence = "status_sentence"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        jobId = try fields.decode(String.self, forKey: .jobId)
+        name = try fields.decode(String.self, forKey: .name)
+        alwaysAllowed = try fields.decodeIfPresent(Bool.self, forKey: .alwaysAllowed) ?? false
+        state = try fields.decode(ManagementCueFollowUpState.self, forKey: .state)
+        statusSentence = try fields.decode(String.self, forKey: .statusSentence)
     }
 }
 
@@ -809,6 +863,12 @@ public struct ManagementCueWatcherDetail: Decodable, Equatable, Sendable {
 /// `cues.watchers.get`'s envelope.
 public struct ManagementCueWatcherAnswer: Decodable, Equatable, Sendable {
     public let watcher: ManagementCueWatcherDetail
+}
+
+/// `cues.watchers.always_allow.revoke`'s envelope: the watcher's row once
+/// its follow-up asks first again.
+public struct ManagementCueWatcherRowAnswer: Decodable, Equatable, Sendable {
+    public let watcher: ManagementCueWatcher
 }
 
 // MARK: - Mandates

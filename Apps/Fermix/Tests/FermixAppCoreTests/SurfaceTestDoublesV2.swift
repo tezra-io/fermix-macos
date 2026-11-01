@@ -542,6 +542,12 @@ extension FakeDaemonGateway {
         try answer(.cuesWatchersGet, "cues_watchers_get")
     }
 
+    func revokeCueWatcherAlwaysAllow(name: String) async throws -> ManagementCueWatcherRowAnswer {
+        cueWatcherRevokes.append(name)
+
+        return try answer(.cuesWatchersAlwaysAllowRevoke, "cues_watchers_always_allow_revoke")
+    }
+
     func cueMandates() async throws -> ManagementCueMandateList {
         try answer(.cuesMandatesList, "cues_mandates_list")
     }

@@ -591,7 +591,7 @@ public enum CompanionProposalDecision: String, Equatable, Sendable, Encodable {
     case deny
     /// A follow-up's card whose `offersAlwaysAllow` is true also takes this:
     /// it runs as `confirm` does and lets the follow-up's later items run with
-    /// no card. This build draws no Always allow yet, so it never sends it.
+    /// no card. It is sent only to such a card.
     case alwaysAllow = "always_allow"
 }
 
@@ -652,17 +652,15 @@ public struct CompanionProposalOutside: Equatable, Sendable, Decodable {
     }
 }
 
-/// Version 5: whether a follow-up asks to run once now, or to run on its own
-/// on every item that passes. A word this build does not know keeps its own.
+/// Version 5: what a follow-up's card asks, to run once now. A word this
+/// build does not know keeps its own.
 public enum CompanionFollowUpAsks: Equatable, Sendable, Decodable {
     case run
-    case automatic
     case unrecognized(String)
 
     public init(wireValue: String) {
         switch wireValue {
         case "run": self = .run
-        case "automatic": self = .automatic
         default: self = .unrecognized(wireValue)
         }
     }
@@ -674,26 +672,20 @@ public enum CompanionFollowUpAsks: Equatable, Sendable, Decodable {
 
 /// Version 5: a watcher's follow-up, in Fermix's and the owner's words: the
 /// job an item that passes sets off, which is handed nothing of the item.
-/// `dailyCap` and `setOffBy` come with an automatic one, which only an
-/// engine from before Always allow sends.
 public struct CompanionFollowUp: Equatable, Sendable, Decodable {
     public let asks: CompanionFollowUpAsks
     /// The card also takes `alwaysAllow`; absent from an engine before Always
-    /// allow. Decoded and not drawn yet.
+    /// allow, which is a card that does not.
     public let offersAlwaysAllow: Bool?
     public let name: String
     public let instructions: String
     public let tools: [String]
     public let reportsTo: String
-    public let dailyCap: Int?
-    public let setOffBy: String?
 
     private enum CodingKeys: String, CodingKey {
         case asks, name, instructions, tools
         case offersAlwaysAllow = "offers_always_allow"
         case reportsTo = "reports_to"
-        case dailyCap = "daily_cap"
-        case setOffBy = "set_off_by"
     }
 }
 
@@ -709,8 +701,8 @@ public enum CompanionProposalAsk: Equatable, Sendable {
 /// Version 4: a proposal's card, one shape on every surface (M60 §3.7). Its
 /// record, `statusSentence` and `summary` are Fermix's; `outside` is not. A
 /// field that does not apply is absent. Since version 5 a card names either a
-/// mandate's call or a watcher's follow-up (ids `cft_` and `cfa_`), and both
-/// are answered and resolved by their id alone.
+/// mandate's call or a watcher's follow-up (id `cft_`), and both are
+/// answered and resolved by their id alone.
 public struct CompanionProposal: Equatable, Sendable {
     public let proposalId: String
     public let state: CompanionProposalState
@@ -787,6 +779,16 @@ extension CompanionProposal: Decodable {
         let tool = try fields.decode(String.self, forKey: .tool)
         _ = try fields.nestedContainer(keyedBy: CallKeys.self, forKey: .outside).decode(String.self, forKey: .argsText)
         return .call(mandate: mandate, tool: tool)
+    }
+}
+
+extension CompanionProposal {
+    /// Whether the card takes `always_allow`: a follow-up's card that says
+    /// so. A mandate's card never does.
+    public var offersAlwaysAllow: Bool {
+        guard case .followUp(let followUp) = ask else { return false }
+
+        return followUp.offersAlwaysAllow == true
     }
 }
 

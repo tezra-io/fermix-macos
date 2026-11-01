@@ -23,15 +23,11 @@ enum ManagementV2Calls {
     ///
     /// `home.enroll.withdraw` has no app caller either: a desktop's engine
     /// forwards it to the server it replaces, so no surface ever asks it.
-    /// `cues.watchers.always_allow.revoke` has none yet: the Cues pane's half
-    /// of Always allow is to come.
-    static let unexercised: Set<String> = [
-        "setup_session_create", "home_enroll_withdraw", "cues_watchers_always_allow_revoke"
-    ]
+    static let unexercised: Set<String> = ["setup_session_create", "home_enroll_withdraw"]
 
     /// The methods no surface calls, whose every golden is unexercised, so
     /// the N-1 gate is never reached for them.
-    static let uncalledMethods: Set<String> = ["home.enroll.withdraw", "cues.watchers.always_allow.revoke"]
+    static let uncalledMethods: Set<String> = ["home.enroll.withdraw"]
 
     /// Each golden request, mapped to the call that must produce it.
     static let byFixture: [String: @Sendable (ManagementClient) async throws -> Void] = [
@@ -286,6 +282,7 @@ enum ManagementV2Calls {
         "cues_sources_url_get": { _ = try await $0.cueSourceAddress(ref: "gh-hooks") },
         "cues_watchers_list": { _ = try await $0.cueWatchers() },
         "cues_watchers_get": { _ = try await $0.cueWatcher(name: "release-watch") },
+        "cues_watchers_always_allow_revoke": { _ = try await $0.revokeCueWatcherAlwaysAllow(name: "release-watch") },
         "cues_mandates_list": { _ = try await $0.cueMandates() },
         "cues_mandates_choices": { _ = try await $0.cueMandateChoices() },
         "cues_mandates_add": {

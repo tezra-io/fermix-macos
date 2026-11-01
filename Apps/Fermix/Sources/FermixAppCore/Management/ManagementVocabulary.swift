@@ -138,8 +138,8 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case cuesSourcesURLGet = "cues.sources.url.get"
     case cuesWatchersList = "cues.watchers.list"
     case cuesWatchersGet = "cues.watchers.get"
-    /// Takes back a follow-up's Always allow. No surface asks it yet: the
-    /// Cues pane's half of Always allow is to come.
+    /// Takes back a follow-up's Always allow: the watcher page's Ask first
+    /// again. Nothing grants it here; only a card does.
     case cuesWatchersAlwaysAllowRevoke = "cues.watchers.always_allow.revoke"
     case cuesMandatesList = "cues.mandates.list"
     case cuesMandatesChoices = "cues.mandates.choices"

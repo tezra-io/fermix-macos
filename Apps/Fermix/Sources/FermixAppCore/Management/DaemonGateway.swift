@@ -130,6 +130,7 @@ public protocol DaemonQuerying: Sendable {
     func cueSourceAddress(ref: String) async throws -> ManagementCueSourceAddress
     func cueWatchers() async throws -> ManagementCueWatcherList
     func cueWatcher(name: String) async throws -> ManagementCueWatcherAnswer
+    func revokeCueWatcherAlwaysAllow(name: String) async throws -> ManagementCueWatcherRowAnswer
     func cueMandates() async throws -> ManagementCueMandateList
     func cueMandateChoices() async throws -> ManagementCueMandateChoices
     func addCueMandate(name: String, values: [String: ManagementCueValue]) async throws -> ManagementCueMandateAnswer

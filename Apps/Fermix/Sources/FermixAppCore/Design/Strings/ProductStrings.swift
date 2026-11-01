@@ -496,7 +496,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case proposalTitle = "proposal.title"
     case proposalDeny = "proposal.deny"
     case proposalConfirm = "proposal.confirm"
-    /// Under the buttons once Confirm is pressed, until the daemon resolves it.
+    /// Under the buttons once an answer that runs is pressed, until the
+    /// daemon resolves it.
     case proposalRunning = "proposal.running"
     /// This Mac's clock passed the card's expiry with no answer sent.
     case proposalExpired = "proposal.expired"
@@ -507,13 +508,16 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// Told to VoiceOver a minute before the card expires.
     case proposalLastMinute = "proposal.lastMinute"
     /// A watcher's follow-up on its card (companion version 5): the owner's
-    /// instructions, its tools, where it reports, and for an automatic one its
-    /// cap and what sets it off, each Fermix's or the owner's words.
+    /// instructions, its tools and where it reports, each Fermix's or the
+    /// owner's words.
     case proposalFollowUpInstructionsFormat = "proposal.followUp.instructionsFormat"
     case proposalFollowUpToolsFormat = "proposal.followUp.toolsFormat"
     case proposalFollowUpReportsToFormat = "proposal.followUp.reportsToFormat"
-    case proposalFollowUpDailyCapFormat = "proposal.followUp.dailyCapFormat"
-    case proposalFollowUpSetOffByFormat = "proposal.followUp.setOffByFormat"
+    /// A follow-up's card's answers, Telegram's words for the same card:
+    /// Skip, Run, and Always allow where the card offers it.
+    case proposalSkip = "proposal.skip"
+    case proposalRun = "proposal.run"
+    case proposalAlwaysAllow = "proposal.alwaysAllow"
     // Outside text (M60 §4.8): the headers say, in Fermix's voice, where the
     // text under them came from.
     case outsideCall = "outside.call"
@@ -1459,6 +1463,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case cuesWatcherUsefulFormat = "cues.watcher.usefulFormat"
     case cuesWatcherNotUsefulFormat = "cues.watcher.notUsefulFormat"
     case cuesWatcherGone = "cues.watcher.gone"
+    /// A watcher's follow-up: its row's line and its page's fact, and the
+    /// way to take back its Always allow.
+    case cuesWatcherFollowUp = "cues.watcher.followUp"
+    case cuesWatcherFollowUpFormat = "cues.watcher.followUpFormat"
+    case cuesWatcherAskFirstAgain = "cues.watcher.askFirstAgain"
     case cuesMandatesTitle = "cues.mandates.title"
     case cuesMandatesEmpty = "cues.mandates.empty"
     case cuesMandatesAdd = "cues.mandates.add"

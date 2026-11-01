@@ -281,8 +281,8 @@ enum CompanionReducer {
 
     /// Answers a proposal with the owner's decision, through the outbox, by
     /// its id and the word alone (M60 §5.2). Only a card that asks takes an
-    /// answer, and once one is sent both buttons wait for the daemon, so a
-    /// card is never answered twice.
+    /// answer, Always allow only a card that offers it, and once one is sent
+    /// every button waits for the daemon, so a card is never answered twice.
     static func answer(
         proposal proposalId: String,
         _ decision: CompanionProposalDecision,
@@ -290,7 +290,8 @@ enum CompanionReducer {
         into chat: inout CompanionChat
     ) -> [CompanionClientEvent] {
         guard let index = chat.proposals.firstIndex(where: { $0.id == proposalId }),
-              chat.proposals[index].awaitsDecision
+              chat.proposals[index].awaitsDecision,
+              decision != .alwaysAllow || chat.proposals[index].proposal.offersAlwaysAllow
         else { return [] }
 
         chat.proposals[index].standing = .answered(decision)

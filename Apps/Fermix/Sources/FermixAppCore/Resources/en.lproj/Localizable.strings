@@ -453,8 +453,9 @@
 "proposal.followUp.instructionsFormat" = "It will: %@";
 "proposal.followUp.toolsFormat" = "Tools: %@";
 "proposal.followUp.reportsToFormat" = "Reports to %@";
-"proposal.followUp.dailyCapFormat" = "At most %ld a day";
-"proposal.followUp.setOffByFormat" = "Set off by %@";
+"proposal.skip" = "Skip";
+"proposal.run" = "Run";
+"proposal.alwaysAllow" = "Always allow";
 "outside.call" = "Written from outside text";
 "outside.item" = "From %1$@, received %2$@";
 "outside.itemUnsourced" = "The item it acted on";
@@ -1313,6 +1314,9 @@
 "cues.watcher.usefulFormat" = "%ld marked useful";
 "cues.watcher.notUsefulFormat" = "%ld marked not useful";
 "cues.watcher.gone" = "This watcher is no longer in the list.";
+"cues.watcher.followUp" = "Follow-up";
+"cues.watcher.followUpFormat" = "Follow-up: %@";
+"cues.watcher.askFirstAgain" = "Ask first again";
 "cues.mandates.title" = "Mandates";
 "cues.mandates.empty" = "No mandates. Without one, a task only reports to you.";
 "cues.mandates.add" = "Add mandate";

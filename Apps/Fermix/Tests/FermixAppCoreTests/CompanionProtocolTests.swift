@@ -287,9 +287,7 @@ struct CompanionProtocolTests {
             name: "Codex review",
             instructions: "Use Codex in ~/projects/fermix to review the last day's commits on dev and report the findings.",
             tools: ["codex_run"],
-            reportsTo: "Telegram (owner-1)",
-            dailyCap: nil,
-            setOffBy: nil
+            reportsTo: "Telegram (owner-1)"
         )))
         #expect(run.outside.argsText == nil && run.outside.args == nil, "a follow-up's card carries no call")
         #expect(run.outside.reason == "The post says usage limits reset.")

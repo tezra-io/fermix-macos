@@ -167,11 +167,18 @@ struct CueStatusLine: View {
     }
 }
 
+/// A line a row draws under its status, set at the status sentence's edge: a
+/// watcher's follow-up, in the attention style while it is held.
+struct CueRowNote: Equatable {
+    let text: String
+    let attention: Bool
+}
+
 /// One row of the pane's lists (§4.2 to §4.5): a symbol by kind or a
 /// vendor's mark, the name, what qualifies it and a tag, then one status
-/// line, with the row's own controls at the trailing edge. A row that opens
-/// a page says so with the chevron and a hover fill; one that opens nothing
-/// draws neither.
+/// line and a note under it where there is one, with the row's own controls
+/// at the trailing edge. A row that opens a page says so with the chevron
+/// and a hover fill; one that opens nothing draws neither.
 struct CueRow<Trailing: View>: View {
     let symbol: String
     /// A vendor's mark drawn in place of the symbol, where the row has one.
@@ -182,6 +189,7 @@ struct CueRow<Trailing: View>: View {
     let status: String
     let tone: StatusTone
     var attention = false
+    var note: CueRowNote?
     let accessibilityLabel: String
     /// Opens the row's page, or nil for a row that opens nothing.
     var open: (() -> Void)?
@@ -243,6 +251,12 @@ struct CueRow<Trailing: View>: View {
                 }
 
                 CueStatusLine(text: status, tone: tone, attention: attention, lines: 2)
+
+                if let note {
+                    CueNote(text: note.text, attention: note.attention)
+                        .lineLimit(2)
+                        .padding(.leading, CueRowMetrics.dotSize + Spacing.xs - 2)
+                }
             }
 
             Spacer(minLength: 0)

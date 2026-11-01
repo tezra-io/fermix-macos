@@ -176,6 +176,12 @@ extension ManagementClient {
         try await send(.cuesWatchersGet, params: try nameParams(name), as: ManagementCueWatcherAnswer.self)
     }
 
+    /// Takes back the owner's Always allow of a watcher's follow-up, so each
+    /// run asks first again. There is no grant: only a card grants it.
+    public func revokeCueWatcherAlwaysAllow(name: String) async throws -> ManagementCueWatcherRowAnswer {
+        try await send(.cuesWatchersAlwaysAllowRevoke, params: try nameParams(name), as: ManagementCueWatcherRowAnswer.self)
+    }
+
     public func cueMandates() async throws -> ManagementCueMandateList {
         try await send(.cuesMandatesList, params: ManagementEmptyParams(), as: ManagementCueMandateList.self)
     }
@@ -310,6 +316,10 @@ extension ManagementGateway {
 
     public func cueWatcher(name: String) async throws -> ManagementCueWatcherAnswer {
         try await negotiated().cueWatcher(name: name)
+    }
+
+    public func revokeCueWatcherAlwaysAllow(name: String) async throws -> ManagementCueWatcherRowAnswer {
+        try await negotiated().revokeCueWatcherAlwaysAllow(name: name)
     }
 
     public func cueMandates() async throws -> ManagementCueMandateList {

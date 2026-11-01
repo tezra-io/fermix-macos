@@ -313,9 +313,9 @@ struct CuesPaneLead: View {
 /// The `cues` section's rows in one group (§4.2, §4.6, simpler setup §4),
 /// in the order the section publishes them: Run cues with the status under
 /// it, Let watchers act, then how watchers judge items, the Screen where the
-/// section publishes one and the filter model, then any other row, and the
-/// door's port with the door's line folded under Advanced. A door that could
-/// not open says so in the open.
+/// section publishes one, its two options side by side, and the filter
+/// model, then any other row, and the door's port with the door's line
+/// folded under Advanced. A door that could not open says so in the open.
 struct CuesSettingsSection: View {
     @ObservedObject var model: SettingsModel
     let router: any CommandPerforming
@@ -366,6 +366,7 @@ struct CuesSettingsSection: View {
     private func placedRow(_ row: ManagementSettingRow) -> AnyView? {
         switch row.key {
         case CuesPaneKeys.enabled: return AnyView(enabledRow(row))
+        case CuesPaneKeys.screen where CuesPaneKeys.drawsSegmented(row): return AnyView(CuesScreenRow(model: model, row: row))
         case CuesPaneKeys.doorPort: return AnyView(doorRow(row))
         case CueFilterPair.providerKey: return AnyView(providerRow(row))
         case CueFilterPair.modelKey: return modelRow(row)
@@ -463,11 +464,98 @@ enum CuesPaneKeys {
     static let screen = "cues_screen"
     static let doorPort = "cues_door_port"
 
+    /// The one choice row the app draws as a segmented control: the Screen,
+    /// two options side by side. Every other choice row is a menu.
+    static func drawsSegmented(_ row: ManagementSettingRow) -> Bool {
+        row.key == screen && row.kind == .choice
+    }
+
     /// The row "How watchers judge items" heads: the Screen, which newer
     /// engines publish just before the filter model, or else the filter
     /// model.
     static func judgingHeadingKey(in rows: [ManagementSettingRow]) -> String? {
         rows.first { $0.key == screen || $0.key == CueFilterPair.providerKey }?.key
+    }
+}
+
+/// One line under the Screen: an option's hint, the daemon's words, quiet
+/// for the option in use and in the warning tone for one that cannot be
+/// chosen yet.
+public struct CueScreenHint: Equatable, Sendable {
+    public let text: String
+    public let tone: StatusTone
+}
+
+/// What the Screen says and takes, from its options as the daemon publishes
+/// them: the app never decides which option can be chosen.
+public enum CueScreenProjection {
+    /// The hint of the option in use, then every disabled option's hint, which
+    /// says what to set up first, each once.
+    public static func hints(_ row: ManagementSettingRow, value: String) -> [CueScreenHint] {
+        var hints: [CueScreenHint] = []
+        if let inUse = row.options.first(where: { $0.value == value }), let hint = inUse.hint {
+            hints.append(CueScreenHint(text: hint, tone: inUse.disabled ? .warn : .neutral))
+        }
+        for option in row.options where option.disabled && option.value != value {
+            guard let hint = option.hint else { continue }
+
+            hints.append(CueScreenHint(text: hint, tone: .warn))
+        }
+        return hints
+    }
+
+    /// Whether a choice is written: an option the row offers and does not
+    /// disable.
+    public static func accepts(_ row: ManagementSettingRow, value: String) -> Bool {
+        row.options.contains { $0.value == value && !$0.disabled }
+    }
+}
+
+/// The Screen (simpler setup §4b): the `cues_screen` row's two options side
+/// by side, under "How watchers judge items". Under it, the hint of the
+/// option in use and a disabled option's hint, in the warning tone, then the
+/// daemon's refusal of a change. A choice applies at once, as every
+/// descriptor row does; a disabled option is never written.
+struct CuesScreenRow: View {
+    @ObservedObject var model: SettingsModel
+    let row: ManagementSettingRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+            Picker(selection: selection) {
+                ForEach(row.options, id: \.value) { option in
+                    Text(option.label).tag(option.value)
+                        .disabled(option.disabled)
+                }
+            } label: {
+                DescriptorRowLabel(row.label, info: row.explanation)
+            }
+            .pickerStyle(.segmented)
+
+            ForEach(CueScreenProjection.hints(row, value: value), id: \.text) { hint in
+                CueNote(text: hint.text, attention: hint.tone == .warn)
+            }
+
+            if let refusal = model.message(for: SettingsDraftKey(section: CueFilterPair.section, key: row.key)) {
+                CueNote(text: refusal, attention: true)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
+        // As on every descriptor row: nothing is written while the settings
+        // file changed outside Fermix.
+        .disabled(model.writesBlocked)
+    }
+
+    private var value: String {
+        DescriptorValue.text(model.value(of: row, in: CueFilterPair.section))
+    }
+
+    private var selection: Binding<String> {
+        Binding(get: { value }, set: { chosen in
+            guard CueScreenProjection.accepts(row, value: chosen) else { return }
+
+            Task { await model.apply(section: CueFilterPair.section, key: row.key, value: .text(chosen)) }
+        })
     }
 }
 
@@ -685,9 +773,10 @@ struct CuesWatchersSection: View {
     }
 }
 
-/// One watcher: its name and the sources it listens to, and the daemon's
-/// sentence after the dot. The day's counts are on its page. Never anything
-/// a watcher read.
+/// One watcher: its name and the sources it listens to, the daemon's
+/// sentence after the dot, and under it its follow-up's name and sentence
+/// where it has one. The day's counts are on its page. Never anything a
+/// watcher read.
 struct CuesWatcherRow: View {
     let watcher: ManagementCueWatcher
     let open: () -> Void
@@ -700,11 +789,25 @@ struct CuesWatcherRow: View {
             status: watcher.statusSentence,
             tone: CueTone.watcher(watcher),
             attention: watcher.state.drawsAttention,
-            accessibilityLabel: ProductStrings.commaPair(watcher.name, watcher.statusSentence),
+            note: note,
+            accessibilityLabel: accessibilityLabel,
             open: open
         ) {
             EmptyView()
         }
+    }
+
+    private var note: CueRowNote? {
+        watcher.followUp.map {
+            CueRowNote(text: CueWatcherDetailWords.followUpLine($0), attention: $0.state.drawsAttention)
+        }
+    }
+
+    private var accessibilityLabel: String {
+        let row = ProductStrings.commaPair(watcher.name, watcher.statusSentence)
+        guard let note else { return row }
+
+        return ProductStrings.commaPair(row, note.text)
     }
 }
 
