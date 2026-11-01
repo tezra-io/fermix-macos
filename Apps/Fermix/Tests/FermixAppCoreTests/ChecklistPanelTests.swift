@@ -107,6 +107,38 @@ struct ChecklistPanelTests {
         ])
     }
 
+    /// The Undo line and ⌘Z reach the same removal: whichever comes second
+    /// finds it taken back and sends nothing.
+    @Test("a removed list taken back by Undo and by Command-Z sends one restore")
+    func listUndoIsOneAction() throws {
+        var sent: [CompanionClientEvent] = []
+        let (panel, _) = Self.panel { sent.append($0); return true }
+        let fermix = Self.entry("ck_9t3k6w0p5h", "Fermix")
+        panel.library.negotiated(serves: true)
+
+        panel.remove(fermix)
+        panel.restore(fermix)
+        panel.restore(fermix)
+
+        #expect(sent.filter { if case .checklistEdit(_, _, _, .restore) = $0 { return true }; return false }.count == 1)
+    }
+
+    @Test("a removed row taken back by Undo and by Command-Z sends one restore")
+    func rowUndoIsOneAction() throws {
+        var sent: [CompanionClientEvent] = []
+        let (panel, _) = Self.panel { sent.append($0); return true }
+        panel.library.negotiated(serves: true)
+
+        let removal = panel.remove(Self.row("ci_0r2y8e6u3g"), from: "ck_4q8m2x7v1d")
+        panel.takeBack(removal)
+        panel.takeBack(removal)
+
+        #expect(sent.suffix(2) == [
+            .checklistEdit(clientMsgId: "mac-1", profileId: "main", listId: "ck_4q8m2x7v1d", op: .remove(rowId: "ci_0r2y8e6u3g")),
+            .checklistEdit(clientMsgId: "mac-2", profileId: "main", listId: "ck_4q8m2x7v1d", op: .restore(rowId: "ci_0r2y8e6u3g", title: nil))
+        ])
+    }
+
     @Test("the lines are each section under its heading, a folded one without its items, then the Done fold, closed until opened")
     func lines() {
         let list = CompanionChecklistList(listId: "ck_a", title: "Fermix", rev: 1, rows: [

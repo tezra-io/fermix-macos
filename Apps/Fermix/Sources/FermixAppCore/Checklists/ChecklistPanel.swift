@@ -654,29 +654,19 @@ private struct ChecklistPanelList: View {
     private func remove(_ row: CompanionChecklistRow) {
         guard !ChecklistState.isSending(row.rowId) else { return }
 
-        edit(.remove(rowId: row.rowId))
-        let removal = ChecklistRemoval(rowId: row.rowId, text: row.text, id: (removedLine?.id ?? 0) + 1)
+        let removal = panel.remove(row, from: entry.listId)
         removedLine = removal
-        undoManager?.registerUndo(withTarget: panel) { [listId = entry.listId] panel in
-            panel.library.edit(listId, .restore(rowId: row.rowId, title: nil))
-        }
+        undoManager?.registerUndo(withTarget: panel) { panel in panel.takeBack(removal) }
         Task { @MainActor in
             try? await Task.sleep(for: ChecklistMetrics.undoLine)
-            if removedLine?.id == removal.id { removedLine = nil }
+            if removedLine == removal { removedLine = nil }
         }
     }
 
     private func undo(_ removal: ChecklistRemoval) {
         removedLine = nil
-        edit(.restore(rowId: removal.rowId, title: nil))
+        panel.takeBack(removal)
     }
-}
-
-/// A removal the panel's foot offers to take back.
-private struct ChecklistRemoval: Equatable {
-    let rowId: String
-    let text: String
-    let id: Int
 }
 
 /// A fold's heading: a section's, Done's, or Recently removed's, its chevron

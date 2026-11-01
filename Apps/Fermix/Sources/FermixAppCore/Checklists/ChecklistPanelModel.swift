@@ -63,6 +63,11 @@ public final class ChecklistPanelModel: ObservableObject {
     public let library: ChecklistLibrary
     private let store: any ChecklistPanelStoring
     private var watching: Set<AnyCancellable> = []
+    /// The removals made here, counted, and those already taken back.
+    private var removals = 0
+    private var takenBack: Set<Int> = []
+    /// The removal of each list removed here and not yet taken back.
+    private var listRemovals: [String: ChecklistRemoval] = [:]
 
     public init(library: ChecklistLibrary, store: any ChecklistPanelStoring) {
         self.library = library
@@ -108,7 +113,9 @@ public final class ChecklistPanelModel: ObservableObject {
 
     /// Removes the list the panel shows, and offers it back for a moment.
     public func remove(_ entry: CompanionChecklistEntry) {
+        let removal = removing(listId: entry.listId, rowId: nil, text: entry.title)
         library.edit(entry.listId, .removeList)
+        listRemovals[entry.listId] = removal
         removedList = entry
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: ChecklistMetrics.undoLine)
@@ -116,11 +123,33 @@ public final class ChecklistPanelModel: ObservableObject {
         }
     }
 
-    /// Brings back a list removed here, and shows it again.
+    /// Brings back the list removed here, once, and shows it again.
     public func restore(_ entry: CompanionChecklistEntry) {
         if removedList == entry { removedList = nil }
-        library.edit(entry.listId, .restore(rowId: nil, title: nil))
-        asked = entry.listId
+        guard let removal = listRemovals.removeValue(forKey: entry.listId) else { return }
+
+        takeBack(removal)
+    }
+
+    /// Removes one row of a list, which the panel offers back for a moment.
+    func remove(_ row: CompanionChecklistRow, from listId: String) -> ChecklistRemoval {
+        library.edit(listId, .remove(rowId: row.rowId))
+        return removing(listId: listId, rowId: row.rowId, text: row.text)
+    }
+
+    /// Takes a removal made here back, once: the Undo line and ⌘Z reach
+    /// the same removal, and whichever comes second sends nothing. A list
+    /// taken back is shown again.
+    func takeBack(_ removal: ChecklistRemoval) {
+        guard takenBack.insert(removal.token).inserted else { return }
+
+        library.edit(removal.listId, .restore(rowId: removal.rowId, title: nil))
+        if removal.rowId == nil { asked = removal.listId }
+    }
+
+    private func removing(listId: String, rowId: String?, text: String) -> ChecklistRemoval {
+        removals += 1
+        return ChecklistRemoval(token: removals, listId: listId, rowId: rowId, text: text)
     }
 
     /// The divider dragged to a width, kept inside the panel's range.
@@ -133,6 +162,15 @@ public final class ChecklistPanelModel: ObservableObject {
         if isOpen != open { isOpen = open }
         store.panelOpen = open
     }
+}
+
+/// A removal made here, which Undo or ⌘Z takes back once.
+struct ChecklistRemoval: Equatable, Sendable {
+    let token: Int
+    let listId: String
+    /// Nil for the list itself.
+    let rowId: String?
+    let text: String
 }
 
 /// The lists' own measures (M85 §09).
