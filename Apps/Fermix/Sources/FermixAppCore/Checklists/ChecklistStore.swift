@@ -12,8 +12,6 @@ struct ChecklistState: Equatable, Sendable {
     private(set) var pending: [ChecklistPendingEdit] = []
     /// The engine's sentence for the last edit it refused, until the next.
     private(set) var refusal: String?
-    /// A pull was refused: the engine has no list with this id any more.
-    private(set) var gone: String?
 
     /// What every view draws: the engine's list with every edit not yet
     /// confirmed applied over it, in the order they were made.
@@ -49,7 +47,6 @@ struct ChecklistState: Equatable, Sendable {
         if let engine, list.rev < engine.rev { return false }
 
         engine = list
-        gone = nil
         pending.removeAll { $0.accepted || made[$0.clientMsgId] != nil }
         return true
     }
@@ -59,11 +56,6 @@ struct ChecklistState: Equatable, Sendable {
     mutating func refused(_ clientMsgId: String, sentence: String) {
         pending.removeAll { $0.clientMsgId == clientMsgId }
         refusal = sentence
-    }
-
-    /// The engine has no list with this id: removed more than 30 days ago.
-    mutating func pullRefused(_ sentence: String) {
-        gone = sentence
     }
 
     /// The edits the engine has not answered, oldest first: the ones a new
@@ -95,8 +87,9 @@ public final class ChecklistStore: ObservableObject, Identifiable {
     /// The list as drawn: the engine's, with the edits sent here applied.
     public var shown: CompanionChecklistList? { state.shown }
     public var refusal: String? { state.refusal }
-    /// The list was removed: the engine says so, or no longer has it.
-    public var isRemoved: Bool { state.gone != nil || state.shown?.removedAt != nil }
+    /// The engine says the list was removed and can still be restored. A
+    /// list the index no longer names is removed too (`ChecklistIndexStore.lacks`).
+    public var isRemoved: Bool { state.shown?.removedAt != nil }
 
     func change(_ step: (inout ChecklistState) -> Void) {
         var next = state
@@ -116,8 +109,7 @@ public final class ChecklistIndexStore: ObservableObject {
     @Published public private(set) var served = false
     /// Nil until the index is answered.
     @Published public private(set) var entries: [CompanionChecklistEntry]?
-    /// The engine's sentence for a refused pull of the index, or a refused
-    /// new list, until the next one.
+    /// The engine's sentence for a refused new list, until the next one.
     @Published public private(set) var refusal: String?
     /// The list the newest create sent here made, with that create's id, so
     /// the panel shows it once it exists.
@@ -127,6 +119,13 @@ public final class ChecklistIndexStore: ObservableObject {
 
     public func entry(_ listId: String) -> CompanionChecklistEntry? {
         entries?.first { $0.listId == listId }
+    }
+
+    /// Whether the index, once it has answered, does not name the list: the
+    /// index holds every live list, so such a list was removed, and is drawn
+    /// so and never pulled.
+    public func lacks(_ listId: String) -> Bool {
+        entries.map { entries in !entries.contains { $0.listId == listId } } ?? false
     }
 
     /// The folders in picker order, each with its lists, then the lists in
@@ -186,20 +185,14 @@ public struct ChecklistFolders: Equatable {
     public var names: [String] { folders.map(\.name) }
 }
 
-/// What a connection has asked about lists and not had answered, in the
-/// order asked: the daemon answers each pull in the step that reads it, so
-/// a refusal that names no edit answers the oldest pull out.
-enum ChecklistPull: Equatable, Sendable {
-    case index
-    case list(String)
-}
-
 /// Every list this Mac draws, and the connection's share of them (M85 §07).
 ///
 /// It mirrors what the engine holds for this connection: each list pulled,
 /// in the order pulled, at most 16, a pull past that letting the oldest go.
-/// A list is pulled when a card or the panel first draws it, and every list
-/// held is pulled again at each handshake, after the index. An edit is drawn
+/// A list is pulled when a card or the panel first draws it and the index of
+/// this connection names it; one the index does not name was removed and is
+/// never pulled, until an index names it. Every list held is pulled again
+/// at each handshake, in its order, once the index answers. An edit is drawn
 /// at once and sent; one the engine has not answered when the connection
 /// drops is sent again at the next handshake, in the order it was made, and
 /// the engine's `client_msg_id` dedup makes it land once. The session feeds
@@ -218,7 +211,12 @@ public final class ChecklistLibrary {
     private var held: [String] = []
     /// The held lists pulled with their removed rows.
     private var withRemoved: Set<String> = []
-    private var pullsOut: [ChecklistPull] = []
+    /// Lists drawn and not pulled: before the index of this connection has
+    /// answered, or while it does not name them. Pulled, in this order, once
+    /// an index names them.
+    private var waiting: [(listId: String, removed: Bool)] = []
+    /// Whether the index has answered on this connection.
+    private var indexCurrent = false
     /// Every edit sent and not yet answered, in the order made: a create
     /// names no list.
     private var unanswered: [ChecklistOutboxEntry] = []
@@ -248,12 +246,25 @@ public final class ChecklistLibrary {
 
     /// A card or the panel draws this list: it is pulled unless the engine
     /// holds it already, with its removed rows where Recently removed is
-    /// shown. Asked before a handshake, it is pulled at the handshake.
+    /// shown. It waits for an index of this connection that names it.
     public func draw(_ listId: String, removed: Bool = false) {
         let holds = held.contains(listId) && (!removed || withRemoved.contains(listId))
         guard !holds else { return }
+        guard connected, index.served, indexCurrent, !index.lacks(listId) else {
+            wait(listId, removed: removed)
+            return
+        }
 
         pull(listId, removed: removed)
+    }
+
+    private func wait(_ listId: String, removed: Bool) {
+        guard let at = waiting.firstIndex(where: { $0.listId == listId }) else {
+            waiting.append((listId, removed))
+            return
+        }
+
+        waiting[at].removed = waiting[at].removed || removed
     }
 
     /// One edit of a list: drawn at once and sent. A text the engine would
@@ -298,40 +309,54 @@ public final class ChecklistLibrary {
 
     // MARK: - The connection
 
-    /// A handshake completed. A daemon whose window reaches lists is asked
-    /// for the index, then for every list held, in the order they were
-    /// pulled, then sent every edit it has not answered, in the order made.
+    /// A handshake completed. A new connection holds nothing, so what the
+    /// last one held waits to be pulled again, in the order it was pulled,
+    /// ahead of anything drawn since. A daemon whose window reaches lists is
+    /// asked for the index, which pulls them, and sent every edit it has not
+    /// answered, in the order made.
     func negotiated(serves: Bool) {
         connected = true
-        pullsOut = []
+        indexCurrent = false
         index.serve(serves)
+        let again = held.map { (listId: $0, removed: withRemoved.contains($0)) }
+        waiting = again + waiting.filter { drawn in !held.contains(drawn.listId) }
+        held = []
+        withRemoved = []
 
         pullIndex()
-        for listId in held {
-            pull(listId, removed: withRemoved.contains(listId))
-        }
         for entry in unanswered {
             deliver(entry.event)
         }
     }
 
     /// The connection ended: nothing asked on it will be answered. What is
-    /// held is kept, to be pulled again at the next handshake.
+    /// held is kept, to be pulled again once the next handshake's index
+    /// answers.
     func disconnected() {
         connected = false
-        pullsOut = []
+        indexCurrent = false
     }
 
-    /// A list event, which only this owns.
+    /// A list event, which only this owns. An index pulls every list waiting
+    /// that it names.
     func receive(_ event: CompanionServerEvent) {
         switch event {
         case .checklists(_, let lists):
-            answered(.index)
             index.show(lists)
+            indexCurrent = true
+            pullWaiting()
         case .checklist(_, let list, let made):
             received(list, made: made)
         default:
             break
+        }
+    }
+
+    private func pullWaiting() {
+        let ready = waiting.filter { !index.lacks($0.listId) }
+        waiting.removeAll { !index.lacks($0.listId) }
+        for drawn in ready {
+            pull(drawn.listId, removed: drawn.removed)
         }
     }
 
@@ -349,29 +374,17 @@ public final class ChecklistLibrary {
         return true
     }
 
-    /// A refusal of one of the edits sent here, or, when it names no request
-    /// and no media ref, of the oldest pull out; false for any other. A
-    /// refused edit's list is pulled again, as the contract asks.
+    /// A refusal of one of the edits sent here, by its `client_msg_id`, or
+    /// false for any other. A refusal that names no request is never the
+    /// lists': read_state, cancel and the history reads send those too, and
+    /// the chat says them. A refused edit's list is pulled again, as the
+    /// contract asks.
     func refused(_ error: CompanionServerError) -> Bool {
+        guard let clientMsgId = error.clientMsgId else { return false }
+
         let sentence = error.message ?? String(format: ProductStrings[.companionErrorRefusedFormat], error.reason)
-
-        if let clientMsgId = error.clientMsgId {
-            return refusedEdit(clientMsgId, sentence: sentence)
-        }
-        guard error.reason == Self.requestFailed, error.ref == nil, !pullsOut.isEmpty else { return false }
-
-        switch pullsOut.removeFirst() {
-        case .index:
-            index.refuse(sentence)
-        case .list(let listId):
-            held.removeAll { $0 == listId }
-            withRemoved.remove(listId)
-            store(listId).change { $0.pullRefused(sentence) }
-        }
-        return true
+        return refusedEdit(clientMsgId, sentence: sentence)
     }
-
-    private static let requestFailed = "request_failed"
 
     private func refusedEdit(_ clientMsgId: String, sentence: String) -> Bool {
         guard let at = unanswered.firstIndex(where: { $0.clientMsgId == clientMsgId }) else { return false }
@@ -383,15 +396,15 @@ public final class ChecklistLibrary {
         }
 
         store(listId).change { $0.refused(clientMsgId, sentence: sentence) }
-        pull(listId, removed: withRemoved.contains(listId))
+        if held.contains(listId) {
+            pull(listId, removed: withRemoved.contains(listId))
+        }
         return true
     }
 
     // MARK: - The wire
 
     private func received(_ list: CompanionChecklistList, made: [String: String]) {
-        answered(.list(list.listId))
-
         for (clientMsgId, madeId) in made where creating.remove(clientMsgId) != nil {
             hold(madeId, removed: false)
             index.made(ChecklistCreated(clientMsgId: clientMsgId, listId: madeId))
@@ -414,9 +427,7 @@ public final class ChecklistLibrary {
     }
 
     private func pullIndex() {
-        guard deliver(.checklistsPull(profileId: CompanionProtocol.profileId)) else { return }
-
-        pullsOut.append(.index)
+        deliver(.checklistsPull(profileId: CompanionProtocol.profileId))
     }
 
     /// The one way a list is pulled. The engine makes every list it is
@@ -426,15 +437,7 @@ public final class ChecklistLibrary {
     /// of the same list.
     private func pull(_ listId: String, removed: Bool) {
         hold(listId, removed: removed)
-        guard deliver(.checklistPull(profileId: CompanionProtocol.profileId, listId: listId, removed: removed)) else { return }
-
-        pullsOut.append(.list(listId))
-    }
-
-    private func answered(_ pull: ChecklistPull) {
-        guard let at = pullsOut.firstIndex(of: pull) else { return }
-
-        pullsOut.remove(at: at)
+        deliver(.checklistPull(profileId: CompanionProtocol.profileId, listId: listId, removed: removed))
     }
 
     /// Sends on a negotiated connection to a daemon that serves lists, and

@@ -17,7 +17,12 @@ struct ChecklistCard: View {
             if !live {
                 ChecklistFoldedLine(refs: refs, panel: rows.lists, index: rows.lists.library.index)
             } else if refs.count == 1, let ref = refs.first {
-                ChecklistOneListCard(ref: ref, panel: rows.lists, store: rows.lists.library.store(ref.listId))
+                ChecklistOneListCard(
+                    ref: ref,
+                    panel: rows.lists,
+                    store: rows.lists.library.store(ref.listId),
+                    index: rows.lists.library.index
+                )
             } else {
                 ChecklistGroupedCard(refs: refs, panel: rows.lists)
             }
@@ -101,6 +106,8 @@ private struct ChecklistOneListCard: View {
     let ref: CompanionChecklistRef
     let panel: ChecklistPanelModel
     @ObservedObject var store: ChecklistStore
+    /// Observed for whether it still names the list.
+    @ObservedObject var index: ChecklistIndexStore
 
     @State private var settling: Set<String> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -124,7 +131,7 @@ private struct ChecklistOneListCard: View {
             )
             .padding(.bottom, Spacing.xxs)
 
-            if store.isRemoved {
+            if store.isRemoved || index.lacks(ref.listId) {
                 ChecklistCardSentence(text: ProductStrings[.listsListRemoved])
             } else if let list {
                 let card = ChecklistCards.oneList(list, touched: ref.rows, settling: settling)
@@ -190,7 +197,7 @@ private struct ChecklistGroupedCard: View {
 
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(shown.enumerated()), id: \.element.listId) { offset, ref in
-                ChecklistGroup(ref: ref, panel: panel, store: panel.library.store(ref.listId), first: offset == 0)
+                ChecklistGroup(ref: ref, panel: panel, store: panel.library.store(ref.listId), index: panel.library.index, first: offset == 0)
             }
             if more > 0 {
                 Text(String(format: ProductStrings[.listsMoreListsFormat], more))
@@ -212,6 +219,8 @@ private struct ChecklistGroup: View {
     let ref: CompanionChecklistRef
     let panel: ChecklistPanelModel
     @ObservedObject var store: ChecklistStore
+    /// Observed for whether it still names the list.
+    @ObservedObject var index: ChecklistIndexStore
     let first: Bool
 
     @State private var hovering = false
@@ -219,6 +228,7 @@ private struct ChecklistGroup: View {
     var body: some View {
         let list = store.shown
         let group = ChecklistCards.groups([ref]) { _ in list }.groups.first
+        let removed = store.isRemoved || index.lacks(ref.listId)
 
         VStack(alignment: .leading, spacing: 0) {
             Button { panel.show(ref.listId) } label: {
@@ -227,7 +237,7 @@ private struct ChecklistGroup: View {
                         .fermixType(Typography.style(.callout).weight(.semibold))
                         .foregroundStyle(Palette.ink.color)
                         .underline(hovering)
-                    if store.isRemoved {
+                    if removed {
                         Text(ProductStrings[.listsListRemoved])
                             .fermixType(Typography.style(.calloutSmall))
                             .foregroundStyle(Palette.secondary.color)
@@ -248,7 +258,7 @@ private struct ChecklistGroup: View {
             .onHover { hovering = $0 }
             .accessibilityLabel(ChecklistWordsFor.listLabel(list?.title ?? ref.title, open: list?.openCount ?? 0))
 
-            if !store.isRemoved {
+            if !removed {
                 ForEach(group?.rows ?? []) { row in
                     ChecklistCardItem(
                         row: row,
@@ -279,7 +289,7 @@ private struct ChecklistFoldedLine: View {
     var body: some View {
         ChecklistFlow(spacing: Spacing.xs) {
             ForEach(refs, id: \.listId) { ref in
-                ChecklistChip(ref: ref, entry: index.entry(ref.listId), removed: index.entries != nil && index.entry(ref.listId) == nil) {
+                ChecklistChip(ref: ref, entry: index.entry(ref.listId), removed: index.lacks(ref.listId)) {
                     panel.show(ref.listId)
                 }
             }

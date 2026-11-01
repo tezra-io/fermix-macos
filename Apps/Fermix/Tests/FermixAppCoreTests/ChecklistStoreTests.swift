@@ -113,17 +113,6 @@ struct ChecklistStateTests {
         #expect(state.shown?.rows.filter { $0.text == "Bread" }.count == 2)
         #expect(state.shown?.rows.contains { ChecklistState.isSending($0.rowId) } == false)
     }
-
-    @Test("a refused pull marks the list gone")
-    func refusedPullIsGone() {
-        var state = ChecklistState()
-
-        state.pullRefused("No list has that id; it may have been removed more than 30 days ago.")
-
-        #expect(state.gone == "No list has that id; it may have been removed more than 30 days ago.")
-        state.received(Groceries.list(), made: [:])
-        #expect(state.gone == nil)
-    }
 }
 
 /// An edit drawn before the engine answers lands where the engine would put
@@ -246,6 +235,18 @@ struct ChecklistLibraryTests {
         try events.map(wireObject(companion:))
     }
 
+    /// The daemon's index, naming these lists.
+    private func index(_ ids: String...) {
+        socket.deliver(.checklists(profileId: Self.main, lists: ids.map {
+            CompanionChecklistEntry(listId: $0, title: $0 == Groceries.id ? "Groceries" : $0, folder: nil, open: 0, done: 0, rev: 1)
+        }))
+    }
+
+    /// The list pulls sent, by list id, in order.
+    private func pulls() throws -> [String] {
+        try socket.sentObjects().compactMap { $0["type"] as? String == "checklist_pull" ? $0["list_id"] as? String : nil }
+    }
+
     private static let main = CompanionProtocol.profileId
 
     private static func refusal(_ message: String, clientMsgId: String? = nil) -> CompanionServerEvent {
@@ -278,6 +279,7 @@ struct ChecklistLibraryTests {
     @Test("a list is pulled once when it is first drawn, and the push lands in its one store")
     func drawPullsOnce() throws {
         connected()
+        index(Groceries.id)
 
         lists.draw(Groceries.id)
         lists.draw(Groceries.id)
@@ -298,6 +300,9 @@ struct ChecklistLibraryTests {
     func holdingMirrorsTheEngine() throws {
         connected()
         let ids = (0..<17).map { String(format: "ck_%010d", $0) }
+        socket.deliver(.checklists(profileId: Self.main, lists: ids.map {
+            CompanionChecklistEntry(listId: $0, title: $0, folder: nil, open: 0, done: 0, rev: 1)
+        }))
 
         ids.forEach { lists.draw($0) }
         lists.draw(ids[1])
@@ -330,13 +335,16 @@ struct ChecklistLibraryTests {
         #expect(pulled == Array(ids.prefix(16)) + [ids[0], ids[16], ids[1]], "the engine let the second go; the first, pulled again, is held")
     }
 
-    @Test("what is drawn before the handshake is pulled at it, after the index")
+    @Test("what is drawn before the handshake is pulled once the index answers, and only if the index holds it")
     func drawBeforeHandshake() throws {
         lists.draw(Groceries.id)
+        lists.draw("ck_0000000000")
         #expect(socket.sent.isEmpty)
 
         connected()
+        #expect(try listLines() == wire(.checklistsPull(profileId: Self.main)), "no list is pulled before the index says it lives")
 
+        index(Groceries.id)
         #expect(try listLines() == wire(
             .checklistsPull(profileId: Self.main),
             .checklistPull(profileId: Self.main, listId: Groceries.id)
@@ -346,6 +354,7 @@ struct ChecklistLibraryTests {
     @Test("an edit is drawn at once and sent, its accepted is the lists' and not the chat's, and the push confirms it")
     func editRoundTrip() throws {
         connected()
+        index(Groceries.id)
         lists.draw(Groceries.id)
         socket.deliver(.checklist(profileId: Self.main, list: Groceries.list()))
 
@@ -370,6 +379,7 @@ struct ChecklistLibraryTests {
     @Test("a refused edit puts the row back with the engine's sentence and pulls the list again, and the chat says nothing")
     func refusedEdit() throws {
         connected()
+        index(Groceries.id)
         lists.draw(Groceries.id)
         socket.deliver(.checklist(profileId: Self.main, list: Groceries.list()))
         lists.edit(Groceries.id, .check(rowId: Groceries.basil))
@@ -382,23 +392,45 @@ struct ChecklistLibraryTests {
         #expect(session.model.lastError == nil)
     }
 
-    @Test("a refused pull names no request: the oldest pull out takes it, and the chat's own refusal is still the chat's")
-    func refusedPulls() {
+    /// A refusal that names no request is never the lists': read_state and
+    /// cancel on a device-role engine, a failed history read or search, and
+    /// a cancel of a task that is not running all send one, and each is the
+    /// chat's, whatever list pull is out.
+    @Test("a refusal that names no request is the chat's even while a list pull is out")
+    func idlessRefusalIsTheChats() {
         connected()
-        socket.deliver(Self.refusal("Only the owner's own Fermix app can read or change the owner's lists."))
-        #expect(lists.index.refusal == "Only the owner's own Fermix app can read or change the owner's lists.")
-
+        index(Groceries.id)
         lists.draw(Groceries.id)
-        socket.deliver(Self.refusal("No list has that id; it may have been removed more than 30 days ago."))
-        #expect(lists.store(Groceries.id).isRemoved)
 
         socket.deliver(Self.refusal("history is unreadable"))
-        #expect(session.model.lastError != nil, "with no pull out, the refusal is the chat's")
+
+        #expect(session.model.lastError != nil)
+        #expect(!lists.store(Groceries.id).isRemoved)
+        #expect(lists.index.refusal == nil)
     }
 
-    @Test("an edit the engine never answered is sent again at the next handshake, after the pulls")
+    /// The index holds every live list, so a list it does not name is drawn
+    /// as removed and never pulled: a pull of one swept away would be
+    /// refused with no request named. A list the index names later, one the
+    /// model made in the turn the card is drawn for, is pulled then.
+    @Test("a list the loaded index does not name is never pulled, and is pulled once the index names it")
+    func listMissingFromTheIndex() throws {
+        connected()
+        index()
+
+        lists.draw(Groceries.id)
+        #expect(try pulls().isEmpty)
+        #expect(lists.index.lacks(Groceries.id), "drawn as removed")
+
+        index(Groceries.id)
+        #expect(try pulls() == [Groceries.id])
+        #expect(!lists.index.lacks(Groceries.id))
+    }
+
+    @Test("an edit the engine never answered is sent again at the next handshake, and the held list is pulled once the index answers")
     func unansweredEditsAreResent() throws {
         connected()
+        index(Groceries.id)
         lists.draw(Groceries.id)
         socket.deliver(.checklist(profileId: Self.main, list: Groceries.list()))
         lists.edit(Groceries.id, .check(rowId: Groceries.lemons))
@@ -408,12 +440,13 @@ struct ChecklistLibraryTests {
         socket.fail(.peerClosed)
         scheduler.fireAll()
         socket.deliver(E.hello())
+        index(Groceries.id)
 
         let lastThree = try Array(socket.sentObjects().suffix(3))
         #expect(lastThree == (try wire(
             .checklistsPull(profileId: Self.main),
-            .checklistPull(profileId: Self.main, listId: Groceries.id),
-            .checklistEdit(clientMsgId: "mac-2", profileId: Self.main, listId: Groceries.id, op: .rename(text: "Weekly"))
+            .checklistEdit(clientMsgId: "mac-2", profileId: Self.main, listId: Groceries.id, op: .rename(text: "Weekly")),
+            .checklistPull(profileId: Self.main, listId: Groceries.id)
         )))
         #expect(lists.store(Groceries.id).shown?.title == "Weekly")
     }
@@ -438,6 +471,7 @@ struct ChecklistLibraryTests {
     @Test("a blank text is no edit and no new list")
     func blankTextIsNoEdit() throws {
         connected()
+        index(Groceries.id)
         lists.draw(Groceries.id)
 
         lists.edit(Groceries.id, .add(text: "  ", note: nil, place: nil))
