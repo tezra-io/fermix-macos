@@ -134,7 +134,7 @@ struct AlwaysOnPassphraseSheet: View {
                 .fermixType(Typography.style(.headline))
             CuesPageForm {
                 Section {
-                    CueNote(text: ProductStrings[twice ? ProductStringKey.alwaysOnPassphraseBody : .alwaysOnPassphraseMoveBody])
+                    CueNote(text: ProductStrings[twice ? ProductStringKey.alwaysOnPassphraseBody : .alwaysOnPassphraseOnceBody])
                     LabeledContent(ProductStrings[.alwaysOnPassphraseField]) {
                         SecretInput(label: ProductStrings[.alwaysOnPassphraseField], value: $passphrase, onSubmit: {}, prompt: "")
                     }

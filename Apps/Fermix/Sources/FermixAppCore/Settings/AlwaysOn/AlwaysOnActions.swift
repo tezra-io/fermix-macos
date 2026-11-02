@@ -119,8 +119,11 @@ extension AlwaysOnModel {
     /// that sets Always On up, Move now's answer still reads the screen it
     /// was pressed on, since the engine restarts right after answering: the
     /// pane says it is restarting until the engine answers with a summary
-    /// that moved. A linked desktop's replace answers `moving` and nothing
-    /// restarts here. A refusal is the engine's sentence under the action,
+    /// that moved. A linked desktop's replace, and a move back, answer
+    /// `moving` and nothing restarts here: a move back restarts this Mac's
+    /// engine later, as the home is put in place, and the chat's reconnect
+    /// and the notice after it read the screen then, as after any restart.
+    /// A refusal is the engine's sentence under the action,
     /// and the summary is read again: a press drawn on an older screen is
     /// `changed`, and a step the server took whose answer was lost is
     /// `unconfirmed`, which is no failure. A refused token keeps its field

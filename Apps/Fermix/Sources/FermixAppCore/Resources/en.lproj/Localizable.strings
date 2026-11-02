@@ -832,7 +832,7 @@
 "alwaysOn.choose.title" = "Size and location";
 "alwaysOn.passphrase.title" = "Recovery passphrase";
 "alwaysOn.passphrase.body" = "Fermix encrypts every backup of your home to this passphrase and never stores it. Keep it in a password manager: no backup can be restored without it.";
-"alwaysOn.passphrase.moveBody" = "Type the recovery passphrase you set. Fermix checks it before the move and never stores it.";
+"alwaysOn.passphrase.onceBody" = "Type the recovery passphrase you set. Fermix checks it first and never stores it.";
 "alwaysOn.passphrase.field" = "Passphrase";
 "alwaysOn.passphrase.again" = "Passphrase again";
 "alwaysOn.passphrase.mismatch" = "The two passphrases are not the same.";

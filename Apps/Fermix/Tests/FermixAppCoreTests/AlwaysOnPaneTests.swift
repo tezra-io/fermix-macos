@@ -34,8 +34,13 @@ struct AlwaysOnPaneTests {
         #expect(ready.notice == ManagementHomeNotice(id: "ready:cand-5e2a9c1f7b3d4086", sentence: "Your server is ready for the move."))
         #expect(try Self.summary("home_status_ready_first_move").action?.needs == [.newRecoveryPassphrase])
         #expect(try Self.summary("home_status_problem").notice?.id == "cannot_reach:2031-05-04T11:49:00Z")
-        #expect(try Self.summary("home_status_on").detail.actions?.map(\.id) == [.backUpNow, .replaceServer])
+        #expect(try Self.summary("home_status_on").detail.actions?.map(\.id) == [.backUpNow, .replaceServer, .moveBack])
         #expect(ready.detail.alternatives?.map(\.id) == [.deleteServer], "a server Fermix created that waits can be deleted")
+        let moveBack = try #require(try Self.summary("home_status_on").detail.actions?.last)
+        #expect(moveBack.label == "Move back to this Mac" && moveBack.needs.isEmpty && moveBack.confirm == nil)
+        let restore = try #require(try Self.summary("home_status_problem").detail.alternatives?.first)
+        #expect(restore.id == .restoreHere && restore.needs == [.recoveryPassphrase] && restore.key == "diwE8WEZ-oMI5gK-apOlFQ")
+        #expect(restore.confirm?.hasPrefix("Restore Fermix on this Mac from its backup?") == true && restore.url == nil)
         let outcomes = try ["home_status_creating", "home_status_ready", "home_status_problem"].map { try Self.summary($0).outcome }
         #expect(outcomes == [.running, .done, .failed])
     }
@@ -325,7 +330,7 @@ struct AlwaysOnPaneTests {
     @Test("Replace the server opens the same choice, and sends what it collected under its own key")
     func replaceServer() async throws {
         let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_on") as ManagementHomeStatus)
-        let replace = try #require(pane.model.page.screen?.detailActions.last)
+        let replace = try #require(pane.model.page.screen?.detailActions.first { $0.id == .replaceServer })
 
         await pane.model.press(replace)
         #expect(pane.model.asking == .choice(replace))
@@ -483,6 +488,140 @@ struct AlwaysOnPaneTests {
         await pane.model.refresh()
 
         #expect(pane.model.asking == nil && pane.gateway.homeActs.isEmpty)
+    }
+
+    // MARK: - Moving back
+
+    /// Move back sits in Details while Fermix runs on the server, and asks
+    /// nothing: the press is one `home.act`, and its answer is the move
+    /// back's first screen.
+    @Test("Move back to this Mac is one home.act with its key, asking nothing, and the answer draws the move back's first screen")
+    func moveBackSendsOneAct() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_on") as ManagementHomeStatus)
+        pane.gateway.homeActScript = [.success(try Self.acted(Self.returnConnectingSummary))]
+        let moveBack = try #require(pane.model.page.screen?.detailActions.first { $0.id == .moveBack })
+
+        await pane.model.press(moveBack)
+
+        #expect(pane.gateway.homeActs == [HomeAct(action: .moveBack, key: "A8TBcMzBwNuJLnGg2E5uAw", input: nil)])
+        #expect(pane.model.asking == nil && pane.model.restartingFrom == nil)
+        #expect(AlwaysOnRendering.lines(pane.model.page) == ["sentence: Connecting this Mac to your server…", "bar", "action: Cancel"])
+    }
+
+    /// Restore on this Mac takes the recovery passphrase that is set, typed
+    /// once, in the sheet that ends with its confirm, so one press sends it.
+    @Test("Restore on this Mac asks the recovery passphrase once and sends it in one press, and nothing restarts here")
+    func restoreHereOnce() async throws {
+        let pane = try await Self.opened(try AlwaysOnTests.golden("home_status_problem") as ManagementHomeStatus)
+        pane.gateway.homeActScript = [.success(try Self.acted(Self.restoreDeletingSummary))]
+        let restore = try #require(pane.model.page.screen?.alternatives.first)
+
+        await pane.model.press(restore)
+        #expect(pane.model.asking == .passphrase(restore, twice: false) && pane.gateway.homeActs.isEmpty)
+        #expect(await pane.model.submitPassphrase("invented-harbor-juniper-lantern", again: nil))
+
+        #expect(pane.gateway.homeActs == [
+            HomeAct(action: .restoreHere, key: "diwE8WEZ-oMI5gK-apOlFQ", input: ManagementHomeActInput(recoveryPassphrase: "invented-harbor-juniper-lantern"))
+        ])
+        #expect(pane.model.restartingFrom == nil && pane.model.page.screen?.state == .creating)
+    }
+
+    /// The move back reuses the states the pane already draws, so each of
+    /// its screens is the engine's words as they come, its two problems
+    /// among the kinds this build knows.
+    @Test("the move back's screens draw as their goldens, and its two problems are kinds this build knows")
+    func moveBackScreensDraw() throws {
+        #expect(AlwaysOnRendering.lines(.screen(AlwaysOnScreen(try Self.decodeSummary(Self.returnReadySummary)))) == [
+            "sentence: This Mac is ready to take Fermix back.",
+            "action: Move now, needs recovery_passphrase, confirms",
+            "link: Cancel",
+            "line: Server: fermix-general-a3f9",
+            "line: Waits until: Monday, May 5, 2031 at 1:00 PM CEST"
+        ])
+        #expect(AlwaysOnRendering.lines(.screen(AlwaysOnScreen(try Self.decodeSummary(Self.returnMovingSummary)))) == [
+            "sentence: Moving Fermix back to this Mac. Messages wait until it is done.",
+            "bar",
+            "progress: Receiving your Fermix from the server…"
+        ])
+
+        let failed = try Self.decodeSummary(Self.returnFailedSummary)
+        #expect(failed.problem == .returnFailed)
+        #expect(AlwaysOnRendering.lines(.screen(AlwaysOnScreen(failed))) == [
+            "sentence: This Mac could not get ready to take Fermix back. Move back to try again.",
+            "action: Move back to this Mac",
+            "link: Learn more, opens https://fermix.ai/docs/always-on/#hetzner"
+        ])
+        let retired = try Self.decodeSummary(Self.serverRetiredSummary)
+        #expect(retired.problem == .serverRetired)
+        #expect(AlwaysOnRendering.lines(.screen(AlwaysOnScreen(retired))) == [
+            "sentence: Fermix is back on this Mac. Your server still runs and costs money until you delete it.",
+            "action: Delete your server, confirms",
+            "link: Learn more, opens https://fermix.ai/docs/always-on/#hetzner"
+        ])
+    }
+
+    /// Move now on a move back starts the server's move, so its answer is
+    /// `moving`: this Mac's engine restarts later, as the home is put in
+    /// place, which no press here waits on.
+    @Test("a move back's Move now answers moving, and nothing restarts here")
+    func returnMoveDoesNotRestart() async throws {
+        let pane = try await Self.opened(try Self.home(Self.returnReadySummary))
+        pane.gateway.homeActScript = [.success(try Self.acted(Self.returnMovingSummary, result: ["move_id": "mv-01a17cb1f5c04c1e9a7b"]))]
+        let move = try #require(pane.model.page.screen?.action)
+
+        await pane.model.press(move)
+        #expect(await pane.model.submitPassphrase("invented-harbor-juniper-lantern", again: nil))
+
+        #expect(pane.gateway.homeActs.map(\.action) == [.moveNow])
+        #expect(pane.model.restartingFrom == nil && pane.model.page.screen?.state == .moving)
+    }
+
+    /// The move back ends with this Mac's engine restarting as the primary
+    /// in the same home, at the same socket and a later epoch than its
+    /// server's: the chat takes it back as after any restart, and the notice
+    /// it sends reads the screen after.
+    @Test("after the move back this Mac's engine comes back as the primary at the same socket, and its notice reads the screen after")
+    func restartAfterMoveBack() async throws {
+        let gateway = try AlwaysOnTests.gateway()
+        gateway.homeStatusScript = [.success(try Self.home(Self.returnMovingSummary)), .success(try Self.home(Self.serverRetiredSummary))]
+        let pane = try Self.harness(gateway)
+        let chat = AlwaysOnChat.make()
+        pane.model.listen(to: chat.session)
+        chat.session.connect()
+        chat.socket.deliver(CompanionEvents.hello(epoch: 5, role: .primary))
+        chat.socket.deliver(.homeStatusChanged)
+        await pane.model.cued?.value
+        #expect(pane.model.page.screen?.state == .moving)
+
+        chat.socket.fail(.peerClosed)
+        chat.scheduler.fireAll()
+        chat.socket.deliver(CompanionEvents.hello(epoch: 6, role: .primary))
+        chat.socket.deliver(.homeStatusChanged)
+        await pane.model.cued?.value
+
+        #expect(chat.session.model.connection == .connected)
+        #expect(chat.socket.connectedPaths.count == 2 && Set(chat.socket.connectedPaths).count == 1)
+        #expect(pane.model.summary?.problem == .serverRetired && pane.model.restartingFrom == nil)
+    }
+
+    /// Back from a server of the owner's own, Always On is off again, and
+    /// the engine's notice says the server still runs its retired copy: it
+    /// is raised once, as every notice is.
+    @Test("back from a server of the owner's own, its notice is raised once")
+    func backNoticeOnce() async throws {
+        var back = Self.offSummary
+        back["notice"] = ["id": "back:6", "sentence": Self.backSentence]
+        let gateway = try AlwaysOnTests.gateway()
+        gateway.homeStatusScript = [.success(try Self.home(back))]
+        let pane = try Self.harness(gateway)
+        let notifier = RecordingAlwaysOnNotifier()
+        pane.model.notifier = notifier
+
+        await pane.model.refresh()
+        await pane.model.refresh()
+
+        #expect(notifier.posted.map(\.body) == [Self.backSentence])
+        #expect(pane.model.page.screen?.state == .off)
     }
 
     // MARK: - The choice
@@ -715,7 +854,7 @@ struct AlwaysOnPaneTests {
             "line: Costs: €8.33 a month, billed by the hour until deleted"
         ],
         "home_status_ready": [
-            "sentence: Your server is ready for the move. There is no way back to this Mac in this version.",
+            "sentence: Your server is ready for the move. You can move Fermix back to this Mac from Always On whenever you want.",
             "warn: iMessage, voice calls and meetings stop after the move: neither this Mac nor fermix-general-a3f9 runs them.",
             "action: Move now, needs recovery_passphrase, confirms",
             "link: Delete your server, confirms",
@@ -730,7 +869,7 @@ struct AlwaysOnPaneTests {
             "line: Costs: €8.33 a month, billed by the hour until deleted"
         ],
         "home_status_ready_first_move": [
-            "sentence: Your server is ready for the move. There is no way back to this Mac in this version.",
+            "sentence: Your server is ready for the move. You can move Fermix back to this Mac from Always On whenever you want.",
             "warn: iMessage, voice calls and meetings stop after the move: neither this Mac nor fermix-general-a3f9 runs them.",
             "action: Move now, needs new_recovery_passphrase, confirms",
             "link: Delete your server, confirms",
@@ -762,17 +901,21 @@ struct AlwaysOnPaneTests {
             "line: Costs: €8.33 a month, billed by the hour until deleted",
             "data: Your conversations and memories, the secrets, the browser and traces live on your server, and Hetzner can technically read its disk. Backups are encrypted to your recovery passphrase.",
             "details link: Back up now",
-            "details link: Replace the server, needs choice, confirms"
+            "details link: Replace the server, needs choice, confirms",
+            "details link: Move back to this Mac"
         ],
         "home_status_problem": [
             "sentence: Fermix cannot reach your server. Your messages wait until it is back.",
             "action: Restart server, confirms",
+            "link: Restore on this Mac, needs recovery_passphrase, confirms",
             "line: Server: fermix-general-a3f9",
             "line: Size: CPX22",
             "line: Place: Falkenstein",
             "line: Address: 203.0.113.7",
             "line: Last checked: Sunday, May 4, 2031 at 1:59 PM CEST",
-            "line: Costs: €8.33 a month, billed by the hour until deleted"
+            "line: Costs: €8.33 a month, billed by the hour until deleted",
+            "line: Backup on this Mac: Sunday, May 4, 2031 at 12:00 PM CEST",
+            "line: Last seen: Sunday, May 4, 2031 at 1:50 PM CEST"
         ],
         "home_act": [
             "sentence: Your Hetzner token works, so choose the server Fermix creates.",
@@ -851,6 +994,61 @@ struct AlwaysOnPaneTests {
         "action": action("learn_more", "Learn more", key: "AevTAJ1PC7bJ23Nb6779IQ", url: "https://fermix.ai/docs/always-on/#hetzner"),
         "detail": [String: Any]()
     ]
+    /// The move back's screens as the engine words them (`Management.Copy`
+    /// at engine 6a747236), each key invented.
+    static let returnConnectingSummary: [String: Any] = [
+        "key": "invented-return-connecting-3b9e", "state": "creating", "notice": NSNull(), "outcome": "running",
+        "sentence": "Connecting this Mac to your server…",
+        "action": action("cancel", "Cancel", key: "invented-return-cancel-5d2a"),
+        "detail": [String: Any]()
+    ]
+    static let returnReadySummary: [String: Any] = [
+        "key": "invented-return-ready-8c41", "state": "ready", "outcome": "done",
+        "sentence": "This Mac is ready to take Fermix back.",
+        "notice": ["id": "ready:cand-7f0b2d9e4a1c3586", "sentence": "This Mac is ready to take Fermix back."],
+        "action": action("move_now", "Move now", needs: ["recovery_passphrase"], confirm: returnMoveConfirm, key: "invented-return-move-now-1e6f"),
+        "detail": [
+            "alternatives": [action("cancel", "Cancel", key: "invented-return-cancel-5d2a")],
+            "readiness": [[String: Any]](),
+            "lines": [
+                ["label": "Server", "value": "fermix-general-a3f9"],
+                ["label": "Waits until", "value": "Monday, May 5, 2031 at 1:00 PM CEST"]
+            ]
+        ]
+    ]
+    static let returnMoveConfirm = "Move Fermix back to this Mac now? iMessage, voice calls and meetings run here again. "
+        + "Coding agents ask for your approval again. Messages sent to Telegram while it moves wait until it is done. "
+        + "Your server stays until you delete it."
+    static let returnMovingSummary: [String: Any] = [
+        "key": "invented-return-moving-0d7a", "state": "moving", "notice": NSNull(), "action": NSNull(), "outcome": "running",
+        "sentence": "Moving Fermix back to this Mac. Messages wait until it is done.",
+        "detail": ["progress": "Receiving your Fermix from the server…"]
+    ]
+    static let returnFailedSummary: [String: Any] = [
+        "key": "invented-return-failed-6b2c", "state": "problem", "notice": NSNull(), "outcome": "failed",
+        "sentence": "This Mac could not get ready to take Fermix back. Move back to try again.",
+        "action": action("move_back", "Move back to this Mac", key: "invented-move-back-4a9d"),
+        "detail": [
+            "kind": "return_failed", "note": NSNull(),
+            "alternatives": [action("learn_more", "Learn more", key: "invented-learn-more-2f3e", url: "https://fermix.ai/docs/always-on/#hetzner")]
+        ]
+    ]
+    static let serverRetiredSummary: [String: Any] = [
+        "key": "invented-server-retired-9e15", "state": "problem", "notice": NSNull(), "outcome": "failed",
+        "sentence": "Fermix is back on this Mac. Your server still runs and costs money until you delete it.",
+        "action": action("delete_server", "Delete your server", confirm: "Delete your server? Fermix no longer runs on it, and everything still on it is gone for good.",
+                         key: "invented-delete-back-7c08"),
+        "detail": [
+            "kind": "server_retired", "note": NSNull(),
+            "alternatives": [action("learn_more", "Learn more", key: "invented-learn-more-2f3e", url: "https://fermix.ai/docs/always-on/#hetzner")]
+        ]
+    ]
+    static let restoreDeletingSummary: [String: Any] = [
+        "key": "invented-restore-deleting-5a60", "state": "creating", "notice": NSNull(), "action": NSNull(), "outcome": "running",
+        "sentence": "Deleting your server, then restoring Fermix on this Mac from its backup…",
+        "detail": [String: Any]()
+    ]
+    static let backSentence = "Fermix is back on this Mac. Your own server still runs its retired copy: turn it off or delete it."
     /// A linked desktop's replace, once its move is sent to the server.
     static let movingSummary: [String: Any] = [
         "key": "DXMsAJ5oa8GcFfqMnPOUWQ", "state": "moving", "notice": NSNull(), "action": NSNull(), "outcome": "running",

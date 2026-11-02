@@ -83,6 +83,12 @@ public enum ManagementHomeActionId: ManagementVocabulary, Hashable {
     case checkAgain
     case ownServer
     case deleteServer
+    /// On a linked desktop: Fermix moves back from its server to this
+    /// computer.
+    case moveBack
+    /// Fermix is restored on this computer from the copy of the server's
+    /// backups it keeps, after the server that stopped answering is deleted.
+    case restoreHere
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -102,7 +108,9 @@ public enum ManagementHomeActionId: ManagementVocabulary, Hashable {
         "replace_server": .replaceServer,
         "check_again": .checkAgain,
         "own_server": .ownServer,
-        "delete_server": .deleteServer
+        "delete_server": .deleteServer,
+        "move_back": .moveBack,
+        "restore_here": .restoreHere
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
     public var unrecognizedValue: String? {
@@ -191,6 +199,12 @@ public enum ManagementHomeProblemKind: ManagementVocabulary, Hashable {
     case deleteFailed
     /// Turning the server on, or restarting it, stopped.
     case powerFailed
+    /// Fermix is back on this computer, and the server Fermix created for
+    /// it still runs and costs money.
+    case serverRetired
+    /// A move back to this computer, or a restore here, ended or stopped
+    /// part-way.
+    case returnFailed
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -210,7 +224,9 @@ public enum ManagementHomeProblemKind: ManagementVocabulary, Hashable {
         "not_ready": .notReady,
         "unreadable": .unreadable,
         "delete_failed": .deleteFailed,
-        "power_failed": .powerFailed
+        "power_failed": .powerFailed,
+        "server_retired": .serverRetired,
+        "return_failed": .returnFailed
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
     public var unrecognizedValue: String? {

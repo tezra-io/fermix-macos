@@ -129,12 +129,18 @@ struct FixtureManagementTransport: ManagementTransport {
     ///
     /// `home.status` publishes one golden per Always On summary for the same
     /// request: the one the machine's start names answers.
+    ///
+    /// `computer_use.permissions.get` publishes a Mac's answer and a Linux
+    /// one for the same request: this home is a Mac, so the Mac's answers.
     private func candidates(for method: String, params: [String: Any]) -> [Record]? {
         if method == ManagementMethod.mcpServersGet.rawValue { return records[method].map { Array($0.prefix(1)) } }
         if method == ManagementMethod.cuesProposalsGet.rawValue { return records[method].map { Array($0.prefix(1)) } }
         if method == ManagementMethod.cuesSourcesForm.rawValue { return records[method].map { sourceForm($0, params) } }
         if method == ManagementMethod.homeStatus.rawValue {
             return records[method].map { $0.filter { $0.name == machine.homeStatusGolden } }
+        }
+        if method == ManagementMethod.computerUsePermissionsGet.rawValue {
+            return records[method].map { $0.filter { $0.name == Self.macPermissionsGolden } }
         }
         guard method == ManagementMethod.mobilePairStart.rawValue else { return records[method] }
 
@@ -172,6 +178,9 @@ struct FixtureManagementTransport: ManagementTransport {
 
     /// The golden write whose rows need a restart.
     private static let bootBoundWrite = "settings_apply"
+
+    /// The golden permissions answer of a Mac.
+    private static let macPermissionsGolden = "computer_use_permissions_get"
 
     /// The golden answer, with this home's own two facts written into it.
     ///

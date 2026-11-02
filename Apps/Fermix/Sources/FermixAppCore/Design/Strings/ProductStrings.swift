@@ -908,8 +908,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case alwaysOnPassphraseTitle = "alwaysOn.passphrase.title"
     /// Where no recovery passphrase is set: it is typed twice.
     case alwaysOnPassphraseBody = "alwaysOn.passphrase.body"
-    /// Where one is set: it is typed once, and the engine checks it.
-    case alwaysOnPassphraseMoveBody = "alwaysOn.passphrase.moveBody"
+    /// Where one is set: it is typed once, and the engine checks it before
+    /// the step goes on, a move or a restore.
+    case alwaysOnPassphraseOnceBody = "alwaysOn.passphrase.onceBody"
     case alwaysOnPassphraseField = "alwaysOn.passphrase.field"
     case alwaysOnPassphraseAgain = "alwaysOn.passphrase.again"
     case alwaysOnPassphraseMismatch = "alwaysOn.passphrase.mismatch"
