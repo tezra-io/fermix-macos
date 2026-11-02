@@ -2,13 +2,11 @@ import SwiftUI
 
 /// The chat surface's own measures (redlines §8 decision 36).
 enum ChatMetrics {
-    /// The reading column the messages are set in, centred in the body
-    /// however wide the window is: the 48 em column the chat apps people know
-    /// read at (owner, 2026-11-01: the messages read narrow at 720).
+    /// The reading column the messages and the composer share, centred in
+    /// the body however wide the window is, so the composer's edges line up
+    /// with the messages' (owner, 2026-11-02): the 48 em column the chat apps
+    /// people know read at (owner, 2026-11-01: 720 read narrow).
     static let columnWidth: Double = 768
-    /// The composer under the messages, centred under their column and a
-    /// step narrower than it, as it was before the column widened.
-    static let composerWidth: Double = 720
     /// The room the column keeps from the body's edges, the transcript's and
     /// the composer's alike, when the body is narrower than the column.
     static let columnGutter: Double = Spacing.l
@@ -380,7 +378,7 @@ struct ChatSurfaceView: View {
                 send: send,
                 cancel: session.cancel(clientMsgId:)
             )
-            .frame(maxWidth: ChatMetrics.composerWidth)
+            .frame(maxWidth: ChatMetrics.columnWidth)
             .padding(.horizontal, ChatMetrics.columnGutter)
             .padding(.top, docked ? ChatMetrics.composerTopGap : 0)
             .padding(.bottom, docked ? Spacing.m : 0)
