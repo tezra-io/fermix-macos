@@ -166,10 +166,10 @@ private func moment(_ value: String) throws -> Date {
 
 @Suite("Companion proposals: the wire")
 struct CompanionProposalWireTests {
-    @Test("this build speaks version 6 on the 5 to 6 window, past the version that carries a follow-up's card")
-    func declaresVersionSix() {
-        #expect(CompanionProtocol.version == 6)
-        #expect(CompanionProtocol.supportedWindow == CompanionVersionWindow(minimum: 5, maximum: 6))
+    @Test("this build speaks version 7 on the 6 to 7 window, past the version that carries a follow-up's card")
+    func declaresVersionSeven() {
+        #expect(CompanionProtocol.version == 7)
+        #expect(CompanionProtocol.supportedWindow == CompanionVersionWindow(minimum: 6, maximum: 7))
     }
 
     @Test("a follow-up's card decodes with its follow-up and no call, and writes back as itself")

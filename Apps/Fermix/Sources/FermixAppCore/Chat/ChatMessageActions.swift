@@ -104,7 +104,9 @@ struct ChatCopyAction: View {
 
 /// A message's action: its glyph in the secondary tone, in the ink on a
 /// soft fill under the pointer, and fainter while pressed.
-private struct ChatActionButtonStyle: ButtonStyle {
+/// A quiet glyph button: secondary ink, a soft fill under the pointer. A
+/// message's actions and the composer's attach button.
+struct ChatActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         ChatActionFace(configuration: configuration)
     }

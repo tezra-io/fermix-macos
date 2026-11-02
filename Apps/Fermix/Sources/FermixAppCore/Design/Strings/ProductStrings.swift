@@ -489,6 +489,22 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatCancel = "chat.cancel"
     /// Under a message the daemon has not yet accepted.
     case chatSending = "chat.sending"
+    // Files attached to a message (companion version 7). The engine's
+    // refusals are its own sentences; these are the composer's.
+    /// The composer's attach button, and the open panel's button.
+    case chatAttach = "chat.attach"
+    /// A file's chip while it is copied in and handed over.
+    case chatAttachAttaching = "chat.attach.attaching"
+    case chatAttachRemoveFormat = "chat.attach.removeFormat"
+    /// The name a pasted picture is attached under, before its extension.
+    case chatAttachPastedName = "chat.attach.pastedName"
+    case chatAttachFolder = "chat.attach.folder"
+    case chatAttachTooLargeFormat = "chat.attach.tooLargeFormat"
+    case chatAttachUnreadable = "chat.attach.unreadable"
+    case chatAttachUnwritable = "chat.attach.unwritable"
+    case chatAttachDisconnected = "chat.attach.disconnected"
+    /// The slash command palette over the composer, as VoiceOver names it.
+    case chatCommands = "chat.commands"
     case chatApprove = "chat.approve"
     case chatDeny = "chat.deny"
     // A cue proposal's card in Chat (M60 §4.7). Its summary, its sentences

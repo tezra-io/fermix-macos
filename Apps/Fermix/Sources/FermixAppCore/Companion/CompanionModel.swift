@@ -78,11 +78,19 @@ public final class CompanionModel: ObservableObject {
     /// with different content. The transcript keeps its reader's place
     /// against it.
     @Published public private(set) var reshape: CompanionReshape?
+    /// The slash commands the engine serves, as its latest hello named them:
+    /// the composer's palette. Kept across a drop, as the engine's list is
+    /// the same until it is replaced.
+    @Published public private(set) var commands: [CompanionCommand] = []
 
     init() {}
 
     func show(_ connection: CompanionConnection) {
         publish(\.connection, connection)
+    }
+
+    func show(commands: [CompanionCommand]) {
+        publish(\.commands, commands)
     }
 
     /// Publishes the reduced chat. Only the facts that changed are written, so

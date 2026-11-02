@@ -439,6 +439,16 @@
 "chat.send" = "Send";
 "chat.cancel" = "Cancel";
 "chat.sending" = "Sending";
+"chat.attach" = "Attach";
+"chat.attach.attaching" = "Attaching";
+"chat.attach.removeFormat" = "Remove %@";
+"chat.attach.pastedName" = "Pasted picture";
+"chat.attach.folder" = "A folder cannot be attached. Attach the files in it instead.";
+"chat.attach.tooLargeFormat" = "This file is larger than the %@ Fermix takes.";
+"chat.attach.unreadable" = "Fermix could not read this file.";
+"chat.attach.unwritable" = "Fermix could not take this file in. Try again.";
+"chat.attach.disconnected" = "Fermix disconnected before this file was attached. Remove it and add it again.";
+"chat.commands" = "Commands";
 "chat.approve" = "Approve";
 "chat.deny" = "Deny";
 "proposal.title" = "A task wants to act";

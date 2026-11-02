@@ -13,8 +13,9 @@ import Foundation
 /// What the chat holds is decided by `CompanionReducer`; this owns the socket
 /// and the clock, sends what the reducer answers, and publishes the result to
 /// `model`, which nothing else writes. The files the engine grants are counted
-/// by `grants`, and the owner's lists (M85) are kept by `lists`; both send
-/// through this, only on a negotiated connection.
+/// by `grants`, the owner's lists (M85) are kept by `lists`, and the files the
+/// composer hands over are `attachments`'; each sends through this, only on a
+/// negotiated connection.
 @MainActor
 public final class CompanionSession {
     private enum Phase: Equatable {
@@ -48,6 +49,14 @@ public final class CompanionSession {
     public private(set) lazy var lists = ChecklistLibrary(
         send: { [weak self] event in self?.sendNegotiated(event) ?? false },
         messageIds: messageIds
+    )
+
+    /// The files the composer holds for the next message, each handed over to
+    /// the engine as it is added (version 7). Held here, as the draft is, so
+    /// leaving Chat does not lose them.
+    public private(set) lazy var attachments = ChatAttachments(
+        send: { [weak self] event in self?.sendNegotiated(event) ?? false },
+        ids: messageIds
     )
 
     /// Called each time Always On's summary may have moved, so the app reads
@@ -137,11 +146,12 @@ public final class CompanionSession {
         attempt()
     }
 
-    /// A message to the agent. It enters the outbox now and is sent at once on
-    /// a live connection, or at the next handshake otherwise.
-    public func send(_ text: String) {
+    /// A message to the agent, with the files it carries, every one already
+    /// held by the engine. It enters the outbox now and is sent at once on a
+    /// live connection, or at the next handshake otherwise.
+    public func send(_ text: String, attachments: [CompanionSentAttachment] = []) {
         let clientMsgId = messageIds()
-        reduce { CompanionReducer.send(text, clientMsgId: clientMsgId, into: &$0) }
+        reduce { CompanionReducer.send(text, attachments: attachments, clientMsgId: clientMsgId, into: &$0) }
     }
 
     /// Stops the turn of the request with this id, running or waiting.
@@ -275,8 +285,14 @@ public final class CompanionSession {
 
     private func handshake(_ event: CompanionServerEvent) {
         switch event {
-        case .serverHello(let minimum, let maximum, let primaryEpoch, let role):
-            negotiate(CompanionVersionWindow(minimum: minimum, maximum: maximum), primaryEpoch: primaryEpoch, role: role)
+        case .serverHello(let minimum, let maximum, let primaryEpoch, let role, let commands, let inbox):
+            negotiate(
+                CompanionVersionWindow(minimum: minimum, maximum: maximum),
+                primaryEpoch: primaryEpoch,
+                role: role,
+                commands: commands,
+                inbox: inbox
+            )
         case .error(let refusal):
             refusedDuringHandshake(refusal)
         default:
@@ -284,7 +300,13 @@ public final class CompanionSession {
         }
     }
 
-    private func negotiate(_ window: CompanionVersionWindow, primaryEpoch: Int?, role: CompanionEngineRole?) {
+    private func negotiate(
+        _ window: CompanionVersionWindow,
+        primaryEpoch: Int?,
+        role: CompanionEngineRole?,
+        commands: [CompanionCommand],
+        inbox: CompanionAttachmentInbox?
+    ) {
         cancelDeadline()
 
         guard window.contains(protocolVersion) else {
@@ -300,9 +322,12 @@ public final class CompanionSession {
         consecutiveFailures = 0
         serverAway = nil
         model.show(.connected)
+        model.show(commands: commands)
         reduce { [onScreen] in CompanionReducer.negotiated(&$0, onScreen: onScreen) }
         grants.negotiated()
-        lists.negotiated(serves: min(protocolVersion, window.maximum) >= CompanionProtocol.listsVersion)
+        let version = min(protocolVersion, window.maximum)
+        lists.negotiated(serves: version >= CompanionProtocol.listsVersion)
+        attachments.negotiated(inbox: version >= CompanionProtocol.attachmentsVersion ? inbox : nil)
     }
 
     /// Keeps a primary's epoch as the highest seen at this socket, and says
@@ -360,6 +385,8 @@ public final class CompanionSession {
             grants.answered(ref, .missing)
         case .homeStatusChanged:
             homeStatusCue?()
+        case .attachStatus(let attachId, let status):
+            attachments.answered(attachId, status)
         case .error(let refusal):
             routeRefusal(refusal)
         case .checklists, .checklist:
@@ -373,8 +400,8 @@ public final class CompanionSession {
 
     /// A refusal naming a media ref answers that ref's fetch; the server out
     /// of reach or no longer knowing this desktop ends the connection; one
-    /// of a list edit, or of a list pull, is the lists'; any other is the
-    /// chat's.
+    /// of a list edit, or of a list pull, is the lists'; one naming an attach
+    /// id is the attachments'; any other is the chat's.
     private func routeRefusal(_ refusal: CompanionServerError) {
         if refusal.reason == CompanionProtocol.desktopRevokedReason {
             desktopRevoked(Self.sentence(for: refusal))
@@ -385,6 +412,7 @@ public final class CompanionSession {
             return
         }
         if lists.refused(refusal) { return }
+        if attachments.refused(refusal) { return }
         guard let ref = refusal.ref else {
             reduce { CompanionReducer.receive(.error(refusal), into: &$0) }
             return
@@ -447,6 +475,7 @@ public final class CompanionSession {
         update(change)
         grants.disconnected()
         lists.disconnected()
+        attachments.disconnected()
         model.show(.refused(sentence))
     }
 
@@ -474,6 +503,7 @@ public final class CompanionSession {
         update { CompanionReducer.disconnected(&$0) }
         grants.disconnected()
         lists.disconnected()
+        attachments.disconnected()
         retry(showing: connection)
     }
 

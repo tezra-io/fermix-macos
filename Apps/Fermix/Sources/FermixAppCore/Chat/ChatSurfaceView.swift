@@ -33,6 +33,16 @@ enum ChatMetrics {
     static let sendingStrength: Double = 0.6
     /// The composer grows to this many lines and then scrolls inside itself.
     static let composerLines = 1...6
+    /// The attach button's glyph, the composer's leading control.
+    static let attachGlyph: Double = 14
+    /// A file's chip over the composer's field: its picture or icon, square,
+    /// and the widest its name runs before it is cut in the middle.
+    static let attachChipThumb: Double = 32
+    static let attachChipNameWidth: Double = 160
+    /// The palette over the composer: as tall as this many commands, then it
+    /// scrolls.
+    static let paletteVisibleRows = 6
+    static let paletteRowHeight: Double = 44
     /// The composer's inset around its line and its action, which makes it the
     /// in-window control height while it is one line: the regular action plus
     /// this above and below is extra large.
@@ -41,6 +51,14 @@ enum ChatMetrics {
         leading: Spacing.m,
         bottom: (HitTarget.button - HitTarget.rowAction) / 2,
         trailing: (HitTarget.button - HitTarget.rowAction) / 2
+    )
+    /// The same with the attach button at the leading edge, which sits in
+    /// from it as the action does from the trailing one.
+    static let composerAttachInset = EdgeInsets(
+        top: composerInset.top,
+        leading: composerInset.trailing,
+        bottom: composerInset.bottom,
+        trailing: composerInset.trailing
     )
     /// A message's own corners, the approval card's and the call box's, and
     /// a strip's tiles'.
@@ -172,6 +190,9 @@ struct ChatSurfaceView: View {
     @State private var draft: String
     @State private var query = ""
     @State private var resultsShown = false
+    /// Whether a file is being dragged over the chat, which the composer
+    /// shows by its border.
+    @State private var dropping = false
     @State private var reveal: ChatReveal?
     /// The body's width, which the reading column and every strip in it are
     /// fitted to. It starts at the width a full column takes, the usual
@@ -350,6 +371,9 @@ struct ChatSurfaceView: View {
                 draft: $draft,
                 connection: model.connection,
                 turn: model.turn,
+                attachments: session.attachments,
+                commands: model.commands,
+                dropping: dropping,
                 send: send,
                 cancel: session.cancel(clientMsgId:)
             )
@@ -362,15 +386,27 @@ struct ChatSurfaceView: View {
                 Spacer(minLength: 0)
             }
         }
+        // A file dropped anywhere on the conversation joins the message,
+        // where the engine takes files.
+        .dropDestination(for: URL.self) { files, _ in
+            guard session.attachments.inbox != nil, model.connection.acceptsMessages else { return false }
+
+            session.attachments.add(files)
+            return files.contains(where: \.isFileURL)
+        } isTargeted: { over in
+            dropping = over && session.attachments.inbox != nil
+        }
     }
 
-    /// Sends the draft. The first message of an empty timeline is what docks
-    /// the composer, and it is the one change here that animates.
+    /// Sends the draft and the files it carries. The first message of an
+    /// empty timeline is what docks the composer, and it is the one change
+    /// here that animates.
     private func send() {
-        let text = draft
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : draft
+        let files = session.attachments.take()
         draft = ""
         withAnimation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade)) {
-            session.send(text)
+            session.send(text, attachments: files)
         }
     }
 

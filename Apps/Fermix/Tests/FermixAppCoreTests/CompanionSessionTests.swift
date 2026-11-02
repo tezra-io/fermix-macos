@@ -557,18 +557,18 @@ struct CompanionSessionTests {
         #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
     }
 
-    /// An engine older than this build's version 6, a server after a move
+    /// An engine older than this build's version 7, a server after a move
     /// before its nightly update among them, refuses the hello as too new:
     /// it is told to update, as every older engine is, and never hello'd at
     /// a lower version.
-    @Test("an engine whose window ends below version 6 refuses this build's hello, and chat says to update the engine")
-    func engineBelowVersionSix() throws {
+    @Test("an engine whose window ends below version 7 refuses this build's hello, and chat says to update the engine")
+    func engineBelowVersionSeven() throws {
         let harness = Harness()
         harness.session.connect()
 
-        harness.socket.deliver(E.refusal("unsupported_protocol_version", direction: .clientTooNew, window: .init(minimum: 4, maximum: 5)))
+        harness.socket.deliver(E.refusal("unsupported_protocol_version", direction: .clientTooNew, window: .init(minimum: 5, maximum: 6)))
 
-        #expect(try harness.sent() == wire(.clientHello(protocolVersion: 6)))
+        #expect(try harness.sent() == wire(.clientHello(protocolVersion: 7)))
         #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
         #expect(harness.scheduler.liveCount == 0)
     }
@@ -868,5 +868,54 @@ struct CompanionSessionTests {
         #expect(harness.model.connection == .connected)
         #expect(try harness.sent().last { $0["type"] as? String == "client_hello" } == wireObject(companion: hello))
         #expect(harness.socket.connectedPaths.last == path)
+    }
+
+    // MARK: - Attachments and commands (version 7)
+
+    private static let inbox = CompanionAttachmentInbox(dir: "/tmp/fermix-test/companion/inbox", maxBytes: 20_971_520)
+    private static let commands = [CompanionCommand(name: "new", aliases: [], description: "Start a new conversation")]
+
+    @Test("a hello's commands reach the model and its inbox the attachments, and a drop takes the inbox away but keeps the commands")
+    func helloNamesCommandsAndInbox() {
+        let harness = Harness()
+        harness.session.connect()
+
+        harness.socket.deliver(E.hello(commands: Self.commands, attachments: Self.inbox))
+
+        #expect(harness.model.commands == Self.commands)
+        #expect(harness.session.attachments.inbox == Self.inbox)
+
+        harness.socket.fail(.peerClosed)
+
+        #expect(harness.session.attachments.inbox == nil)
+        #expect(harness.model.commands == Self.commands)
+    }
+
+    @Test("a message carries its files' ids, and one of files alone is a message")
+    func messageCarriesAttachIds() throws {
+        let harness = Harness()
+        harness.connected()
+
+        harness.session.send("", attachments: [CompanionSentAttachment(attachId: "att-1", name: "Plan.pdf")])
+
+        #expect(try harness.sent().last == wireObject(companion: .msg(clientMsgId: "mac-1", profileId: "main", text: "", attachIds: ["att-1"])))
+        #expect(harness.model.pending.map(\.request) == [.message(text: "", attachments: [CompanionSentAttachment(attachId: "att-1", name: "Plan.pdf")])])
+    }
+
+    @Test("a refusal naming an attach id is the attachments', never the chat's")
+    func attachRefusalIsNotTheChats() {
+        let harness = Harness()
+        harness.connected()
+        var refusal = CompanionServerError(
+            reason: "request_failed", message: "That file is too large.", field: nil, event: nil, clientMsgId: nil,
+            direction: nil, clientVersion: nil, minVersion: nil, maxVersion: nil, ref: nil
+        )
+        refusal.attachId = "att-1"
+
+        harness.socket.deliver(.error(refusal))
+        harness.socket.deliver(.attachStatus(attachId: "att-2", status: .present))
+
+        #expect(harness.model.lastError == nil)
+        #expect(harness.model.connection == .connected)
     }
 }

@@ -137,9 +137,17 @@ public enum CompanionTurnStep: Equatable, Sendable {
     case reasoning(String)
 }
 
+/// A file a message carries: the id its `attach_file` handed it over by, and
+/// its name, which the message shows while it is being sent.
+public struct CompanionSentAttachment: Equatable, Sendable {
+    public let attachId: String
+    public let name: String
+}
+
 /// What a request asks of the agent.
 public enum CompanionRequest: Equatable, Sendable {
-    case message(text: String)
+    /// Words, files the engine already holds (version 7), or both.
+    case message(text: String, attachments: [CompanionSentAttachment] = [])
     /// A slash command. An approval's answer is one.
     case command(name: String, args: String?)
     /// Version 4: the owner's answer to a proposal, by id and word alone.
@@ -158,8 +166,13 @@ public struct CompanionOutboxEntry: Equatable, Sendable, Identifiable {
     /// sent: the daemon refuses one id with different content as a conflict.
     var event: CompanionClientEvent {
         switch request {
-        case .message(let text):
-            return .msg(clientMsgId: clientMsgId, profileId: CompanionProtocol.profileId, text: text)
+        case .message(let text, let attachments):
+            return .msg(
+                clientMsgId: clientMsgId,
+                profileId: CompanionProtocol.profileId,
+                text: text,
+                attachIds: attachments.map(\.attachId)
+            )
         case .command(let name, let args):
             return .command(clientMsgId: clientMsgId, profileId: CompanionProtocol.profileId, name: name, args: args)
         case .proposalAnswer(let proposalId, let decision):

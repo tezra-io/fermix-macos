@@ -18,12 +18,19 @@ public enum CompanionProtocol {
     /// the engine's sentence for a tool's step on its start (`activity`),
     /// and brings the owner's lists (M85), read and changed live; and it
     /// adds `home_status_changed`, which tells the app when Always On's
-    /// summary changed, so nothing reads it on a timer (M75).
-    public static let version = 6
+    /// summary changed, so nothing reads it on a timer (M75). Version 7 lets
+    /// the person attach files to a message: the hello names the inbox a file
+    /// is handed over through and the engine's slash commands, `attach_file`
+    /// hands one over, `attach_status` says it is held, and a message names
+    /// what it carries in `attach_ids`.
+    public static let version = 7
 
     /// The version that brings the owner's lists (M85): their events are sent
     /// only on a connection at it, to a daemon whose window reaches it.
     public static let listsVersion = 6
+    /// The version that brings attachments: `attach_file`, `attach_status`
+    /// and a message's `attach_ids`, taken only on a connection at it.
+    public static let attachmentsVersion = 7
 
     /// The longest `client_msg_id` a `checklist_edit` may carry, in
     /// characters. A longer one is `invalid_field`, which closes the
@@ -31,7 +38,7 @@ public enum CompanionProtocol {
     public static let maximumChecklistMessageIdLength = 128
 
     /// The daemon's window at the pinned contract, which `version` sits inside.
-    public static let supportedWindow = CompanionVersionWindow(minimum: 5, maximum: 6)
+    public static let supportedWindow = CompanionVersionWindow(minimum: 6, maximum: 7)
 
     /// The longest client line the daemon reads. A longer one is refused with
     /// `line_too_large` and closes the connection, so `line()` refuses it first.
@@ -209,9 +216,9 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
     /// `primaryEpoch` is the highest primary epoch this client has seen from
     /// a primary (M75), absent while it has seen none.
     case clientHello(protocolVersion: Int, primaryEpoch: Int? = nil)
-    /// A message to the agent. This wire carries no attachments in versions 1
-    /// to 4, so the line always sends an empty `attach_ids`.
-    case msg(clientMsgId: String, profileId: String, text: String)
+    /// A message to the agent, naming the files it carries by the ids of
+    /// their `attach_file`s (version 7); empty before it.
+    case msg(clientMsgId: String, profileId: String, text: String, attachIds: [String] = [])
     /// A slash command, `/name args`. An approval's routes are sent this way.
     case command(clientMsgId: String, profileId: String, name: String, args: String?)
     /// Stops the turn of the named request and no other. Never answered itself.
@@ -248,6 +255,10 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
     /// list for every op but `create`. Answered `accepted`, or refused with
     /// `request_failed` and the engine's sentence.
     case checklistEdit(clientMsgId: String, profileId: String, listId: String?, op: CompanionChecklistOp)
+    /// Version 7: hands over the file this client wrote at its id in the
+    /// inbox the hello named. Answered `attach_status`, or refused with
+    /// `request_failed` naming the id and the engine's sentence.
+    case attachFile(CompanionAttachFile)
 
     public var wireType: String {
         switch self {
@@ -264,11 +275,14 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         case .checklistsPull: return "checklists_pull"
         case .checklistPull: return "checklist_pull"
         case .checklistEdit: return "checklist_edit"
+        case .attachFile: return "attach_file"
         }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, text, name, args, query, limit, ref, decision, removed, op
+        case type, text, name, args, query, limit, ref, decision, removed, op, kind, mime, sha256
+        case attachId = "attach_id"
+        case sizeBytes = "size_bytes"
         case protocolVersion = "protocol_version"
         case primaryEpoch = "primary_epoch"
         case clientMsgId = "client_msg_id"
@@ -290,11 +304,11 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         case .clientHello(let version, let primaryEpoch):
             try container.encode(version, forKey: .protocolVersion)
             try container.encodeIfPresent(primaryEpoch, forKey: .primaryEpoch)
-        case .msg(let clientMsgId, let profileId, let text):
+        case .msg(let clientMsgId, let profileId, let text, let attachIds):
             try container.encode(clientMsgId, forKey: .clientMsgId)
             try container.encode(profileId, forKey: .profileId)
             try container.encode(text, forKey: .text)
-            try container.encode([String](), forKey: .attachIds)
+            try container.encode(attachIds, forKey: .attachIds)
         case .command(let clientMsgId, let profileId, let name, let args):
             try container.encode(clientMsgId, forKey: .clientMsgId)
             try container.encode(profileId, forKey: .profileId)
@@ -340,6 +354,13 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
             try container.encode(profileId, forKey: .profileId)
             try container.encodeIfPresent(listId, forKey: .listId)
             try container.encode(op, forKey: .op)
+        case .attachFile(let file):
+            try container.encode(file.attachId, forKey: .attachId)
+            try container.encode(file.kind.rawValue, forKey: .kind)
+            try container.encode(file.mime, forKey: .mime)
+            try container.encode(file.sizeBytes, forKey: .sizeBytes)
+            try container.encode(file.sha256, forKey: .sha256)
+            try container.encodeIfPresent(file.name, forKey: .name)
         }
     }
 
@@ -521,9 +542,14 @@ public struct CompanionServerError: Equatable, Sendable, Decodable {
     /// Version 3: the media ref of a `media_fetch` the daemon could not serve
     /// for a reason of its own, on `request_failed`.
     public let ref: String?
+    /// Version 7: the id of an `attach_file` the daemon refused, on
+    /// `request_failed`, with its sentence in `message`. Last and defaulted,
+    /// so a refusal built with no id needs none.
+    public internal(set) var attachId: String? = nil
 
     private enum CodingKeys: String, CodingKey {
         case reason, message, field, event, direction, ref
+        case attachId = "attach_id"
         case clientMsgId = "client_msg_id"
         case clientVersion = "client_version"
         case minVersion = "min_version"
@@ -535,6 +561,70 @@ public struct CompanionServerError: Equatable, Sendable, Decodable {
         guard let minVersion, let maxVersion else { return nil }
 
         return CompanionVersionWindow(minimum: minVersion, maximum: maxVersion)
+    }
+}
+
+/// A slash command the engine serves, as its hello names it: the same list a
+/// phone's palette shows. The words are the engine's.
+public struct CompanionCommand: Equatable, Sendable, Decodable, Identifiable {
+    public let name: String
+    public let aliases: [String]
+    public let description: String
+
+    public var id: String { name }
+}
+
+/// Where a file is handed over (version 7): an inbox the engine owns, which
+/// this client writes a file into at its attach id, and the largest file the
+/// engine takes. Named only to the owner's connection, while the engine takes
+/// files.
+public struct CompanionAttachmentInbox: Equatable, Sendable, Decodable {
+    /// Absolute.
+    public let dir: String
+    public let maxBytes: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case dir
+        case maxBytes = "max_bytes"
+    }
+}
+
+/// What a file is, as `attach_file` hints it: the engine names the kind from
+/// the bytes itself.
+public enum CompanionAttachKind: String, Equatable, Sendable {
+    case image
+    case animation
+    case video
+    case audio
+    /// A recording the person made in the app, read as their own words. The
+    /// composer records none; the contract names it.
+    case voice
+    case document
+    case file
+}
+
+/// Version 7: a file this client wrote at `attachId` in the inbox, with the
+/// size and digest the engine checks it against.
+public struct CompanionAttachFile: Equatable, Sendable {
+    public let attachId: String
+    public let kind: CompanionAttachKind
+    public let mime: String
+    public let sizeBytes: Int
+    /// Lowercase hex.
+    public let sha256: String
+    /// The file's name as the person knew it.
+    public let name: String?
+}
+
+/// Where a handed-over file stands. The engine sends one word on this wire; a
+/// later one keeps its own rather than being read as held.
+public enum CompanionAttachStatus: Equatable, Sendable, Decodable {
+    case present
+    case unrecognized(String)
+
+    public init(from decoder: Decoder) throws {
+        let word = try decoder.singleValueContainer().decode(String.self)
+        self = word == "present" ? .present : .unrecognized(word)
     }
 }
 
@@ -829,8 +919,17 @@ enum CompanionTime {
 public enum CompanionServerEvent: Equatable, Sendable {
     /// The window, and from an engine that has them (M75) the home's primary
     /// epoch and the engine's role. A hello without a role comes from a
-    /// daemon older than the field.
-    case serverHello(minVersion: Int, maxVersion: Int, primaryEpoch: Int? = nil, role: CompanionEngineRole? = nil)
+    /// daemon older than the field. From an engine that has them, the slash
+    /// commands it serves, and, for the owner's connection while the engine
+    /// takes files, the inbox a file is handed over through.
+    case serverHello(
+        minVersion: Int,
+        maxVersion: Int,
+        primaryEpoch: Int? = nil,
+        role: CompanionEngineRole? = nil,
+        commands: [CompanionCommand] = [],
+        attachments: CompanionAttachmentInbox? = nil
+    )
     case accepted(CompanionAccepted)
     case turnStarted(profileId: String, turnId: String, inReplyTo: String)
     /// Text to append to the turn's draft exactly as sent, never trimmed.
@@ -882,6 +981,9 @@ public enum CompanionServerEvent: Equatable, Sendable {
     /// is now. Carries no content. Sent once after `server_hello` unless
     /// Always On is off, then at each change, never while it stays off.
     case homeStatusChanged
+    /// Version 7: the file an `attach_file` handed over is held, and a
+    /// message may name it.
+    case attachStatus(attachId: String, status: CompanionAttachStatus)
     /// An event type published after this build shipped: logged by the session,
     /// never silently dropped.
     case unrecognized(type: String)
@@ -912,6 +1014,7 @@ public enum CompanionServerEvent: Equatable, Sendable {
         case .checklists: return "checklists"
         case .checklist: return "checklist"
         case .homeStatusChanged: return "home_status_changed"
+        case .attachStatus: return "attach_status"
         case .unrecognized(let type): return type
         }
     }
@@ -962,6 +1065,8 @@ public enum CompanionServerEvent: Equatable, Sendable {
 extension CompanionServerEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
         case type, text, code, message, outcome, ref, blocks, proposal, role, lists, list, made
+        case commands, attachments, status
+        case attachId = "attach_id"
         case minVersion = "min_version"
         case maxVersion = "max_version"
         case primaryEpoch = "primary_epoch"
@@ -985,7 +1090,9 @@ extension CompanionServerEvent: Decodable {
                 minVersion: try fields.decode(Int.self, forKey: .minVersion),
                 maxVersion: try fields.decode(Int.self, forKey: .maxVersion),
                 primaryEpoch: try fields.decodeIfPresent(Int.self, forKey: .primaryEpoch),
-                role: try fields.decodeIfPresent(CompanionEngineRole.self, forKey: .role)
+                role: try fields.decodeIfPresent(CompanionEngineRole.self, forKey: .role),
+                commands: try fields.decodeIfPresent([CompanionCommand].self, forKey: .commands) ?? [],
+                attachments: try fields.decodeIfPresent(CompanionAttachmentInbox.self, forKey: .attachments)
             )
         case "accepted":
             self = .accepted(try CompanionAccepted(from: decoder))
@@ -1071,6 +1178,11 @@ extension CompanionServerEvent: Decodable {
             )
         case "home_status_changed":
             self = .homeStatusChanged
+        case "attach_status":
+            self = .attachStatus(
+                attachId: try fields.decode(String.self, forKey: .attachId),
+                status: try fields.decode(CompanionAttachStatus.self, forKey: .status)
+            )
         default:
             self = .unrecognized(type: type)
         }

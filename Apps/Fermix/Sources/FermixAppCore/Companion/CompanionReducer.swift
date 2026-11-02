@@ -77,11 +77,17 @@ enum CompanionReducer {
 
     // MARK: - Requests
 
-    /// A message to the agent. Blank text is never a message.
-    static func send(_ text: String, clientMsgId: String, into chat: inout CompanionChat) -> [CompanionClientEvent] {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+    /// A message to the agent. Blank text with no file is never a message.
+    static func send(
+        _ text: String,
+        attachments: [CompanionSentAttachment] = [],
+        clientMsgId: String,
+        into chat: inout CompanionChat
+    ) -> [CompanionClientEvent] {
+        guard !attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
 
-        return enqueue(CompanionOutboxEntry(clientMsgId: clientMsgId, request: .message(text: text)), into: &chat)
+        let request = CompanionRequest.message(text: text, attachments: attachments)
+        return enqueue(CompanionOutboxEntry(clientMsgId: clientMsgId, request: request), into: &chat)
     }
 
     /// Answers an approval with the route it named, sent as a command.
@@ -268,9 +274,9 @@ enum CompanionReducer {
             hold(proposal, in: &chat)
         case .proposalResolved(let resolution):
             resolve(resolution, in: &chat)
-        case .serverHello, .mediaPath, .mediaMissing, .checklists, .checklist, .homeStatusChanged, .unrecognized:
-            // The handshake, the grants, the lists and Always On's notice are
-            // the session's, never the chat's.
+        case .serverHello, .mediaPath, .mediaMissing, .checklists, .checklist, .homeStatusChanged, .attachStatus, .unrecognized:
+            // The handshake, the grants, the lists, the attachments and Always
+            // On's notice are the session's, never the chat's.
             break
         }
 

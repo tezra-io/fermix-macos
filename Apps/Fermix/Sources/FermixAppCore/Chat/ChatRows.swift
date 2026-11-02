@@ -73,8 +73,8 @@ struct ChatItemView: View {
             ChatApprovalCard(approval: approval, answering: answering, answer: answer)
         case .proposal(let card):
             ChatProposalCard(card: card, decide: decide)
-        case .pending(_, let text):
-            ChatUserRow(text: ChatText.plain(text), sending: true)
+        case .pending(_, let text, let files):
+            ChatUserRow(text: ChatText.plain(text), sending: true, files: files)
         case .error(let sentence):
             ChatErrorRow(sentence: sentence)
         }
@@ -160,13 +160,17 @@ struct ChatRow: View, Equatable {
 
 /// What the owner wrote: on the trailing side, in a soft fill on the ground,
 /// as they typed it. While the daemon has not accepted it, it says so under
-/// it; once it has, Copy waits beside it, in the room on its leading side,
-/// and shows while the pointer is over it.
+/// it, with the names of the files it carries, whose strip comes with its
+/// row; once it has, Copy waits beside it, in the room on its leading side,
+/// and shows while the pointer is over it. A message of files alone has no
+/// words to draw.
 private struct ChatUserRow: View {
     let text: AttributedString
     let sending: Bool
     /// What Copy writes, nil while the message is still being sent.
     var copying: String?
+    /// The names of the files a message being sent carries.
+    var files: [String] = []
 
     @State private var hovering = false
 
@@ -177,7 +181,17 @@ private struct ChatUserRow: View {
                     ChatCopyAction(text: copying, shown: hovering)
                 }
 
-                chip
+                if !text.characters.isEmpty {
+                    chip
+                }
+            }
+
+            ForEach(Array(files.enumerated()), id: \.offset) { _, name in
+                Label(name, systemImage: "paperclip")
+                    .fermixType(Typography.style(.caption))
+                    .foregroundStyle(Palette.secondary.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
             if sending {

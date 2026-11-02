@@ -99,12 +99,14 @@ enum CompanionServerWire {
 
     private static func fields(_ event: CompanionServerEvent) -> [String: Any] {
         switch event {
-        case .serverHello(let minVersion, let maxVersion, let primaryEpoch, let role):
+        case .serverHello(let minVersion, let maxVersion, let primaryEpoch, let role, let commands, let inbox):
             return present([
                 "min_version": minVersion,
                 "max_version": maxVersion,
                 "primary_epoch": primaryEpoch,
-                "role": role.map(word)
+                "role": role.map(word),
+                "commands": commands.isEmpty ? nil : commands.map(command),
+                "attachments": inbox.map { ["dir": $0.dir, "max_bytes": $0.maxBytes] as [String: Any] }
             ])
         case .accepted(let accepted):
             return present([
@@ -188,8 +190,21 @@ enum CompanionServerWire {
                 "list": checklistList(list),
                 "made": made.isEmpty ? nil : made
             ])
+        case .attachStatus(let attachId, let status):
+            return ["attach_id": attachId, "status": word(status)]
         case .homeStatusChanged, .unrecognized:
             return [:]
+        }
+    }
+
+    private static func command(_ command: CompanionCommand) -> [String: Any] {
+        ["name": command.name, "aliases": command.aliases, "description": command.description]
+    }
+
+    private static func word(_ status: CompanionAttachStatus) -> String {
+        switch status {
+        case .present: return "present"
+        case .unrecognized(let word): return word
         }
     }
 
@@ -453,7 +468,8 @@ enum CompanionServerWire {
             "client_version": error.clientVersion,
             "min_version": error.minVersion,
             "max_version": error.maxVersion,
-            "ref": error.ref
+            "ref": error.ref,
+            "attach_id": error.attachId
         ])
     }
 

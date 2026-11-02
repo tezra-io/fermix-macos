@@ -39,9 +39,18 @@ enum CompanionEvents {
         _ minimum: Int = CompanionProtocol.supportedWindow.minimum,
         _ maximum: Int = CompanionProtocol.supportedWindow.maximum,
         epoch: Int? = nil,
-        role: CompanionEngineRole? = nil
+        role: CompanionEngineRole? = nil,
+        commands: [CompanionCommand] = [],
+        attachments: CompanionAttachmentInbox? = nil
     ) -> CompanionServerEvent {
-        .serverHello(minVersion: minimum, maxVersion: maximum, primaryEpoch: epoch, role: role)
+        .serverHello(
+            minVersion: minimum,
+            maxVersion: maximum,
+            primaryEpoch: epoch,
+            role: role,
+            commands: commands,
+            attachments: attachments
+        )
     }
 
     /// A live row, as announced outside a turn's completion.

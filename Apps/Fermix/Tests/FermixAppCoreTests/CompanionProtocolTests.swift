@@ -63,7 +63,7 @@ struct CompanionProtocolTests {
             .proposalAnswer(clientMsgId: "mac-11", profileId: main, proposalId: "cpr_9a0b1c2d3e4f5a6b7c8d9e0f", decision: .deny)
         ] + Self.checklistClientEvents + [
             .proposalAnswer(clientMsgId: "mac-12", profileId: main, proposalId: "cft_5d2e8a1c9b4f7e3a6c0d1b2e", decision: .alwaysAllow)
-        ]
+        ] + Self.attachmentClientEvents
 
         #expect(produced.count == fixtures.count)
         #expect(Set(fixtures.map(\.type)) == (try CompanionFixtures.publishedTypes("clientEvent")))
@@ -81,6 +81,32 @@ struct CompanionProtocolTests {
             )
         }
     }
+
+    /// Version 7: two files handed over, one named and one not, and two
+    /// messages naming them, one with no words.
+    static let attachmentClientEvents: [CompanionClientEvent] = {
+        let main = CompanionProtocol.profileId
+        return [
+            .attachFile(CompanionAttachFile(
+                attachId: "mac-att-7f3a9c",
+                kind: .image,
+                mime: "image/jpeg",
+                sizeBytes: 183_204,
+                sha256: "5f0d1c3a9e7b4c2d8a6f1e0b3c5d7a9e2f4b6d8c0a1e3f5b7d9c2e4a6f8b0d1c",
+                name: "IMG_0412.jpg"
+            )),
+            .attachFile(CompanionAttachFile(
+                attachId: "mac-att-2b81d0",
+                kind: .voice,
+                mime: "audio/mp4",
+                sizeBytes: 40_817,
+                sha256: "c4e1a7b9d3f5028e6a1c9b7d5f3e1a0c8b6d4f2e0a9c7b5d3f1e8a6c4b2d0f9e",
+                name: nil
+            )),
+            .msg(clientMsgId: "mac-40", profileId: main, text: "What is in this picture?", attachIds: ["mac-att-7f3a9c"]),
+            .msg(clientMsgId: "mac-41", profileId: main, text: "", attachIds: ["mac-att-2b81d0"]),
+        ]
+    }()
 
     /// Version 6: the owner's lists (M85), in the goldens' order: the two
     /// pulls, then one edit of each op the contract publishes, by row id.
@@ -191,7 +217,26 @@ struct CompanionProtocolTests {
             return try CompanionServerEvent.decode(fixture.line)
         }
 
-        #expect(try event("server_hello") == .serverHello(minVersion: 5, maxVersion: 6, primaryEpoch: 2, role: .primary))
+        guard case .serverHello(let minimum, let maximum, let epoch, let role, let commands, let none) = try event("server_hello") else {
+            Issue.record("the golden hello did not decode as a hello")
+            return
+        }
+        #expect([minimum, maximum, epoch] == [6, 7, 2] && role == .primary && none == nil)
+        #expect(commands.first == CompanionCommand(name: "new", aliases: ["clear"], description: "Start a fresh conversation session."))
+        #expect(commands.contains(CompanionCommand(name: "background", aliases: ["bg"], description: commands.first { $0.name == "background" }?.description ?? "")))
+        guard case .serverHello(_, _, _, _, let named, let inbox) = try event("server_hello", where: { $0.object["attachments"] != nil }) else {
+            Issue.record("no golden hello names an inbox")
+            return
+        }
+        #expect(named == commands)
+        #expect(inbox?.dir.hasPrefix("/") == true && inbox?.dir.hasSuffix("/companion/inbox") == true)
+        #expect(inbox?.maxBytes == 20 * 1_024 * 1_024)
+        #expect(try event("attach_status") == .attachStatus(attachId: "mac-att-7f3a9c", status: .present))
+        guard case .error(let tooLarge) = try event("error", where: { $0.object["attach_id"] as? String == "mac-att-9d04e2" }) else {
+            Issue.record("no golden refusal names an attach id")
+            return
+        }
+        #expect(tooLarge.reason == "request_failed" && tooLarge.message == "This file is too large: Fermix takes files of up to 20 MB.")
         #expect(try event("home_status_changed") == .homeStatusChanged)
 
         let duplicate = try event("accepted") { $0.object["duplicate"] as? Bool == true }
@@ -258,8 +303,8 @@ struct CompanionProtocolTests {
         }
         #expect(refusal.reason == "unsupported_protocol_version")
         #expect(refusal.direction == .clientTooNew)
-        #expect(refusal.clientVersion == 7)
-        #expect(refusal.window == CompanionVersionWindow(minimum: 5, maximum: 6))
+        #expect(refusal.clientVersion == 8)
+        #expect(refusal.window == CompanionVersionWindow(minimum: 6, maximum: 7))
     }
 
     /// Version 5: a watcher's follow-up asks on a proposal's card, naming the

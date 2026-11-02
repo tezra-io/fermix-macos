@@ -24,8 +24,9 @@ enum ChatItem: Equatable, Identifiable {
     /// A cue proposal's card (M60 §4.7): no timeline row and no seq, placed
     /// in the conversation at the time it was made.
     case proposal(CompanionProposalCard)
-    /// A message the daemon has not accepted yet.
-    case pending(clientMsgId: String, text: String)
+    /// A message the daemon has not accepted yet, and the names of the files
+    /// it carries.
+    case pending(clientMsgId: String, text: String, files: [String] = [])
     /// The latest failure, in the daemon's or the catalogue's sentence.
     case error(String)
 
@@ -35,7 +36,7 @@ enum ChatItem: Equatable, Identifiable {
         case .turn(let turn): return .turn(turn.turnId)
         case .approval(let approval, _): return .approval(approval.approvalId)
         case .proposal(let card): return .proposal(card.id)
-        case .pending(let clientMsgId, _): return .pending(clientMsgId)
+        case .pending(let clientMsgId, _, _): return .pending(clientMsgId)
         case .error: return .error
         }
     }
@@ -167,9 +168,9 @@ enum ChatTimeline {
     }
 
     private static func message(_ entry: CompanionOutboxEntry) -> ChatItem? {
-        guard case .message(let text) = entry.request else { return nil }
+        guard case .message(let text, let attachments) = entry.request else { return nil }
 
-        return .pending(clientMsgId: entry.clientMsgId, text: text)
+        return .pending(clientMsgId: entry.clientMsgId, text: text, files: attachments.map(\.name))
     }
 
     /// Whether one of the approval's two routes is waiting in the outbox.
