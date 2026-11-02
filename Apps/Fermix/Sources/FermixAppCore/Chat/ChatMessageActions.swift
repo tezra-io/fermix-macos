@@ -18,8 +18,8 @@ extension ChatMetrics {
 /// Under a reply with words its actions stand on the reply's leading side,
 /// with when it was written beside them, and show while the pointer is over
 /// the reply or the keyboard is on them; their room is kept whether they
-/// show or not, so nothing moves. Beside a person's own message, Copy waits
-/// in the room on its leading side (`ChatUserRow`).
+/// show or not, so nothing moves. A person's own message carries none
+/// (`ChatUserRow`).
 enum ChatMessageActions {
     /// Whether a row carries a reply's actions under it: Fermix's, with words.
     static func carried(by row: CompanionRow) -> Bool {

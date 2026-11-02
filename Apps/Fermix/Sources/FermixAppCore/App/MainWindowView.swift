@@ -36,6 +36,10 @@ struct MainWindowView: View {
     @ObservedObject var presentation: SettingsPresentation
     /// The toolbar's height over the body, which is the frame's band.
     @State private var bandHeight: Double = 0
+    /// The window's width, which the browser column takes its share of.
+    /// Measured on the window's own content, which the window bounds: the
+    /// column's width must never be read off a view that holds the column.
+    @State private var windowWidth: Double = 0
     /// The one settings model, handed to the settings columns. It is held and
     /// not observed: the window's own body reads nothing from it, and observing
     /// it redrew the whole window, rail and ground included, on every one of its
@@ -71,6 +75,7 @@ struct MainWindowView: View {
                 proxy.size.width
             } action: { width in
                 sidebar.widthChanged(width)
+                windowWidth = width
             }
             // The one Restart sheet in the app (M34 §5.10). It hangs off the
             // window rather than off Home, because the Settings banner, the
@@ -128,6 +133,8 @@ struct MainWindowView: View {
         }
     }
 
+    /// The rail and the body, and the browser pane beside them as the
+    /// window's trailing column (`BrowserColumn`).
     private var splitView: some View {
         NavigationSplitView(columnVisibility: columnVisibility) {
             appSidebar
@@ -156,6 +163,7 @@ struct MainWindowView: View {
                     bandHeight = top
                 }
         }
+        .modifier(BrowserColumn(browser: browser, windowWidth: windowWidth, railShown: sidebar.visibility == .all))
     }
 
     /// Escape, resolved once. A focused descriptor field reverts and keeps the
@@ -255,18 +263,12 @@ struct MainWindowView: View {
             .frame(width: WindowMetrics.bodyCornerRadius, height: WindowMetrics.bodyCornerRadius)
     }
 
-    /// What the body holds, then the browser pane when it is open (plan §4.3).
-    ///
-    /// The pane is the third pane inside the frame, the mirror of the settings
-    /// pane list: the band runs over it, its header continues the frame's glass
-    /// under the band, and the body's corners stay where they are, rounding the
-    /// surface or the form. Still one split view, and no divider: the seam is
-    /// the pane's own fill. The two share the column by `PaneSplit`'s rule.
+    /// What the body holds. The browser pane is not in it: it is the window's
+    /// trailing column (`BrowserColumn`), so the toolbar over the body is the
+    /// surface's alone, and the body's corners stay where they are, rounding
+    /// the surface or the form.
     private var detailColumn: some View {
-        PaneSplitLayout(body: WindowMetrics.bodyWidthsBesidePane, pane: WindowMetrics.browserPaneWidths) {
-            bodyColumn
-            BrowserPaneView(browser: browser)
-        }
+        bodyColumn
     }
 
     @ViewBuilder

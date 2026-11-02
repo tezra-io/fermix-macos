@@ -552,6 +552,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// The turn answering now, while it has no reply text yet and while a
     /// tool it called runs.
     case chatThinking = "chat.thinking"
+    /// A surface's search field in the toolbar: what its clear control does.
+    case toolbarSearchClear = "toolbar.search.clear"
     /// Over a turn that has started writing, how long it worked; the
     /// duration is the system's short one ("1m 12s").
     case chatWorkedFor = "chat.workedFor"

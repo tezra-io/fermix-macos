@@ -125,7 +125,7 @@ struct ChatRow: View, Equatable {
                 ChatVoiceNote(note: note, transcript: words(strip), speaker: row.role, player: rows.player)
             } else if !strip.text.isEmpty {
                 if user {
-                    ChatUserRow(text: words(strip), sending: false, copying: row.text)
+                    ChatUserRow(text: words(strip), sending: false)
                 } else if let reply = strip.reply {
                     ChatReplyRow(blocks: reply.blocks, marked: marked, titles: ChatLinkTitles(row.linkPreviews), speaker: row.role)
                 }
@@ -159,31 +159,21 @@ struct ChatRow: View, Equatable {
 }
 
 /// What the owner wrote: on the trailing side, in a soft fill on the ground,
-/// as they typed it. While the daemon has not accepted it, it says so under
-/// it, with the names of the files it carries, whose strip comes with its
-/// row; once it has, Copy waits beside it, in the room on its leading side,
-/// and shows while the pointer is over it. A message of files alone has no
-/// words to draw.
+/// as they typed it, with no actions beside it (owner, 2026-11-01: Copy beside
+/// a person's own message was clutter; its words select and copy as any
+/// text does). While the daemon has not accepted it, it says so under it,
+/// with the names of the files it carries, whose strip comes with its row. A
+/// message of files alone has no words to draw.
 private struct ChatUserRow: View {
     let text: AttributedString
     let sending: Bool
-    /// What Copy writes, nil while the message is still being sent.
-    var copying: String?
     /// The names of the files a message being sent carries.
     var files: [String] = []
 
-    @State private var hovering = false
-
     var body: some View {
         VStack(alignment: .trailing, spacing: Spacing.xxs) {
-            HStack(alignment: .bottom, spacing: Spacing.xxs) {
-                if let copying {
-                    ChatCopyAction(text: copying, shown: hovering)
-                }
-
-                if !text.characters.isEmpty {
-                    chip
-                }
+            if !text.characters.isEmpty {
+                chip
             }
 
             ForEach(Array(files.enumerated()), id: \.offset) { _, name in
@@ -201,8 +191,7 @@ private struct ChatUserRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(.leading, ChatMetrics.userRowLeadingRoom - (copying == nil ? 0 : ChatMetrics.actionSize + Spacing.xxs))
-        .onHover { hovering = $0 }
+        .padding(.leading, ChatMetrics.userRowLeadingRoom)
         .accessibilityElement(children: .contain)
     }
 

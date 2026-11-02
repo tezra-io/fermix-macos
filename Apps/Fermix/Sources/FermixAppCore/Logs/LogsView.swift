@@ -14,9 +14,12 @@ struct LogsView: View {
     var body: some View {
         entries
             .navigationTitle(ProductStrings[.logsTitle])
-            .searchable(text: $model.search, prompt: ProductStrings[.logsSearchPlaceholder])
-            .onSubmit(of: .search) { Task { await model.applyFilters() } }
-            .toolbar { LogsToolbar(model: model, router: router) }
+            .toolbar {
+                LogsToolbar(model: model, router: router)
+                ToolbarSearch(text: $model.search, prompt: ProductStrings[.logsSearchPlaceholder]) {
+                    Task { await model.applyFilters() }
+                }
+            }
             .task {
                 model.setVisible(true)
                 await model.refresh()

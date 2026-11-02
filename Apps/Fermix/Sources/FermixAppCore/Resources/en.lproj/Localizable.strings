@@ -476,6 +476,7 @@
 "outside.subjectFormat" = "Subject: %@";
 "outside.datedFormat" = "Dated: %@";
 "chat.thinking" = "Thinking";
+"toolbar.search.clear" = "Clear search";
 "chat.workedFor" = "Worked for %@";
 "chat.steps.show" = "Shows the steps Fermix took";
 "chat.steps.hide" = "Hides the steps Fermix took";

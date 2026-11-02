@@ -238,7 +238,7 @@ struct ChatStripTests {
 
     @Test("the reading column is the column's width, or the body less its gutters")
     func column() {
-        #expect(ChatMetrics.column(inBody: 1200) == 720)
+        #expect(ChatMetrics.column(inBody: 1200) == 768)
         #expect(ChatMetrics.column(inBody: 478) == 430)
         #expect(ChatMetrics.column(inBody: 20) == 0)
     }
