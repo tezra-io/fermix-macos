@@ -1,10 +1,11 @@
 import SwiftUI
 
 extension ChatMetrics {
-    /// A message's action and a code block's Copy: the system's small
-    /// control height, square, its glyph a caption's size.
-    static let actionSize: Double = 20
-    static let actionGlyph: Double = 11
+    /// A message's action and a code block's Copy: a small square under the
+    /// system's small control height, its glyph under a caption's size
+    /// (owner, 2026-11-02: Copy smaller, and square rather than a page).
+    static let actionSize: Double = 18
+    static let actionGlyph: Double = 10
     /// Between a reply and the actions under it.
     static let actionsTopGap: Double = Spacing.xxs
     /// The actions' height under a reply, which the seam to the next turn
@@ -82,7 +83,7 @@ struct ChatCopyAction: View {
             ChatCopy.app(text)
             copied = true
         } label: {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+            Image(systemName: copied ? "checkmark" : "square.on.square")
                 .font(.system(size: ChatMetrics.actionGlyph))
                 .frame(width: ChatMetrics.actionSize, height: ChatMetrics.actionSize)
                 .contentShape(Rectangle())
