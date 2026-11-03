@@ -53,6 +53,8 @@ private struct ChatRowContextKey: EnvironmentKey {
 /// One transcript item, drawn by what it is.
 struct ChatItemView: View {
     let item: ChatItem
+    /// What stands over it, where it is a message of Fermix's.
+    let seam: ChatSeam
     /// Words to mark, where the reader was sent here by a search.
     let marked: [String]
     /// Whether the row's lists card is the newest of each list it draws,
@@ -65,7 +67,7 @@ struct ChatItemView: View {
     var body: some View {
         switch item {
         case .row(let row):
-            ChatRow(row: row, marked: marked, listsLive: listsLive)
+            ChatRow(row: row, seam: seam, marked: marked, listsLive: listsLive)
                 .equatable()
         case .turn(let turn):
             ChatTurnRow(turn: turn)
@@ -93,8 +95,8 @@ struct ChatItemView: View {
 /// draws its strip alone. A turn still being written is no row yet, so
 /// nothing here looks at the disk while a reply streams. Under a reply with
 /// words, what can be done with it (`ChatMessageActions`). Over a message
-/// Fermix sent on its own from a scheduled job or a cue, where it came from
-/// (`ChatOriginLabel`).
+/// Fermix sent on its own, what sets it apart (`ChatTimeline.seam`): where it
+/// came from (`ChatOriginLabel`), or a plain line.
 ///
 /// It draws again only when what it draws changes: the row, compared whole
 /// so a field the row gains is never missed, and the words a search marks in
@@ -102,6 +104,7 @@ struct ChatItemView: View {
 /// draws it again when that changes.
 struct ChatRow: View, Equatable {
     let row: CompanionRow
+    let seam: ChatSeam
     let marked: [String]
     /// Whether its lists card is live; an older one folds to one line.
     let listsLive: Bool
@@ -109,7 +112,7 @@ struct ChatRow: View, Equatable {
     @Environment(\.chatRows) private var rows
 
     static func == (lhs: ChatRow, rhs: ChatRow) -> Bool {
-        lhs.row == rhs.row && lhs.marked == rhs.marked && lhs.listsLive == rhs.listsLive
+        lhs.row == rhs.row && lhs.seam == rhs.seam && lhs.marked == rhs.marked && lhs.listsLive == rhs.listsLive
     }
 
     var body: some View {
@@ -122,7 +125,14 @@ struct ChatRow: View, Equatable {
         let user = ChatSpeaker.isUser(row.role)
 
         return VStack(alignment: .leading, spacing: 0) {
-            if !user, let origin = row.origin {
+            switch seam {
+            case .none:
+                EmptyView()
+            case .line:
+                ChatSeamLine()
+                    .padding(.top, ChatMetrics.originTopGap)
+                    .padding(.bottom, ChatMetrics.originBottomGap)
+            case .origin(let origin):
                 ChatOriginLabel(origin: origin)
             }
 

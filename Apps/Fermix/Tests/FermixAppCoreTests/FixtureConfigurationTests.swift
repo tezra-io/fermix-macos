@@ -564,7 +564,7 @@ struct FixtureConfigurationTests {
         let session = fixtureChat(.replies)
         session.connect()
 
-        #expect(session.model.rows.map(\.serverSeq) == Array(1...16))
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...17))
         #expect(!session.model.hasOlder)
         #expect(session.model.turn == nil)
 
@@ -675,7 +675,7 @@ struct FixtureConfigurationTests {
         #expect(Set(pictures) == Set(FixtureRepliesScript.pictures.keys))
     }
 
-    /// The last answer, code, before the two messages Fermix sent on its
+    /// The last answer, code, before the three messages Fermix sent on its
     /// own: a shell one-liner wider than any reply, which its block
     /// wraps, and a short Python function, each fenced by a common tag its
     /// block names by the language's own name. Code is the reply's own

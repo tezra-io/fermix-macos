@@ -69,19 +69,51 @@ struct ChatOriginTests {
         #expect(live.filter { ChatSpeaker.isUser($0.role) }.allSatisfy { $0.origin == nil }, "the owner's own rows name none")
     }
 
+    @Test("over a message of Fermix's: its origin's label, a line where it follows another of Fermix's, and nothing over a reply or a picture that continues the message above")
+    func seams() {
+        let job = CompanionRowOrigin(kind: .job, name: "Morning briefing")
+        let cue = CompanionRowOrigin(kind: .cue, name: "release-watch")
+        let picture = CompanionMediaRef(ref: String(repeating: "a", count: 64), kind: "image", mime: "image/png", sizeBytes: 10, sha256: nil, filename: "chart.png", caption: nil)
+        func row(_ seq: Int, _ role: String, _ text: String, msg: String? = nil, reply: String? = nil, origin: CompanionRowOrigin? = nil, media: [CompanionMediaRef] = []) -> ChatItem {
+            .row(CompanionRow(FixtureCompanionScript.row(seq, role, text, clientMsgId: msg, inReplyTo: reply, mediaRefs: media, origin: origin)))
+        }
+
+        let asked = row(1, "user", "Anything today?", msg: "m1")
+        let answer = row(2, "assistant", "Two meetings.", reply: "m1")
+        let reminder = row(3, "assistant", "Reminder: take an umbrella.")
+        let briefing = row(4, "assistant", "Good morning.", origin: job)
+        let chart = row(5, "assistant", "", origin: job, media: [picture])
+        let release = row(6, "assistant", "", origin: cue, media: [picture])
+        let pending = ChatItem.pending(clientMsgId: "m7", text: "Thanks", files: [])
+
+        #expect(ChatTimeline.seam(after: asked, before: answer) == .none, "a reply to the owner")
+        #expect(ChatTimeline.seam(after: answer, before: reminder) == .line, "a message with no origin after one of Fermix's")
+        #expect(ChatTimeline.seam(after: reminder, before: briefing) == .origin(job))
+        #expect(ChatTimeline.seam(after: asked, before: briefing) == .origin(job), "an origin is named whatever stands above it")
+        #expect(ChatTimeline.seam(after: briefing, before: chart) == .none, "a picture continues the message from the same place")
+        #expect(ChatTimeline.seam(after: briefing, before: release) == .origin(cue), "a picture from another place is its own message")
+        #expect(ChatTimeline.seam(after: reminder, before: row(8, "assistant", "", media: [picture])) == .none)
+        #expect(ChatTimeline.seam(after: pending, before: reminder) == .none, "nothing of Fermix's above it")
+        #expect(ChatTimeline.seam(after: nil, before: reminder) == .none, "the first message")
+        #expect(ChatTimeline.seam(after: reminder, before: asked) == .none, "the owner's own message")
+        #expect(ChatTimeline.seam(after: reminder, before: row(9, "assistant", "Two meetings.", reply: "m1")) == .none, "a reply, even after another of Fermix's")
+    }
+
     @Test("a scheduled job's label is a clock, and a cue's the glyph Settings draws Cues with")
     func glyphs() {
         #expect(ChatOriginTitle.symbol(.job) == "clock")
         #expect(ChatOriginTitle.symbol(.cue) == SettingsPane.cues.systemImage)
     }
 
-    @Test("the fixture's replies end on a scheduled job's message and a cue's, the cue named by a watcher the goldens list")
+    @Test("the fixture's replies end on a scheduled job's message and a cue's, the cue named by a watcher the goldens list, then a reminder under a line")
     func fixture() throws {
         let rows = FixtureRepliesScript.rows.map(CompanionRow.init)
         let origins = rows.compactMap(\.origin)
 
         #expect(origins.map(\.kind) == [.job, .cue])
-        #expect(rows.suffix(2).allSatisfy { $0.origin != nil && !ChatSpeaker.isUser($0.role) })
+        let items = rows.map(ChatItem.row)
+        let seams = items.indices.suffix(3).map { ChatTimeline.seam(after: items[$0 - 1], before: items[$0]) }
+        #expect(seams == [.origin(origins[0]), .origin(origins[1]), .line])
 
         let watchers: ManagementCueWatcherList = try FakeDaemonGateway.fixtureResult(named: "cues_watchers_list", as: ManagementCueWatcherList.self)
         let cue = try #require(origins.first { $0.kind == .cue })

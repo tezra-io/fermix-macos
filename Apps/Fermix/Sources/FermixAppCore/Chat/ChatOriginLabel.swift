@@ -40,10 +40,7 @@ struct ChatOriginLabel: View {
                     .accessibilityLabel(spoken)
             }
 
-            Rectangle()
-                .fill(Palette.hairline(.standard).color)
-                .frame(height: Stroke.hairline)
-                .accessibilityHidden(true)
+            ChatSeamLine()
         }
         .padding(.top, ChatMetrics.originTopGap)
         .padding(.bottom, ChatMetrics.originBottomGap)
@@ -52,6 +49,17 @@ struct ChatOriginLabel: View {
     private var spoken: String {
         let format: ProductStringKey = origin.kind == .cue ? .chatOriginCueFormat : .chatOriginJobFormat
         return String(format: ProductStrings[format], origin.name)
+    }
+}
+
+/// The hairline across the column over a message Fermix sent on its own,
+/// under its label or alone (`ChatTimeline.seam`).
+struct ChatSeamLine: View {
+    var body: some View {
+        Rectangle()
+            .fill(Palette.hairline(.standard).color)
+            .frame(height: Stroke.hairline)
+            .accessibilityHidden(true)
     }
 }
 

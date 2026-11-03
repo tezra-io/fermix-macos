@@ -75,6 +75,15 @@ enum ChatItem: Equatable, Identifiable {
     }
 }
 
+/// What stands over a message of Fermix's (`ChatTimeline.seam`).
+enum ChatSeam: Equatable, Sendable {
+    case none
+    /// A plain hairline across the column.
+    case line
+    /// Where it came from, over the hairline (`ChatOriginLabel`).
+    case origin(CompanionRowOrigin)
+}
+
 /// The transcript as a list: every fact the chat model publishes, in reading
 /// order, and nothing derived beyond that order.
 ///
@@ -155,6 +164,26 @@ enum ChatTimeline {
         if case .proposal = current { return true }
 
         return !(previous.isUserAuthored && !current.isUserAuthored)
+    }
+
+    /// What stands over an item, which sets apart the messages Fermix sends
+    /// on its own (owner, 2026-11-02): over one whose run named where it
+    /// came from, that origin's label; over one that follows another of
+    /// Fermix's with nothing of the owner's between, a plain line, which is
+    /// how a message from before the engine named origins, a watcher's
+    /// notice or a reminder stands apart. A message with no words of its own,
+    /// a picture or a file, from the same place as the one of Fermix's above
+    /// it, is part of that message and takes nothing. A reply to the owner,
+    /// and anything the owner wrote, takes nothing.
+    static func seam(after previous: ChatItem?, before current: ChatItem) -> ChatSeam {
+        guard case .row(let row) = current, !ChatSpeaker.isUser(row.role), row.inReplyTo == nil else { return .none }
+        if row.text.isEmpty, case .row(let above)? = previous, !ChatSpeaker.isUser(above.role), above.origin == row.origin {
+            return .none
+        }
+        if let origin = row.origin { return .origin(origin) }
+        guard let previous, !previous.isUserAuthored else { return .none }
+
+        return .line
     }
 
     /// The room an item keeps above it on top of the transcript's base

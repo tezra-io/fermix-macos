@@ -61,6 +61,7 @@ struct ChatTranscript: View {
 
                         ChatItemView(
                             item: item,
+                            seam: ChatTimeline.seam(after: previous, before: item),
                             marked: marked(item),
                             listsLive: liveLists.contains(item.rowSeq ?? -1),
                             answer: session.answerApproval,

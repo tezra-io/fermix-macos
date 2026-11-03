@@ -13,7 +13,8 @@ enum FixtureCompanionTimeline: Equatable {
     /// Replies drawn for what they hold (M72): places with their map and
     /// cards, lists, a table, a quote, links and code, then a scheduled
     /// job's message and a cue's under the labels naming where each came
-    /// from, all on one page, and nothing happening now.
+    /// from and a reminder under a plain line, all on one page, and nothing
+    /// happening now.
     case replies
     /// The owner's lists (M85): an older reply's card folded to one line, a
     /// card of three lists, and the newest reply's card of one list, over
@@ -693,7 +694,8 @@ enum FixtureProposalScript {
 /// engine previewed; code, a shell one-liner too long for one line of the
 /// reply and a short Python function, each fence naming its language by a
 /// common tag; and last, a scheduled job's message and a cue's, the cue
-/// named by the watcher the management goldens list.
+/// named by the watcher the management goldens list, then a reminder, which
+/// names no origin.
 enum FixtureRepliesScript {
     static let rows: [CompanionTimelineRow] = [
         FixtureCompanionScript.row(1, "user", "Can you find a few quiet coffee shops in SoHo where I could work for an hour?", clientMsgId: "fixture-replies-1"),
@@ -712,6 +714,7 @@ enum FixtureRepliesScript {
         FixtureCompanionScript.row(14, "assistant", code, inReplyTo: "fixture-replies-13"),
         FixtureCompanionScript.row(15, "assistant", briefing, origin: CompanionRowOrigin(kind: .job, name: "Morning briefing")),
         FixtureCompanionScript.row(16, "assistant", release, origin: CompanionRowOrigin(kind: .cue, name: "release-watch")),
+        FixtureCompanionScript.row(17, "assistant", "Reminder: take an umbrella, rain is due from about three."),
     ]
 
     /// A one-liner wider than the reply, which wraps, and a short function,
