@@ -114,6 +114,7 @@ struct BrowserPaneView: View {
         // Any width at all: the column's width is the column's, and a page or
         // an address that would like more never widens it.
         .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .leading) { BrowserPaneEdge() }
         .background(alignment: .topLeading) { BrowserShortcuts(browser: browser) }
         .onGeometryChange(for: Double.self) { proxy in
             proxy.size.width
@@ -666,3 +667,19 @@ final class BrowserPaneStage: NSView, BrowserPageStage {
     }
 }
 
+
+/// A hairline down the pane's leading edge, through the toolbar's band, which
+/// sets the pane apart from the body beside it and marks the edge a person
+/// drags to share the window between them (owner, 2026-11-03, after the line
+/// ChatGPT draws beside its side pane). Paint only: the drag is the column's
+/// own divider under it.
+private struct BrowserPaneEdge: View {
+    var body: some View {
+        Rectangle()
+            .fill(Palette.hairline(.standard).color)
+            .frame(width: Stroke.hairline)
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
