@@ -548,6 +548,9 @@
 "chat.code.copy" = "Copy";
 "chat.code.copied" = "Copied";
 "chat.message.copy" = "Copy message";
+"chat.origin.jobFormat" = "%@, a scheduled job";
+"chat.origin.cueFormat" = "%@, a cue";
+"chat.origin.openCue" = "Open this cue in Settings";
 "chat.link.heldTitle" = "This link may not go where it seems to";
 "chat.link.elsewhereFormat" = "Its words say %@, but it opens %@.";
 "chat.link.lookalikeFormat" = "Its address uses letters that pass for others. It opens %@.";

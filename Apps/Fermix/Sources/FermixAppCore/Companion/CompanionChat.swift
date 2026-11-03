@@ -26,6 +26,9 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
     /// (M72 §8.3). Every event that brings a reply carries them, its turn's
     /// `text_done` too, so history bringing the row again changes nothing.
     public let blocks: [CompanionBlock]
+    /// Where a row Fermix sent on its own came from, where the engine named
+    /// it: a scheduled job's run or a cue's.
+    public let origin: CompanionRowOrigin?
 
     public var id: Int { serverSeq }
 
@@ -39,7 +42,8 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
         turnId: String?,
         mediaRefs: [CompanionMediaRef] = [],
         linkPreviews: [CompanionLinkPreview] = [],
-        blocks: [CompanionBlock] = []
+        blocks: [CompanionBlock] = [],
+        origin: CompanionRowOrigin? = nil
     ) {
         self.serverSeq = serverSeq
         self.text = text
@@ -51,6 +55,7 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
         self.mediaRefs = mediaRefs
         self.linkPreviews = linkPreviews
         self.blocks = blocks
+        self.origin = origin
     }
 }
 
@@ -67,7 +72,8 @@ extension CompanionRow {
             turnId: nil,
             mediaRefs: row.mediaRefs,
             linkPreviews: row.linkPreviews ?? [],
-            blocks: row.blocks?.known ?? []
+            blocks: row.blocks?.known ?? [],
+            origin: CompanionRowOrigin(metadata: row.metadata)
         )
     }
 
@@ -84,7 +90,8 @@ extension CompanionRow {
             turnId: nil,
             mediaRefs: row.mediaRefs,
             linkPreviews: row.linkPreviews ?? [],
-            blocks: row.blocks?.known ?? []
+            blocks: row.blocks?.known ?? [],
+            origin: CompanionRowOrigin(metadata: row.metadata)
         )
     }
 
@@ -103,11 +110,42 @@ extension CompanionRow {
     }
 
     /// Whether two rows at one seq draw alike: the same text, files,
-    /// previews (M66 §3.1) and blocks (M72 §8.5). Who wrote a row and when
+    /// previews (M66 §3.1), blocks (M72 §8.5) and the origin whose label
+    /// stands over it. Who wrote a row and when
     /// are not what changes its height when history brings it again.
     func drawsAlike(_ other: CompanionRow) -> Bool {
         text == other.text && mediaRefs == other.mediaRefs && linkPreviews == other.linkPreviews
-            && blocks == other.blocks
+            && blocks == other.blocks && origin == other.origin
+    }
+}
+
+/// Where a row Fermix sent on its own came from, as the engine stored it in
+/// the row's `metadata.origin`: a scheduled job's run, named as the owner's
+/// jobs are named, or a cue's run, named by its watcher as `cues.status`
+/// names it. A turn's reply, a reminder and a call's row carry none.
+public struct CompanionRowOrigin: Equatable, Sendable {
+    public enum Kind: String, Sendable {
+        case job
+        case cue
+    }
+
+    public let kind: Kind
+    public let name: String
+
+    public init(kind: Kind, name: String) {
+        self.kind = kind
+        self.name = name
+    }
+
+    /// The origin a row's metadata names, or nil where it names none, or a
+    /// kind this build does not know.
+    init?(metadata: [String: CompanionJSONValue]?) {
+        guard case .object(let origin)? = metadata?["origin"],
+              case .string(let word)? = origin["kind"], let kind = Kind(rawValue: word),
+              case .string(let name)? = origin["name"], !name.isEmpty
+        else { return nil }
+
+        self.init(kind: kind, name: name)
     }
 }
 

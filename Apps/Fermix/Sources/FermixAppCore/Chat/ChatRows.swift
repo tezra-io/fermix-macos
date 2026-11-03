@@ -92,8 +92,9 @@ struct ChatItemView: View {
 /// picture Fermix sent to the phone or a reply that only lists what it made,
 /// draws its strip alone. A turn still being written is no row yet, so
 /// nothing here looks at the disk while a reply streams. Under a reply with
-/// words, what can be done with it (`ChatMessageActions`); beside a person's
-/// own message, the same on its leading side.
+/// words, what can be done with it (`ChatMessageActions`). Over a message
+/// Fermix sent on its own from a scheduled job or a cue, where it came from
+/// (`ChatOriginLabel`).
 ///
 /// It draws again only when what it draws changes: the row, compared whole
 /// so a field the row gains is never missed, and the words a search marks in
@@ -120,7 +121,17 @@ struct ChatRow: View, Equatable {
     private func drawn(_ strip: ChatStrip, in rows: ChatRowContext) -> some View {
         let user = ChatSpeaker.isUser(row.role)
 
-        return VStack(alignment: user ? .trailing : .leading, spacing: ChatMetrics.stripTopGap) {
+        return VStack(alignment: .leading, spacing: 0) {
+            if !user, let origin = row.origin {
+                ChatOriginLabel(origin: origin)
+            }
+
+            content(strip, in: rows, user: user)
+        }
+    }
+
+    private func content(_ strip: ChatStrip, in rows: ChatRowContext, user: Bool) -> some View {
+        VStack(alignment: user ? .trailing : .leading, spacing: ChatMetrics.stripTopGap) {
             if let note = strip.voiceNote {
                 ChatVoiceNote(note: note, transcript: words(strip), speaker: row.role, player: rows.player)
             } else if !strip.text.isEmpty {

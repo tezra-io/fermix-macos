@@ -564,7 +564,7 @@ struct FixtureConfigurationTests {
         let session = fixtureChat(.replies)
         session.connect()
 
-        #expect(session.model.rows.map(\.serverSeq) == Array(1...14))
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...16))
         #expect(!session.model.hasOlder)
         #expect(session.model.turn == nil)
 
@@ -675,17 +675,18 @@ struct FixtureConfigurationTests {
         #expect(Set(pictures) == Set(FixtureRepliesScript.pictures.keys))
     }
 
-    /// Last, code: a shell one-liner wider than any reply, which its block
+    /// The last answer, code, before the two messages Fermix sent on its
+    /// own: a shell one-liner wider than any reply, which its block
     /// wraps, and a short Python function, each fenced by a common tag its
     /// block names by the language's own name. Code is the reply's own
     /// markdown, so the row carries no block of the engine's.
     @MainActor
-    @Test("the replies timeline ends with code, a long shell one-liner and a Python function fenced by common tags")
+    @Test("the replies timeline's last answer is code, a long shell one-liner and a Python function fenced by common tags")
     func codeArrives() throws {
         let session = fixtureChat(.replies)
         session.connect()
 
-        let reply = try #require(session.model.rows.last)
+        let reply = try #require(session.model.rows.last { $0.inReplyTo != nil })
         let code = ReplyFences.runs(reply.text).compactMap { run -> ReplyCode? in
             guard case .code(let code, _) = run else { return nil }
             return code

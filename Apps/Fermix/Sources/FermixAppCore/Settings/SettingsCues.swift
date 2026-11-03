@@ -159,6 +159,21 @@ extension SettingsModel {
         }
     }
 
+    /// Selects Cues with one watcher's page asked for: a cue's label in
+    /// Chat opens the watcher whose item started the run.
+    public func showCueWatcher(_ name: String) {
+        precondition(!name.isEmpty, "a watcher's page names its watcher")
+
+        askedCuesPage = .watcher(name)
+        selectedPane = .cues
+    }
+
+    /// The page asked for, once: the pane opens its sheet on it.
+    public func takeAskedCuesPage() -> CuesSheetPage? {
+        defer { askedCuesPage = nil }
+        return askedCuesPage
+    }
+
     // MARK: - Reads
 
     /// Everything the pane shows below its settings: the three lists and the

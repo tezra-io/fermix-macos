@@ -646,6 +646,12 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatCodeCopied = "chat.code.copied"
     /// A message's Copy, which writes its words as they were written.
     case chatMessageCopy = "chat.message.copy"
+    /// Where a message Fermix sent on its own came from, as VoiceOver reads
+    /// its label: a scheduled job, or a cue, by name.
+    case chatOriginJobFormat = "chat.origin.jobFormat"
+    case chatOriginCueFormat = "chat.origin.cueFormat"
+    /// What a cue's label does when pressed.
+    case chatOriginOpenCue = "chat.origin.openCue"
     /// A link that may not go where it seems to (`LinkSafety`): the question
     /// before it opens, why, in a sentence naming where it really goes, and
     /// the two answers.

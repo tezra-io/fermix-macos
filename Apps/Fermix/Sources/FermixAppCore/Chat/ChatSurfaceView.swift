@@ -264,6 +264,12 @@ struct ChatSurfaceView: View {
                 columnWidth: ChatMetrics.column(inBody: bodyWidth),
                 lists: lists
             ))
+            // A cue's label opens its watcher's page in Settings, through the
+            // one door Command-comma takes.
+            .environment(\.openCueWatcher, OpenCueWatcherAction { [settings, router] name in
+                settings.showCueWatcher(name)
+                router.perform(.openSettings)
+            })
             .navigationTitle(ProductStrings[.sidebarChat])
             .onChange(of: query) {
                 guard query.isEmpty else { return }

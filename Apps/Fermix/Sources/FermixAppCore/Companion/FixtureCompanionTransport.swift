@@ -11,8 +11,9 @@ enum FixtureCompanionTimeline: Equatable {
     /// card in each of its states (M60 §4.7).
     case full
     /// Replies drawn for what they hold (M72): places with their map and
-    /// cards, lists, a table, a quote, links and code, all on one page, and
-    /// nothing happening now.
+    /// cards, lists, a table, a quote, links and code, then a scheduled
+    /// job's message and a cue's under the labels naming where each came
+    /// from, all on one page, and nothing happening now.
     case replies
     /// The owner's lists (M85): an older reply's card folded to one line, a
     /// card of three lists, and the newest reply's card of one list, over
@@ -533,7 +534,8 @@ enum FixtureCompanionScript {
         inReplyTo: String? = nil,
         linkPreviews: [CompanionLinkPreview]? = nil,
         blocks: [CompanionBlock]? = nil,
-        mediaRefs: [CompanionMediaRef] = []
+        mediaRefs: [CompanionMediaRef] = [],
+        origin: CompanionRowOrigin? = nil
     ) -> CompanionTimelineRow {
         CompanionTimelineRow(
             serverSeq: seq,
@@ -544,7 +546,7 @@ enum FixtureCompanionScript {
             mediaRefs: mediaRefs,
             clientMsgId: clientMsgId,
             inReplyTo: inReplyTo,
-            metadata: nil,
+            metadata: origin.map { ["origin": .object(["kind": .string($0.kind.rawValue), "name": .string($0.name)])] },
             linkPreviews: linkPreviews,
             blocks: blocks.map(CompanionBlocks.init)
         )
@@ -688,9 +690,10 @@ enum FixtureProposalScript {
 /// are the reply's own markdown; then places Apple Maps found around a named
 /// town (§14.1), each with Apple's own identifier and page and its kind, and
 /// no rating, price, hours or distance; then a reply linking pages the
-/// engine previewed; and last, code, a shell one-liner too long for one line
-/// of the reply and a short Python function, each fence naming its language
-/// by a common tag.
+/// engine previewed; code, a shell one-liner too long for one line of the
+/// reply and a short Python function, each fence naming its language by a
+/// common tag; and last, a scheduled job's message and a cue's, the cue
+/// named by the watcher the management goldens list.
 enum FixtureRepliesScript {
     static let rows: [CompanionTimelineRow] = [
         FixtureCompanionScript.row(1, "user", "Can you find a few quiet coffee shops in SoHo where I could work for an hour?", clientMsgId: "fixture-replies-1"),
@@ -707,10 +710,23 @@ enum FixtureRepliesScript {
         FixtureCompanionScript.row(12, "assistant", links, inReplyTo: "fixture-replies-11", linkPreviews: linkPreviews),
         FixtureCompanionScript.row(13, "user", "How do I find the biggest files in my Downloads folder?", clientMsgId: "fixture-replies-13"),
         FixtureCompanionScript.row(14, "assistant", code, inReplyTo: "fixture-replies-13"),
+        FixtureCompanionScript.row(15, "assistant", briefing, origin: CompanionRowOrigin(kind: .job, name: "Morning briefing")),
+        FixtureCompanionScript.row(16, "assistant", release, origin: CompanionRowOrigin(kind: .cue, name: "release-watch")),
     ]
 
     /// A one-liner wider than the reply, which wraps, and a short function,
     /// fenced as `sh` and `python`, which the blocks name Shell and Python.
+    /// A scheduled job's delivery and a cue's, each with no message of the
+    /// owner's before it, under the label naming where it came from.
+    static let briefing = """
+        **Good morning.** It is 12° and cloudy, with rain from about three.
+
+        - Design review at **10:00**, the prep doc is in *Shared/Design*
+        - Lunch with Sam at 13:00
+        """
+
+    static let release = "The release you are watching is out. Its notes list faster history search and a fix for the reminder sound."
+
     static let code = """
         This lists the twenty largest files under Downloads, biggest first, and saves the list to your Desktop.
 

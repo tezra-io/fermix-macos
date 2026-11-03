@@ -180,6 +180,9 @@ struct CuesPane: View {
 
             await model.refreshCues()
         }
+        // A cue's label in Chat sent the owner here, to its watcher's page.
+        .onChange(of: model.askedCuesPage, initial: true) { openAsked() }
+        .onChange(of: model.drawsCuesPane) { openAsked() }
         .sheet(item: $sheet) { target in
             CuesSheet(opening: target.page, model: model) { left in
                 notice = left
@@ -196,6 +199,14 @@ struct CuesPane: View {
             }
             .sheetGround()
         }
+    }
+
+    /// Opens the sheet on the page another surface asked for, once the
+    /// pane is drawn.
+    private func openAsked() {
+        guard model.drawsCuesPane, let asked = model.takeAskedCuesPage() else { return }
+
+        sheet = CuesSheetTarget(page: asked)
     }
 
     /// The sources, or the first-run card in their place, then the watchers
