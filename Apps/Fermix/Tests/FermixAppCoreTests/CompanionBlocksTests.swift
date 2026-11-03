@@ -55,7 +55,7 @@ struct CompanionBlocksTests {
     func textDoneCarriesItsBlocks() throws {
         let line = Self.textDone(blocks: #"[{"type":"places","places":[\#(Self.fullPlace),\#(Self.barePlace)]}]"#)
 
-        guard case .textDone(_, _, _, let blocks) = try CompanionServerEvent.decode(line) else {
+        guard case .textDone(_, _, _, let blocks, _) = try CompanionServerEvent.decode(line) else {
             Issue.record("the line did not decode as text_done")
             return
         }
@@ -77,7 +77,7 @@ struct CompanionBlocksTests {
     func applePlaceCarriesItsIdentifier() throws {
         let line = Self.textDone(blocks: #"[{"type":"places","places":[\#(Self.applePlace),\#(Self.fullPlace)]}]"#)
 
-        guard case .textDone(_, _, _, let blocks) = try CompanionServerEvent.decode(line),
+        guard case .textDone(_, _, _, let blocks, _) = try CompanionServerEvent.decode(line),
               case .places(let places)? = blocks.first
         else {
             Issue.record("the line did not decode as text_done with places")
@@ -188,7 +188,7 @@ struct CompanionBlocksTests {
         let lists = #"{"type":"checklists","lists":[{"list_id":"ck_3m9q2x7d1a","title":"Fermix","rows":["ci_7k2m9d0q4a","ci_2x8w1d5h3n"]},{"list_id":"ck_5r0t3v8b2c","title":"Portfolio site","rows":["ci_5p3q8r1t6v"]},{"list_id":"ck_8w1d0q4h6z","title":"Groceries","rows":[]}]}"#
         let line = Self.textDone(blocks: #"[{"type":"places","places":[\#(Self.barePlace)]},\#(lists)]"#)
 
-        guard case .textDone(_, _, _, let blocks) = try CompanionServerEvent.decode(line), blocks.count == 2,
+        guard case .textDone(_, _, _, let blocks, _) = try CompanionServerEvent.decode(line), blocks.count == 2,
               case .checklists(let refs) = blocks[1]
         else {
             Issue.record("the line did not decode as text_done with places and lists")

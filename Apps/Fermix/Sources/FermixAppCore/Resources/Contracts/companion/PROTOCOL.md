@@ -411,7 +411,7 @@ in a fixed order:
 | `text_delta` | `turn_id`, `text` | Text to append to the turn's draft, exactly as sent. |
 | `tool_event` | `turn_id`, `tool`, `phase`; `detail?`, `activity?` | `phase` is `start` or `stop`. `detail` is at most 512 bytes. `activity`, on a start, is the engine's sentence for the step, at most 120 bytes; see *Version 6*. |
 | `reasoning` | `turn_id`, `text` | Version 6. The model's summary of one step of its reasoning, at most 4,096 bytes. Live-only, no seq; see *Version 6*. Sent only to a connection on version 6. |
-| `text_done` | `turn_id`, `server_seq`, `text`; `blocks[]?` | A reply's canonical text at its timeline row, sent once the turn has completed; replaces the draft. A turn may send more than one. `blocks` are the row's, present only when it has one; see *Blocks under a reply*. |
+| `text_done` | `turn_id`, `server_seq`, `text`; `ts?`, `blocks[]?` | A reply's canonical text at its timeline row, sent once the turn has completed; replaces the draft. A turn may send more than one, each at its own row. `ts` is the time that row stores, exactly as its `row` and its `history_page` message carry it, so a client shows when the reply was written without reading history; this daemon always sends it and an older daemon leaves it out. `blocks` are the row's, present only when it has one; see *Blocks under a reply*. |
 | `turn_error` | `turn_id`, `code`, `message` | The turn's terminal failure: `code` is `cancelled` after a `cancel`, `interrupted` when the daemon lost the turn, `uncertain_after_restart` when the request may have run before the daemon restarted (see *Delivery and the outbox*). `message` is at most 512 bytes. |
 | `turn_done` | `turn_id` | Version 2. The turn completed and wrote no reply: it ends the turn, and nothing of its draft is kept. Sent only to a connection on version 2; see *Version 2*. |
 | `row` | `profile_id`, `server_seq`, `role`, `text`, `ts`, `media_refs[]`; `client_msg_id?`, `kind?`, `metadata?`, `link_previews[]?`, `blocks[]?` | A timeline row this socket did not stream, announced to every connection as it is written: the sender's own message (with its `client_msg_id`, to match the outbox), a slash command's answer, a scheduled delivery, a message from a phone, the reply to a phone's turn, and a Live call's row. `kind`, `metadata`, `media_refs`, `link_previews` and `blocks` are the history message's, as a `history_page` carries them (see *Timeline shapes*); a Live call's row carries `metadata.call` (see *A Live call's rows*), and a message a scheduled job's or a cue's run sent carries `metadata.origin` (see *Where a message came from*). |
@@ -528,7 +528,14 @@ turn's reply, a slash command's answer, a Live call's row, a reminder,
 Fermix's notice about a cue source, a mandate or a confirmed call whose
 outcome is unknown, and a run with no name to give (a follow-up whose
 watcher was removed before it ran). A name is never
-made up. The key is additive, so it is sent on every version: a client that
+made up. A row a job's or a cue's run wrote before `origin` existed is given
+the origin its run gives a row today when the daemon starts, as long as what
+names it is still on record: the run, and for a cue the watcher and the cue
+delivery or follow-up trigger that led to the run, which are kept about 30
+days after they end. A watcher's notice from then, and a row whose run,
+delivery, trigger or watcher is gone, have none. Nothing is announced: a
+client sees it the next time a history page carries the row. The key is
+additive, so it is sent on every version: a client that
 does not know `origin`, or meets a `kind` it does not know, ignores it and
 draws the row as it draws any other.
 
@@ -1200,7 +1207,7 @@ daemon -> companion:  turn_started { turn_id: "turn-mac-1", in_reply_to: "mac-1"
 daemon -> companion:  reasoning { turn_id, text: "**Checking today's calendar**\n\n…" }
 daemon -> companion:  tool_event { turn_id, tool, phase: "start", activity: "Checking your reminders and events" } / { phase: "stop" }
 daemon -> companion:  text_delta { turn_id, text } …
-daemon -> companion:  text_done { turn_id, server_seq: 14, text }
+daemon -> companion:  text_done { turn_id, server_seq: 14, text, ts }
 companion -> daemon:  read_state { profile_id: "main", read_up_to_seq: 14 }
 daemon -> companion:  read_state { profile_id: "main", read_up_to_seq: 14 }
                       (reconnect; the outbox resends "mac-1")

@@ -6,8 +6,9 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
     public let serverSeq: Int
     public let text: String
     /// Who wrote the row, in the daemon's own word, and when, as the daemon
-    /// wrote the time. A reply held from its turn's `text_done` has neither:
-    /// that event names the turn, not the row's role or time.
+    /// wrote the time. A reply held from its turn's `text_done` has no role,
+    /// which that event does not name, and has the time only where the daemon
+    /// sent it (`ts`).
     public let role: String?
     public let timestamp: String?
     /// On a user's row, the request it recorded.
@@ -95,13 +96,14 @@ extension CompanionRow {
         )
     }
 
-    /// A reply part at its row, from the turn's `text_done`, with its blocks.
-    init(reply turnId: String, serverSeq: Int, text: String, inReplyTo: String?, blocks: [CompanionBlock]) {
+    /// A reply part at its row, from the turn's `text_done`, with its blocks
+    /// and the time its row stores, where the daemon sent it.
+    init(reply turnId: String, serverSeq: Int, text: String, inReplyTo: String?, blocks: [CompanionBlock], timestamp: String?) {
         self.init(
             serverSeq: serverSeq,
             text: text,
             role: nil,
-            timestamp: nil,
+            timestamp: timestamp,
             clientMsgId: nil,
             inReplyTo: inReplyTo,
             turnId: turnId,

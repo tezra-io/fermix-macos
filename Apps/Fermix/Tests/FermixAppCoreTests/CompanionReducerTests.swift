@@ -250,11 +250,22 @@ struct CompanionReducerTests {
 
         #expect(chat.turn == CompanionTurn(turnId: "turn-mac-1", inReplyTo: "mac-1", text: "You have  one meeting", tool: tool))
 
-        #expect(chat.receive(.textDone(turnId: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10.")).isEmpty)
+        #expect(
+            chat.receive(.textDone(turnId: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10.", timestamp: "2026-09-25T09:00:04Z"))
+                .isEmpty
+        )
         #expect(chat.turn == nil)
         #expect(
             chat.rows.last
-                == CompanionRow(reply: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10.", inReplyTo: "mac-1", blocks: [])
+                == CompanionRow(
+                    reply: "turn-mac-1",
+                    serverSeq: 13,
+                    text: "You have one meeting, at 10.",
+                    inReplyTo: "mac-1",
+                    blocks: [],
+                    timestamp: "2026-09-25T09:00:04Z"
+                ),
+            "the reply keeps the time its row stores, which its actions show"
         )
         #expect(chat.cursor == 13)
     }

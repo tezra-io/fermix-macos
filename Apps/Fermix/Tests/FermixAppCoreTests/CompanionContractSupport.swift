@@ -128,11 +128,12 @@ enum CompanionServerWire {
             ])
         case .reasoning(let turnId, let text):
             return ["turn_id": turnId, "text": text]
-        case .textDone(let turnId, let serverSeq, let text, let blocks):
+        case .textDone(let turnId, let serverSeq, let text, let blocks, let timestamp):
             return present([
                 "turn_id": turnId,
                 "server_seq": serverSeq,
                 "text": text,
+                "ts": timestamp,
                 "blocks": blocks.isEmpty ? nil : blocks.map(block)
             ])
         case .turnError(let turnId, let code, let message):

@@ -260,7 +260,10 @@ struct CompanionProtocolTests {
                 text: "**Checking the calendar**\n\nThe owner wants today's schedule, so I'll look up today's events before answering."
             )
         )
-        #expect(try event("text_done") == .textDone(turnId: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10."))
+        #expect(
+            try event("text_done")
+                == .textDone(turnId: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10.", timestamp: "2026-09-25T09:00:04Z")
+        )
         #expect(try event("turn_error") == .turnError(turnId: "turn-mac-3", code: "cancelled", message: "cancelled"))
         #expect(try event("turn_done") == .turnDone(turnId: "turn-mac-5"))
 

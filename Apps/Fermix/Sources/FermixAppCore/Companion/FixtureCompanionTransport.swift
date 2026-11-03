@@ -346,7 +346,7 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
 
     private func finish(_ turnId: String, replyingTo clientMsgId: String) {
         let reply = append(role: "assistant", content: FixtureCompanionScript.reply, clientMsgId: nil, inReplyTo: clientMsgId)
-        emit(.textDone(turnId: turnId, serverSeq: reply.serverSeq, text: reply.content))
+        emit(.textDone(turnId: turnId, serverSeq: reply.serverSeq, text: reply.content, timestamp: reply.timestamp))
     }
 
     private func resolve(command event: [String: Any]) {

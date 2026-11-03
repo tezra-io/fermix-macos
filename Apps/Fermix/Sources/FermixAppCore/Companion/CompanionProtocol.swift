@@ -940,8 +940,10 @@ public enum CompanionServerEvent: Equatable, Sendable {
     case reasoning(turnId: String, text: String)
     /// A reply's canonical text at its timeline row; it replaces the draft.
     /// Its blocks (M72 §8.3) come with it, never mid-stream, so they appear
-    /// once, under text that has finished.
-    case textDone(turnId: String, serverSeq: Int, text: String, blocks: [CompanionBlock] = [])
+    /// once, under text that has finished. `timestamp` is the time that row
+    /// stores (RFC 3339, UTC, as the daemon wrote it), absent from an older
+    /// daemon in the window.
+    case textDone(turnId: String, serverSeq: Int, text: String, blocks: [CompanionBlock] = [], timestamp: String? = nil)
     /// The turn's terminal failure: `cancelled` after a cancel, `interrupted`
     /// when the daemon lost the turn, or the failure's own code.
     case turnError(turnId: String, code: String, message: String)
@@ -1076,6 +1078,7 @@ extension CompanionServerEvent: Decodable {
         case serverSeq = "server_seq"
         case approvalId = "approval_id"
         case readUpToSeq = "read_up_to_seq"
+        case timestamp = "ts"
     }
 
     /// Events with a payload type decode it from the same object; the rest are
@@ -1119,7 +1122,8 @@ extension CompanionServerEvent: Decodable {
                 turnId: try fields.decode(String.self, forKey: .turnId),
                 serverSeq: try fields.decode(Int.self, forKey: .serverSeq),
                 text: try fields.decode(String.self, forKey: .text),
-                blocks: try fields.decodeIfPresent(CompanionBlocks.self, forKey: .blocks)?.known ?? []
+                blocks: try fields.decodeIfPresent(CompanionBlocks.self, forKey: .blocks)?.known ?? [],
+                timestamp: try fields.decodeIfPresent(String.self, forKey: .timestamp)
             )
         case "turn_error":
             self = .turnError(

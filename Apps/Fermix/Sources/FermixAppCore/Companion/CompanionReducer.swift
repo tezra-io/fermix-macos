@@ -246,8 +246,8 @@ enum CompanionReducer {
             var turn = held(turnId, in: chat)
             turn.steps.append(.reasoning(text))
             chat.turn = turn
-        case .textDone(let turnId, let serverSeq, let text, let blocks):
-            return finish(turnId, at: serverSeq, text: text, blocks: blocks, into: &chat)
+        case .textDone(let turnId, let serverSeq, let text, let blocks, let timestamp):
+            return finish(turnId, at: serverSeq, text: text, blocks: blocks, timestamp: timestamp, into: &chat)
         case .turnError(let turnId, let code, let message):
             end(turnId, in: &chat)
             chat.lastError = sentence(forTurnError: code, message: message)
@@ -409,12 +409,13 @@ enum CompanionReducer {
         at serverSeq: Int,
         text: String,
         blocks: [CompanionBlock],
+        timestamp: String?,
         into chat: inout CompanionChat
     ) -> [CompanionClientEvent] {
         let inReplyTo = chat.turn?.turnId == turnId ? chat.turn?.inReplyTo : nil
         end(turnId, in: &chat)
 
-        let row = CompanionRow(reply: turnId, serverSeq: serverSeq, text: text, inReplyTo: inReplyTo, blocks: blocks)
+        let row = CompanionRow(reply: turnId, serverSeq: serverSeq, text: text, inReplyTo: inReplyTo, blocks: blocks, timestamp: timestamp)
         return applyLive(row, into: &chat)
     }
 

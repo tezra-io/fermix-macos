@@ -9,7 +9,7 @@ import Testing
 @Suite("Checklist cards")
 struct ChecklistCardsTests {
     private static func reply(_ seq: Int, _ lists: [CompanionChecklistRef]) -> CompanionRow {
-        CompanionRow(reply: "turn-\(seq)", serverSeq: seq, text: "Done.", inReplyTo: nil, blocks: lists.isEmpty ? [] : [.checklists(lists)])
+        CompanionRow(reply: "turn-\(seq)", serverSeq: seq, text: "Done.", inReplyTo: nil, blocks: lists.isEmpty ? [] : [.checklists(lists)], timestamp: nil)
     }
 
     private static func ref(_ listId: String, _ rows: [String] = []) -> CompanionChecklistRef {
@@ -54,7 +54,7 @@ struct ChecklistCardsTests {
     @Test("a row's lists are its checklists block's, and a row with none has none")
     func listsOfARow() {
         let place = CompanionBlock.places([CompanionBlocksTests.example])
-        let both = CompanionRow(reply: "turn-1", serverSeq: 1, text: "", inReplyTo: nil, blocks: [place, .checklists([Self.ref("fermix")])])
+        let both = CompanionRow(reply: "turn-1", serverSeq: 1, text: "", inReplyTo: nil, blocks: [place, .checklists([Self.ref("fermix")])], timestamp: nil)
 
         #expect(ChecklistCards.lists(of: both) == [Self.ref("fermix")])
         #expect(ChecklistCards.lists(of: Self.reply(2, [])) == nil)
