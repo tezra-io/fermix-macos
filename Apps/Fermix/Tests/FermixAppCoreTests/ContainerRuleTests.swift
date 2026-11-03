@@ -723,7 +723,11 @@ struct ContainerRuleTests {
         #expect(pane.contains("FrameGlass()"), "the header is not on the frame")
         #expect(column.contains("BrowserPaneView(browser: browser)"))
         #expect(column.contains(".inspector(isPresented: presented)"), "the pane is not the window's trailing column")
-        #expect(window.contains(".modifier(BrowserColumn(browser: browser, windowWidth: windowWidth, railShown: sidebar.visibility == .all))"))
+        #expect(window.contains(".modifier(BrowserColumn(browser: browser, open: browserOpen, windowWidth: windowWidth, railShown: sidebar.visibility == .all))"))
+        #expect(
+            window.contains("if !browserOpen {\n                    bodyCorner(FrameCorner().scale(x: -1, y: 1))"),
+            "the body's top trailing corner rounds beside the browser's column, where no window edge is"
+        )
         #expect(window.contains("detailColumn.frame(minWidth: 0, minHeight: 0)"), "the body lost its floor")
     }
 

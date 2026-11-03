@@ -40,6 +40,10 @@ struct MainWindowView: View {
     /// Measured on the window's own content, which the window bounds: the
     /// column's width must never be read off a view that holds the column.
     @State private var windowWidth: Double = 0
+    /// Whether the browser column stands beside the body, read alone so a page
+    /// loading never redraws the window: the column shows by it, and the body
+    /// leaves its top trailing corner square beside it.
+    @State private var browserOpen = false
     /// The one settings model, handed to the settings columns. It is held and
     /// not observed: the window's own body reads nothing from it, and observing
     /// it redrew the whole window, rail and ground included, on every one of its
@@ -163,7 +167,10 @@ struct MainWindowView: View {
                     bandHeight = top
                 }
         }
-        .modifier(BrowserColumn(browser: browser, windowWidth: windowWidth, railShown: sidebar.visibility == .all))
+        .modifier(BrowserColumn(browser: browser, open: browserOpen, windowWidth: windowWidth, railShown: sidebar.visibility == .all))
+        .onReceive(browser.model.$isOpen.removeDuplicates()) { open in
+            browserOpen = open
+        }
     }
 
     /// Escape, resolved once. A focused descriptor field reverts and keeps the
@@ -222,7 +229,10 @@ struct MainWindowView: View {
     /// than as a body sitting inside a frame. The top trailing corner, where the
     /// band meets the window's trailing edge, is cut the same way (owner,
     /// 2026-09-25: "add the rounded edge to top right of the body as well to
-    /// keep it consistent"); the fourth is the window's own corner.
+    /// keep it consistent"); the fourth is the window's own corner. While the
+    /// browser column stands beside the body, that corner meets the column,
+    /// not the window's edge, so it stays square and the body runs straight
+    /// into the browser (owner, 2026-11-02: the rounded corner showed there).
     ///
     /// What draws them is more of the frame's glass, laid over the corners at
     /// `bodyCornerRadius`, which is this window's own measured radius.
@@ -243,7 +253,9 @@ struct MainWindowView: View {
             HStack(spacing: 0) {
                 bodyCorner(FrameCorner())
                 Spacer(minLength: 0)
-                bodyCorner(FrameCorner().scale(x: -1, y: 1))
+                if !browserOpen {
+                    bodyCorner(FrameCorner().scale(x: -1, y: 1))
+                }
             }
             Spacer(minLength: 0)
             HStack(spacing: 0) {

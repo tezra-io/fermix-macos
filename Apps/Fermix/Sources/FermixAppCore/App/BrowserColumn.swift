@@ -15,17 +15,17 @@ import SwiftUI
 /// window's width comes from where the window bounds it, and a column held to
 /// one exact width at a time grows without end, so it is given a range.
 ///
-/// It reads only whether the pane is open, so a page loading never redraws
-/// the window around it, and the pane hides through the coordinator, which
-/// owns that fact.
+/// It shows by whether the pane is open, which the window reads alone so a
+/// page loading never redraws it, and the pane hides through the
+/// coordinator, which owns that fact.
 struct BrowserColumn: ViewModifier {
     let browser: BrowserCoordinator
+    /// Whether the pane is open, as the window read it.
+    let open: Bool
     /// The window's width, measured where the window bounds it.
     let windowWidth: Double
     /// Whether the rail is showing, whose width the body does not have.
     let railShown: Bool
-
-    @State private var open = false
 
     func body(content: Content) -> some View {
         content
@@ -36,9 +36,6 @@ struct BrowserColumn: ViewModifier {
                         ideal: WindowMetrics.browserPaneWidth,
                         max: BrowserColumnWidth.widest(window: windowWidth, railShown: railShown)
                     )
-            }
-            .onReceive(browser.model.$isOpen.removeDuplicates()) { isOpen in
-                open = isOpen
             }
     }
 
