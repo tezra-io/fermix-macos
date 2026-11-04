@@ -128,6 +128,25 @@ extension SettingsModel {
         return nextStep(after: name)
     }
 
+    /// Opens Integrations at one plugin's page: a Cues source whose
+    /// requirement names a plugin to sign in to asks for it.
+    public func showPluginPage(_ name: String) {
+        precondition(!name.isEmpty, "a plugin page names its plugin")
+
+        askedPluginPage = name
+        selectedPane = .integrations
+    }
+
+    /// The plugin page asked for, once the catalogue is read: its row, which
+    /// opens once, or nil while the catalogue is unread. A plugin the
+    /// catalogue does not list leaves the pane as it is.
+    public func takeAskedPluginPage() -> IntegrationRowModel? {
+        guard let name = askedPluginPage, let catalog = plugins.value else { return nil }
+
+        askedPluginPage = nil
+        return IntegrationRowProjection.row(named: name, in: catalog)
+    }
+
     /// What the daemon's own answer says is left to do on one row, once its
     /// switch is on.
     ///

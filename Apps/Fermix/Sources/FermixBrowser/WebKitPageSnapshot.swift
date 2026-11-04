@@ -8,21 +8,25 @@ import WebKit
 /// The request's mode, character budget and depth reach the script only as
 /// hints that bound its walk; the engine renders and truncates. The evaluate
 /// is timed from the call to the decoded answer, which is the cost the
-/// engine's settle budget pays.
+/// engine's settle budget pays, and whether the tab was loading is taken as
+/// the answer arrives, so it describes the page the answer read.
 @MainActor
 final class WebKitPageSnapshot {
     private let script: WebKitPageScript
+    private let webView: WKWebView
 
-    init(script: WebKitPageScript) {
+    init(script: WebKitPageScript, webView: WKWebView) {
         self.script = script
+        self.webView = webView
     }
 
     func take(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot {
         let started = ContinuousClock.now
         let json = try await script.text("snapshot", [options(request)])
+        let tabLoading = webView.isLoading
         let elapsed = started.duration(to: .now)
 
-        return try BrowserPageSnapshot.decode(Data(json.utf8), evaluateMilliseconds: elapsed.milliseconds)
+        return try BrowserPageSnapshot.decode(Data(json.utf8), tabLoading: tabLoading, evaluateMilliseconds: elapsed.milliseconds)
     }
 
     private func options(_ request: BrowserSnapshotRequest) -> [String: Any] {

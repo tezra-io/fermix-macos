@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import FermixAppCore
@@ -354,7 +355,19 @@ struct ChatCallBoxTests {
 
         #expect(!composer.contains("toggleCall"))
         #expect(!composer.contains("PetFeatureModel"))
-        #expect(composer.contains(".disabled(connection != .connected)"))
+        #expect(composer.contains(".disabled(!connection.acceptsMessages)"))
+    }
+
+    /// Enter, the keypad's key or fn-Return, is a key of its own that the
+    /// default button's Return never matches: left to the field it ended
+    /// editing and selected the draft (owner, 2026-10-31). The composer
+    /// answers it as it answers Return.
+    @Test("the composer sends on Enter as on Return")
+    func enterSends() throws {
+        let composer = try Self.text(of: "Chat/ChatComposer.swift")
+
+        #expect(ChatComposer.sendKeys == [.return, KeyEquivalent("\u{3}")])
+        #expect(composer.contains(".onKeyPress(keys: Self.sendKeys, phases: .down, action: returnPressed)"))
     }
 
     // MARK: - The toolbar's call button
@@ -377,7 +390,7 @@ struct ChatCallBoxTests {
     @Test("the toolbar's call button follows the gate where it stands")
     func toolbarFollowsTheGate() throws {
         let surface = try Self.text(of: "Chat/ChatSurfaceView.swift")
-        #expect(surface.contains("SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router, follows: gate)"))
+        #expect(surface.contains("SurfaceToolbar(spec: CommandTable.toolbar(for: .chat, condition: toolbarCondition), router: router, follows: gate)"))
 
         let toolbar = try Self.text(of: "Design/Components/SurfaceToolbar.swift")
         #expect(toolbar.contains("Following(followed: follows) { button(command) }"))

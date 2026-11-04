@@ -20,7 +20,21 @@ enum ManagementV2Calls {
     /// door and has no app caller since the hosted Setup pane was deleted
     /// (M34 §8). It is declared rather than dropped, so a method that loses its
     /// caller by accident still fails the coverage assertion.
-    static let unexercised: Set<String> = ["setup_session_create"]
+    ///
+    /// The server's own Always On steps have no app caller either: they are
+    /// rail-only (Always On setup §3.5), refused on `daemon.sock`, and the
+    /// engine takes each one behind `home.act`. A waiting `home.status` is the
+    /// CLI's; the app reads when the engine says the summary changed.
+    static let unexercised: Set<String> = [
+        "setup_session_create", "home_enroll_open", "home_enroll_withdraw", "home_move_readiness", "home_move_start",
+        "home_move_start_replacing_the_server", "home_snapshots_run", "home_status_wait"
+    ]
+
+    /// The methods no surface calls, whose every golden is unexercised, so
+    /// the N-1 gate is never reached for them.
+    static let uncalledMethods: Set<String> = [
+        "home.enroll.open", "home.enroll.withdraw", "home.move.readiness", "home.move.start", "home.snapshots.run"
+    ]
 
     /// Each golden request, mapped to the call that must produce it.
     static let byFixture: [String: @Sendable (ManagementClient) async throws -> Void] = [
@@ -251,6 +265,9 @@ enum ManagementV2Calls {
         "cues_sources_get": { _ = try await $0.cueSource(ref: "gh-hooks") },
         "cues_sources_form": { _ = try await $0.cueSourceForm(ManagementCueFormRequest(preset: "github")) },
         "cues_sources_form_stream": { _ = try await $0.cueSourceForm(ManagementCueFormRequest(kind: "stream")) },
+        "cues_sources_form_x_accounts": {
+            _ = try await $0.cueSourceForm(ManagementCueFormRequest(preset: "x_accounts"))
+        },
         "cues_sources_add": {
             _ = try await $0.addCueSource(
                 ManagementCueSourceSpec(
@@ -260,6 +277,10 @@ enum ManagementV2Calls {
                 )
             )
         },
+        // Left unnamed, so Fermix names it.
+        "cues_sources_add_webhook": {
+            _ = try await $0.addCueSource(ManagementCueSourceSpec(ref: nil, choice: .preset("github"), values: [:]))
+        },
         "cues_sources_update": { _ = try await $0.updateCueSource(ref: "eng-blogs", values: ["daily_budget": .setting(.number(200))]) },
         "cues_sources_remove": { _ = try await $0.removeCueSource(ref: "eng-blogs") },
         "cues_sources_enable": { _ = try await $0.enableCueSource(ref: "home-alerts") },
@@ -268,6 +289,7 @@ enum ManagementV2Calls {
         "cues_sources_url_get": { _ = try await $0.cueSourceAddress(ref: "gh-hooks") },
         "cues_watchers_list": { _ = try await $0.cueWatchers() },
         "cues_watchers_get": { _ = try await $0.cueWatcher(name: "release-watch") },
+        "cues_watchers_always_allow_revoke": { _ = try await $0.revokeCueWatcherAlwaysAllow(name: "release-watch") },
         "cues_mandates_list": { _ = try await $0.cueMandates() },
         "cues_mandates_choices": { _ = try await $0.cueMandateChoices() },
         "cues_mandates_add": {
@@ -295,7 +317,42 @@ enum ManagementV2Calls {
         "cues_proposals_get": { _ = try await $0.cueProposal(id: "cpr_9f2c41d07a5e6b38c1d2e4f0") },
         "cues_proposals_decide": {
             _ = try await $0.decideCueProposal(id: "cpr_9f2c41d07a5e6b38c1d2e4f0", decision: .confirm)
-        }
+        },
+
+        // The home (M75): the picture, the recovery snapshots, and every
+        // Always On step as one home.act (Always On setup §3.4).
+        "home_status": { _ = try await $0.homeStatus() },
+        "home_candidates_list": { _ = try await $0.candidates() },
+        "home_snapshots_status": { _ = try await $0.snapshotsStatus() },
+        "home_snapshots_passphrase": { _ = try await $0.setRecoveryPassphrase("invented-lighthouse-meridian") },
+        // Set up's token, for the one provider listed, so none is named.
+        "home_act": {
+            _ = try await $0.homeAct(
+                .pasteToken,
+                key: "ypJXbXCwrSQSdVK8_tXftA",
+                input: ManagementHomeActInput(token: "invented-hetzner-token-6d1f0c9a2b7e4f3a")
+            )
+        },
+        "home_act_create_server": {
+            _ = try await $0.homeAct(
+                .createServer,
+                key: "F09RF8MofBF6hdXN7NWtuA",
+                input: ManagementHomeActInput(type: "cpx22", location: "fsn1")
+            )
+        },
+        "home_act_move_now": {
+            _ = try await $0.homeAct(
+                .moveNow,
+                key: "4MxUwltAAhCgxPwBAncMZw",
+                input: ManagementHomeActInput(recoveryPassphrase: "invented-harbor-juniper-lantern")
+            )
+        },
+        // A step that collects nothing is sent with no input.
+        "home_act_cancel": { _ = try await $0.homeAct(.cancel, key: "G5z__UAdjaH9J2d38M3Zuw") },
+
+        // What the provider in use sells, for the choice (M75 lean v1 §4.3):
+        // the engine knows which, so none is named.
+        "home_provision_options": { _ = try await $0.provisionOptions() }
     ]
 
 }

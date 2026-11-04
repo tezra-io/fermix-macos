@@ -220,7 +220,7 @@ struct MediaGrantsTests {
 
         #expect(
             try harness.socket.sentObjects()
-                == wire(.clientHello(protocolVersion: CompanionProtocol.version), newestPagePull, M.fetch(M.voice))
+                == wire(.clientHello(protocolVersion: CompanionProtocol.version), newestPagePull, M.fetch(M.voice), listIndexPull)
         )
         harness.socket.deliver(M.granted(M.voice))
         #expect(await use.value == .granted(M.grant(M.voice)))

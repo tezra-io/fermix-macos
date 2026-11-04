@@ -429,8 +429,29 @@ struct PhonePairingModelTests {
         #expect(harness.model.step == .phones)
         await harness.model.settle()
 
-        #expect(harness.model.devices.value?.devices.map(\.name) == ["Sam's phone"])
+        // The golden list holds the desktop a move paired beside the phone
+        // (M75): both are listed, and only the phone is a phone.
+        #expect(harness.model.devices.value?.devices.map(\.name) == ["Sam's phone", "Studio Mac"])
+        #expect(harness.model.devices.value?.phones.map(\.name) == ["Sam's phone"])
         #expect(!harness.gateway.calls.contains(.v2(.mobilePairStart)), "the phones open no window")
+    }
+
+    @Test("a desktop a move paired is listed with no Forget: asking to forget it asks nothing")
+    func desktopHasNoForget() async throws {
+        let harness = try PhoneHarness(polls: 0)
+        let desktop = "c41e9d27-5a8b-4f63-9e20-7d1b3c5a8f94"
+        harness.model.present(.phones)
+        await harness.model.settle()
+
+        let row = try #require(harness.model.devices.value?.devices.first { $0.deviceId == desktop })
+        #expect(row.kind == .desktop && !row.isPhone)
+
+        harness.model.askToForget(desktop)
+        harness.model.forget()
+        await harness.model.settle()
+
+        #expect(harness.model.forgetting == PhoneForgetting())
+        #expect(harness.gateway.revokedDevices.isEmpty)
     }
 
     @Test("Done on Paired goes on to the phones, with the new phone read again")
@@ -507,7 +528,7 @@ struct PhonePairingModelTests {
             harness.model.forgetting.refusals[device]
                 == "Only the owner can pair or forget a phone; run this from your own terminal."
         )
-        #expect(harness.model.devices.value?.devices.count == 1)
+        #expect(harness.model.devices.value?.phones.count == 1)
 
         harness.model.closed()
         #expect(harness.model.forgetting == PhoneForgetting(), "a closed sheet asks nothing")

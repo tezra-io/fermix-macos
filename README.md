@@ -37,14 +37,29 @@ its data are never touched.
 
 You need: a `fermix` checkout, the Developer ID Application identity in your
 login keychain (the loop refuses an ad-hoc signature, because macOS keys the
-background agent on the Team ID), Elixir and Erlang for the engine build, and
-either Xcode or the Command Line Tools with the macOS 26 SDK beside the 27 SDK
-(the loop picks the right one).
+background agent on the Team ID), the development identity's provisioning
+profile (below), Elixir and Erlang for the engine build, and either Xcode or the
+Command Line Tools with the macOS 26 SDK beside the 27 SDK (the loop picks the
+right one).
+
+The dev app keeps website logins in a keychain group of its own
+(`54A57TH9BJ.io.tezra.FermixPet.dev.logins`), never in the released app's, and
+macOS opens that group only to an app that embeds a provisioning profile
+authorizing it. Make the profile once, in the team's developer account under
+Certificates, IDs & Profiles: an explicit App ID `io.tezra.FermixPet.dev`
+(description `Fermix Dev`, no capabilities), then a Developer ID profile for it
+named `Fermix Dev Developer ID`, on the Developer ID Application certificate.
+The loop refuses without it. Because the dev app can hold logins, its browser
+pane offers no Web Inspector, which reads a filled password out of the page.
 
 ```sh
 # Once: give the loop its own engine worktree, on the engine ref you want to run.
 git -C ~/projects/fermix fetch origin
 git -C ~/projects/fermix worktree add ~/.cache/fermix-engine-m34 origin/main
+
+# Once: put the development profile where the loop reads it.
+mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+cp ~/Downloads/Fermix_Dev_Developer_ID.provisionprofile ~/Library/MobileDevice/Provisioning\ Profiles/
 
 # Each time: build the engine as that worktree stands, stage, sign and launch the app.
 scripts/dev_e2e.sh up            # full engine build
@@ -54,7 +69,7 @@ scripts/dev_e2e.sh down          # quit the app, unregister its agent, stop the 
 ```
 
 To run a different engine, move the worktree yourself and run `up` again:
-`git -C ~/.cache/fermix-engine-m34 checkout --detach v0.17.0` for a release tag,
+`git -C ~/.cache/fermix-engine-m34 checkout --detach v0.18.0` for a release tag,
 or `origin/dev` for the engine's tip. The loop never fetches, resets or moves
 that checkout: it builds exactly what is there, uncommitted work included. Set
 `FERMIX_REPO` if your checkout is not at `~/projects/fermix`.
@@ -117,6 +132,8 @@ brew install --cask tezra-io/tap/fermix
 ## Required repo secrets (release only)
 
 `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `MACOS_KEYCHAIN_PASSWORD`,
-`MACOS_DEVELOPER_ID`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`, scoped to
-the `release-macos` environment. `HOMEBREW_TAP_TOKEN` lets the rail open the
+`MACOS_DEVELOPER_ID`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`,
+`MACOS_PROVISIONING_PROFILE_BASE64` (the Developer ID provisioning profile for
+`io.tezra.FermixPet`, base64-encoded, which authorizes the website logins'
+keychain access group), scoped to the `release-macos` environment. `HOMEBREW_TAP_TOKEN` lets the rail open the
 cask PR on `tezra-io/homebrew-tap`.

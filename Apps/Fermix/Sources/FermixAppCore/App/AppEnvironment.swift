@@ -33,9 +33,14 @@ struct AppEnvironment {
     /// Mac holds for the running bundle.
     let notificationCenter: any UserNotificationCentering
     let settingsPanes: any SettingsPaneStoring
+    /// The Always On notices this Mac raised, kept so a relaunch does not
+    /// raise a standing one again.
+    let alwaysOnNotices: any AlwaysOnNoticeStoring
     let sidebarVisibility: any SidebarVisibilityStoring
     /// Where a clicked link opens: the pane or the person's own browser.
     let linkPreference: any LinkPreferenceStoring
+    /// Whether the Lists panel beside the chat is open (M85 §09).
+    let checklistPanel: any ChecklistPanelStoring
     let opener: any ExternalOpening
     /// The updater behind the seam. It arrives from outside because the
     /// implementation links Sparkle, which only the GUI executable may do
@@ -78,6 +83,11 @@ struct AppEnvironment {
     let companionLines: CompanionSocketClient.LineSocket
     /// The browser host wire's own line socket, the same way.
     let browserHostLines: BrowserHostClient.LineSocket
+    /// The website logins the agent signs in with (M84 §7): this Mac's data
+    /// protection keychain on a build whose signature grants its access group,
+    /// no store on any other build (`LoginStoreSelection`). One store,
+    /// handed to the Settings model and to the browser host.
+    let loginStore: any LoginStore
     /// The native host wire's own line socket, the same way.
     let nativeHostLines: NativeHostClient.LineSocket
     /// The voice wire's line socket, the same way. One socket for the one
@@ -162,8 +172,10 @@ extension AppEnvironment {
             microphone: SystemMicrophoneAuthorization(),
             notificationCenter: SystemUserNotificationCenter(),
             settingsPanes: UserDefaultsSettingsPaneStore(),
+            alwaysOnNotices: UserDefaultsAlwaysOnNoticeStore(),
             sidebarVisibility: UserDefaultsSidebarStore(),
             linkPreference: UserDefaultsLinkPreferenceStore(),
+            checklistPanel: UserDefaultsChecklistPanelStore(),
             opener: WorkspaceExternalOpener(),
             updater: updater,
             mascot: mascot,
@@ -182,6 +194,7 @@ extension AppEnvironment {
             identities: ManagementDaemonIdentityProbe(),
             companionLines: CompanionSocketClient.lineSocket(),
             browserHostLines: BrowserHostClient.lineSocket(),
+            loginStore: LoginStoreSelection.forThisProcess(),
             nativeHostLines: NativeHostClient.lineSocket(),
             realtimeLines: RealtimeSocketClient.lineSocket(),
             voiceAudio: AudioController(),

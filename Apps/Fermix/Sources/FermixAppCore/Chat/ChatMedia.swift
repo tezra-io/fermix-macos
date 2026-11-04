@@ -41,8 +41,6 @@ final class ChatMedia {
         let text: String
         let plain: Bool
         let mediaRefs: [CompanionMediaRef]
-        let linkPreviews: [CompanionLinkPreview]
-        let blocks: [CompanionBlock]
         let home: ChatHome?
     }
 
@@ -88,8 +86,6 @@ final class ChatMedia {
             text: row.text,
             plain: ChatSpeaker.isUser(row.role),
             mediaRefs: row.mediaRefs,
-            linkPreviews: row.linkPreviews,
-            blocks: row.blocks,
             home: visit?.paths
         )
         if let kept = strips[row.serverSeq], kept.source == source { return kept.strip }
@@ -98,8 +94,6 @@ final class ChatMedia {
             text: source.text,
             plain: source.plain,
             mediaRefs: source.mediaRefs,
-            linkPreviews: source.linkPreviews,
-            blocks: source.blocks,
             userHome: userHome,
             home: source.home
         )

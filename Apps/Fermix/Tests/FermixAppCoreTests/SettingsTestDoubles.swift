@@ -15,6 +15,17 @@ final class FakeSettingsPaneStore: SettingsPaneStoring {
     }
 }
 
+/// The Always On notices raised, in memory, as a relaunch would read them
+/// back. Nothing here reaches `UserDefaults`.
+@MainActor
+final class FakeAlwaysOnNoticeStore: AlwaysOnNoticeStoring {
+    var postedNotices: [String]
+
+    init(postedNotices: [String] = []) {
+        self.postedNotices = postedNotices
+    }
+}
+
 /// The microphone right, scripted. The real reader answers for the running
 /// process, so a test that touched it would assert against whatever this Mac
 /// happens to have granted.
@@ -64,8 +75,9 @@ enum EngineReconcilerFixture {
 ///
 /// Every seam is a double: the gateway is the fixture daemon, the store is in
 /// memory, the sleeper consumes its wait instantly, the browser records rather
-/// than opens, System Settings records the panes it was asked for, and the
-/// microphone and the notification center are scripted.
+/// than opens, System Settings records the panes it was asked for, the
+/// microphone and the notification center are scripted, and the website
+/// logins are in memory.
 @MainActor
 enum SettingsFixture {
     static func model(
@@ -76,7 +88,9 @@ enum SettingsFixture {
         microphone: StubMicrophoneAuthorization = StubMicrophoneAuthorization(),
         notifications: MacNotifications? = nil,
         loginItems: FakeLoginItemService = FakeLoginItemService(),
-        sleeper: any Sleeping = NoWaitSleeper()
+        sleeper: any Sleeping = NoWaitSleeper(),
+        logins: any LoginStore = InMemoryLoginStore(),
+        alwaysOnNotices: FakeAlwaysOnNoticeStore? = nil
     ) -> SettingsModel {
         SettingsModel(
             gateway: gateway,
@@ -89,7 +103,9 @@ enum SettingsFixture {
                 microphone: microphone,
                 notifications: notifications ?? Self.notifications(),
                 settingsOpener: settingsOpener
-            )
+            ),
+            logins: logins,
+            alwaysOnNotices: alwaysOnNotices ?? FakeAlwaysOnNoticeStore()
         )
     }
 

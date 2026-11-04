@@ -23,18 +23,34 @@ func historyPull(_ cursor: CompanionHistoryCursor) -> CompanionClientEvent {
 /// The cold start's pull: the newest page.
 let newestPagePull = historyPull(.before(seq: CompanionReducer.newestPageBound))
 
+/// The index of the owner's lists, which every handshake to a daemon that
+/// serves them asks for after the chat's own lines (M85 §07).
+let listIndexPull = CompanionClientEvent.checklistsPull(profileId: CompanionProtocol.profileId)
+
 /// Server events built the way the daemon writes them, with only the facts a
 /// case varies named at the call.
 enum CompanionEvents {
     static let profile = CompanionProtocol.profileId
 
     /// The daemon's hello, with the window this build speaks unless a case
-    /// names another.
+    /// names another, and the home's epoch and the engine's role where a case
+    /// names them (M75).
     static func hello(
         _ minimum: Int = CompanionProtocol.supportedWindow.minimum,
-        _ maximum: Int = CompanionProtocol.supportedWindow.maximum
+        _ maximum: Int = CompanionProtocol.supportedWindow.maximum,
+        epoch: Int? = nil,
+        role: CompanionEngineRole? = nil,
+        commands: [CompanionCommand] = [],
+        attachments: CompanionAttachmentInbox? = nil
     ) -> CompanionServerEvent {
-        .serverHello(minVersion: minimum, maxVersion: maximum)
+        .serverHello(
+            minVersion: minimum,
+            maxVersion: maximum,
+            primaryEpoch: epoch,
+            role: role,
+            commands: commands,
+            attachments: attachments
+        )
     }
 
     /// A live row, as announced outside a turn's completion.

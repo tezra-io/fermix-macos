@@ -515,10 +515,11 @@ struct BrowserDownloadWireTests {
             browserRoot: { URL(fileURLWithPath: "/tmp/fermix-test/browser", isDirectory: true) },
             hostVersion: "0.2.0",
             coordinator: harness.coordinator,
-            deadlines: ManualDeadlineScheduler()
+            deadlines: ManualDeadlineScheduler(),
+            loginStore: InMemoryLoginStore()
         )
         client.connect()
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
 
         return (client, transport)
     }

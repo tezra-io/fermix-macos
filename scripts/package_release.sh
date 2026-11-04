@@ -43,6 +43,12 @@
 #
 # Required env:
 #   both      MACOS_DEVELOPER_ID  "Developer ID Application: <Name> (<TEAMID>)"
+#   build     MACOS_PROVISIONING_PROFILE  path to the Developer ID provisioning
+#             profile for the product's bundle identifier, which authorizes the
+#             website logins' keychain access group (M84 D6). sign_app.sh
+#             proves it matches the release entitlements, embeds it, and
+#             refuses to sign on any mismatch. notarize.yml writes it from the
+#             MACOS_PROVISIONING_PROFILE_BASE64 secret.
 #   notarize  APPLE_ID  APPLE_TEAM_ID  APPLE_APP_PASSWORD   notarytool credentials
 #
 # Produces: dist/<artifact>-<version>.dmg (+ .sha256), stapled app + DMG.
@@ -159,8 +165,13 @@ prepare_engine() {
 }
 
 # A stale file in the stage is one nobody built in this run, so build starts
-# from an absent or empty directory.
+# from an absent or empty directory. The provisioning profile is asked for
+# first: a release without it would build for minutes and then be refused at
+# signing, or worse, ship an app whose website logins have no store.
 build_app() {
+  : "${MACOS_PROVISIONING_PROFILE:?a release embeds the Developer ID provisioning profile: MACOS_PROVISIONING_PROFILE is required}"
+  [ -f "$MACOS_PROVISIONING_PROFILE" ] ||
+    fail "no provisioning profile at $MACOS_PROVISIONING_PROFILE"
   mkdir -p "$STAGE"
   [ -z "$(find "$STAGE" -mindepth 1 -print -quit)" ] ||
     fail "the stage directory already holds files: $STAGE"
@@ -168,7 +179,7 @@ build_app() {
   prepare_engine
   "$ROOT_DIR/scripts/stage_app.sh" "$VERSION" "$BUILD_NUMBER" "$APP" universal \
     "${ENGINE_FLAGS[@]}"
-  "$ROOT_DIR/scripts/sign_app.sh" "$APP" "$MACOS_DEVELOPER_ID"
+  "$ROOT_DIR/scripts/sign_app.sh" "$APP" "$MACOS_DEVELOPER_ID" "$MACOS_PROVISIONING_PROFILE"
   # The composed gate over the signed bundle: layout, configured identity, both
   # property lists, the vendored contracts, the assets, the declared slots, and
   # the signing/architecture/entitlement inventory this release records.

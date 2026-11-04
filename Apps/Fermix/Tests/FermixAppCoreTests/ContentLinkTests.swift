@@ -168,7 +168,8 @@ struct SignInStaysExternalTests {
             "App/MainWindowView.swift",
             "Chat/ChatSurfaceView.swift",
             "Chat/ChatRows.swift",
-            "Chat/ChatPlaceSelection.swift"
+            "Chat/ChatPlaceSelection.swift",
+            "Chat/ChatLinkGuard.swift"
         ])
 
         // Every surface that starts a sign-in or opens the installer, which the

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- The keychain entitlements of the dev loop's Fermix Dev (M84 D6): the
+     development identity's own website logins group and the identity keys that
+     authorize it, so a login saved while working on the app never lands in the
+     released app's group. scripts/dev_e2e.sh signs with them through
+     scripts/sign_app.sh, which merges them only with the development identity's
+     Developer ID provisioning profile and proves the profile authorizes them
+     first. The group is the one a DEBUG build compiles in
+     (LoginStoreSelection); a debug build that holds it offers no Web Inspector,
+     which reads a filled password out of the page. -->
+<dict>
+  <key>com.apple.application-identifier</key>
+  <string>54A57TH9BJ.io.tezra.FermixPet.dev</string>
+  <key>com.apple.developer.team-identifier</key>
+  <string>54A57TH9BJ</string>
+  <key>keychain-access-groups</key>
+  <array>
+    <string>54A57TH9BJ.io.tezra.FermixPet.dev.logins</string>
+  </array>
+</dict>
+</plist>

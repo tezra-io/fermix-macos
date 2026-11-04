@@ -151,6 +151,7 @@ struct FixtureConfigurationTests {
         #expect(FixtureStart(name: "restart-sheet") == .restartSheet)
         #expect(FixtureStart(name: "chat-empty") == .emptyChat)
         #expect(FixtureStart(name: "chat-replies") == .chatReplies)
+        #expect(FixtureStart(name: "lists") == .lists)
         #expect(FixtureStart(name: "browser") == .browser)
         #expect(FixtureStart(name: "chat-call") == .chatCall)
         #expect(FixtureStart(name: "chat-call-failed") == .failedChatCall)
@@ -188,8 +189,8 @@ struct FixtureConfigurationTests {
 
         #expect(Set(names).count == names.count)
         #expect(names.count == AppRoute.allCases.count + SettingsPane.allCases.count
-            + OnboardingStage.allCases.count + 7 + FixturePhoneStart.allCases.count + FixtureMCPStart.allCases.count
-            + FixtureUpdateStart.allCases.count)
+            + OnboardingStage.allCases.count + 8 + FixturePhoneStart.allCases.count + FixtureMCPStart.allCases.count
+            + FixtureAlwaysOnStart.allCases.count + FixtureUpdateStart.allCases.count)
         for name in names {
             #expect(FixtureStart(name: name) != nil, "\(name) is published but does not resolve")
         }
@@ -320,7 +321,7 @@ struct FixtureConfigurationTests {
         case .approvalStep:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.onboardingStage == .starting)
-        case .emptyChat, .chatReplies, .browser, .chatCall, .failedChatCall:
+        case .emptyChat, .chatReplies, .lists, .browser, .chatCall, .failedChatCall:
             #expect(harness.windows.presented == [.main])
             #expect(harness.model.route == .chat)
         case .phone:
@@ -330,6 +331,10 @@ struct FixtureConfigurationTests {
         case .mcp:
             #expect(harness.windows.presented == [.main])
             #expect(harness.settings.selectedPane == .integrations)
+            #expect(harness.presentation.isShowing)
+        case .alwaysOn:
+            #expect(harness.windows.presented == [.main])
+            #expect(harness.settings.selectedPane == .alwaysOn)
             #expect(harness.presentation.isShowing)
         case .update:
             // The update window is the prompt's, which the coordinator does not
@@ -359,6 +364,51 @@ struct FixtureConfigurationTests {
         #expect(FixtureLaunch(start: .chatReplies).companionTimeline == .replies)
         #expect(FixtureLaunch(start: .chatReplies).startSlug == "chat-replies")
         #expect(FixtureHome.forStart(.chatReplies) == .settled)
+    }
+
+    /// The owner's lists (M85) are looked at on a timeline of their own, with
+    /// the Lists panel open beside it; every other start keeps it closed.
+    @Test("lists opens Chat on the lists timeline with the panel open")
+    @MainActor
+    func listsStartNamesItsTimeline() {
+        #expect(FixtureLaunch(start: .lists).presentation == .route(.chat))
+        #expect(FixtureLaunch(start: .lists).companionTimeline == .lists)
+        #expect(FixtureLaunch(start: .lists).startSlug == "lists")
+        #expect(FixtureHome.forStart(.lists) == .settled)
+        #expect(FixtureChecklistPanelStore(open: FixtureStart.lists == .lists).panelOpen == true)
+    }
+
+    /// The lists timeline's replies carry their blocks, and its daemon serves
+    /// four lists in two folders and none, takes an edit, pushes the list it
+    /// changed with what an add made, and refuses a row it no longer has
+    /// with the engine's sentence.
+    @MainActor
+    @Test("the lists timeline holds three cards over four lists its daemon serves and edits")
+    func listsTimelineArrives() async throws {
+        let session = fixtureChat(.lists)
+        session.connect()
+
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...6))
+        #expect(ChecklistCards.live(in: session.model.rows) == [4, 6], "yesterday's Fermix card folds under today's")
+        let lists = session.lists
+        #expect(lists.index.served)
+        #expect(lists.index.entries?.map(\.title) == ["Fermix", "Portfolio site", "Groceries", "Packing"])
+        #expect(lists.index.folders.names == ["Projects", "Trips"])
+        #expect(lists.index.folders.loose.map(\.title) == ["Groceries"])
+
+        lists.draw(FixtureChecklistScript.packing)
+        let packing = lists.store(FixtureChecklistScript.packing)
+        #expect(packing.shown?.openCount == 6)
+
+        lists.edit(FixtureChecklistScript.packing, .add(text: "Hat", note: nil, place: nil))
+        #expect(packing.shown?.rows.last.map { ChecklistState.isSending($0.rowId) } == true, "drawn at once")
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(packing.shown?.rows.last?.text == "Hat")
+        #expect(packing.shown?.rows.contains { ChecklistState.isSending($0.rowId) } == false, "named by the push")
+        #expect(packing.state.pending.isEmpty)
+
+        lists.edit(FixtureChecklistScript.packing, .check(rowId: "ci_gone000000"))
+        #expect(packing.refusal == FixtureChecklists.missingRow)
     }
 
     /// A call is looked at beside a conversation, so both call starts hold the
@@ -514,7 +564,7 @@ struct FixtureConfigurationTests {
         let session = fixtureChat(.replies)
         session.connect()
 
-        #expect(session.model.rows.map(\.serverSeq) == Array(1...14))
+        #expect(session.model.rows.map(\.serverSeq) == Array(1...17))
         #expect(!session.model.hasOlder)
         #expect(session.model.turn == nil)
 
@@ -533,9 +583,9 @@ struct FixtureConfigurationTests {
                 && place.priceRange != nil && place.categories != nil && place.openingHours != nil && place.distance != nil
         })
 
-        let linked = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)).map(ChatPlaceLink.init) }
+        let linked = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)).map(Self.placeLink) }
         let named = places.map { place in
-            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(ChatPlaceLink.init) }
+            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(Self.placeLink) }
         }
         #expect(named.map { $0.first(where: linked.contains) } == linked.map(Optional.some))
 
@@ -573,29 +623,51 @@ struct FixtureConfigurationTests {
 
         let addresses = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).compactMap { URL(string: String($0.output.1)) }
         let named = places.map { place in
-            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(ChatPlaceLink.init) }
+            [place.canonicalURL, place.sourceURL].compactMap { $0.flatMap(URL.init(string:)).map(Self.placeLink) }
         }
-        let linked = addresses.map(ChatPlaceLink.init).filter { named.joined().contains($0) }
+        let linked = addresses.map(Self.placeLink).filter { named.joined().contains($0) }
         #expect(named.map { $0.first(where: linked.contains) } == linked.map(Optional.some))
-
-        let menu = try #require(addresses.first { !named.joined().contains(ChatPlaceLink($0)) })
-        #expect(ChatPlaceLinks(reply.blocks).covers(menu))
     }
 
-    /// Then a reply that links four pages (M72): the engine's previews of
-    /// three of them, two with a picture the fixture daemon grants from a
-    /// sample photo, one whose page gave none, and the fourth left with no
-    /// preview, as a page the engine could not read is.
+    /// An address as the engine matches a reply's link to a place it found
+    /// (M72 §8.4): the scheme and host lowercased, without the fragment and a
+    /// trailing slash.
+    private static func placeLink(_ address: URL) -> String {
+        guard var parts = URLComponents(url: address, resolvingAgainstBaseURL: false) else { return address.absoluteString }
+
+        parts.scheme = parts.scheme?.lowercased()
+        parts.percentEncodedHost = parts.percentEncodedHost?.lowercased()
+        parts.fragment = nil
+        while parts.percentEncodedPath.hasSuffix("/") {
+            parts.percentEncodedPath.removeLast()
+        }
+        return parts.string ?? address.absoluteString
+    }
+
+    /// Then a reply that links its pages inline (M72; owner, 2026-10-30):
+    /// four by markdown links, the engine's previews of three of them, two
+    /// with a picture the fixture daemon grants from a sample photo, one
+    /// whose page gave none, and the fourth left with no preview, as a page
+    /// the engine could not read is; then an address written out, and a
+    /// link whose words name another site than the one it opens, which the
+    /// chat's link check holds (`LinkSafety`).
     @MainActor
-    @Test("the replies timeline then holds a reply linking four pages, three of them previewed")
+    @Test("the replies timeline then holds a reply linking pages inline, three of them previewed and one naming another site")
     func linkedPagesArrive() throws {
         let session = fixtureChat(.replies)
         session.connect()
 
         let reply = try #require(session.model.rows.first { $0.serverSeq == 12 })
-        let addresses = reply.text.matches(of: #/\]\((https://[^)]+)\)/#).map { String($0.output.1) }
-        #expect(addresses.count == 4)
+        let markdown = reply.text.matches(of: #/\[([^\]]+)\]\((https://[^)]+)\)/#).map { (String($0.output.1), String($0.output.2)) }
+        let addresses = markdown.map(\.1)
+        #expect(addresses.count == 5)
         #expect(reply.linkPreviews.map(\.url) == Array(addresses.prefix(3)))
+        #expect(ReplyLinks.addresses(inText: reply.text).map(\.url.absoluteString).contains("https://extension.example/frost-dates"))
+
+        let cautioned = markdown.filter { words, address in
+            URL(string: address).flatMap { LinkSafety.caution(words: words, url: $0) } != nil
+        }
+        #expect(cautioned.map(\.1) == ["https://seedswap-orders.example/checkout"])
 
         let pictures = reply.linkPreviews.compactMap(\.imageRef)
         #expect(pictures.count == 2)
@@ -603,17 +675,18 @@ struct FixtureConfigurationTests {
         #expect(Set(pictures) == Set(FixtureRepliesScript.pictures.keys))
     }
 
-    /// Last, code: a shell one-liner wider than any reply, which its block
+    /// The last answer, code, before the three messages Fermix sent on its
+    /// own: a shell one-liner wider than any reply, which its block
     /// wraps, and a short Python function, each fenced by a common tag its
     /// block names by the language's own name. Code is the reply's own
     /// markdown, so the row carries no block of the engine's.
     @MainActor
-    @Test("the replies timeline ends with code, a long shell one-liner and a Python function fenced by common tags")
+    @Test("the replies timeline's last answer is code, a long shell one-liner and a Python function fenced by common tags")
     func codeArrives() throws {
         let session = fixtureChat(.replies)
         session.connect()
 
-        let reply = try #require(session.model.rows.last)
+        let reply = try #require(session.model.rows.last { $0.inReplyTo != nil })
         let code = ReplyFences.runs(reply.text).compactMap { run -> ReplyCode? in
             guard case .code(let code, _) = run else { return nil }
             return code
@@ -723,6 +796,36 @@ struct FixtureConfigurationTests {
 
             #expect(frame?["request_id"] as? String == "req-fixture-1", "\(method.rawValue)")
             #expect(frame?["result"] != nil, "\(method.rawValue) has no result")
+        }
+    }
+
+    /// Each Always On start answers `home.status` with its own golden, and
+    /// every other start with the first, so the pane can be looked at on
+    /// each summary the contract publishes.
+    @Test("each Always On start answers home.status with its own summary")
+    func alwaysOnStartsAnswerTheirGolden() async throws {
+        let starts: [(String, String)] = [("settings/always_on", "undone")]
+            + FixtureAlwaysOnStart.allCases.map { ($0.rawValue, $0.golden) }
+
+        for (name, expected) in starts {
+            let start = try #require(FixtureStart(name: name))
+            let launch = FixtureLaunch(start: start)
+            let transport = try FixtureManagementTransport(
+                machine: FixtureMachine(daemonUp: true, homeStatusGolden: launch.homeStatusGolden),
+                readiness: .gatingFailure
+            )
+            let payload = try JSONSerialization.data(withJSONObject: [
+                "request_id": "req-fixture-1", "protocol_version": 2, "method": "home.status", "params": [String: Any]()
+            ])
+            let frame = try JSONSerialization.jsonObject(with: try await transport.exchange(payload, timeout: .seconds(1))) as? [String: Any]
+            let summary = (frame?["result"] as? [String: Any])?["summary"] as? [String: Any]
+            let golden: ManagementHomeStatus = try FakeDaemonGateway.fixtureResult(
+                named: expected == "undone" ? FixtureAlwaysOnStart.firstGolden : expected,
+                as: ManagementHomeStatus.self
+            )
+
+            #expect(summary?["state"] as? String == golden.summary?.state.wireValue, "\(name)")
+            #expect(launch.presentation == .settings(.alwaysOn), "\(name)")
         }
     }
 
@@ -1151,11 +1254,11 @@ struct FixtureConfigurationTests {
     func forgottenPhoneLeaves() async throws {
         let machine = FixtureMachine(daemonUp: true, phone: FixturePhoneStart.phones.channel)
         let client = try await Self.negotiatedClient(machine: machine)
-        let phone = try #require(try await client.mobileDevices().devices.first)
+        let phone = try #require(try await client.mobileDevices().phones.first)
 
         _ = try await client.revokeMobileDevice(id: phone.deviceId)
 
-        #expect(try await client.mobileDevices().devices.isEmpty)
+        #expect(try await client.mobileDevices().phones.isEmpty)
         #expect(try await client.mobileStatus().pairedDevices == 0)
     }
 

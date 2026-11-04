@@ -27,13 +27,21 @@ public final class WebKitBrowserEngine: BrowserEngine {
     /// Compiled on the first file tab, so an engine that never shows a file
     /// never compiles it.
     private lazy var fileRules = WebKitFileRules()
+    /// Whether every page this engine makes offers Web Inspector, decided by
+    /// the executable from its signature (`LoginStoreSelection.allowsWebInspector`).
+    private let inspectable: Bool
 
-    public init(websiteProfile: UUID) {
+    public init(websiteProfile: UUID, inspectable: Bool) {
         self.websiteProfile = websiteProfile
+        self.inspectable = inspectable
     }
 
     public func makeTab(profile: BrowserProfile) -> BrowserTab {
-        let page = WebKitBrowserPage(configuration: configuration(for: profile), fileRules: profile == .file ? fileRules : nil)
+        let page = WebKitBrowserPage(
+            configuration: configuration(for: profile),
+            fileRules: profile == .file ? fileRules : nil,
+            inspectable: inspectable
+        )
 
         return BrowserTab(profile: profile, page: page)
     }

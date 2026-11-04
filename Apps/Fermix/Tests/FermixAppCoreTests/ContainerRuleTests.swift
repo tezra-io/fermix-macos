@@ -552,8 +552,15 @@ struct ContainerRuleTests {
     /// The sheet ground adds a fifth file (owner, 2026-10-16): the Liquid Glass
     /// recipe, one of the two the owner chooses a sheet's glass from. The floor
     /// has no Liquid Glass, so there the recipe draws the frame's glass.
+    ///
+    /// The toolbar's pills add two (owner, 2026-11-01): the browser's tabs and
+    /// a surface's search are pills of the toolbar's glass, and each hides the
+    /// toolbar's shared glass behind it. The floor has neither, so there a pill
+    /// is the bar's material with a hairline edge.
     static let macOS26Sites: [String: [String]] = [
         "App/AppKitWindowHost.swift": ["window.titlebarAppearsTransparent = Self.titlebarIsClear("],
+        "Design/Components/ToolbarPill.swift": [".glassEffect(", ".sharedBackgroundVisibility("],
+        "Browser/BrowserPaneView.swift": [".sharedBackgroundVisibility("],
         "Design/Materials/SheetGround.swift": ["NSGlassEffectView("],
         "Design/Components/SurfaceToolbar.swift": [
             "ToolbarSpacer(",
@@ -698,23 +705,48 @@ struct ContainerRuleTests {
         #expect(!pane.contains("Text(SettingsPane.integrations.title)"), "the pane draws its title in the body")
     }
 
-    /// The browser pane sits beside the body inside the one split view, and it
-    /// draws no title: the window's title is the surface's beside it, so the
-    /// pane neither names itself in the toolbar nor draws a page title of its
-    /// own (plan §4.9).
-    @Test("the browser pane is a third pane beside the body, and draws no title")
-    func browserPaneSitsBesideTheBody() throws {
+    /// The browser pane is the window's trailing column, so it has a part of
+    /// the toolbar of its own, where its tabs stand, while the surface's
+    /// controls and search stay over the body (owner, 2026-11-01). It draws no
+    /// title: the window's title is the surface's, so the pane neither names
+    /// itself in the toolbar nor draws a page title of its own (plan §4.9).
+    @Test("the browser pane is the window's trailing column with its tabs in its toolbar, and draws no title")
+    func browserPaneIsTheTrailingColumn() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
         let pane = try #require(files.first { $0.path.hasSuffix("Browser/BrowserPaneView.swift") }?.text)
+        let column = try #require(files.first { $0.path.hasSuffix("App/BrowserColumn.swift") }?.text)
         let window = try #require(files.first { $0.path.hasSuffix("App/MainWindowView.swift") }?.text)
 
         #expect(!pane.contains(".navigationTitle("), "the pane names itself in the toolbar")
-        #expect(!pane.contains(".toolbar"), "the pane puts controls in the surface's toolbar")
-        #expect(!pane.contains(".frame(width: WindowMetrics.browserPaneWidth)"), "the pane fixes its own width instead of taking the split's")
+        #expect(pane.contains(".toolbar { tabsItem }"), "the pane's tabs are not in its part of the toolbar")
+        #expect(pane.contains(".frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)"), "the pane's content can widen its column")
         #expect(pane.contains("FrameGlass()"), "the header is not on the frame")
-        #expect(window.contains("BrowserPaneView(browser: browser)"))
-        #expect(window.contains("PaneSplitLayout(body: WindowMetrics.bodyWidthsBesidePane, pane: WindowMetrics.browserPaneWidths)"), "the body and the pane do not share the column by the split")
+        #expect(pane.contains(".overlay(alignment: .leading) { BrowserPaneEdge() }"), "nothing sets the pane apart from the body beside it")
+        let edge = try #require(pane.components(separatedBy: "private struct BrowserPaneEdge").last)
+        #expect(edge.contains(".allowsHitTesting(false)"), "the pane's edge line takes the drag from the column's divider")
+        #expect(column.contains("BrowserPaneView(browser: browser)"))
+        #expect(column.contains(".inspector(isPresented: presented)"), "the pane is not the window's trailing column")
+        #expect(window.contains(".modifier(BrowserColumn(browser: browser, open: browserOpen, windowWidth: windowWidth, railShown: sidebar.visibility == .all))"))
+        #expect(
+            window.contains("if !browserOpen {\n                    bodyCorner(FrameCorner().scale(x: -1, y: 1))"),
+            "the body's top trailing corner rounds beside the browser's column, where no window edge is"
+        )
         #expect(window.contains("detailColumn.frame(minWidth: 0, minHeight: 0)"), "the body lost its floor")
+    }
+
+    /// The system's toolbar search always takes the window's trailing end,
+    /// which is over the browser's column while it is open: a surface's
+    /// search is its own item, after its controls, so it stays over the body
+    /// it searches.
+    @Test("chat and logs search from their own part of the toolbar, never the system's trailing search")
+    func searchStaysOverItsSurface() throws {
+        let files = try SourceTree.swiftFiles(under: "", excluding: false)
+
+        for path in ["Chat/ChatSurfaceView.swift", "Logs/LogsView.swift"] {
+            let text = try #require(files.first { $0.path.hasSuffix(path) }?.text)
+            #expect(!text.contains(".searchable("), "\(path) puts its search at the window's trailing end")
+            #expect(text.contains("ToolbarSearch("), "\(path) has no search of its own")
+        }
     }
 
     /// A row that opens something says so before it is clicked. The plugin rows

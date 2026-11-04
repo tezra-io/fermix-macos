@@ -122,14 +122,26 @@ struct FixtureManagementTransport: ManagementTransport {
     /// for the same request: the waiting one is the shape a fixture start
     /// draws, so its golden, the first, answers.
     ///
-    /// `cues.sources.form` publishes a preset's form and the general WebSocket
-    /// source's, a stream asked for with no preset: that request is answered
-    /// with the second, and every other with the first, the one form the
-    /// fixture has for them.
+    /// `cues.sources.form` publishes GitHub's form, the X accounts form and
+    /// the general WebSocket source's, a stream asked for with no preset:
+    /// those two requests are answered with their own, and every other with
+    /// GitHub's, the one form the fixture has for them.
+    ///
+    /// `home.status` publishes one golden per Always On summary for the same
+    /// request: the one the machine's start names answers.
+    ///
+    /// `computer_use.permissions.get` publishes a Mac's answer and a Linux
+    /// one for the same request: this home is a Mac, so the Mac's answers.
     private func candidates(for method: String, params: [String: Any]) -> [Record]? {
         if method == ManagementMethod.mcpServersGet.rawValue { return records[method].map { Array($0.prefix(1)) } }
         if method == ManagementMethod.cuesProposalsGet.rawValue { return records[method].map { Array($0.prefix(1)) } }
         if method == ManagementMethod.cuesSourcesForm.rawValue { return records[method].map { sourceForm($0, params) } }
+        if method == ManagementMethod.homeStatus.rawValue {
+            return records[method].map { $0.filter { $0.name == machine.homeStatusGolden } }
+        }
+        if method == ManagementMethod.computerUsePermissionsGet.rawValue {
+            return records[method].map { $0.filter { $0.name == Self.macPermissionsGolden } }
+        }
         guard method == ManagementMethod.mobilePairStart.rawValue else { return records[method] }
 
         let running = machine.phoneChannel.running
@@ -166,6 +178,9 @@ struct FixtureManagementTransport: ManagementTransport {
 
     /// The golden write whose rows need a restart.
     private static let bootBoundWrite = "settings_apply"
+
+    /// The golden permissions answer of a Mac.
+    private static let macPermissionsGolden = "computer_use_permissions_get"
 
     /// The golden answer, with this home's own two facts written into it.
     ///
@@ -616,13 +631,16 @@ struct FixtureManagementTransport: ManagementTransport {
     /// The golden that answers a form request (see `candidates(for:params:)`).
     private func sourceForm(_ published: [Record], _ params: [String: Any]) -> [Record] {
         let webSocket = params["kind"] as? String == Self.streamKind && params["preset"] == nil
-        let name = webSocket ? Self.webSocketFormGolden : Self.presetFormGolden
+        let accounts = params["preset"] as? String == Self.xAccountsPreset
+        let name = webSocket ? Self.webSocketFormGolden : (accounts ? Self.xAccountsFormGolden : Self.presetFormGolden)
         return published.filter { $0.name == name }
     }
 
     private static let streamKind = "stream"
+    private static let xAccountsPreset = "x_accounts"
     private static let presetFormGolden = "cues_sources_form"
     private static let webSocketFormGolden = "cues_sources_form_stream"
+    private static let xAccountsFormGolden = "cues_sources_form_x_accounts"
 
     /// The kind the golden `cues.sources.form` gives a preset.
     private func presetKind(_ preset: String) throws -> String? {

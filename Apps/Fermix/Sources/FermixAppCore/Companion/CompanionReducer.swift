@@ -64,13 +64,30 @@ enum CompanionReducer {
         }
     }
 
+    /// The engine here is a desktop its server no longer knows (M75): the
+    /// connection ended, and nothing waiting can ever be sent, so the outbox
+    /// is dropped and the chat says so once.
+    static func revoked(_ chat: inout CompanionChat) {
+        disconnected(&chat)
+        guard !chat.pending.isEmpty else { return }
+
+        chat.pending.removeAll()
+        chat.lastError = ProductStrings[.companionErrorNotSentRevoked]
+    }
+
     // MARK: - Requests
 
-    /// A message to the agent. Blank text is never a message.
-    static func send(_ text: String, clientMsgId: String, into chat: inout CompanionChat) -> [CompanionClientEvent] {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+    /// A message to the agent. Blank text with no file is never a message.
+    static func send(
+        _ text: String,
+        attachments: [CompanionSentAttachment] = [],
+        clientMsgId: String,
+        into chat: inout CompanionChat
+    ) -> [CompanionClientEvent] {
+        guard !attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
 
-        return enqueue(CompanionOutboxEntry(clientMsgId: clientMsgId, request: .message(text: text)), into: &chat)
+        let request = CompanionRequest.message(text: text, attachments: attachments)
+        return enqueue(CompanionOutboxEntry(clientMsgId: clientMsgId, request: request), into: &chat)
     }
 
     /// Answers an approval with the route it named, sent as a command.
@@ -221,9 +238,16 @@ enum CompanionReducer {
         case .toolEvent(let tool):
             var turn = held(tool.turnId, in: chat)
             turn.tool = tool
+            if tool.phase == .start, let activity = tool.activity {
+                turn.steps.append(.activity(activity))
+            }
             chat.turn = turn
-        case .textDone(let turnId, let serverSeq, let text, let blocks):
-            return finish(turnId, at: serverSeq, text: text, blocks: blocks, into: &chat)
+        case .reasoning(let turnId, let text):
+            var turn = held(turnId, in: chat)
+            turn.steps.append(.reasoning(text))
+            chat.turn = turn
+        case .textDone(let turnId, let serverSeq, let text, let blocks, let timestamp):
+            return finish(turnId, at: serverSeq, text: text, blocks: blocks, timestamp: timestamp, into: &chat)
         case .turnError(let turnId, let code, let message):
             end(turnId, in: &chat)
             chat.lastError = sentence(forTurnError: code, message: message)
@@ -250,8 +274,9 @@ enum CompanionReducer {
             hold(proposal, in: &chat)
         case .proposalResolved(let resolution):
             resolve(resolution, in: &chat)
-        case .serverHello, .mediaPath, .mediaMissing, .unrecognized:
-            // The handshake and the grants are the session's, never the chat's.
+        case .serverHello, .mediaPath, .mediaMissing, .checklists, .checklist, .homeStatusChanged, .attachStatus, .unrecognized:
+            // The handshake, the grants, the lists, the attachments and Always
+            // On's notice are the session's, never the chat's.
             break
         }
 
@@ -262,8 +287,8 @@ enum CompanionReducer {
 
     /// Answers a proposal with the owner's decision, through the outbox, by
     /// its id and the word alone (M60 §5.2). Only a card that asks takes an
-    /// answer, and once one is sent both buttons wait for the daemon, so a
-    /// card is never answered twice.
+    /// answer, Always allow only a card that offers it, and once one is sent
+    /// every button waits for the daemon, so a card is never answered twice.
     static func answer(
         proposal proposalId: String,
         _ decision: CompanionProposalDecision,
@@ -271,7 +296,8 @@ enum CompanionReducer {
         into chat: inout CompanionChat
     ) -> [CompanionClientEvent] {
         guard let index = chat.proposals.firstIndex(where: { $0.id == proposalId }),
-              chat.proposals[index].awaitsDecision
+              chat.proposals[index].awaitsDecision,
+              decision != .alwaysAllow || chat.proposals[index].proposal.offersAlwaysAllow
         else { return [] }
 
         chat.proposals[index].standing = .answered(decision)
@@ -383,12 +409,13 @@ enum CompanionReducer {
         at serverSeq: Int,
         text: String,
         blocks: [CompanionBlock],
+        timestamp: String?,
         into chat: inout CompanionChat
     ) -> [CompanionClientEvent] {
         let inReplyTo = chat.turn?.turnId == turnId ? chat.turn?.inReplyTo : nil
         end(turnId, in: &chat)
 
-        let row = CompanionRow(reply: turnId, serverSeq: serverSeq, text: text, inReplyTo: inReplyTo, blocks: blocks)
+        let row = CompanionRow(reply: turnId, serverSeq: serverSeq, text: text, inReplyTo: inReplyTo, blocks: blocks, timestamp: timestamp)
         return applyLive(row, into: &chat)
     }
 

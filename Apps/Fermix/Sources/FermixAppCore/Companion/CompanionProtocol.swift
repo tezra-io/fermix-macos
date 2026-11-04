@@ -11,11 +11,34 @@ public enum CompanionProtocol {
     /// Wire protocol version this build speaks, declared in `client_hello` and
     /// validated against the window the daemon advertises in `server_hello`.
     /// Version 4 adds a cue proposal's card, its answer and its resolution
-    /// (M60 §3.7).
-    public static let version = 4
+    /// (M60 §3.7). Version 5 adds a watcher's follow-up card, which names the
+    /// follow-up in place of a call and is answered and resolved as a
+    /// proposal is. Version 6 says what a turn is doing in a person's words:
+    /// the model's summary of each step of its reasoning (`reasoning`), and
+    /// the engine's sentence for a tool's step on its start (`activity`),
+    /// and brings the owner's lists (M85), read and changed live; and it
+    /// adds `home_status_changed`, which tells the app when Always On's
+    /// summary changed, so nothing reads it on a timer (M75). Version 7 lets
+    /// the person attach files to a message: the hello names the inbox a file
+    /// is handed over through and the engine's slash commands, `attach_file`
+    /// hands one over, `attach_status` says it is held, and a message names
+    /// what it carries in `attach_ids`.
+    public static let version = 7
+
+    /// The version that brings the owner's lists (M85): their events are sent
+    /// only on a connection at it, to a daemon whose window reaches it.
+    public static let listsVersion = 6
+    /// The version that brings attachments: `attach_file`, `attach_status`
+    /// and a message's `attach_ids`, taken only on a connection at it.
+    public static let attachmentsVersion = 7
+
+    /// The longest `client_msg_id` a `checklist_edit` may carry, in
+    /// characters. A longer one is `invalid_field`, which closes the
+    /// connection.
+    public static let maximumChecklistMessageIdLength = 128
 
     /// The daemon's window at the pinned contract, which `version` sits inside.
-    public static let supportedWindow = CompanionVersionWindow(minimum: 3, maximum: 4)
+    public static let supportedWindow = CompanionVersionWindow(minimum: 6, maximum: 7)
 
     /// The longest client line the daemon reads. A longer one is refused with
     /// `line_too_large` and closes the connection, so `line()` refuses it first.
@@ -31,6 +54,19 @@ public enum CompanionProtocol {
     /// A file's `kind` for a sound: on the person's row, a voice note the
     /// phone recorded.
     public static let audioKind = "audio"
+    /// The refusal an engine in the device role sends while its server cannot
+    /// be reached, or while its home is moving (M75): its `message` names the
+    /// server, and the connection closes. The chat says that sentence, keeps
+    /// its outbox and connects again as after any drop.
+    public static let primaryUnreachableReason = "primary_unreachable"
+    /// The refusal an engine in the device role sends, to every connection,
+    /// once its server no longer knows this computer (M75): nothing waiting
+    /// can be sent, and nothing new is taken, until the engine restarts.
+    public static let desktopRevokedReason = "desktop_revoked"
+    /// The refusal a primary sends a hello whose `primary_epoch` is higher
+    /// than its own (M75): this client has seen a later primary, so this one
+    /// is an older copy of a home that moved.
+    public static let stalePrimaryReason = "stale_primary"
 
     /// Whether `ref` is one the daemon takes: 64 lowercase hex digits, a
     /// sha256. Any other is `invalid_field`, which closes the connection, so a
@@ -91,6 +127,28 @@ public struct CompanionVersionWindow: Equatable, Sendable {
     /// Which side is out of date, for a version this window excludes.
     public func direction(for version: Int) -> CompanionVersionDirection {
         version < minimum ? .clientTooOld : .clientTooNew
+    }
+}
+
+/// The engine's role, as `server_hello` names it (M75). A primary's epoch is
+/// compared and kept; a device's, a retired copy of the primary or a home
+/// that never was one, never is. A word this build does not know keeps its
+/// own and, like a device's, is never compared.
+public enum CompanionEngineRole: Equatable, Sendable, Decodable {
+    case primary
+    case device
+    case unrecognized(String)
+
+    public init(wireValue: String) {
+        switch wireValue {
+        case "primary": self = .primary
+        case "device": self = .device
+        default: self = .unrecognized(wireValue)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        self.init(wireValue: try decoder.singleValueContainer().decode(String.self))
     }
 }
 
@@ -155,10 +213,12 @@ public enum CompanionHistoryCursor: Equatable, Sendable {
 /// Everything this client sends. The wire names are the contract's, and a value
 /// is the only way to produce a line: nothing composes a dictionary by hand.
 public enum CompanionClientEvent: Equatable, Sendable, Encodable {
-    case clientHello(protocolVersion: Int)
-    /// A message to the agent. This wire carries no attachments in versions 1
-    /// to 4, so the line always sends an empty `attach_ids`.
-    case msg(clientMsgId: String, profileId: String, text: String)
+    /// `primaryEpoch` is the highest primary epoch this client has seen from
+    /// a primary (M75), absent while it has seen none.
+    case clientHello(protocolVersion: Int, primaryEpoch: Int? = nil)
+    /// A message to the agent, naming the files it carries by the ids of
+    /// their `attach_file`s (version 7); empty before it.
+    case msg(clientMsgId: String, profileId: String, text: String, attachIds: [String] = [])
     /// A slash command, `/name args`. An approval's routes are sent this way.
     case command(clientMsgId: String, profileId: String, name: String, args: String?)
     /// Stops the turn of the named request and no other. Never answered itself.
@@ -183,6 +243,22 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
     /// value edited here (M60 §5.2). Answered `accepted`, then
     /// `proposal_resolved`, or refused with `request_failed`.
     case proposalAnswer(clientMsgId: String, profileId: String, proposalId: String, decision: CompanionProposalDecision)
+    /// Version 6: asks for the index of the owner's lists, answered
+    /// `checklists`; from then on the connection hears the index again after
+    /// any change, and a turn it carries is told this app draws lists.
+    case checklistsPull(profileId: String)
+    /// Version 6: asks for one whole list, answered `checklist`; the
+    /// connection then holds it, at most 16, and hears it again after every
+    /// change. `removed` adds the rows removed in the last 30 days.
+    case checklistPull(profileId: String, listId: String, removed: Bool = false)
+    /// Version 6: one op on the owner's lists, by row id. `listId` names the
+    /// list for every op but `create`. Answered `accepted`, or refused with
+    /// `request_failed` and the engine's sentence.
+    case checklistEdit(clientMsgId: String, profileId: String, listId: String?, op: CompanionChecklistOp)
+    /// Version 7: hands over the file this client wrote at its id in the
+    /// inbox the hello named. Answered `attach_status`, or refused with
+    /// `request_failed` naming the id and the engine's sentence.
+    case attachFile(CompanionAttachFile)
 
     public var wireType: String {
         switch self {
@@ -196,12 +272,19 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         case .mediaFetch: return "media_fetch"
         case .mediaRelease: return "media_release"
         case .proposalAnswer: return "proposal_answer"
+        case .checklistsPull: return "checklists_pull"
+        case .checklistPull: return "checklist_pull"
+        case .checklistEdit: return "checklist_edit"
+        case .attachFile: return "attach_file"
         }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, text, name, args, query, limit, ref, decision
+        case type, text, name, args, query, limit, ref, decision, removed, op, kind, mime, sha256
+        case attachId = "attach_id"
+        case sizeBytes = "size_bytes"
         case protocolVersion = "protocol_version"
+        case primaryEpoch = "primary_epoch"
         case clientMsgId = "client_msg_id"
         case profileId = "profile_id"
         case attachIds = "attach_ids"
@@ -210,6 +293,7 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         case readUpToSeq = "read_up_to_seq"
         case taskRef = "task_ref"
         case proposalId = "proposal_id"
+        case listId = "list_id"
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -217,13 +301,14 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
         try container.encode(wireType, forKey: .type)
 
         switch self {
-        case .clientHello(let version):
+        case .clientHello(let version, let primaryEpoch):
             try container.encode(version, forKey: .protocolVersion)
-        case .msg(let clientMsgId, let profileId, let text):
+            try container.encodeIfPresent(primaryEpoch, forKey: .primaryEpoch)
+        case .msg(let clientMsgId, let profileId, let text, let attachIds):
             try container.encode(clientMsgId, forKey: .clientMsgId)
             try container.encode(profileId, forKey: .profileId)
             try container.encode(text, forKey: .text)
-            try container.encode([String](), forKey: .attachIds)
+            try container.encode(attachIds, forKey: .attachIds)
         case .command(let clientMsgId, let profileId, let name, let args):
             try container.encode(clientMsgId, forKey: .clientMsgId)
             try container.encode(profileId, forKey: .profileId)
@@ -256,6 +341,26 @@ public enum CompanionClientEvent: Equatable, Sendable, Encodable {
             try container.encode(profileId, forKey: .profileId)
             try container.encode(proposalId, forKey: .proposalId)
             try container.encode(decision, forKey: .decision)
+        case .checklistsPull(let profileId):
+            try container.encode(profileId, forKey: .profileId)
+        case .checklistPull(let profileId, let listId, let removed):
+            try container.encode(profileId, forKey: .profileId)
+            try container.encode(listId, forKey: .listId)
+            if removed {
+                try container.encode(true, forKey: .removed)
+            }
+        case .checklistEdit(let clientMsgId, let profileId, let listId, let op):
+            try container.encode(clientMsgId, forKey: .clientMsgId)
+            try container.encode(profileId, forKey: .profileId)
+            try container.encodeIfPresent(listId, forKey: .listId)
+            try container.encode(op, forKey: .op)
+        case .attachFile(let file):
+            try container.encode(file.attachId, forKey: .attachId)
+            try container.encode(file.kind.rawValue, forKey: .kind)
+            try container.encode(file.mime, forKey: .mime)
+            try container.encode(file.sizeBytes, forKey: .sizeBytes)
+            try container.encode(file.sha256, forKey: .sha256)
+            try container.encodeIfPresent(file.name, forKey: .name)
         }
     }
 
@@ -330,8 +435,8 @@ public enum CompanionApprovalOutcome: Equatable, Sendable, Decodable {
     }
 }
 
-/// The durable receipt for a `msg` or `command`: after it, the outbox stops
-/// resending that request.
+/// The durable receipt for a `msg`, a `command` or (version 6) a
+/// `checklist_edit`: after it, the outbox stops resending that request.
 public struct CompanionAccepted: Equatable, Sendable, Decodable {
     public let clientMsgId: String
     public let duplicate: Bool
@@ -349,12 +454,17 @@ public struct CompanionAccepted: Equatable, Sendable, Decodable {
 
 public struct CompanionToolEvent: Equatable, Sendable, Decodable {
     public let turnId: String
+    /// The tool's id, which is never shown.
     public let tool: String
     public let phase: CompanionToolPhase
     public let detail: String?
+    /// On a start, the engine's sentence for the step ("Searching the web"),
+    /// which the chat shows in place of the tool (version 6, on every
+    /// version a daemon that has it sends).
+    public var activity: String? = nil
 
     private enum CodingKeys: String, CodingKey {
-        case tool, phase, detail
+        case tool, phase, detail, activity
         case turnId = "turn_id"
     }
 }
@@ -432,9 +542,14 @@ public struct CompanionServerError: Equatable, Sendable, Decodable {
     /// Version 3: the media ref of a `media_fetch` the daemon could not serve
     /// for a reason of its own, on `request_failed`.
     public let ref: String?
+    /// Version 7: the id of an `attach_file` the daemon refused, on
+    /// `request_failed`, with its sentence in `message`. Last and defaulted,
+    /// so a refusal built with no id needs none.
+    public internal(set) var attachId: String? = nil
 
     private enum CodingKeys: String, CodingKey {
         case reason, message, field, event, direction, ref
+        case attachId = "attach_id"
         case clientMsgId = "client_msg_id"
         case clientVersion = "client_version"
         case minVersion = "min_version"
@@ -446,6 +561,70 @@ public struct CompanionServerError: Equatable, Sendable, Decodable {
         guard let minVersion, let maxVersion else { return nil }
 
         return CompanionVersionWindow(minimum: minVersion, maximum: maxVersion)
+    }
+}
+
+/// A slash command the engine serves, as its hello names it: the same list a
+/// phone's palette shows. The words are the engine's.
+public struct CompanionCommand: Equatable, Sendable, Decodable, Identifiable {
+    public let name: String
+    public let aliases: [String]
+    public let description: String
+
+    public var id: String { name }
+}
+
+/// Where a file is handed over (version 7): an inbox the engine owns, which
+/// this client writes a file into at its attach id, and the largest file the
+/// engine takes. Named only to the owner's connection, while the engine takes
+/// files.
+public struct CompanionAttachmentInbox: Equatable, Sendable, Decodable {
+    /// Absolute.
+    public let dir: String
+    public let maxBytes: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case dir
+        case maxBytes = "max_bytes"
+    }
+}
+
+/// What a file is, as `attach_file` hints it: the engine names the kind from
+/// the bytes itself.
+public enum CompanionAttachKind: String, Equatable, Sendable {
+    case image
+    case animation
+    case video
+    case audio
+    /// A recording the person made in the app, read as their own words. The
+    /// composer records none; the contract names it.
+    case voice
+    case document
+    case file
+}
+
+/// Version 7: a file this client wrote at `attachId` in the inbox, with the
+/// size and digest the engine checks it against.
+public struct CompanionAttachFile: Equatable, Sendable {
+    public let attachId: String
+    public let kind: CompanionAttachKind
+    public let mime: String
+    public let sizeBytes: Int
+    /// Lowercase hex.
+    public let sha256: String
+    /// The file's name as the person knew it.
+    public let name: String?
+}
+
+/// Where a handed-over file stands. The engine sends one word on this wire; a
+/// later one keeps its own rather than being read as held.
+public enum CompanionAttachStatus: Equatable, Sendable, Decodable {
+    case present
+    case unrecognized(String)
+
+    public init(from decoder: Decoder) throws {
+        let word = try decoder.singleValueContainer().decode(String.self)
+        self = word == "present" ? .present : .unrecognized(word)
     }
 }
 
@@ -496,10 +675,14 @@ public enum CompanionProposalState: Equatable, Sendable, Decodable {
     }
 }
 
-/// Version 4: the owner's answer to a proposal, the contract's two words.
+/// Version 4: the owner's answer to a proposal, in the contract's words.
 public enum CompanionProposalDecision: String, Equatable, Sendable, Encodable {
     case confirm
     case deny
+    /// A follow-up's card whose `offersAlwaysAllow` is true also takes this:
+    /// it runs as `confirm` does and lets the follow-up's later items run with
+    /// no card. It is sent only to such a card.
+    case alwaysAllow = "always_allow"
 }
 
 /// The task whose cue run raised a proposal. A task with no name of the
@@ -529,31 +712,94 @@ public struct CompanionProposalCue: Equatable, Sendable, Decodable {
     }
 }
 
+/// One argument of a mandate's call, outside text: a string value as itself,
+/// any other as JSON.
+public struct CompanionProposalArg: Equatable, Sendable, Decodable {
+    public let name: String
+    public let value: String
+}
+
 /// Everything a model or a stranger wrote, kept apart from Fermix's record by
 /// structure (M60 §3.7): drawn only by `OutsideTextBlock`.
 public struct CompanionProposalOutside: Equatable, Sendable, Decodable {
-    /// The recorded call's arguments, pretty JSON, never cut by the daemon.
-    public let argsText: String
+    /// A mandate's recorded call arguments, pretty JSON, never cut by the
+    /// daemon. Nil on a follow-up's card, which carries no call; a mandate's
+    /// card without them is refused when it is decoded.
+    public let argsText: String?
+    /// Version 5: each of a mandate's arguments as name and value, for the
+    /// compact card's lines; absent from an older engine and on a follow-up's
+    /// card.
+    public let args: [CompanionProposalArg]?
+    /// Version 5: the filter's one sentence on why the item passed, absent
+    /// where the watcher has no filter.
+    public let reason: String?
     /// Nil when Fermix no longer keeps the cue.
     public let cue: CompanionProposalCue?
 
     private enum CodingKeys: String, CodingKey {
-        case cue
+        case args, reason, cue
         case argsText = "args_text"
     }
 }
 
+/// Version 5: what a follow-up's card asks, to run once now. A word this
+/// build does not know keeps its own.
+public enum CompanionFollowUpAsks: Equatable, Sendable, Decodable {
+    case run
+    case unrecognized(String)
+
+    public init(wireValue: String) {
+        switch wireValue {
+        case "run": self = .run
+        default: self = .unrecognized(wireValue)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        self.init(wireValue: try decoder.singleValueContainer().decode(String.self))
+    }
+}
+
+/// Version 5: a watcher's follow-up, in Fermix's and the owner's words: the
+/// job an item that passes sets off, which is handed nothing of the item.
+public struct CompanionFollowUp: Equatable, Sendable, Decodable {
+    public let asks: CompanionFollowUpAsks
+    /// The card also takes `alwaysAllow`; absent from an engine before Always
+    /// allow, which is a card that does not.
+    public let offersAlwaysAllow: Bool?
+    public let name: String
+    public let instructions: String
+    public let tools: [String]
+    public let reportsTo: String
+
+    private enum CodingKeys: String, CodingKey {
+        case asks, name, instructions, tools
+        case offersAlwaysAllow = "offers_always_allow"
+        case reportsTo = "reports_to"
+    }
+}
+
+/// What a card asks the owner to let run: a task's call under a mandate
+/// (version 4), or a watcher's follow-up (version 5), which carries no call.
+public enum CompanionProposalAsk: Equatable, Sendable {
+    /// The mandate and the tool, Fermix's record; the call's arguments are
+    /// outside text, in `outside.argsText`.
+    case call(mandate: String, tool: String)
+    case followUp(CompanionFollowUp)
+}
+
 /// Version 4: a proposal's card, one shape on every surface (M60 §3.7). Its
 /// record, `statusSentence` and `summary` are Fermix's; `outside` is not. A
-/// field that does not apply is absent.
-public struct CompanionProposal: Equatable, Sendable, Decodable {
+/// field that does not apply is absent. Since version 5 a card names either a
+/// mandate's call or a watcher's follow-up (id `cft_`), and both are
+/// answered and resolved by their id alone.
+public struct CompanionProposal: Equatable, Sendable {
     public let proposalId: String
     public let state: CompanionProposalState
-    public let mandate: String
+    public let ask: CompanionProposalAsk
     public let task: CompanionProposalTask
     public let watcher: String?
     public let sourceRef: String?
-    public let tool: String
     /// When the proposal was made, which places its card in the conversation.
     public let createdAt: String
     /// When it stops waiting, which this Mac's own clock counts down to.
@@ -571,7 +817,9 @@ public struct CompanionProposal: Equatable, Sendable, Decodable {
     /// Fermix's sentence, with no outside text in it.
     public let summary: String
     public let outside: CompanionProposalOutside
+}
 
+extension CompanionProposal: Decodable {
     private enum CodingKeys: String, CodingKey {
         case state, mandate, task, watcher, tool, summary, outside
         case proposalId = "proposal_id"
@@ -583,6 +831,54 @@ public struct CompanionProposal: Equatable, Sendable, Decodable {
         case decidedFrom = "decided_from"
         case resultStatus = "result_status"
         case statusSentence = "status_sentence"
+        case followUp = "follow_up"
+    }
+
+    private enum CallKeys: String, CodingKey {
+        case argsText = "args_text"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        proposalId = try fields.decode(String.self, forKey: .proposalId)
+        state = try fields.decode(CompanionProposalState.self, forKey: .state)
+        ask = try Self.ask(in: fields)
+        task = try fields.decode(CompanionProposalTask.self, forKey: .task)
+        watcher = try fields.decodeIfPresent(String.self, forKey: .watcher)
+        sourceRef = try fields.decodeIfPresent(String.self, forKey: .sourceRef)
+        createdAt = try fields.decode(String.self, forKey: .createdAt)
+        expiresAt = try fields.decode(String.self, forKey: .expiresAt)
+        receivedAt = try fields.decodeIfPresent(String.self, forKey: .receivedAt)
+        decidedAt = try fields.decodeIfPresent(String.self, forKey: .decidedAt)
+        decidedFrom = try fields.decodeIfPresent(String.self, forKey: .decidedFrom)
+        resultStatus = try fields.decodeIfPresent(String.self, forKey: .resultStatus)
+        statusSentence = try fields.decodeIfPresent(String.self, forKey: .statusSentence)
+        summary = try fields.decode(String.self, forKey: .summary)
+        outside = try fields.decode(CompanionProposalOutside.self, forKey: .outside)
+    }
+
+    /// A card that names a follow-up asks for it; any other names a call,
+    /// which needs its mandate, its tool and its arguments, each refused by
+    /// its path when it is missing, as the schema's either-or says.
+    private static func ask(in fields: KeyedDecodingContainer<CodingKeys>) throws -> CompanionProposalAsk {
+        if let followUp = try fields.decodeIfPresent(CompanionFollowUp.self, forKey: .followUp) {
+            return .followUp(followUp)
+        }
+
+        let mandate = try fields.decode(String.self, forKey: .mandate)
+        let tool = try fields.decode(String.self, forKey: .tool)
+        _ = try fields.nestedContainer(keyedBy: CallKeys.self, forKey: .outside).decode(String.self, forKey: .argsText)
+        return .call(mandate: mandate, tool: tool)
+    }
+}
+
+extension CompanionProposal {
+    /// Whether the card takes `always_allow`: a follow-up's card that says
+    /// so. A mandate's card never does.
+    public var offersAlwaysAllow: Bool {
+        guard case .followUp(let followUp) = ask else { return false }
+
+        return followUp.offersAlwaysAllow == true
     }
 }
 
@@ -621,16 +917,33 @@ enum CompanionTime {
 
 /// Everything the daemon sends.
 public enum CompanionServerEvent: Equatable, Sendable {
-    case serverHello(minVersion: Int, maxVersion: Int)
+    /// The window, and from an engine that has them (M75) the home's primary
+    /// epoch and the engine's role. A hello without a role comes from a
+    /// daemon older than the field. From an engine that has them, the slash
+    /// commands it serves, and, for the owner's connection while the engine
+    /// takes files, the inbox a file is handed over through.
+    case serverHello(
+        minVersion: Int,
+        maxVersion: Int,
+        primaryEpoch: Int? = nil,
+        role: CompanionEngineRole? = nil,
+        commands: [CompanionCommand] = [],
+        attachments: CompanionAttachmentInbox? = nil
+    )
     case accepted(CompanionAccepted)
     case turnStarted(profileId: String, turnId: String, inReplyTo: String)
     /// Text to append to the turn's draft exactly as sent, never trimmed.
     case textDelta(turnId: String, text: String)
     case toolEvent(CompanionToolEvent)
+    /// Version 6: the model's summary of one step of its reasoning, as the
+    /// provider wrote it. Live-only, as a delta is.
+    case reasoning(turnId: String, text: String)
     /// A reply's canonical text at its timeline row; it replaces the draft.
     /// Its blocks (M72 §8.3) come with it, never mid-stream, so they appear
-    /// once, under text that has finished.
-    case textDone(turnId: String, serverSeq: Int, text: String, blocks: [CompanionBlock] = [])
+    /// once, under text that has finished. `timestamp` is the time that row
+    /// stores (RFC 3339, UTC, as the daemon wrote it), absent from an older
+    /// daemon in the window.
+    case textDone(turnId: String, serverSeq: Int, text: String, blocks: [CompanionBlock] = [], timestamp: String? = nil)
     /// The turn's terminal failure: `cancelled` after a cancel, `interrupted`
     /// when the daemon lost the turn, or the failure's own code.
     case turnError(turnId: String, code: String, message: String)
@@ -656,6 +969,23 @@ public enum CompanionServerEvent: Equatable, Sendable {
     case proposal(profileId: String, proposal: CompanionProposal)
     /// Version 4: a proposal left `waiting`.
     case proposalResolved(CompanionProposalResolution)
+    /// Version 6: the index of the owner's lists, every live list in picker
+    /// order: the answer to `checklists_pull`, and sent again, whole, after
+    /// any change to any list.
+    case checklists(profileId: String, lists: [CompanionChecklistEntry])
+    /// Version 6: one whole list, the answer to `checklist_pull` and sent
+    /// again, whole, after every committed change to it. `made` maps the
+    /// `client_msg_id` of each create or add a device sent since the list's
+    /// last push to the list or row it made, and is empty when there is
+    /// none.
+    case checklist(profileId: String, list: CompanionChecklistList, made: [String: String] = [:])
+    /// Version 6: Always On's summary changed, and `home.status` says what it
+    /// is now. Carries no content. Sent once after `server_hello` unless
+    /// Always On is off, then at each change, never while it stays off.
+    case homeStatusChanged
+    /// Version 7: the file an `attach_file` handed over is held, and a
+    /// message may name it.
+    case attachStatus(attachId: String, status: CompanionAttachStatus)
     /// An event type published after this build shipped: logged by the session,
     /// never silently dropped.
     case unrecognized(type: String)
@@ -667,6 +997,7 @@ public enum CompanionServerEvent: Equatable, Sendable {
         case .turnStarted: return "turn_started"
         case .textDelta: return "text_delta"
         case .toolEvent: return "tool_event"
+        case .reasoning: return "reasoning"
         case .textDone: return "text_done"
         case .turnError: return "turn_error"
         case .turnDone: return "turn_done"
@@ -682,6 +1013,10 @@ public enum CompanionServerEvent: Equatable, Sendable {
         case .rowUpdated: return "row_updated"
         case .proposal: return "proposal"
         case .proposalResolved: return "proposal_resolved"
+        case .checklists: return "checklists"
+        case .checklist: return "checklist"
+        case .homeStatusChanged: return "home_status_changed"
+        case .attachStatus: return "attach_status"
         case .unrecognized(let type): return type
         }
     }
@@ -731,15 +1066,19 @@ public enum CompanionServerEvent: Equatable, Sendable {
 
 extension CompanionServerEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case type, text, code, message, outcome, ref, blocks, proposal
+        case type, text, code, message, outcome, ref, blocks, proposal, role, lists, list, made
+        case commands, attachments, status
+        case attachId = "attach_id"
         case minVersion = "min_version"
         case maxVersion = "max_version"
+        case primaryEpoch = "primary_epoch"
         case profileId = "profile_id"
         case turnId = "turn_id"
         case inReplyTo = "in_reply_to"
         case serverSeq = "server_seq"
         case approvalId = "approval_id"
         case readUpToSeq = "read_up_to_seq"
+        case timestamp = "ts"
     }
 
     /// Events with a payload type decode it from the same object; the rest are
@@ -752,7 +1091,11 @@ extension CompanionServerEvent: Decodable {
         case "server_hello":
             self = .serverHello(
                 minVersion: try fields.decode(Int.self, forKey: .minVersion),
-                maxVersion: try fields.decode(Int.self, forKey: .maxVersion)
+                maxVersion: try fields.decode(Int.self, forKey: .maxVersion),
+                primaryEpoch: try fields.decodeIfPresent(Int.self, forKey: .primaryEpoch),
+                role: try fields.decodeIfPresent(CompanionEngineRole.self, forKey: .role),
+                commands: try fields.decodeIfPresent([CompanionCommand].self, forKey: .commands) ?? [],
+                attachments: try fields.decodeIfPresent(CompanionAttachmentInbox.self, forKey: .attachments)
             )
         case "accepted":
             self = .accepted(try CompanionAccepted(from: decoder))
@@ -769,12 +1112,18 @@ extension CompanionServerEvent: Decodable {
             )
         case "tool_event":
             self = .toolEvent(try CompanionToolEvent(from: decoder))
+        case "reasoning":
+            self = .reasoning(
+                turnId: try fields.decode(String.self, forKey: .turnId),
+                text: try fields.decode(String.self, forKey: .text)
+            )
         case "text_done":
             self = .textDone(
                 turnId: try fields.decode(String.self, forKey: .turnId),
                 serverSeq: try fields.decode(Int.self, forKey: .serverSeq),
                 text: try fields.decode(String.self, forKey: .text),
-                blocks: try fields.decodeIfPresent(CompanionBlocks.self, forKey: .blocks)?.known ?? []
+                blocks: try fields.decodeIfPresent(CompanionBlocks.self, forKey: .blocks)?.known ?? [],
+                timestamp: try fields.decodeIfPresent(String.self, forKey: .timestamp)
             )
         case "turn_error":
             self = .turnError(
@@ -820,6 +1169,24 @@ extension CompanionServerEvent: Decodable {
             )
         case "proposal_resolved":
             self = .proposalResolved(try CompanionProposalResolution(from: decoder))
+        case "checklists":
+            self = .checklists(
+                profileId: try fields.decode(String.self, forKey: .profileId),
+                lists: try fields.decode([CompanionChecklistEntry].self, forKey: .lists)
+            )
+        case "checklist":
+            self = .checklist(
+                profileId: try fields.decode(String.self, forKey: .profileId),
+                list: try fields.decode(CompanionChecklistList.self, forKey: .list),
+                made: try fields.decodeIfPresent([String: String].self, forKey: .made) ?? [:]
+            )
+        case "home_status_changed":
+            self = .homeStatusChanged
+        case "attach_status":
+            self = .attachStatus(
+                attachId: try fields.decode(String.self, forKey: .attachId),
+                status: try fields.decode(CompanionAttachStatus.self, forKey: .status)
+            )
         default:
             self = .unrecognized(type: type)
         }

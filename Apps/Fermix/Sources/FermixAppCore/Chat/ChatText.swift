@@ -97,19 +97,13 @@ enum ChatText {
         block.mappingWords { marking(terms, in: drawn($0)) }
     }
 
-    /// A run of paragraphs drawn as one text, as a block's words are, with
-    /// a blank line between each two.
-    static func paragraphs(_ run: [AttributedString], marking terms: [String]) -> AttributedString {
-        marking(terms, in: joined(run.map(drawn), by: paragraphBreak))
-    }
-
-    /// Words drawn in their links' colours. A markdown link's own words are
-    /// the text blue, `accentText`, which holds §9's floor on the dark
-    /// ground: left to the window's tint they would be the accent, which
-    /// does not. A path or an address written out is the text it is, so it
-    /// keeps the reply's own `ink`, because blue on every path read as noise,
-    /// and is underlined in `faint`, because ink alone passed for plain text
-    /// (owner, 2026-10-04; M66 §3.1). A code span sits on a faint fill
+    /// Words drawn with their links set inline. Every link, a markdown link
+    /// and a path or an address written out alike, keeps the words' own
+    /// `ink` and is underlined in `faint`, as a reply's words in the system's
+    /// text view draw one (`ChatProseText`): links read as part of the
+    /// sentence, as the chat apps people know draw them, and the underline
+    /// says they are links (owner, 2026-10-30; blue on every path read as
+    /// noise, 2026-10-04). A code span sits on a faint fill
     /// (`codeSpanFill`), which marks it as code without changing the line's
     /// height.
     private static func drawn(_ words: AttributedString) -> AttributedString {
@@ -120,12 +114,8 @@ enum ChatText {
             }
             guard run.link != nil else { continue }
 
-            if run[ReplyWrittenLink.self] == true {
-                drawn[run.range].foregroundColor = Palette.ink.color
-                drawn[run.range].underlineStyle = Text.LineStyle(pattern: .solid, color: Palette.faint.color)
-            } else {
-                drawn[run.range].foregroundColor = Palette.accentText.color
-            }
+            drawn[run.range].foregroundColor = Palette.ink.color
+            drawn[run.range].underlineStyle = Text.LineStyle(pattern: .solid, color: Palette.faint.color)
         }
 
         return drawn
@@ -159,10 +149,10 @@ enum ChatText {
     }
 
     /// The blocks as one text, for a place that draws a row's words as one, a
-    /// voice note's transcript: each part a row draws (`ChatReplyPart`) on
-    /// lines of its own, a run of paragraphs as a row draws it, code as code,
-    /// a list's items each after its mark (`ChatListBlock.label`) and a
-    /// table's rows as Copy writes them.
+    /// voice note's transcript: each part (`ChatReplyPart`) on lines of its
+    /// own, a run of paragraphs a blank line apart, a heading as its words,
+    /// code as code, a list's items each after its mark (`listMark`) and a
+    /// table's rows a line apart, their cells a tab apart.
     static func oneText(_ blocks: [ReplyBlock]) -> AttributedString {
         joined(ChatReplyPart.parts(of: blocks).map(oneText), by: "\n")
     }
@@ -176,14 +166,23 @@ enum ChatText {
 
     private static func oneText(_ block: ReplyBlock) -> AttributedString {
         switch block {
-        case .prose(let words), .quote(let words):
+        case .prose(let words), .quote(let words), .heading(_, let words):
             return words
         case .code(let code):
             return codeLines(code)
         case .list(let list):
-            return joined(list.items.map { AttributedString(ChatListBlock.label($0) + " ") + $0.words }, by: "\n")
+            return joined(list.items.map { AttributedString(listMark($0) + " ") + $0.words }, by: "\n")
         case .table(let table):
             return joined(([table.header] + table.rows).map { joined($0, by: "\t") }, by: "\n")
+        }
+    }
+
+    /// An item's mark as text: its number, or the dot at its depth, which a
+    /// task's box stands in for where the reply is drawn.
+    static func listMark(_ item: ReplyListItem) -> String {
+        switch item.marker {
+        case .number(let number): return String(format: ProductStrings[.chatListNumberFormat], number)
+        case .bullet, .task: return ProductStrings[item.depth == 0 ? .chatListBullet : .chatListBulletNested]
         }
     }
 
@@ -222,10 +221,9 @@ enum ChatText {
     }
 }
 
-/// A reply's blocks as a row draws them: each run of paragraphs one text, a
-/// blank line between each two as they were written, so a reader selects
-/// across them and the line between them follows the type; and every other
-/// block on its own.
+/// A reply's blocks as one text reads them (`ChatText.oneText`): each run of
+/// paragraphs together, a blank line between each two as they were written,
+/// and every other block on its own.
 enum ChatReplyPart: Equatable {
     /// A run of paragraphs, in reading order.
     case paragraphs([AttributedString])
@@ -293,5 +291,18 @@ enum ChatTime {
         guard let moment = try? Date(wire, strategy: .iso8601) else { return wire }
 
         return moment.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    /// When a message was written, said short beside it: its time alone on
+    /// the day it is read, its day and time in the year it is read, and its
+    /// whole date and time before that.
+    static func said(_ wire: String, now: Date = .now, calendar: Calendar = .current) -> String {
+        guard let moment = try? Date(wire, strategy: .iso8601) else { return wire }
+        if calendar.isDate(moment, inSameDayAs: now) {
+            return moment.formatted(date: .omitted, time: .shortened)
+        }
+        guard calendar.isDate(moment, equalTo: now, toGranularity: .year) else { return written(wire) }
+
+        return moment.formatted(.dateTime.month(.abbreviated).day().hour().minute())
     }
 }

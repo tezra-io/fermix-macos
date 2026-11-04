@@ -52,29 +52,37 @@ public enum CuesSheetPage: Equatable, Sendable {
         switch outcome {
         case .refused:
             return nil
-        case .added(let ref, _, let unstored):
+        case .added(let ref, _, _, let unstored):
             let field = unstored?.field.map(ManagementCueSecretField.init(wireValue:))
             return .source(ref, at: field?.isTyped == true ? field : nil)
         }
     }
 }
 
-/// A token Fermix handed out for one source, shown once.
+/// A value Fermix handed out for one source, shown once: a local push
+/// source's token, or the secret it made for a GitHub source with the notes
+/// of the form it was added from, which say where that secret goes.
 public struct CueHandedToken: Equatable, Sendable {
     public let ref: String
+    /// Which of the source's secrets it is: `token` or `secret`.
+    public let field: ManagementCueSecretField
     public let value: String
+    public let notes: [String]
 
-    public init(ref: String, value: String) {
+    public init(ref: String, field: ManagementCueSecretField = .token, value: String, notes: [String] = []) {
         precondition(!value.isEmpty, "a handed token has a value")
+        precondition(field == .token || field == .secret, "Fermix hands out a token, or a secret it made")
         self.ref = ref
+        self.field = field
         self.value = value
+        self.notes = notes
     }
 }
 
 /// The sheet's page, and what it holds only for as long as that page shows:
-/// a token handed out on it, and the refusal of a secret the add could not
-/// store. Turning the page drops both, which is the rule that keeps a token
-/// out of the view once its page has changed (§4.3).
+/// a token or a secret handed out on it, and the refusal of a secret the add
+/// could not store. Turning the page drops both, which is the rule that
+/// keeps a handed value out of the view once its page has changed (§4.3).
 public struct CuesSheetState: Equatable, Sendable {
     public private(set) var page: CuesSheetPage
     public private(set) var token: CueHandedToken?
@@ -90,13 +98,17 @@ public struct CuesSheetState: Equatable, Sendable {
         unstored = nil
     }
 
-    /// The add's outcome: the new source's detail, its token and the
-    /// refusal of a secret it could not store, all on that one page.
-    public mutating func added(_ outcome: CueSourceAddOutcome) {
-        guard let next = CuesSheetPage.after(outcome), case .added(let ref, let token, let unstored) = outcome else { return }
+    /// The add's outcome: the new source's detail, its token or the secret
+    /// Fermix made for it with the form's `notes`, and the refusal of a
+    /// secret it could not store, all on that one page.
+    public mutating func added(_ outcome: CueSourceAddOutcome, notes: [String] = []) {
+        guard let next = CuesSheetPage.after(outcome),
+              case .added(let ref, let token, let secret, let unstored) = outcome
+        else { return }
 
         turn(to: next)
         self.token = token.map { CueHandedToken(ref: ref, value: $0) }
+            ?? secret.map { CueHandedToken(ref: ref, field: .secret, value: $0, notes: notes) }
         self.unstored = unstored
     }
 
@@ -132,17 +144,18 @@ enum CuesSheetMetrics {
     /// The integration detail's width, so the sheets of Settings are one size
     /// across (§4.3).
     static let width: Double = SheetMetrics.pickerSize.width
-    /// How long changes to the kind, the preset or the check rest before the
-    /// daemon is asked for the form again.
+    /// How long a change to the check rests before the daemon is asked for
+    /// the form again.
     static let formPause: TimeInterval = 0.25
 }
 
-/// Settings, Connections, Cues (M60 app surface §4.2).
+/// Settings, Connections, Cues (M60 app surface §4.2, simpler setup §4).
 ///
 /// One line under the toolbar's title, then the `cues` section's own
-/// descriptor rows in one group: the two switches, the filter model and,
+/// descriptor rows in one group: Run cues, how watchers judge items, and,
 /// folded under Advanced, the door. Below it, the proposals waiting, then
-/// the three lists as compact rows, each in the daemon's words. Drawn at all
+/// the lists as compact rows, each in the daemon's words, each drawn once it
+/// means something: the first-run card until a source exists. Drawn at all
 /// only where the daemon serves cues; with them missing the pane is empty
 /// and the sidebar lists no Cues row.
 struct CuesPane: View {
@@ -159,9 +172,7 @@ struct CuesPane: View {
             if model.drawsCuesPane {
                 CuesSettingsSection(model: model, router: router) { modelPick = CueModelPick(provider: $0) }
                 CuesWaitingSection(model: model)
-                CuesSourcesSection(model: model, notice: $notice) { sheet = CuesSheetTarget(page: $0) }
-                CuesWatchersSection(model: model) { sheet = CuesSheetTarget(page: $0) }
-                CuesMandatesSection(model: model, notice: $notice) { sheet = CuesSheetTarget(page: $0) }
+                lists
             }
         }
         .task(id: model.drawsCuesPane) {
@@ -169,6 +180,9 @@ struct CuesPane: View {
 
             await model.refreshCues()
         }
+        // A cue's label in Chat sent the owner here, to its watcher's page.
+        .onChange(of: model.askedCuesPage, initial: true) { openAsked() }
+        .onChange(of: model.drawsCuesPane) { openAsked() }
         .sheet(item: $sheet) { target in
             CuesSheet(opening: target.page, model: model) { left in
                 notice = left
@@ -184,6 +198,104 @@ struct CuesPane: View {
                 modelPick = nil
             }
             .sheetGround()
+        }
+    }
+
+    /// Opens the sheet on the page another surface asked for, once the
+    /// pane is drawn.
+    private func openAsked() {
+        guard model.drawsCuesPane, let asked = model.takeAskedCuesPage() else { return }
+
+        sheet = CuesSheetTarget(page: asked)
+    }
+
+    /// The sources, or the first-run card in their place, then the watchers
+    /// and the mandates once each means something (simpler setup §4).
+    @ViewBuilder
+    private var lists: some View {
+        if CuesPaneLayout.firstRun(model.cueSources) {
+            CuesFirstRunSection(notice: notice, add: model.cueSources.value?.canAdd == true ? addSource : nil)
+        } else {
+            CuesSourcesSection(model: model, notice: $notice) { sheet = CuesSheetTarget(page: $0) }
+        }
+        if CuesPaneLayout.drawsWatchers(sources: model.cueSources, watchers: model.cueWatchers) {
+            CuesWatchersSection(model: model) { sheet = CuesSheetTarget(page: $0) }
+        }
+        if CuesPaneLayout.drawsMandates(watchers: model.cueWatchers, mandates: model.cueMandates) {
+            CuesMandatesSection(model: model, notice: $notice) { sheet = CuesSheetTarget(page: $0) }
+        }
+    }
+
+    private func addSource() {
+        sheet = CuesSheetTarget(page: .addSource)
+    }
+}
+
+/// Which of the pane's lists are drawn (simpler setup §4), from what their
+/// reads answered. Only a loaded list counts: one still being read, or one
+/// the daemon refused, is neither empty nor holding anything.
+public enum CuesPaneLayout {
+    /// The first-run card stands where the sources would be while the
+    /// daemon lists none.
+    public static func firstRun(_ sources: SettingsReadState<ManagementCueSourceList>) -> Bool {
+        sources.value?.sources.isEmpty == true
+    }
+
+    /// Watchers once a source exists, or a watcher does.
+    public static func drawsWatchers(
+        sources: SettingsReadState<ManagementCueSourceList>,
+        watchers: SettingsReadState<ManagementCueWatcherList>
+    ) -> Bool {
+        sources.value?.sources.isEmpty == false || watchers.value?.watchers.isEmpty == false
+    }
+
+    /// Mandates once a watcher exists, since a mandate needs a task that
+    /// runs on cues, or a mandate does.
+    public static func drawsMandates(
+        watchers: SettingsReadState<ManagementCueWatcherList>,
+        mandates: SettingsReadState<ManagementCueMandateList>
+    ) -> Bool {
+        watchers.value?.watchers.isEmpty == false || mandates.value?.mandates.isEmpty == false
+    }
+}
+
+/// The first run (simpler setup §4): while no source exists, one card in
+/// place of the lists says how cues work in three steps, with the way to add
+/// the first source under them.
+struct CuesFirstRunSection: View {
+    /// What a removal could not delete, said once as on the sources list.
+    let notice: String?
+    /// Opens the add sheet, where the daemon lets a source be added.
+    let add: (() -> Void)?
+
+    private static let steps: [ProductStringKey] = [.cuesFirstRunSource, .cuesFirstRunWatcher, .cuesFirstRunTask]
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: Spacing.s) {
+                Text(ProductStrings[.cuesFirstRunTitle])
+                    .fermixType(Typography.style(.callout))
+                    .foregroundStyle(Palette.ink.color)
+
+                ForEach(Array(Self.steps.enumerated()), id: \.offset) { index, step in
+                    HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                        Image(systemName: "\(index + 1).circle")
+                            .foregroundStyle(Palette.secondary.color)
+                            .accessibilityHidden(true)
+                        CueNote(text: ProductStrings[step])
+                    }
+                }
+
+                if let add {
+                    PrimaryAction(ProductStrings[.cuesFirstRunAdd], size: .row, action: add)
+                        .padding(.top, Spacing.xxs)
+                }
+                if let notice {
+                    CueNote(text: notice, attention: true)
+                }
+            }
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, Spacing.s)
         }
     }
 }
@@ -209,9 +321,12 @@ struct CuesPaneLead: View {
     }
 }
 
-/// The `cues` section's rows in one group (§4.2, §4.6): the two switches,
-/// whose explanations are behind their info, the status under the first,
-/// the filter model, and the door's port with the door's line folded under
+/// The `cues` section's rows in one group (§4.2, §4.6, simpler setup §4),
+/// in the order the section publishes them: Run cues with the status under
+/// it, Let watchers act, then how watchers judge items, the Screen where the
+/// section publishes one, its two options side by side, its decision model
+/// under it while the Screen shows Decision model, and the filter model,
+/// then any other row, and the door's port with the door's line folded under
 /// Advanced. A door that could not open says so in the open.
 struct CuesSettingsSection: View {
     @ObservedObject var model: SettingsModel
@@ -238,9 +353,35 @@ struct CuesSettingsSection: View {
 
     private var door: ManagementCueStatus.Door? { model.cueStatus.value?.door }
 
+    /// The row the pane places itself, under the heading where it is the
+    /// first of how watchers judge items. Every other row is drawn as the
+    /// section publishes it, the decision model a pop-up like any choice row,
+    /// and none while the Screen hides it.
     private func specialised(_ row: ManagementSettingRow) -> AnyView? {
+        guard model.drawsCueRow(row) else { return AnyView(EmptyView()) }
+
+        let placed = placedRow(row)
+        guard row.key == judgingHeadingKey else { return placed }
+
+        return AnyView(
+            VStack(alignment: .leading, spacing: Spacing.s) {
+                Text(ProductStrings[.cuesJudgingTitle])
+                    .fermixType(Typography.style(.callout))
+                    .foregroundStyle(Palette.ink.color)
+                    .accessibilityAddTraits(.isHeader)
+                placed ?? AnyView(DescriptorRow(model: model, section: CueFilterPair.section, row: row))
+            }
+        )
+    }
+
+    private var judgingHeadingKey: String? {
+        CuesPaneKeys.judgingHeadingKey(in: model.section(CueFilterPair.section).value?.rows ?? [])
+    }
+
+    private func placedRow(_ row: ManagementSettingRow) -> AnyView? {
         switch row.key {
         case CuesPaneKeys.enabled: return AnyView(enabledRow(row))
+        case CuesPaneKeys.screen where CuesPaneKeys.drawsSegmented(row): return AnyView(CuesScreenRow(model: model, row: row))
         case CuesPaneKeys.doorPort: return AnyView(doorRow(row))
         case CueFilterPair.providerKey: return AnyView(providerRow(row))
         case CueFilterPair.modelKey: return modelRow(row)
@@ -335,7 +476,107 @@ struct CuesSettingsSection: View {
 /// The `cues` section's keys the pane places itself.
 enum CuesPaneKeys {
     static let enabled = "cues_enabled"
+    static let screen = "cues_screen"
+    static let decisionProvider = "cues_decision_provider"
     static let doorPort = "cues_door_port"
+
+    /// The one choice row the app draws as a segmented control: the Screen,
+    /// two options side by side. Every other choice row is a menu.
+    static func drawsSegmented(_ row: ManagementSettingRow) -> Bool {
+        row.key == screen && row.kind == .choice
+    }
+
+    /// The row "How watchers judge items" heads: the Screen, which newer
+    /// engines publish just before the filter model, or else the filter
+    /// model.
+    static func judgingHeadingKey(in rows: [ManagementSettingRow]) -> String? {
+        rows.first { $0.key == screen || $0.key == CueFilterPair.providerKey }?.key
+    }
+}
+
+/// One line under the Screen: an option's hint, the daemon's words, quiet
+/// for the option in use and in the warning tone for one that cannot be
+/// chosen yet.
+public struct CueScreenHint: Equatable, Sendable {
+    public let text: String
+    public let tone: StatusTone
+}
+
+/// What the Screen says and takes, from its options as the daemon publishes
+/// them: the app never decides which option can be chosen.
+public enum CueScreenProjection {
+    /// The option that checks items by meaning, the one the decision model
+    /// row is drawn under.
+    public static let decisionModel = "decision_model"
+
+    /// The hint of the option in use, then every disabled option's hint, which
+    /// says what to set up first, each once.
+    public static func hints(_ row: ManagementSettingRow, value: String) -> [CueScreenHint] {
+        var hints: [CueScreenHint] = []
+        if let inUse = row.options.first(where: { $0.value == value }), let hint = inUse.hint {
+            hints.append(CueScreenHint(text: hint, tone: inUse.disabled ? .warn : .neutral))
+        }
+        for option in row.options where option.disabled && option.value != value {
+            guard let hint = option.hint else { continue }
+
+            hints.append(CueScreenHint(text: hint, tone: .warn))
+        }
+        return hints
+    }
+
+    /// Whether a choice is written: an option the row offers and does not
+    /// disable.
+    public static func accepts(_ row: ManagementSettingRow, value: String) -> Bool {
+        row.options.contains { $0.value == value && !$0.disabled }
+    }
+}
+
+/// The Screen (simpler setup §4b): the `cues_screen` row's two options side
+/// by side, under "How watchers judge items". Under it, the hint of the
+/// option in use and a disabled option's hint, in the warning tone, then the
+/// daemon's refusal of a change. A choice applies at once, as every
+/// descriptor row does; a disabled option is never written.
+struct CuesScreenRow: View {
+    @ObservedObject var model: SettingsModel
+    let row: ManagementSettingRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SettingsRowMetrics.captionGap) {
+            Picker(selection: selection) {
+                ForEach(row.options, id: \.value) { option in
+                    Text(option.label).tag(option.value)
+                        .disabled(option.disabled)
+                }
+            } label: {
+                DescriptorRowLabel(row.label, info: row.explanation)
+            }
+            .pickerStyle(.segmented)
+
+            ForEach(CueScreenProjection.hints(row, value: value), id: \.text) { hint in
+                CueNote(text: hint.text, attention: hint.tone == .warn)
+            }
+
+            if let refusal = model.message(for: SettingsDraftKey(section: CueFilterPair.section, key: row.key)) {
+                CueNote(text: refusal, attention: true)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
+        // As on every descriptor row: nothing is written while the settings
+        // file changed outside Fermix.
+        .disabled(model.writesBlocked)
+    }
+
+    private var value: String {
+        model.cueScreenValue(row)
+    }
+
+    private var selection: Binding<String> {
+        Binding(get: { value }, set: { chosen in
+            guard CueScreenProjection.accepts(row, value: chosen) else { return }
+
+            Task { await model.apply(section: CueFilterPair.section, key: row.key, value: .text(chosen)) }
+        })
+    }
 }
 
 /// "Waiting for you": Fermix's record of each proposal waiting, drawn only
@@ -404,7 +645,7 @@ struct CuesListState<Value: Equatable & Sendable, Rows: View>: View {
     }
 }
 
-/// The sources (§4.3).
+/// The sources (§4.3). With none, the first-run card stands here instead.
 struct CuesSourcesSection: View {
     @ObservedObject var model: SettingsModel
     @Binding var notice: String?
@@ -413,9 +654,6 @@ struct CuesSourcesSection: View {
     var body: some View {
         Section {
             CuesListState(state: model.cueSources) { list in
-                if list.sources.isEmpty {
-                    CueNote(text: ProductStrings[.cuesSourcesEmpty])
-                }
                 ForEach(list.sources, id: \.ref) { source in
                     CuesSourceRow(source: source, setEnabled: setEnabled) { open(CuesSheetPage.opening(source)) }
                 }
@@ -449,6 +687,7 @@ struct CuesSourceRow: View {
     var body: some View {
         CueRow(
             symbol: CueSourceProjection.symbol(for: source.kind),
+            mark: CueSourceProjection.mark(for: source),
             title: source.ref,
             status: source.statusSentence,
             tone: CueTone.source(source),
@@ -468,15 +707,22 @@ struct CuesSourceRow: View {
     }
 }
 
-/// The 28-point tile a source is drawn with, a symbol by kind until marks
-/// exist, labelled with the kind's name.
+/// The 28-point tile a source is drawn with: its vendor's mark where the
+/// app ships one for its preset, a symbol by kind otherwise, labelled with
+/// the kind's name.
 struct CuesSourceTile: View {
     let source: ManagementCueSource
 
     var body: some View {
-        VendorMarkView(symbol: CueSourceProjection.symbol(for: source.kind), size: IntegrationMetrics.tileSize)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(source.label)
+        Group {
+            if let mark = CueSourceProjection.mark(for: source) {
+                VendorMarkView(mark: mark, kind: .plugin, size: IntegrationMetrics.tileSize)
+            } else {
+                VendorMarkView(symbol: CueSourceProjection.symbol(for: source.kind), size: IntegrationMetrics.tileSize)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(source.label)
     }
 }
 
@@ -490,6 +736,20 @@ public enum CueSourceProjection {
         case .localPush: return "terminal"
         case .unrecognized: return "dot.radiowaves.left.and.right"
         }
+    }
+
+    /// The plugin marks the app ships for two presets: X accounts reads with
+    /// the X plugin's sign-in, and GitHub is GitHub's.
+    static let pluginMarks = ["x_accounts": "x", "github": "github"]
+
+    /// The vendor mark a source of this preset is drawn with, light and dark
+    /// as the plugin rows draw it, or nil for its kind's symbol.
+    public static func mark(forPreset preset: String?) -> VendorMark? {
+        preset.flatMap { pluginMarks[$0] }.flatMap { VendorMarks.mark(.plugin, $0) }
+    }
+
+    public static func mark(for source: ManagementCueSource) -> VendorMark? {
+        mark(forPreset: source.preset)
     }
 
     /// The switch is drawn where the daemon publishes a way to throw it.
@@ -533,9 +793,10 @@ struct CuesWatchersSection: View {
     }
 }
 
-/// One watcher: its name and the sources it listens to, and the daemon's
-/// sentence after the dot. The day's counts are on its page. Never anything
-/// a watcher read.
+/// One watcher: its name and the sources it listens to, the daemon's
+/// sentence after the dot, and under it its follow-up's name and sentence
+/// where it has one. The day's counts are on its page. Never anything a
+/// watcher read.
 struct CuesWatcherRow: View {
     let watcher: ManagementCueWatcher
     let open: () -> Void
@@ -548,11 +809,25 @@ struct CuesWatcherRow: View {
             status: watcher.statusSentence,
             tone: CueTone.watcher(watcher),
             attention: watcher.state.drawsAttention,
-            accessibilityLabel: ProductStrings.commaPair(watcher.name, watcher.statusSentence),
+            note: note,
+            accessibilityLabel: accessibilityLabel,
             open: open
         ) {
             EmptyView()
         }
+    }
+
+    private var note: CueRowNote? {
+        watcher.followUp.map {
+            CueRowNote(text: CueWatcherDetailWords.followUpLine($0), attention: $0.state.drawsAttention)
+        }
+    }
+
+    private var accessibilityLabel: String {
+        let row = ProductStrings.commaPair(watcher.name, watcher.statusSentence)
+        guard let note else { return row }
+
+        return ProductStrings.commaPair(row, note.text)
     }
 }
 
@@ -695,19 +970,27 @@ struct CuesSheet: View {
         page
             .padding(WindowMetrics.contentPadding)
             .frame(width: CuesSheetMetrics.width)
-            // As tall as its page, up to the picker's height, past which the
-            // page's form scrolls (`CuesPageForm`).
-            .frame(maxHeight: SheetMetrics.pickerSize.height)
+            .frame(maxHeight: maxHeight)
             // Escape goes back a page, or closes the sheet from the page it
             // opened on. A field being edited answers it first.
             .onExitCommand(perform: escape)
+    }
+
+    /// As tall as its page, up to the picker's height, past which the
+    /// page's form scrolls (`CuesPageForm`). The add's first step is the
+    /// one exception: a short list the daemon publishes whole, drawn as
+    /// tall as it is so no choice sits below a scroll.
+    private var maxHeight: CGFloat? {
+        state.page == .addSource && sourceForm.choice == nil ? nil : SheetMetrics.pickerSize.height
     }
 
     @ViewBuilder
     private var page: some View {
         switch state.page {
         case .addSource, .editSource:
-            CuesSourceFormPage(page: state.page, form: $sourceForm, model: model, added: added) { turn(back) }
+            CuesSourceFormPage(page: state.page, form: $sourceForm, model: model, added: added, openPlugin: openPlugin) {
+                turn(back)
+            }
         case .source(let ref, let at):
             CuesSourceDetailPage(
                 ref: ref, at: at, token: state.token, unstored: state.unstored, model: model,
@@ -733,10 +1016,19 @@ struct CuesSheet: View {
     private var back: CuesSheetPage? { state.page.back }
 
     /// The add went through: the form, and every secret typed in it, is
-    /// forgotten, and the sheet turns to the new source.
+    /// forgotten, and the sheet turns to the new source, with the form's
+    /// notes beside a secret Fermix made for it.
     private func added(_ outcome: CueSourceAddOutcome) {
+        let notes = sourceForm.notes
         sourceForm = CueSourceFormState()
-        state.added(outcome)
+        state.added(outcome, notes: notes)
+    }
+
+    /// A requirement's plugin: the sheet closes, and Integrations opens at
+    /// that plugin's page.
+    private func openPlugin(_ name: String) {
+        dismiss(nil)
+        model.showPluginPage(name)
     }
 
     private func mandateSent(_ name: String) {

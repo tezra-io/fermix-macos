@@ -2,9 +2,11 @@ import SwiftUI
 
 /// The chat surface's own measures (redlines §8 decision 36).
 enum ChatMetrics {
-    /// The reading column the transcript and the composer share, centred in
-    /// the body however wide the window is.
-    static let columnWidth: Double = 720
+    /// The reading column the messages and the composer share, centred in
+    /// the body however wide the window is, so the composer's edges line up
+    /// with the messages' (owner, 2026-11-02): the 48 em column the chat apps
+    /// people know read at (owner, 2026-11-01: 720 read narrow).
+    static let columnWidth: Double = 768
     /// The room the column keeps from the body's edges, the transcript's and
     /// the composer's alike, when the body is narrower than the column.
     static let columnGutter: Double = Spacing.l
@@ -33,6 +35,16 @@ enum ChatMetrics {
     static let sendingStrength: Double = 0.6
     /// The composer grows to this many lines and then scrolls inside itself.
     static let composerLines = 1...6
+    /// The attach button's glyph, the composer's leading control.
+    static let attachGlyph: Double = 14
+    /// A file's chip over the composer's field: its picture or icon, square,
+    /// and the widest its name runs before it is cut in the middle.
+    static let attachChipThumb: Double = 32
+    static let attachChipNameWidth: Double = 160
+    /// The palette over the composer: as tall as this many commands, then it
+    /// scrolls.
+    static let paletteVisibleRows = 6
+    static let paletteRowHeight: Double = 44
     /// The composer's inset around its line and its action, which makes it the
     /// in-window control height while it is one line: the regular action plus
     /// this above and below is extra large.
@@ -41,6 +53,14 @@ enum ChatMetrics {
         leading: Spacing.m,
         bottom: (HitTarget.button - HitTarget.rowAction) / 2,
         trailing: (HitTarget.button - HitTarget.rowAction) / 2
+    )
+    /// The same with the attach button at the leading edge, which sits in
+    /// from it as the action does from the trailing one.
+    static let composerAttachInset = EdgeInsets(
+        top: composerInset.top,
+        leading: composerInset.trailing,
+        bottom: composerInset.bottom,
+        trailing: composerInset.trailing
     )
     /// A message's own corners, the approval card's and the call box's, and
     /// a strip's tiles'.
@@ -130,6 +150,11 @@ enum ChatMetrics {
 /// conversation's top right, and while it is up the pet floats at the body's
 /// top right (`ChatCallBox`): nothing in the column moves for it, in either
 /// state (M56; the owner's direction of 2026-10-03).
+///
+/// Where the daemon serves the owner's lists, the toolbar's Lists button
+/// shows the Lists panel at the body's right (M85 §09), past a divider that
+/// drags it between 280 and 420 points; the column and the call box take
+/// what is left.
 struct ChatSurfaceView: View {
     let session: CompanionSession
     @ObservedObject var model: CompanionModel
@@ -155,14 +180,21 @@ struct ChatSurfaceView: View {
     let media: ChatMedia
     /// The app's one player, which a sound in a row plays on.
     let player: AppPlayer
-    /// The toolbar's commands: "Show browser" (plan §4.10) and the call.
+    /// The toolbar's commands: "Show browser" (plan §4.10), the call and
+    /// the Lists panel.
     let router: any CommandPerforming
+    /// The Lists panel beside the chat, observed for whether it is open and
+    /// how wide, and whether the daemon serves lists at all.
+    @ObservedObject var lists: ChecklistPanelModel
 
     /// The text being written. The session holds it as well, so leaving Chat
     /// or opening Settings mid-call, which rebuilds this view, does not lose it.
     @State private var draft: String
     @State private var query = ""
     @State private var resultsShown = false
+    /// Whether a file is being dragged over the chat, which the composer
+    /// shows by its border.
+    @State private var dropping = false
     @State private var reveal: ChatReveal?
     /// The body's width, which the reading column and every strip in it are
     /// fitted to. It starts at the width a full column takes, the usual
@@ -174,6 +206,9 @@ struct ChatSurfaceView: View {
     /// The one place the chat shows on a reply's map, forgotten with the
     /// surface as the visit is.
     @StateObject private var places: ChatPlaceSelection
+    /// The check every link in the chat opens through, and the link it holds
+    /// back while the chat asks about it.
+    @StateObject private var linkGuard: ChatLinkGuard
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -185,7 +220,8 @@ struct ChatSurfaceView: View {
         links: ContentLinkOpener,
         media: ChatMedia,
         player: AppPlayer,
-        router: any CommandPerforming
+        router: any CommandPerforming,
+        lists: ChecklistPanelModel
     ) {
         self.session = session
         self.model = session.model
@@ -197,42 +233,44 @@ struct ChatSurfaceView: View {
         self.media = media
         self.player = player
         self.router = router
+        self.lists = lists
         _draft = State(initialValue: session.draft)
         _places = StateObject(wrappedValue: ChatPlaceSelection(links: links))
+        _linkGuard = StateObject(wrappedValue: ChatLinkGuard(links: links))
     }
 
     var body: some View {
         let items = ChatTimeline.items(of: model)
 
-        column(items)
+        HStack(spacing: 0) {
+            conversation(items)
+
+            if lists.isOpen, lists.served {
+                ChecklistPanelEdge(panel: lists)
+                ChecklistPanel(panel: lists, index: lists.library.index)
+            }
+        }
             // Every row reads its media, the player, the opener, the place
-            // shown, the home and its strip's width from here: the transcript
-            // builds its rows with nothing of their own to pass them (M66 §3.2).
+            // shown, the home, its strip's width and the lists from here: the
+            // transcript builds its rows with nothing of their own to pass
+            // them (M66 §3.2).
             .environment(\.chatRows, ChatRowContext(
                 media: media,
                 player: player,
                 links: links,
                 places: places,
+                linkGuard: linkGuard,
                 visit: visit,
-                columnWidth: ChatMetrics.column(inBody: bodyWidth)
+                columnWidth: ChatMetrics.column(inBody: bodyWidth),
+                lists: lists
             ))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onGeometryChange(for: Double.self) { proxy in
-                proxy.size.width
-            } action: { width in
-                bodyWidth = width
-            }
-            // The call floats at the body's top right, in the margin beside
-            // the centred column; only a body too narrow for that margin puts
-            // it over the transcript's trailing edge (`ChatCallBox.overlapsColumn`).
-            .overlay(alignment: .topTrailing) {
-                ChatCallBox(call: call, pet: pet)
-                    .padding(.top, ChatMetrics.callBoxInset)
-                    .padding(.trailing, ChatMetrics.callBoxInset)
-            }
+            // A cue's label opens its watcher's page in Settings, through the
+            // one door Command-comma takes.
+            .environment(\.openCueWatcher, OpenCueWatcherAction { [settings, router] name in
+                settings.showCueWatcher(name)
+                router.perform(.openSettings)
+            })
             .navigationTitle(ProductStrings[.sidebarChat])
-            .searchable(text: $query, placement: .toolbar, prompt: ProductStrings[.chatSearchPrompt])
-            .onSubmit(of: .search) { search() }
             .onChange(of: query) {
                 guard query.isEmpty else { return }
 
@@ -246,8 +284,9 @@ struct ChatSurfaceView: View {
 
                 search()
             }
-            // The session connects the first time a surface asks and then stays
-            // connected, so coming back to Chat asks nothing new.
+            // The session connects at launch and then stays connected, so
+            // coming back to Chat asks nothing new; after a refusal it tries
+            // once more.
             .task { session.connect() }
             // The Fermix home is read as the surface appears, as the browser
             // reads it at each open: on appearing rather than in a task,
@@ -256,16 +295,56 @@ struct ChatSurfaceView: View {
             .onAppear { visit = media.surfaceEntered() }
             // A link in a reply opens where the person's preference says,
             // through the one content link opener, never through SwiftUI's own
-            // hop to the default browser.
+            // hop to the default browser, and only once the chat's check has
+            // passed it (`ChatLinkGuard`).
             .environment(\.openURL, OpenURLAction { url in
-                links.open(url)
+                linkGuard.open(url)
                 return .handled
             })
+            .alert(
+                ProductStrings[.chatLinkHeldTitle],
+                isPresented: Binding(get: { linkGuard.held != nil }, set: { if !$0 { linkGuard.dismiss() } }),
+                presenting: linkGuard.held
+            ) { _ in
+                // Return keeps the link closed: opening it is the choice
+                // made on purpose.
+                Button(ProductStrings[.chatLinkOpenAnyway]) { linkGuard.openHeld() }
+                Button(ProductStrings[.chatLinkCancel], role: .cancel) { linkGuard.dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            } message: { held in
+                Text(ChatLinkCautionWords.sentence(held.caution))
+            }
             .toolbar {
-                SurfaceToolbar(spec: CommandTable.toolbar(for: .chat), router: router, follows: gate)
+                SurfaceToolbar(spec: CommandTable.toolbar(for: .chat, condition: toolbarCondition), router: router, follows: gate)
+                ToolbarSearch(text: $query, prompt: ProductStrings[.chatSearchPrompt], submit: search)
             }
             .onChange(of: draft) {
                 session.draft = draft
+            }
+    }
+
+    /// Chat's toolbar asks the daemon one thing: whether it serves lists.
+    private var toolbarCondition: ToolbarCondition {
+        ToolbarCondition(setupComplete: ToolbarCondition.unknown.setupComplete, reconcilePending: false, listsServed: lists.served)
+    }
+
+    /// The conversation: the column, as wide as the body less the panel, with
+    /// the call box at its own top right.
+    private func conversation(_ items: [ChatItem]) -> some View {
+        column(items)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onGeometryChange(for: Double.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                bodyWidth = width
+            }
+            // The call floats at the body's top right, in the margin beside
+            // the centred column; only a body too narrow for that margin puts
+            // it over the transcript's trailing edge (`ChatCallBox.overlapsColumn`).
+            .overlay(alignment: .topTrailing) {
+                ChatCallBox(call: call, pet: pet)
+                    .padding(.top, ChatMetrics.callBoxInset)
+                    .padding(.trailing, ChatMetrics.callBoxInset)
             }
     }
 
@@ -299,6 +378,9 @@ struct ChatSurfaceView: View {
                 draft: $draft,
                 connection: model.connection,
                 turn: model.turn,
+                attachments: session.attachments,
+                commands: model.commands,
+                dropping: dropping,
                 send: send,
                 cancel: session.cancel(clientMsgId:)
             )
@@ -311,15 +393,27 @@ struct ChatSurfaceView: View {
                 Spacer(minLength: 0)
             }
         }
+        // A file dropped anywhere on the conversation joins the message,
+        // where the engine takes files.
+        .dropDestination(for: URL.self) { files, _ in
+            guard session.attachments.inbox != nil, model.connection.acceptsMessages else { return false }
+
+            session.attachments.add(files)
+            return files.contains(where: \.isFileURL)
+        } isTargeted: { over in
+            dropping = over && session.attachments.inbox != nil
+        }
     }
 
-    /// Sends the draft. The first message of an empty timeline is what docks
-    /// the composer, and it is the one change here that animates.
+    /// Sends the draft and the files it carries. The first message of an
+    /// empty timeline is what docks the composer, and it is the one change
+    /// here that animates.
     private func send() {
-        let text = draft
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : draft
+        let files = session.attachments.take()
         draft = ""
         withAnimation(Motion(reduceMotion: reduceMotion).animation(.stepCrossfade)) {
-            session.send(text)
+            session.send(text, attachments: files)
         }
     }
 

@@ -54,10 +54,12 @@ public struct CueTypedSecret: Equatable, Sendable {
 public enum CueSourceAddOutcome: Equatable, Sendable {
     /// The daemon refused the add, so nothing was written.
     case refused(CueRefusal)
-    /// The source exists. `token` is a new local push source's first token,
-    /// handed out once, for the view to show and forget. A typed secret that
-    /// could not be stored is the store's refusal, under its field.
-    case added(ref: String, token: String?, unstored: CueRefusal?)
+    /// The source exists, under `ref`, the name the daemon answered. `token`
+    /// is a new local push source's first token and `secret` the one Fermix
+    /// made for a GitHub source, each handed out once, for the view to show
+    /// and forget. A typed secret that could not be stored is the store's
+    /// refusal, under its field.
+    case added(ref: String, token: String?, secret: String?, unstored: CueRefusal?)
 }
 
 /// The cues guide on fermix.ai: what the pane keeps short, explained. A
@@ -124,10 +126,12 @@ extension SettingsModel {
 
     /// Whether a route to this pane lands on Providers instead: Cues, on a
     /// daemon this window has read and found without the method or the
-    /// section. Where neither has been read yet, the gate read the window
-    /// makes as it appears decides (`refreshCueGate`), which falls back the
-    /// same way, so a link opened at launch is not refused on a guess.
+    /// section, and Always On by its own gate (`refusesAlwaysOnRoute`).
+    /// Where neither has been read yet, the gate read the window makes as it
+    /// appears decides (`refreshCueGate`), which falls back the same way, so
+    /// a link opened at launch is not refused on a guess.
     public func refusesRoute(to pane: SettingsPane) -> Bool {
+        if pane == .alwaysOn { return refusesAlwaysOnRoute() }
         guard pane == .cues else { return false }
 
         if !servedMethods.isEmpty, !servedMethods.contains(.cuesStatus) { return true }
@@ -135,9 +139,10 @@ extension SettingsModel {
     }
 
     /// Reads what the gate needs: the methods `hello` lists, then, where both
-    /// the method and the section are there, `cues.status`. A restored
-    /// selection of a pane the daemon does not draw goes back to the first
-    /// pane, so the window never opens on nothing.
+    /// the method and the section are there, `cues.status`, which is the
+    /// status the pane then draws. A restored selection of a pane the daemon
+    /// does not draw goes back to the first pane, so the window never opens
+    /// on nothing.
     public func refreshCueGate() async {
         do {
             publish(try await gateway.servedMethods(), to: \.servedMethods)
@@ -154,17 +159,35 @@ extension SettingsModel {
         }
     }
 
+    /// Selects Cues with one watcher's page asked for: a cue's label in
+    /// Chat opens the watcher whose item started the run.
+    public func showCueWatcher(_ name: String) {
+        precondition(!name.isEmpty, "a watcher's page names its watcher")
+
+        askedCuesPage = .watcher(name)
+        selectedPane = .cues
+    }
+
+    /// The page asked for, once: the pane opens its sheet on it.
+    public func takeAskedCuesPage() -> CuesSheetPage? {
+        defer { askedCuesPage = nil }
+        return askedCuesPage
+    }
+
     // MARK: - Reads
 
-    /// Everything the pane shows below its switches: the status, the three
-    /// lists and the proposals waiting. Each is its own read, so one the
+    /// Everything the pane shows below its settings: the three lists and the
+    /// proposals waiting, read at once. Each is its own read, so one the
     /// daemon refuses (watchers with memory off) leaves the others drawn.
+    /// The status is not among them: the window's gate read it just before
+    /// the pane could appear, and every write and restart reads it again.
     public func refreshCues() async {
-        await refreshCueStatus()
-        await refreshCueSources()
-        await refreshCueWatchers()
-        await refreshCueMandates()
-        await refreshCueProposals()
+        await withDiscardingTaskGroup { group in
+            group.addTask { await self.refreshCueSources() }
+            group.addTask { await self.refreshCueWatchers() }
+            group.addTask { await self.refreshCueMandates() }
+            group.addTask { await self.refreshCueProposals() }
+        }
     }
 
     public func refreshCueStatus() async {
@@ -220,17 +243,21 @@ extension SettingsModel {
         }
     }
 
-    /// The add form for one choice, after a short pause, so a run of changes
-    /// to the kind, the preset and the check asks once. A request superseded
-    /// while it waits is cancelled by its caller and asks nothing.
+    /// The add form for one choice, after the pause given, so a run of
+    /// changes to the check asks once. No pause asks at once. A request superseded while it waits is cancelled by its
+    /// caller and asks nothing.
     public func cueSourceForm(
         _ request: ManagementCueFormRequest,
         pause: TimeInterval
     ) async -> Result<ManagementCueSourceForm, CueRefusal>? {
-        do {
-            try await sleeper.sleep(seconds: pause)
-        } catch {
-            return nil
+        precondition(pause >= 0, "a pause is never negative")
+
+        if pause > 0 {
+            do {
+                try await sleeper.sleep(seconds: pause)
+            } catch {
+                return nil
+            }
         }
         guard !Task.isCancelled else { return nil }
 
@@ -267,6 +294,28 @@ extension SettingsModel {
     /// explained. Answers a sentence where the browser could not open.
     public func openCuesGuide() -> String? {
         opener.open(CueGuide.url) ? nil : ProductStrings[.cuesGuideOpenFailed]
+    }
+
+    // MARK: - The Screen
+
+    /// The Screen's value as the pane shows it: the option just chosen while
+    /// its write is out, the daemon's once it answers. The segmented control
+    /// draws it and the decision model row is shown by it, so the two never
+    /// disagree.
+    public func cueScreenValue(_ screen: ManagementSettingRow) -> String {
+        precondition(screen.key == CuesPaneKeys.screen, "the Screen's value is the cues_screen row's")
+        return DescriptorValue.text(value(of: screen, in: CueFilterPair.section))
+    }
+
+    /// Whether the pane draws a row of the `cues` section: every row it
+    /// publishes, but the decision model only while the Screen shows
+    /// Decision model. The daemon publishes that row whatever the Screen is,
+    /// so it is shown and hidden here with no read.
+    public func drawsCueRow(_ row: ManagementSettingRow) -> Bool {
+        guard row.key == CuesPaneKeys.decisionProvider else { return true }
+
+        let screen = section(CueFilterPair.section).value?.rows.first { $0.key == CuesPaneKeys.screen }
+        return screen.map(cueScreenValue) == CueScreenProjection.decisionModel
     }
 
     // MARK: - The default filter model
@@ -311,10 +360,11 @@ extension SettingsModel {
 
     // MARK: - Source writes
 
-    /// Adds a source, then stores each secret typed for it, one `secret.set`
-    /// each, stopping at the first refusal. The list is read again either
-    /// way, so a source left waiting for its secret says so in the daemon's
-    /// words.
+    /// Adds a source, then stores each secret typed for it under the name
+    /// the daemon answered, which is the one Fermix made where none was
+    /// sent: one `secret.set` each, stopping at the first refusal. The list
+    /// is read again either way, so a source left waiting for its secret
+    /// says so in the daemon's words.
     public func addCueSource(_ spec: ManagementCueSourceSpec, secrets: [CueTypedSecret]) async -> CueSourceAddOutcome {
         let added: ManagementCueSourceAdded
         switch await cueWrite({ try await self.gateway.addCueSource(spec) }) {
@@ -322,10 +372,11 @@ extension SettingsModel {
         case .success(let answer): added = answer
         }
 
-        let unstored = await store(secrets, ref: spec.ref)
+        let ref = added.source.ref
+        let unstored = await store(secrets, ref: ref)
         await refreshCueSources()
         await refreshCueStatus()
-        return .added(ref: spec.ref, token: added.token, unstored: unstored)
+        return .added(ref: ref, token: added.token, secret: added.secret, unstored: unstored)
     }
 
     /// Changes the fields named, then reads the source's detail again.
@@ -386,6 +437,25 @@ extension SettingsModel {
         if case .success = answer, cueSource(ref)?.hasURL == false { await refreshCueSources() }
 
         return answer
+    }
+
+    // MARK: - Watcher writes
+
+    /// Ask first again: takes back the owner's Always allow of a watcher's
+    /// follow-up, then reads the list and the watcher again, so its row and
+    /// its page say what the daemon now says. A refusal is the daemon's
+    /// sentence, for under the control.
+    public func revokeCueWatcherAlwaysAllow(_ name: String) async -> CueRefusal? {
+        precondition(!name.isEmpty, "a watcher is named")
+
+        switch await cueWrite({ try await self.gateway.revokeCueWatcherAlwaysAllow(name: name) }) {
+        case .failure(let refusal):
+            return refusal
+        case .success:
+            await refreshCueWatchers()
+            await readCueWatcher(name)
+            return nil
+        }
     }
 
     // MARK: - Mandate writes

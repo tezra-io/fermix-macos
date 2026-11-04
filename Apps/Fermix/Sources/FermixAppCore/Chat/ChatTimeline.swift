@@ -24,8 +24,9 @@ enum ChatItem: Equatable, Identifiable {
     /// A cue proposal's card (M60 §4.7): no timeline row and no seq, placed
     /// in the conversation at the time it was made.
     case proposal(CompanionProposalCard)
-    /// A message the daemon has not accepted yet.
-    case pending(clientMsgId: String, text: String)
+    /// A message the daemon has not accepted yet, and the names of the files
+    /// it carries.
+    case pending(clientMsgId: String, text: String, files: [String] = [])
     /// The latest failure, in the daemon's or the catalogue's sentence.
     case error(String)
 
@@ -35,9 +36,16 @@ enum ChatItem: Equatable, Identifiable {
         case .turn(let turn): return .turn(turn.turnId)
         case .approval(let approval, _): return .approval(approval.approvalId)
         case .proposal(let card): return .proposal(card.id)
-        case .pending(let clientMsgId, _): return .pending(clientMsgId)
+        case .pending(let clientMsgId, _, _): return .pending(clientMsgId)
         case .error: return .error
         }
+    }
+
+    /// The seq of the timeline row the item draws, where it draws one.
+    var rowSeq: Int? {
+        guard case .row(let row) = self else { return nil }
+
+        return row.serverSeq
     }
 
     /// A message this client sent and the daemon has not yet accepted: the
@@ -45,6 +53,14 @@ enum ChatItem: Equatable, Identifiable {
     var isPending: Bool {
         if case .pending = self { return true }
         return false
+    }
+
+    /// Whether the item carries a reply's actions under it
+    /// (`ChatMessageActions`).
+    var carriesActions: Bool {
+        guard case .row(let row) = self else { return false }
+
+        return ChatMessageActions.carried(by: row)
     }
 
     /// Whether the owner, not the daemon, wrote this item: their own row, or
@@ -57,6 +73,15 @@ enum ChatItem: Equatable, Identifiable {
         case .turn, .approval, .proposal, .error: return false
         }
     }
+}
+
+/// What stands over a message of Fermix's (`ChatTimeline.seam`).
+enum ChatSeam: Equatable, Sendable {
+    case none
+    /// A plain hairline across the column.
+    case line
+    /// Where it came from, over the hairline (`ChatOriginLabel`).
+    case origin(CompanionRowOrigin)
 }
 
 /// The transcript as a list: every fact the chat model publishes, in reading
@@ -141,10 +166,40 @@ enum ChatTimeline {
         return !(previous.isUserAuthored && !current.isUserAuthored)
     }
 
-    private static func message(_ entry: CompanionOutboxEntry) -> ChatItem? {
-        guard case .message(let text) = entry.request else { return nil }
+    /// What stands over an item, which sets apart the messages Fermix sends
+    /// on its own (owner, 2026-11-02): over one whose run named where it
+    /// came from, that origin's label; over one that follows another of
+    /// Fermix's with nothing of the owner's between, a plain line, which is
+    /// how a message from before the engine named origins, a watcher's
+    /// notice or a reminder stands apart. A message with no words of its own,
+    /// a picture or a file, from the same place as the one of Fermix's above
+    /// it, is part of that message and takes nothing. A reply to the owner,
+    /// and anything the owner wrote, takes nothing.
+    static func seam(after previous: ChatItem?, before current: ChatItem) -> ChatSeam {
+        guard case .row(let row) = current, !ChatSpeaker.isUser(row.role), row.inReplyTo == nil else { return .none }
+        if row.text.isEmpty, case .row(let above)? = previous, !ChatSpeaker.isUser(above.role), above.origin == row.origin {
+            return .none
+        }
+        if let origin = row.origin { return .origin(origin) }
+        guard let previous, !previous.isUserAuthored else { return .none }
 
-        return .pending(clientMsgId: entry.clientMsgId, text: text)
+        return .line
+    }
+
+    /// The room an item keeps above it on top of the transcript's base
+    /// rhythm: a turn's seam where it opens a new turn, less the room the
+    /// actions of a reply above it already keep, which stand in that seam.
+    static func turnPadding(after previous: ChatItem?, before current: ChatItem) -> Double {
+        guard opensNewTurn(after: previous, before: current) else { return 0 }
+
+        let actions = previous?.carriesActions == true ? ChatMetrics.actionsHeight : 0
+        return max(0, ChatMetrics.turnGap - ChatMetrics.rowGap - actions)
+    }
+
+    private static func message(_ entry: CompanionOutboxEntry) -> ChatItem? {
+        guard case .message(let text, let attachments) = entry.request else { return nil }
+
+        return .pending(clientMsgId: entry.clientMsgId, text: text, files: attachments.map(\.name))
     }
 
     /// Whether one of the approval's two routes is waiting in the outbox.

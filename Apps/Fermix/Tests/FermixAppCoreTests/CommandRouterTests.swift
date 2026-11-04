@@ -52,6 +52,33 @@ struct CommandRouterTests {
         #expect(harness.browserHarness.model.tabs.isEmpty)
     }
 
+    /// The Lists command exists only where the daemon serves lists, shows
+    /// and hides the panel beside the chat, and from anywhere else opens Chat
+    /// with the panel shown (M85 §09).
+    @Test("the Lists command follows the daemon, and toggles the panel beside the chat")
+    func listsCommand() async throws {
+        let harness = try RouterHarness()
+
+        #expect(!harness.router.canPerform(.toggleLists), "no daemon has said it serves lists")
+        harness.surfaces.companion.connect()
+        harness.companionSocket.deliver(CompanionEvents.hello())
+        #expect(harness.router.canPerform(.toggleLists))
+
+        harness.model.route = .chat
+        harness.router.perform(.toggleLists)
+        #expect(harness.surfaces.lists.isOpen)
+        #expect(harness.router.isOn(.toggleLists))
+        #expect(harness.router.menuTitle(of: .toggleLists) == "Hide Lists")
+        harness.router.perform(.toggleLists)
+        #expect(!harness.surfaces.lists.isOpen)
+
+        harness.model.route = .logs
+        harness.router.perform(.toggleLists)
+        try await harness.coordinator.drainPendingWork()
+        #expect(harness.model.route == .chat)
+        #expect(harness.surfaces.lists.isOpen)
+    }
+
     /// Home's tinted primary takes the same route `fermix://setup` does: the
     /// assistant while a gating readiness failure stands, the settings
     /// presentation once none does (M34 §3.4, decision D1).
@@ -568,6 +595,9 @@ final class RouterHarness {
     /// "Show browser"'s own owner, over the same fakes `BrowserHostCoordinatorTests`
     /// proves the reducer's rules against.
     let browserHarness = BrowserHarness()
+    /// The chat's socket, which a case answers the handshake on so the
+    /// daemon serves lists (M85).
+    let companionSocket = FakeCompanionSocket()
 
     static let launcherPath = "/Applications/Fermix.app/Contents/MacOS/fermix"
     /// A throwaway account root: the router never writes a record, and a store
@@ -623,6 +653,11 @@ final class RouterHarness {
             readiness: home,
             setUpVoice: { [coordinator] in coordinator.open(.settings(.voice)) }
         )
+        let companion = CompanionSession(
+            transport: CompanionSocketClient(lines: companionSocket),
+            socketPath: { "/tmp/fermix-test/companion.sock" },
+            deadlines: ManualDeadlineScheduler()
+        )
         surfaces = MainWindowSurfaces(
             home: home,
             doctor: DoctorModel(
@@ -655,11 +690,8 @@ final class RouterHarness {
                 sleeper: NoWaitSleeper()
             ),
             settings: settings,
-            companion: CompanionSession(
-                transport: CompanionSocketClient(lines: FakeCompanionSocket()),
-                socketPath: { "/tmp/fermix-test/companion.sock" },
-                deadlines: ManualDeadlineScheduler()
-            )
+            companion: companion,
+            lists: ChecklistPanelModel(library: companion.lists, store: FixtureChecklistPanelStore(open: false))
         )
 
         router = CommandRouter(

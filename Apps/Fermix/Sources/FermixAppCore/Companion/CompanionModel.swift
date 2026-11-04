@@ -17,13 +17,27 @@ public enum CompanionConnection: Equatable, Sendable {
     case refused(String)
     /// Not connected, and the session is trying again. The sentence says why.
     case disconnected(String)
+    /// Not connected because the engine here is a desktop whose server is out
+    /// of reach, or whose home is moving (M75): the daemon's sentence says
+    /// the message is kept. What is written now waits in the outbox and is
+    /// sent at the next handshake, and the session keeps trying.
+    case waiting(String)
 
     /// What a surface says about this state, where it says anything.
     public var sentence: String? {
         switch self {
         case .idle, .connecting, .connected: return nil
         case .engineHasNoChat: return ProductStrings[.companionConnectionEngineHasNoChat]
-        case .refused(let sentence), .disconnected(let sentence): return sentence
+        case .refused(let sentence), .disconnected(let sentence), .waiting(let sentence): return sentence
+        }
+    }
+
+    /// Whether the composer takes a message: on a live connection, and while
+    /// the server is away, when it waits in the outbox until the next one.
+    public var acceptsMessages: Bool {
+        switch self {
+        case .connected, .waiting: return true
+        case .idle, .connecting, .engineHasNoChat, .refused, .disconnected: return false
         }
     }
 }
@@ -64,11 +78,19 @@ public final class CompanionModel: ObservableObject {
     /// with different content. The transcript keeps its reader's place
     /// against it.
     @Published public private(set) var reshape: CompanionReshape?
+    /// The slash commands the engine serves, as its latest hello named them:
+    /// the composer's palette. Kept across a drop, as the engine's list is
+    /// the same until it is replaced.
+    @Published public private(set) var commands: [CompanionCommand] = []
 
     init() {}
 
     func show(_ connection: CompanionConnection) {
         publish(\.connection, connection)
+    }
+
+    func show(commands: [CompanionCommand]) {
+        publish(\.commands, commands)
     }
 
     /// Publishes the reduced chat. Only the facts that changed are written, so

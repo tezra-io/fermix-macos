@@ -396,7 +396,8 @@ check_vendored_contracts() {
 }
 
 # Every mark in the source tree must have reached the bundle, and the record
-# that describes them must travel with them.
+# that describes them must travel with them; so must every file of the
+# reading face.
 check_staged_assets() {
   local resources marks source_marks name record
   resources="$(product_config_resource_root "$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME")"

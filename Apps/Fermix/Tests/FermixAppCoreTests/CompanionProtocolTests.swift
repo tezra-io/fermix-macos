@@ -43,6 +43,7 @@ struct CompanionProtocolTests {
         let main = CompanionProtocol.profileId
         let produced: [CompanionClientEvent] = [
             .clientHello(protocolVersion: CompanionProtocol.version),
+            .clientHello(protocolVersion: CompanionProtocol.version, primaryEpoch: 2),
             .msg(clientMsgId: "mac-1", profileId: main, text: "What is on my calendar today?"),
             .command(clientMsgId: "mac-2", profileId: main, name: "confirm", args: "opaque-token"),
             .cancel(profileId: main, clientMsgId: "mac-3"),
@@ -60,7 +61,9 @@ struct CompanionProtocolTests {
             .mediaRelease(profileId: main, ref: "9879f6d3c9efefe8c4f4aabe9d3269762264be52794e96f62ab8ffa53b7fadec"),
             .proposalAnswer(clientMsgId: "mac-10", profileId: main, proposalId: "cpr_4f1c2a9b7e3d5a60c8b1f2e3", decision: .confirm),
             .proposalAnswer(clientMsgId: "mac-11", profileId: main, proposalId: "cpr_9a0b1c2d3e4f5a6b7c8d9e0f", decision: .deny)
-        ]
+        ] + Self.checklistClientEvents + [
+            .proposalAnswer(clientMsgId: "mac-12", profileId: main, proposalId: "cft_5d2e8a1c9b4f7e3a6c0d1b2e", decision: .alwaysAllow)
+        ] + Self.attachmentClientEvents
 
         #expect(produced.count == fixtures.count)
         #expect(Set(fixtures.map(\.type)) == (try CompanionFixtures.publishedTypes("clientEvent")))
@@ -77,6 +80,110 @@ struct CompanionProtocolTests {
                 "\(fixture.type): \(String(decoding: line, as: UTF8.self))"
             )
         }
+    }
+
+    /// Version 7: two files handed over, one named and one not, and two
+    /// messages naming them, one with no words.
+    static let attachmentClientEvents: [CompanionClientEvent] = {
+        let main = CompanionProtocol.profileId
+        return [
+            .attachFile(CompanionAttachFile(
+                attachId: "mac-att-7f3a9c",
+                kind: .image,
+                mime: "image/jpeg",
+                sizeBytes: 183_204,
+                sha256: "5f0d1c3a9e7b4c2d8a6f1e0b3c5d7a9e2f4b6d8c0a1e3f5b7d9c2e4a6f8b0d1c",
+                name: "IMG_0412.jpg"
+            )),
+            .attachFile(CompanionAttachFile(
+                attachId: "mac-att-2b81d0",
+                kind: .voice,
+                mime: "audio/mp4",
+                sizeBytes: 40_817,
+                sha256: "c4e1a7b9d3f5028e6a1c9b7d5f3e1a0c8b6d4f2e0a9c7b5d3f1e8a6c4b2d0f9e",
+                name: nil
+            )),
+            .msg(clientMsgId: "mac-40", profileId: main, text: "What is in this picture?", attachIds: ["mac-att-7f3a9c"]),
+            .msg(clientMsgId: "mac-41", profileId: main, text: "", attachIds: ["mac-att-2b81d0"]),
+        ]
+    }()
+
+    /// Version 6: the owner's lists (M85), in the goldens' order: the two
+    /// pulls, then one edit of each op the contract publishes, by row id.
+    static let checklistClientEvents: [CompanionClientEvent] = {
+        let main = CompanionProtocol.profileId
+        let groceries = "ck_4q8m2x7v1d"
+        let packing = "ck_2b7n5r8c3j"
+        func edit(_ id: Int, _ list: String?, _ op: CompanionChecklistOp) -> CompanionClientEvent {
+            .checklistEdit(clientMsgId: "mac-\(id)", profileId: main, listId: list, op: op)
+        }
+
+        return [
+            .checklistsPull(profileId: main),
+            .checklistPull(profileId: main, listId: groceries),
+            .checklistPull(profileId: main, listId: groceries, removed: true),
+            edit(20, nil, .create(title: "Packing", folder: "Trips")),
+            edit(21, groceries, .add(text: "Lemons", note: "The unwaxed ones", place: .section("ci_5w7p0t4n6b"))),
+            edit(22, groceries, .add(text: "Bread", note: nil, place: .after("ci_8f3k2m9q1x"))),
+            edit(23, groceries, .check(rowId: "ci_3h9d1v8r2k")),
+            edit(24, groceries, .uncheck(rowId: "ci_3h9d1v8r2k")),
+            edit(25, groceries, .edit(rowId: "ci_3h9d1v8r2k", text: "Basil, two bunches", note: "")),
+            edit(26, groceries, .move(rowId: "ci_6j4c7x0m5s", place: nil, toListId: "ck_9t3k6w0p5h")),
+            edit(27, groceries, .move(rowId: "ci_6j4c7x0m5s", place: .section("ci_5w7p0t4n6b"), toListId: nil)),
+            edit(28, groceries, .section(text: "Dairy", afterId: "ci_6j4c7x0m5s")),
+            edit(29, groceries, .remove(rowId: "ci_6j4c7x0m5s")),
+            edit(30, groceries, .folder("Home")),
+            edit(31, groceries, .folder("")),
+            edit(32, groceries, .rename(text: "Weekly groceries")),
+            edit(33, groceries, .clearDone),
+            edit(34, groceries, .restore(rowId: "ci_6j4c7x0m5s", title: nil)),
+            edit(35, packing, .restore(rowId: nil, title: nil)),
+            edit(36, packing, .restore(rowId: nil, title: "Packing, spring")),
+            edit(37, packing, .removeList)
+        ]
+    }()
+
+    /// A list's events carry the index, a whole list with its rows in order,
+    /// what a device's adds made, and the removed rows Recently removed is
+    /// drawn from, each under the Swift names.
+    @Test("the golden lists decode under the Swift names")
+    func checklistFixtureFields() throws {
+        let fixtures = try CompanionFixtures.load(.serverEvents)
+        let indexes = try fixtures.filter { $0.type == "checklists" }.map { try CompanionServerEvent.decode($0.line) }
+        let lists = try fixtures.filter { $0.type == "checklist" }.map { try CompanionServerEvent.decode($0.line) }
+
+        #expect(indexes.count == 2)
+        #expect(indexes.first == .checklists(profileId: "main", lists: [
+            CompanionChecklistEntry(listId: "ck_9t3k6w0p5h", title: "Fermix", folder: "Projects", open: 4, done: 1, rev: 12),
+            CompanionChecklistEntry(listId: "ck_4q8m2x7v1d", title: "Groceries", folder: nil, open: 3, done: 1, rev: 7)
+        ]))
+        #expect(indexes.last == .checklists(profileId: "main", lists: []))
+
+        guard lists.count == 4,
+              case .checklist(_, let groceries, let made) = lists[0],
+              case .checklist(_, let removed, let none) = lists[1],
+              case .checklist(_, let created, let madeList) = lists[2],
+              case .checklist(_, let gone, _) = lists[3]
+        else {
+            Issue.record("the golden lists did not decode as four lists")
+            return
+        }
+
+        #expect(groceries.rev == 7)
+        #expect(groceries.rows.map(\.kind) == [.item, .section, .item, .item, .item])
+        #expect(groceries.rows[2] == CompanionChecklistRow(rowId: "ci_0r2y8e6u3g", kind: .item, text: "Lemons", done: false, note: "The unwaxed ones"))
+        #expect(groceries.rows[1].done == nil, "a heading has no done")
+        #expect(groceries.rows[3].isDone)
+        #expect(groceries.rows[3].doneAt == "2031-06-02T14:00:00.000000Z")
+        #expect(groceries.removed == nil)
+        #expect(made == ["mac-21": "ci_0r2y8e6u3g"])
+
+        #expect(none.isEmpty)
+        #expect(removed.removed?.map(\.rowId) == ["ci_3h9d1v8r2k"])
+        #expect(removed.removed?.first?.removedAt == "2031-06-02T14:05:00.000000Z")
+        #expect(madeList == ["mac-20": "ck_2b7n5r8c3j"])
+        #expect(created.rows.isEmpty)
+        #expect(gone.removedAt == "2031-05-20T08:00:00.000000Z")
     }
 
     @Test("every golden server event decodes and writes back as itself")
@@ -110,7 +217,27 @@ struct CompanionProtocolTests {
             return try CompanionServerEvent.decode(fixture.line)
         }
 
-        #expect(try event("server_hello") == .serverHello(minVersion: 3, maxVersion: 4))
+        guard case .serverHello(let minimum, let maximum, let epoch, let role, let commands, let none) = try event("server_hello") else {
+            Issue.record("the golden hello did not decode as a hello")
+            return
+        }
+        #expect([minimum, maximum, epoch] == [6, 7, 2] && role == .primary && none == nil)
+        #expect(commands.first == CompanionCommand(name: "new", aliases: ["clear"], description: "Start a fresh conversation session."))
+        #expect(commands.contains(CompanionCommand(name: "background", aliases: ["bg"], description: commands.first { $0.name == "background" }?.description ?? "")))
+        guard case .serverHello(_, _, _, _, let named, let inbox) = try event("server_hello", where: { $0.object["attachments"] != nil }) else {
+            Issue.record("no golden hello names an inbox")
+            return
+        }
+        #expect(named == commands)
+        #expect(inbox?.dir.hasPrefix("/") == true && inbox?.dir.hasSuffix("/companion/inbox") == true)
+        #expect(inbox?.maxBytes == 20 * 1_024 * 1_024)
+        #expect(try event("attach_status") == .attachStatus(attachId: "mac-att-7f3a9c", status: .present))
+        guard case .error(let tooLarge) = try event("error", where: { $0.object["attach_id"] as? String == "mac-att-9d04e2" }) else {
+            Issue.record("no golden refusal names an attach id")
+            return
+        }
+        #expect(tooLarge.reason == "request_failed" && tooLarge.message == "This file is too large: Fermix takes files of up to 20 MB.")
+        #expect(try event("home_status_changed") == .homeStatusChanged)
 
         let duplicate = try event("accepted") { $0.object["duplicate"] as? Bool == true }
         #expect(duplicate == .accepted(CompanionAccepted(clientMsgId: "mac-1", duplicate: true, serverSeq: 13)))
@@ -121,7 +248,22 @@ struct CompanionProtocolTests {
                 CompanionToolEvent(turnId: "turn-mac-1", tool: "web_search", phase: .stop, detail: "%{status: :ok}")
             )
         )
-        #expect(try event("text_done") == .textDone(turnId: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10."))
+        let started = try event("tool_event") { $0.object["activity"] != nil }
+        #expect(
+            started == .toolEvent(
+                CompanionToolEvent(turnId: "turn-mac-1", tool: "web_search", phase: .start, detail: nil, activity: "Searching the web")
+            )
+        )
+        #expect(
+            try event("reasoning") == .reasoning(
+                turnId: "turn-mac-1",
+                text: "**Checking the calendar**\n\nThe owner wants today's schedule, so I'll look up today's events before answering."
+            )
+        )
+        #expect(
+            try event("text_done")
+                == .textDone(turnId: "turn-mac-1", serverSeq: 13, text: "You have one meeting, at 10.", timestamp: "2026-09-25T09:00:04Z")
+        )
         #expect(try event("turn_error") == .turnError(turnId: "turn-mac-3", code: "cancelled", message: "cancelled"))
         #expect(try event("turn_done") == .turnDone(turnId: "turn-mac-5"))
 
@@ -164,8 +306,47 @@ struct CompanionProtocolTests {
         }
         #expect(refusal.reason == "unsupported_protocol_version")
         #expect(refusal.direction == .clientTooNew)
-        #expect(refusal.clientVersion == 5)
-        #expect(refusal.window == CompanionVersionWindow(minimum: 3, maximum: 4))
+        #expect(refusal.clientVersion == 8)
+        #expect(refusal.window == CompanionVersionWindow(minimum: 6, maximum: 7))
+    }
+
+    /// Version 5: a watcher's follow-up asks on a proposal's card, naming the
+    /// follow-up in place of a call and offering Always allow, and a
+    /// mandate's card gains its compact lines. Every one is decoded from the
+    /// contract's own goldens; the automatic prompt an engine from before
+    /// Always allow sent has none left, and the proposal tests keep it.
+    @Test("the golden follow-up cards and a mandate's compact lines decode under the Swift names")
+    func followUpCardFixtures() throws {
+        let fixtures = try CompanionFixtures.load(.serverEvents)
+        func card(_ prefix: String) throws -> CompanionProposal {
+            let line = try #require(fixtures.first { fixture in
+                ((fixture.object["proposal"] as? [String: Any])?["proposal_id"] as? String)?.hasPrefix(prefix) == true
+            })
+            guard case .proposal(_, let proposal) = try CompanionServerEvent.decode(line.line) else {
+                throw CompanionFixtureDefect.recordHasNoType(file: prefix, line: 0)
+            }
+            return proposal
+        }
+
+        let run = try card("cft_")
+        #expect(run.ask == .followUp(CompanionFollowUp(
+            asks: .run,
+            offersAlwaysAllow: true,
+            name: "Codex review",
+            instructions: "Use Codex in ~/projects/fermix to review the last day's commits on dev and report the findings.",
+            tools: ["codex_run"],
+            reportsTo: "Telegram (owner-1)"
+        )))
+        #expect(run.outside.argsText == nil && run.outside.args == nil, "a follow-up's card carries no call")
+        #expect(run.outside.reason == "The post says usage limits reset.")
+        #expect(run.outside.cue?.subject == "@limits_bot")
+
+        let mandate = try card("cpr_4f1c")
+        #expect(mandate.ask == .call(mandate: "release-issues", tool: "github_create_issue"))
+        #expect(mandate.outside.args?.first == CompanionProposalArg(name: "labels", value: "[\"cue\"]"))
+        #expect(mandate.outside.args?.map(\.name) == ["labels", "owner", "repo", "title"])
+        #expect(mandate.outside.reason == "A Phoenix release.")
+        #expect(mandate.outside.argsText?.isEmpty == false)
     }
 
     /// The contract takes exactly one cursor, and the Swift value is the only

@@ -11,9 +11,15 @@ enum FixtureCompanionTimeline: Equatable {
     /// card in each of its states (M60 §4.7).
     case full
     /// Replies drawn for what they hold (M72): places with their map and
-    /// cards, lists, a table, a quote, links and code, all on one page, and
-    /// nothing happening now.
+    /// cards, lists, a table, a quote, links and code, then a scheduled
+    /// job's message and a cue's under the labels naming where each came
+    /// from and a reminder under a plain line, all on one page, and nothing
+    /// happening now.
     case replies
+    /// The owner's lists (M85): an older reply's card folded to one line, a
+    /// card of three lists, and the newest reply's card of one list, over
+    /// four lists in two folders and none, with nothing happening now.
+    case lists
 }
 
 /// The companion socket, replaced by a scripted daemon.
@@ -27,7 +33,12 @@ enum FixtureCompanionTimeline: Equatable {
 /// answer, resolves a proposal's answer a moment later, stops a turn that is
 /// cancelled, and grants only the link pictures of the replies timeline, from
 /// sample photos every Mac has; every other `media_fetch` is answered
-/// `media_missing`.
+/// `media_missing`. It keeps the lists timeline's lists (`FixtureChecklists`),
+/// none on any other: it answers their pulls, takes every edit and pushes
+/// each list it changed a tenth of a second later, as the engine does. Its
+/// hello names a few slash commands and an inbox under the temporary folder:
+/// it holds each file handed over a moment later, and a message naming them
+/// carries their refs, granted from its own copies, so a sent strip draws.
 ///
 /// Callbacks go out on whatever thread asked, which is the main one; the
 /// composition wraps this in the same main-actor delivery the real socket
@@ -55,6 +66,32 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
     /// The most rows one of this timeline's pages carries.
     private let pageLimit: Int
     private var repliesWritten = 0
+    private let lists: FixtureChecklists
+    /// The lists this connection pulled, and those pulled with their
+    /// removed rows, as the engine holds them.
+    private var held: [String] = []
+    private var heldWithRemoved: Set<String> = []
+    /// How long the engine's window holds a change before it pushes it.
+    static let listWindow: TimeInterval = 0.1
+    /// How long a handed-over file takes to be held.
+    static let attachDelay: TimeInterval = 0.4
+    /// The largest file the fixture takes, the engine's own default.
+    static let attachMaxBytes = 20 * 1_024 * 1_024
+    /// The inbox the hello names, and where it keeps the files it holds.
+    private let inbox = FileManager.default.temporaryDirectory.appending(path: "FermixFixtureInbox", directoryHint: .isDirectory)
+    /// The files held, by the attach id that handed each over.
+    private var attached: [String: CompanionMediaRef] = [:]
+    /// Each held file's copy, by its ref.
+    private var attachedFiles: [String: String] = [:]
+    /// A few of the engine's commands, as its hello lists them.
+    static let commands = [
+        CompanionCommand(name: "new", aliases: ["reset"], description: "Start a fresh conversation; the current one is archived."),
+        CompanionCommand(name: "compact", aliases: [], description: "Summarize the conversation so far to free up context."),
+        CompanionCommand(name: "background", aliases: ["bg"], description: "Run a task in the background and report back when it is done."),
+        CompanionCommand(name: "tasks", aliases: [], description: "List the background tasks and their state."),
+        CompanionCommand(name: "skills", aliases: [], description: "Review, approve, or deny skill-curation proposals; unpark or restore skills."),
+        CompanionCommand(name: "stop", aliases: [], description: "Stop the reply being written."),
+    ]
 
     /// `now` is when the launch began: a waiting proposal's expiry is counted
     /// from it, so the card still asks when the chat is looked at.
@@ -72,7 +109,13 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             rows = FixtureRepliesScript.rows
             opening = []
             pageLimit = Self.repliesPage
+        case .lists:
+            rows = FixtureChecklistScript.rows
+            opening = []
+            pageLimit = Self.historyPage
         }
+        lists = FixtureChecklists(timeline == .lists ? FixtureChecklistScript.seeds : [])
+        try? FileManager.default.createDirectory(at: inbox.appending(path: "held"), withIntermediateDirectories: true)
     }
 
     func connect(path: String, completion: @escaping (Result<Void, LineSocketConnectFailure>) -> Void) {
@@ -104,7 +147,12 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
     private func answer(_ type: String, _ event: [String: Any]) {
         switch type {
         case "client_hello":
-            emit(.serverHello(minVersion: CompanionProtocol.supportedWindow.minimum, maxVersion: CompanionProtocol.supportedWindow.maximum))
+            emit(.serverHello(
+                minVersion: CompanionProtocol.supportedWindow.minimum,
+                maxVersion: CompanionProtocol.supportedWindow.maximum,
+                commands: Self.commands,
+                attachments: CompanionAttachmentInbox(dir: inbox.path, maxBytes: Self.attachMaxBytes)
+            ))
         case "history_pull":
             emit(.historyPage(page(event)))
             if (event["before_seq"] as? Int) == CompanionReducer.newestPageBound { opening.forEach(emit) }
@@ -119,11 +167,20 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
         case "read_state":
             emit(.readState(profileId: CompanionProtocol.profileId, readUpToSeq: event["read_up_to_seq"] as? Int ?? 0))
         case "media_fetch":
-            emit(Self.grant(ref: event["ref"] as? String ?? ""))
+            let ref = event["ref"] as? String ?? ""
+            emit(attachedGrant(ref: ref) ?? Self.grant(ref: ref))
+        case "attach_file":
+            hold(file: event)
         case "media_release":
             break
         case "proposal_answer":
             decide(proposal: event)
+        case "checklists_pull":
+            emit(.checklists(profileId: CompanionProtocol.profileId, lists: lists.index))
+        case "checklist_pull":
+            pull(list: event)
+        case "checklist_edit":
+            edit(list: event)
         default:
             preconditionFailure("the fixture daemon has no answer for \(type)")
         }
@@ -222,7 +279,8 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
         let text = event["text"] as? String ?? ""
         emit(.accepted(CompanionAccepted(clientMsgId: clientMsgId, duplicate: false, serverSeq: nil)))
 
-        let row = append(role: "user", content: text, clientMsgId: clientMsgId, inReplyTo: nil)
+        let refs = (event["attach_ids"] as? [String] ?? []).compactMap { attached[$0] }
+        let row = append(role: "user", content: text, clientMsgId: clientMsgId, inReplyTo: nil, mediaRefs: refs)
         emit(.row(CompanionAnnouncedRow(
             profileId: CompanionProtocol.profileId,
             serverSeq: row.serverSeq,
@@ -230,9 +288,9 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
             text: row.content,
             timestamp: row.timestamp,
             clientMsgId: clientMsgId,
-            kind: "text",
+            kind: refs.isEmpty ? "text" : "media",
             metadata: nil,
-            mediaRefs: [],
+            mediaRefs: refs,
             linkPreviews: nil,
             blocks: nil
         )))
@@ -247,9 +305,48 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
         }
     }
 
+    /// Holds a handed-over file a moment later, as the engine does: kept
+    /// under its digest, out of the inbox.
+    private func hold(file event: [String: Any]) {
+        let attachId = event["attach_id"] as? String ?? ""
+        let sha256 = event["sha256"] as? String ?? ""
+        let name = event["name"] as? String
+        let handed = inbox.appending(path: attachId)
+        let kept = inbox.appending(path: "held").appending(path: sha256 + "." + ((name as NSString?)?.pathExtension ?? "bin"))
+        try? FileManager.default.removeItem(at: kept)
+        try? FileManager.default.moveItem(at: handed, to: kept)
+        attached[attachId] = CompanionMediaRef(
+            ref: sha256,
+            kind: event["kind"] as? String ?? "file",
+            mime: event["mime"] as? String ?? "application/octet-stream",
+            sizeBytes: event["size_bytes"] as? Int ?? 0,
+            sha256: sha256,
+            filename: name,
+            caption: nil
+        )
+        attachedFiles[sha256] = kept.path
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.attachDelay) { [weak self] in
+            self?.emit(.attachStatus(attachId: attachId, status: .present))
+        }
+    }
+
+    /// A held file's copy, granted as the engine grants one.
+    private func attachedGrant(ref: String) -> CompanionServerEvent? {
+        guard let path = attachedFiles[ref], let held = attached.values.first(where: { $0.ref == ref }) else { return nil }
+
+        return .mediaPath(CompanionMediaPath(
+            ref: ref,
+            path: path,
+            kind: held.kind,
+            mime: held.mime,
+            sizeBytes: held.sizeBytes,
+            sha256: ref
+        ))
+    }
+
     private func finish(_ turnId: String, replyingTo clientMsgId: String) {
         let reply = append(role: "assistant", content: FixtureCompanionScript.reply, clientMsgId: nil, inReplyTo: clientMsgId)
-        emit(.textDone(turnId: turnId, serverSeq: reply.serverSeq, text: reply.content))
+        emit(.textDone(turnId: turnId, serverSeq: reply.serverSeq, text: reply.content, timestamp: reply.timestamp))
     }
 
     private func resolve(command event: [String: Any]) {
@@ -274,6 +371,67 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
         }
     }
 
+    /// A pull of one list: the list, held from then on, or the engine's
+    /// refusal for one it has no list for.
+    private func pull(list event: [String: Any]) {
+        let listId = event["list_id"] as? String ?? ""
+        let removed = event["removed"] as? Bool == true
+        guard let list = lists.list(listId, removed: removed) else {
+            emit(.error(Self.refusal(FixtureChecklists.missingList, clientMsgId: nil)))
+            return
+        }
+
+        held.removeAll { $0 == listId }
+        held.append(listId)
+        if removed { heldWithRemoved.insert(listId) } else { heldWithRemoved.remove(listId) }
+        emit(.checklist(profileId: CompanionProtocol.profileId, list: list))
+    }
+
+    /// An edit is accepted once applied, and each list it changed that this
+    /// connection holds is pushed when the window ends, with what it made,
+    /// then the index. A create's list is held from then on.
+    private func edit(list event: [String: Any]) {
+        let clientMsgId = event["client_msg_id"] as? String ?? ""
+        guard let op = (event["op"] as? [String: Any]).flatMap(CompanionChecklistOp.init(fixtureLine:)) else {
+            preconditionFailure("the fixture daemon was sent an op it does not know")
+        }
+
+        switch lists.apply(op, to: event["list_id"] as? String) {
+        case .failure(let refusal):
+            emit(.error(Self.refusal(refusal.sentence, clientMsgId: clientMsgId)))
+        case .success(let change):
+            if case .create = op, let made = change.made { held.append(made) }
+            emit(.accepted(CompanionAccepted(clientMsgId: clientMsgId, duplicate: false, serverSeq: nil)))
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.listWindow) { [weak self] in
+                self?.push(change.changed, made: change.made.map { [clientMsgId: $0] } ?? [:])
+            }
+        }
+    }
+
+    private func push(_ changed: [String], made: [String: String]) {
+        for listId in held where changed.contains(listId) {
+            guard let list = lists.list(listId, removed: heldWithRemoved.contains(listId)) else { continue }
+
+            emit(.checklist(profileId: CompanionProtocol.profileId, list: list, made: made))
+        }
+        emit(.checklists(profileId: CompanionProtocol.profileId, lists: lists.index))
+    }
+
+    private static func refusal(_ sentence: String, clientMsgId: String?) -> CompanionServerError {
+        CompanionServerError(
+            reason: "request_failed",
+            message: sentence,
+            field: nil,
+            event: nil,
+            clientMsgId: clientMsgId,
+            direction: nil,
+            clientVersion: nil,
+            minVersion: nil,
+            maxVersion: nil,
+            ref: nil
+        )
+    }
+
     /// The contract's own answer to a cancel: the turn ends as cancelled.
     private func stop(_ event: [String: Any]) {
         let clientMsgId = event["client_msg_id"] as? String ?? ""
@@ -283,8 +441,14 @@ final class FixtureCompanionTransport: LineSocketTransport, @unchecked Sendable 
         emit(.turnError(turnId: turnId, code: "cancelled", message: "cancelled"))
     }
 
-    private func append(role: String, content: String, clientMsgId: String?, inReplyTo: String?) -> CompanionTimelineRow {
-        let row = FixtureCompanionScript.row(head + 1, role, content, clientMsgId: clientMsgId, inReplyTo: inReplyTo)
+    private func append(
+        role: String,
+        content: String,
+        clientMsgId: String?,
+        inReplyTo: String?,
+        mediaRefs: [CompanionMediaRef] = []
+    ) -> CompanionTimelineRow {
+        let row = FixtureCompanionScript.row(head + 1, role, content, clientMsgId: clientMsgId, inReplyTo: inReplyTo, mediaRefs: mediaRefs)
         rows.append(row)
         return row
     }
@@ -338,12 +502,17 @@ enum FixtureCompanionScript {
         row(20, "user", "Will it rain on Saturday? I want to plan the hike.", clientMsgId: askedLast),
     ]
 
-    /// Live after the newest page: the reply to the last message, with the
-    /// forecast lookup running, and an approval the agent is waiting on.
+    /// Live after the newest page: the reply to the last message, with a
+    /// summary of its reasoning, the forecast lookup running in the engine's
+    /// words, and an approval the agent is waiting on.
     static let opening: [CompanionServerEvent] = [
         .turnStarted(profileId: CompanionProtocol.profileId, turnId: openingTurn, inReplyTo: askedLast),
+        .reasoning(
+            turnId: openingTurn,
+            text: "**Finding the trailhead's forecast**\n\nThe hike is on Saturday, so I need the hourly forecast near the trailhead rather than the city's."
+        ),
         .textDelta(turnId: openingTurn, text: "Let me check the forecast for Saturday around the trailhead."),
-        .toolEvent(CompanionToolEvent(turnId: openingTurn, tool: "web_search", phase: .start, detail: nil)),
+        .toolEvent(CompanionToolEvent(turnId: openingTurn, tool: "web_search", phase: .start, detail: nil, activity: "Searching the web")),
         .approval(
             CompanionApproval(
                 approvalId: approvalId,
@@ -365,18 +534,20 @@ enum FixtureCompanionScript {
         clientMsgId: String? = nil,
         inReplyTo: String? = nil,
         linkPreviews: [CompanionLinkPreview]? = nil,
-        blocks: [CompanionBlock]? = nil
+        blocks: [CompanionBlock]? = nil,
+        mediaRefs: [CompanionMediaRef] = [],
+        origin: CompanionRowOrigin? = nil
     ) -> CompanionTimelineRow {
         CompanionTimelineRow(
             serverSeq: seq,
             role: role,
             content: content,
-            kind: "text",
+            kind: mediaRefs.isEmpty ? "text" : "media",
             timestamp: String(format: "2026-09-25T09:%02d:00Z", seq % 60),
-            mediaRefs: [],
+            mediaRefs: mediaRefs,
             clientMsgId: clientMsgId,
             inReplyTo: inReplyTo,
-            metadata: nil,
+            metadata: origin.map { ["origin": .object(["kind": .string($0.kind.rawValue), "name": .string($0.name)])] },
             linkPreviews: linkPreviews,
             blocks: blocks.map(CompanionBlocks.init)
         )
@@ -453,11 +624,10 @@ enum FixtureProposalScript {
         .proposal(profileId: CompanionProtocol.profileId, proposal: CompanionProposal(
             proposalId: proposalId,
             state: .waiting,
-            mandate: "release-issues",
+            ask: .call(mandate: "release-issues", tool: tool),
             task: CompanionProposalTask(jobId: "fixture-job-release-watch", name: "Release watch"),
             watcher: watcher,
             sourceRef: "eng-blogs",
-            tool: tool,
             createdAt: String(format: "2026-09-25T09:%02d:30Z", minute),
             expiresAt: expiresAt.formatted(.iso8601),
             receivedAt: String(format: "2026-09-25T09:%02d:00Z", minute),
@@ -466,7 +636,7 @@ enum FixtureProposalScript {
             resultStatus: nil,
             statusSentence: "Waiting for your answer; it runs only if you confirm.",
             summary: "A task wants to run \(tool) under your mandate release-issues. It runs only if you confirm.",
-            outside: CompanionProposalOutside(argsText: arguments, cue: cue)
+            outside: CompanionProposalOutside(argsText: arguments, args: nil, reason: nil, cue: cue)
         ))
     }
 
@@ -521,9 +691,11 @@ enum FixtureProposalScript {
 /// are the reply's own markdown; then places Apple Maps found around a named
 /// town (§14.1), each with Apple's own identifier and page and its kind, and
 /// no rating, price, hours or distance; then a reply linking pages the
-/// engine previewed; and last, code, a shell one-liner too long for one line
-/// of the reply and a short Python function, each fence naming its language
-/// by a common tag.
+/// engine previewed; code, a shell one-liner too long for one line of the
+/// reply and a short Python function, each fence naming its language by a
+/// common tag; and last, a scheduled job's message and a cue's, the cue
+/// named by the watcher the management goldens list, then a reminder, which
+/// names no origin.
 enum FixtureRepliesScript {
     static let rows: [CompanionTimelineRow] = [
         FixtureCompanionScript.row(1, "user", "Can you find a few quiet coffee shops in SoHo where I could work for an hour?", clientMsgId: "fixture-replies-1"),
@@ -540,10 +712,24 @@ enum FixtureRepliesScript {
         FixtureCompanionScript.row(12, "assistant", links, inReplyTo: "fixture-replies-11", linkPreviews: linkPreviews),
         FixtureCompanionScript.row(13, "user", "How do I find the biggest files in my Downloads folder?", clientMsgId: "fixture-replies-13"),
         FixtureCompanionScript.row(14, "assistant", code, inReplyTo: "fixture-replies-13"),
+        FixtureCompanionScript.row(15, "assistant", briefing, origin: CompanionRowOrigin(kind: .job, name: "Morning briefing")),
+        FixtureCompanionScript.row(16, "assistant", release, origin: CompanionRowOrigin(kind: .cue, name: "release-watch")),
+        FixtureCompanionScript.row(17, "assistant", "Reminder: take an umbrella, rain is due from about three."),
     ]
 
     /// A one-liner wider than the reply, which wraps, and a short function,
     /// fenced as `sh` and `python`, which the blocks name Shell and Python.
+    /// A scheduled job's delivery and a cue's, each with no message of the
+    /// owner's before it, under the label naming where it came from.
+    static let briefing = """
+        **Good morning.** It is 12° and cloudy, with rain from about three.
+
+        - Design review at **10:00**, the prep doc is in *Shared/Design*
+        - Lunch with Sam at 13:00
+        """
+
+    static let release = "The release you are watching is out. Its notes list faster history search and a fix for the reminder sound."
+
     static let code = """
         This lists the twenty largest files under Downloads, biggest first, and saves the list to your Desktop.
 
@@ -585,7 +771,7 @@ enum FixtureRepliesScript {
         - [A cutting garden in one bed](https://weekendplot.example/2026/03/cutting-garden-in-one-bed) fits both into a small space.
         - The [spring seed list](https://seedswap.example/lists/spring-seeds) has both in stock.
 
-        Start the sunflowers indoors about three weeks before your last frost.
+        Start the sunflowers indoors about three weeks before your last frost, which the county lists at https://extension.example/frost-dates. The swap's newsletter also links an order form as [seedswap.example/order](https://seedswap-orders.example/checkout), which is a different site, so check it before you pay.
         """
 
     static let linkPreviews: [CompanionLinkPreview] = [

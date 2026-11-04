@@ -99,8 +99,15 @@ enum CompanionServerWire {
 
     private static func fields(_ event: CompanionServerEvent) -> [String: Any] {
         switch event {
-        case .serverHello(let minVersion, let maxVersion):
-            return ["min_version": minVersion, "max_version": maxVersion]
+        case .serverHello(let minVersion, let maxVersion, let primaryEpoch, let role, let commands, let inbox):
+            return present([
+                "min_version": minVersion,
+                "max_version": maxVersion,
+                "primary_epoch": primaryEpoch,
+                "role": role.map(word),
+                "commands": commands.isEmpty ? nil : commands.map(command),
+                "attachments": inbox.map { ["dir": $0.dir, "max_bytes": $0.maxBytes] as [String: Any] }
+            ])
         case .accepted(let accepted):
             return present([
                 "client_msg_id": accepted.clientMsgId,
@@ -116,13 +123,17 @@ enum CompanionServerWire {
                 "turn_id": tool.turnId,
                 "tool": tool.tool,
                 "phase": word(tool.phase),
-                "detail": tool.detail
+                "detail": tool.detail,
+                "activity": tool.activity
             ])
-        case .textDone(let turnId, let serverSeq, let text, let blocks):
+        case .reasoning(let turnId, let text):
+            return ["turn_id": turnId, "text": text]
+        case .textDone(let turnId, let serverSeq, let text, let blocks, let timestamp):
             return present([
                 "turn_id": turnId,
                 "server_seq": serverSeq,
                 "text": text,
+                "ts": timestamp,
                 "blocks": blocks.isEmpty ? nil : blocks.map(block)
             ])
         case .turnError(let turnId, let code, let message):
@@ -172,21 +183,84 @@ enum CompanionServerWire {
                 "sentence": resolution.sentence,
                 "result_text": resolution.resultText
             ])
-        case .unrecognized:
+        case .checklists(let profileId, let lists):
+            return ["profile_id": profileId, "lists": lists.map(checklistEntry)]
+        case .checklist(let profileId, let list, let made):
+            return present([
+                "profile_id": profileId,
+                "list": checklistList(list),
+                "made": made.isEmpty ? nil : made
+            ])
+        case .attachStatus(let attachId, let status):
+            return ["attach_id": attachId, "status": word(status)]
+        case .homeStatusChanged, .unrecognized:
             return [:]
         }
     }
 
-    /// A proposal's card. A field that does not apply is absent, never null.
+    private static func command(_ command: CompanionCommand) -> [String: Any] {
+        ["name": command.name, "aliases": command.aliases, "description": command.description]
+    }
+
+    private static func word(_ status: CompanionAttachStatus) -> String {
+        switch status {
+        case .present: return "present"
+        case .unrecognized(let word): return word
+        }
+    }
+
+    private static func checklistEntry(_ entry: CompanionChecklistEntry) -> [String: Any] {
+        present([
+            "list_id": entry.listId,
+            "title": entry.title,
+            "folder": entry.folder,
+            "open": entry.open,
+            "done": entry.done,
+            "rev": entry.rev
+        ])
+    }
+
+    private static func checklistList(_ list: CompanionChecklistList) -> [String: Any] {
+        present([
+            "list_id": list.listId,
+            "title": list.title,
+            "rev": list.rev,
+            "rows": list.rows.map(checklistRow),
+            "removed": list.removed.map { $0.map(checklistRow) },
+            "removed_at": list.removedAt
+        ])
+    }
+
+    private static func checklistRow(_ row: CompanionChecklistRow) -> [String: Any] {
+        present([
+            "row_id": row.rowId,
+            "kind": word(row.kind),
+            "text": row.text,
+            "done": row.done,
+            "note": row.note,
+            "done_at": row.doneAt,
+            "removed_at": row.removedAt
+        ])
+    }
+
+    private static func word(_ kind: CompanionChecklistRowKind) -> String {
+        switch kind {
+        case .item: return "item"
+        case .section: return "section"
+        case .unrecognized(let word): return word
+        }
+    }
+
+    /// A proposal's card. A field that does not apply is absent, never null:
+    /// a mandate's card names its mandate and tool, a follow-up's its
+    /// follow-up.
     private static func proposalFields(_ proposal: CompanionProposal) -> [String: Any] {
         present([
             "proposal_id": proposal.proposalId,
             "state": word(proposal.state),
-            "mandate": proposal.mandate,
             "task": present(["job_id": proposal.task.jobId, "name": proposal.task.name]),
             "watcher": proposal.watcher,
             "source_ref": proposal.sourceRef,
-            "tool": proposal.tool,
             "created_at": proposal.createdAt,
             "expires_at": proposal.expiresAt,
             "received_at": proposal.receivedAt,
@@ -197,9 +271,42 @@ enum CompanionServerWire {
             "summary": proposal.summary,
             "outside": present([
                 "args_text": proposal.outside.argsText,
+                "args": proposal.outside.args.map { $0.map { ["name": $0.name, "value": $0.value] } },
+                "reason": proposal.outside.reason,
                 "cue": proposal.outside.cue.map(cueFields)
             ])
-        ])
+        ]).merging(askFields(proposal.ask)) { _, ask in ask }
+    }
+
+    private static func askFields(_ ask: CompanionProposalAsk) -> [String: Any] {
+        switch ask {
+        case .call(let mandate, let tool):
+            return ["mandate": mandate, "tool": tool]
+        case .followUp(let followUp):
+            return ["follow_up": present([
+                "asks": word(followUp.asks),
+                "offers_always_allow": followUp.offersAlwaysAllow,
+                "name": followUp.name,
+                "instructions": followUp.instructions,
+                "tools": followUp.tools,
+                "reports_to": followUp.reportsTo
+            ])]
+        }
+    }
+
+    private static func word(_ asks: CompanionFollowUpAsks) -> String {
+        switch asks {
+        case .run: return "run"
+        case .unrecognized(let word): return word
+        }
+    }
+
+    private static func word(_ role: CompanionEngineRole) -> String {
+        switch role {
+        case .primary: return "primary"
+        case .device: return "device"
+        case .unrecognized(let word): return word
+        }
     }
 
     private static func cueFields(_ cue: CompanionProposalCue) -> [String: Any] {
@@ -296,6 +403,8 @@ enum CompanionServerWire {
     private static func block(_ block: CompanionBlock) -> [String: Any] {
         switch block {
         case .places(let places): return ["type": "places", "places": places.map(place)]
+        case .checklists(let lists):
+            return ["type": "checklists", "lists": lists.map { ["list_id": $0.listId, "title": $0.title, "rows": $0.rows] }]
         }
     }
 
@@ -322,7 +431,8 @@ enum CompanionServerWire {
             "site": preview.site,
             "title": preview.title,
             "description": preview.description,
-            "image_ref": preview.imageRef
+            "image_ref": preview.imageRef,
+            "icon_ref": preview.iconRef
         ])
     }
 
@@ -359,7 +469,8 @@ enum CompanionServerWire {
             "client_version": error.clientVersion,
             "min_version": error.minVersion,
             "max_version": error.maxVersion,
-            "ref": error.ref
+            "ref": error.ref,
+            "attach_id": error.attachId
         ])
     }
 

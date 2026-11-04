@@ -464,8 +464,13 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case companionConnectionUpdateApp = "companion.connection.updateApp"
     /// The daemon's window ends below this build: the engine is out of date.
     case companionConnectionUpdateEngine = "companion.connection.updateEngine"
+    /// The engine answering is an older copy of a home that moved (M75): a
+    /// primary at a lower epoch than one this app has seen.
+    case companionConnectionStalePrimary = "companion.connection.stalePrimary"
     case companionErrorRefusedFormat = "companion.error.refusedFormat"
     case companionErrorMessageTooLong = "companion.error.messageTooLong"
+    /// What waited in the outbox when the server stopped knowing this desktop.
+    case companionErrorNotSentRevoked = "companion.error.notSentRevoked"
     case companionErrorReplyStopped = "companion.error.replyStopped"
     case companionErrorReplyInterrupted = "companion.error.replyInterrupted"
     case companionErrorReplyFailedFormat = "companion.error.replyFailedFormat"
@@ -484,6 +489,22 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatCancel = "chat.cancel"
     /// Under a message the daemon has not yet accepted.
     case chatSending = "chat.sending"
+    // Files attached to a message (companion version 7). The engine's
+    // refusals are its own sentences; these are the composer's.
+    /// The composer's attach button, and the open panel's button.
+    case chatAttach = "chat.attach"
+    /// A file's chip while it is copied in and handed over.
+    case chatAttachAttaching = "chat.attach.attaching"
+    case chatAttachRemoveFormat = "chat.attach.removeFormat"
+    /// The name a pasted picture is attached under, before its extension.
+    case chatAttachPastedName = "chat.attach.pastedName"
+    case chatAttachFolder = "chat.attach.folder"
+    case chatAttachTooLargeFormat = "chat.attach.tooLargeFormat"
+    case chatAttachUnreadable = "chat.attach.unreadable"
+    case chatAttachUnwritable = "chat.attach.unwritable"
+    case chatAttachDisconnected = "chat.attach.disconnected"
+    /// The slash command palette over the composer, as VoiceOver names it.
+    case chatCommands = "chat.commands"
     case chatApprove = "chat.approve"
     case chatDeny = "chat.deny"
     // A cue proposal's card in Chat (M60 §4.7). Its summary, its sentences
@@ -491,7 +512,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case proposalTitle = "proposal.title"
     case proposalDeny = "proposal.deny"
     case proposalConfirm = "proposal.confirm"
-    /// Under the buttons once Confirm is pressed, until the daemon resolves it.
+    /// Under the buttons once an answer that runs is pressed, until the
+    /// daemon resolves it.
     case proposalRunning = "proposal.running"
     /// This Mac's clock passed the card's expiry with no answer sent.
     case proposalExpired = "proposal.expired"
@@ -501,6 +523,17 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case proposalWaitsUntilFormat = "proposal.waitsUntilFormat"
     /// Told to VoiceOver a minute before the card expires.
     case proposalLastMinute = "proposal.lastMinute"
+    /// A watcher's follow-up on its card (companion version 5): the owner's
+    /// instructions, its tools and where it reports, each Fermix's or the
+    /// owner's words.
+    case proposalFollowUpInstructionsFormat = "proposal.followUp.instructionsFormat"
+    case proposalFollowUpToolsFormat = "proposal.followUp.toolsFormat"
+    case proposalFollowUpReportsToFormat = "proposal.followUp.reportsToFormat"
+    /// A follow-up's card's answers, Telegram's words for the same card:
+    /// Skip, Run, and Always allow where the card offers it.
+    case proposalSkip = "proposal.skip"
+    case proposalRun = "proposal.run"
+    case proposalAlwaysAllow = "proposal.alwaysAllow"
     // Outside text (M60 §4.8): the headers say, in Fermix's voice, where the
     // text under them came from.
     case outsideCall = "outside.call"
@@ -509,6 +542,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// An item's header where Fermix's record names no source or time for it.
     case outsideItemUnsourced = "outside.itemUnsourced"
     case outsideResult = "outside.result"
+    /// The filter's sentence on why the item passed, which a model wrote.
+    case outsideReason = "outside.reason"
     case outsideShowAll = "outside.showAll"
     /// An item's own fields, each labelled, the values as the item wrote them.
     case outsideTypeFormat = "outside.typeFormat"
@@ -517,6 +552,15 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// The turn answering now, while it has no reply text yet and while a
     /// tool it called runs.
     case chatThinking = "chat.thinking"
+    /// A surface's search field in the toolbar: what its clear control does.
+    case toolbarSearchClear = "toolbar.search.clear"
+    /// Over a turn that has started writing, how long it worked; the
+    /// duration is the system's short one ("1m 12s").
+    case chatWorkedFor = "chat.workedFor"
+    /// What the line over a turn does when pressed, for VoiceOver: opens or
+    /// closes the steps the turn said it took.
+    case chatStepsShow = "chat.steps.show"
+    case chatStepsHide = "chat.steps.hide"
     /// The button that takes a reader up the transcript back to its foot.
     case chatShowNewest = "chat.showNewest"
     case chatSearchPrompt = "chat.search.prompt"
@@ -545,9 +589,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatKindDocument = "chat.kind.document"
     case chatKindPage = "chat.kind.page"
     case chatKindFile = "chat.kind.file"
-    case chatKindLink = "chat.kind.link"
-    /// A reply's code block, as VoiceOver names it, its language after it.
-    case chatCode = "chat.code"
     /// The languages a code block's header names (`CodeLanguage`), each as
     /// its own makers write it.
     case chatCodeLanguageShell = "chat.code.language.shell"
@@ -592,9 +633,6 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatCodeLanguageDockerfile = "chat.code.language.dockerfile"
     case chatCodeLanguageMakefile = "chat.code.language.makefile"
     case chatCodeLanguageText = "chat.code.language.text"
-    /// A reply's table and quote, as VoiceOver names them.
-    case chatTable = "chat.table"
-    case chatQuote = "chat.quote"
     /// A list's marks: a bullet, a nested one, and a number with its point.
     case chatListBullet = "chat.list.bullet"
     case chatListBulletNested = "chat.list.bulletNested"
@@ -602,10 +640,27 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// A task's box, as VoiceOver reads it before the task's words.
     case chatTaskDone = "chat.task.done"
     case chatTaskOpen = "chat.task.open"
-    /// A code block's or a table's Copy, and what it says for a moment once
-    /// pressed.
+    /// A code block's or a table's Copy, and what it, or a message's Copy,
+    /// says for a moment once pressed.
     case chatCodeCopy = "chat.code.copy"
     case chatCodeCopied = "chat.code.copied"
+    /// A message's Copy, which writes its words as they were written.
+    case chatMessageCopy = "chat.message.copy"
+    /// Where a message Fermix sent on its own came from, as VoiceOver reads
+    /// its label: a scheduled job, or a cue, by name.
+    case chatOriginJobFormat = "chat.origin.jobFormat"
+    case chatOriginCueFormat = "chat.origin.cueFormat"
+    /// What a cue's label does when pressed.
+    case chatOriginOpenCue = "chat.origin.openCue"
+    /// A link that may not go where it seems to (`LinkSafety`): the question
+    /// before it opens, why, in a sentence naming where it really goes, and
+    /// the two answers.
+    case chatLinkHeldTitle = "chat.link.heldTitle"
+    case chatLinkElsewhereFormat = "chat.link.elsewhereFormat"
+    case chatLinkLookalikeFormat = "chat.link.lookalikeFormat"
+    case chatLinkHiddenNameFormat = "chat.link.hiddenNameFormat"
+    case chatLinkOpenAnyway = "chat.link.openAnyway"
+    case chatLinkCancel = "chat.link.cancel"
     /// A reply's places (M72 §8.1): what VoiceOver calls the map, a card's
     /// menu, and the rating and distance on a card, each a number and its
     /// count or units.
@@ -618,6 +673,49 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case chatPlaceCopyAddress = "chat.place.copyAddress"
     case chatPlaceRatingFormat = "chat.place.ratingFormat"
     case chatPlaceDistanceFormat = "chat.place.distanceFormat"
+
+    // The owner's lists (M85 §09): the card under a reply, the Lists panel
+    // beside the chat and its menus, and what VoiceOver says of them.
+    case listsTitle = "lists.title"
+    case listsAddItem = "lists.addItem"
+    case listsOpenFormat = "lists.openFormat"
+    case listsDoneFormat = "lists.doneFormat"
+    case listsMoreFormat = "lists.moreFormat"
+    case listsShowLess = "lists.showLess"
+    case listsMoreListsFormat = "lists.moreListsFormat"
+    case listsDone = "lists.done"
+    case listsNewList = "lists.newList"
+    case listsRenameList = "lists.renameList"
+    case listsMoveToFolder = "lists.moveToFolder"
+    case listsMoveToList = "lists.moveToList"
+    case listsNewFolder = "lists.newFolder"
+    case listsNoFolder = "lists.noFolder"
+    case listsCopyAsText = "lists.copyAsText"
+    case listsClearDone = "lists.clearDone"
+    case listsRecentlyRemoved = "lists.recentlyRemoved"
+    case listsRemoveList = "lists.removeList"
+    case listsRemovedFormat = "lists.removedFormat"
+    case listsUndo = "lists.undo"
+    case listsListRemoved = "lists.listRemoved"
+    /// The panel's hide button, a card's way into the panel, and an empty
+    /// index.
+    case listsHidePanel = "lists.hidePanel"
+    case listsOpenList = "lists.openList"
+    case listsNone = "lists.none"
+    /// A row's own actions, in its menu and to VoiceOver, and a removed
+    /// row's way back.
+    case listsMoveUp = "lists.moveUp"
+    case listsMoveDown = "lists.moveDown"
+    case listsRemove = "lists.remove"
+    case listsRestore = "lists.restore"
+    /// The fields a name or a note is typed into.
+    case listsListNamePrompt = "lists.listNamePrompt"
+    case listsFolderNamePrompt = "lists.folderNamePrompt"
+    case listsNotePrompt = "lists.notePrompt"
+    /// A card as VoiceOver names it: "Fermix, list, 6 open", or "Fermix,
+    /// Portfolio site, and Groceries, lists".
+    case listsListLabelFormat = "lists.listLabelFormat"
+    case listsListsLabelFormat = "lists.listsLabelFormat"
 
     // The browser pane. Its one sentence says why something the person asked
     // for did not happen, or what became of a file they saved.
@@ -772,6 +870,7 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsPaneSearch = "settings.pane.search"
     case settingsPaneImages = "settings.pane.images"
     case settingsPaneBrowser = "settings.pane.browser"
+    case settingsPaneAlwaysOn = "settings.pane.alwaysOn"
     case settingsPaneSecrets = "settings.pane.secrets"
     case settingsPaneSandbox = "settings.pane.sandbox"
     case settingsPanePermissions = "settings.pane.permissions"
@@ -790,9 +889,43 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsKeywordsSearch = "settings.keywords.search"
     case settingsKeywordsImages = "settings.keywords.images"
     case settingsKeywordsBrowser = "settings.keywords.browser"
+    case settingsKeywordsAlwaysOn = "settings.keywords.alwaysOn"
     case settingsKeywordsSecrets = "settings.keywords.secrets"
     case settingsKeywordsSandbox = "settings.keywords.sandbox"
     case settingsKeywordsPermissions = "settings.keywords.permissions"
+
+    // Always On (Always On setup §8.3): the pane's own words. Every sentence,
+    // label, line and confirm on a screen is the engine's; these are how the
+    // pane asks for a secret, how it draws the choice of size and place, and
+    // the notification title around them.
+    /// A provider's part of the Always On docs, on its token screen.
+    case alwaysOnLearnMore = "alwaysOn.learnMore"
+    case alwaysOnLinkOpenFailed = "alwaysOn.linkOpenFailed"
+    case alwaysOnDetails = "alwaysOn.details"
+    /// Where the engine offers more than one cloud provider, the line above
+    /// their names.
+    case alwaysOnProviderChoose = "alwaysOn.provider.choose"
+    /// The provider's name, as the engine gives it.
+    case alwaysOnTokenCheckingFormat = "alwaysOn.token.checkingFormat"
+    case alwaysOnHowToGetOne = "alwaysOn.token.howToGetOne"
+    /// The provider's name, as the engine gives it.
+    case alwaysOnOpenConsoleFormat = "alwaysOn.token.openConsoleFormat"
+    case alwaysOnChangeTitle = "alwaysOn.choose.title"
+    case alwaysOnPassphraseTitle = "alwaysOn.passphrase.title"
+    /// Where no recovery passphrase is set: it is typed twice.
+    case alwaysOnPassphraseBody = "alwaysOn.passphrase.body"
+    /// Where one is set: it is typed once, and the engine checks it before
+    /// the step goes on, a move or a restore.
+    case alwaysOnPassphraseOnceBody = "alwaysOn.passphrase.onceBody"
+    case alwaysOnPassphraseField = "alwaysOn.passphrase.field"
+    case alwaysOnPassphraseAgain = "alwaysOn.passphrase.again"
+    case alwaysOnPassphraseMismatch = "alwaysOn.passphrase.mismatch"
+    /// Until when the code works.
+    case alwaysOnOwnServerFormat = "alwaysOn.ownServer.runFormat"
+    case alwaysOnCopyCommand = "alwaysOn.ownServer.copy"
+    case alwaysOnCopyCode = "alwaysOn.ownServer.copyCode"
+    /// The title of every Always On notification; the body is the engine's sentence.
+    case alwaysOnNoticeTitle = "alwaysOn.notice.title"
 
     // Settings: the presentation's own chrome, banners and the restart sheet
     /// The back control's label, and what VoiceOver reads on it (decision D1).
@@ -891,6 +1024,38 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case settingsMeetingsSignInAgainAction = "settings.meetings.signInAgainAction"
     case settingsMeetingsGoogleAccountLabel = "settings.meetings.googleAccountLabel"
     case settingsMeetingsSignInNotice = "settings.meetings.signInNotice"
+
+    // Settings: Browser, website logins (M84 §11 and D8)
+    case settingsBrowserLoginsSection = "settings.browser.loginsSection"
+    case settingsBrowserLoginsFooter = "settings.browser.loginsFooter"
+    case settingsBrowserLoginsUnavailable = "settings.browser.loginsUnavailable"
+    case settingsBrowserLoginsEmpty = "settings.browser.loginsEmpty"
+    case settingsBrowserLoginsAdd = "settings.browser.loginsAdd"
+    case settingsBrowserLoginsEdit = "settings.browser.loginsEdit"
+    case settingsBrowserLoginSite = "settings.browser.loginSite"
+    case settingsBrowserLoginSiteHint = "settings.browser.loginSiteHint"
+    case settingsBrowserLoginUsername = "settings.browser.loginUsername"
+    case settingsBrowserLoginPassword = "settings.browser.loginPassword"
+    case settingsBrowserLoginKeepPassword = "settings.browser.loginKeepPassword"
+    case settingsBrowserLoginDeleteTitle = "settings.browser.loginDeleteTitle"
+    case settingsBrowserLoginDeleteBody = "settings.browser.loginDeleteBody"
+    case settingsBrowserLoginSiteRefused = "settings.browser.loginSiteRefused"
+    case settingsBrowserLoginSiteTaken = "settings.browser.loginSiteTaken"
+    case settingsBrowserLoginUsernameRequired = "settings.browser.loginUsernameRequired"
+    case settingsBrowserLoginTooShort = "settings.browser.loginTooShort"
+    case settingsBrowserLoginStoreUnavailable = "settings.browser.loginStoreUnavailable"
+    /// The sheet's own words, which §11's table does not list: its two
+    /// titles, the add verb (M34 §6 forbids a control labelled Save; the edit
+    /// sheet's verb is `settings.sheet.done`), the delete door and its
+    /// confirmation, and the store refusals that are not a field's.
+    case settingsBrowserLoginAddTitle = "settings.browser.loginAddTitle"
+    case settingsBrowserLoginEditTitle = "settings.browser.loginEditTitle"
+    case settingsBrowserLoginAddAction = "settings.browser.loginAddAction"
+    case settingsBrowserLoginDelete = "settings.browser.loginDelete"
+    case settingsBrowserLoginDeleteAction = "settings.browser.loginDeleteAction"
+    case settingsBrowserLoginStoreTimedOut = "settings.browser.loginStoreTimedOut"
+    case settingsBrowserLoginsFullFormat = "settings.browser.loginsFullFormat"
+    case settingsBrowserLoginGone = "settings.browser.loginGone"
 
     // Providers
     case providerVerbSignIn = "provider.verb.signIn"
@@ -1218,18 +1383,29 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     /// The way from the pane to the cues guide on fermix.ai.
     case cuesLearnMore = "cues.learnMore"
     case cuesGuideOpenFailed = "cues.guideOpenFailed"
+    /// The heading over the Screen and the filter model in the top block
+    /// (simpler setup §4b).
+    case cuesJudgingTitle = "cues.judging.title"
     case cuesWaitingTitle = "cues.waiting.title"
     case cuesWaitingShowInChat = "cues.waiting.showInChat"
     /// A waiting proposal's row: the mandate and the tool, from Fermix's record.
     case cuesWaitingRowFormat = "cues.waiting.rowFormat"
     case cuesSourcesTitle = "cues.sources.title"
     case cuesSourcesAdd = "cues.sources.add"
-    case cuesSourcesEmpty = "cues.sources.empty"
+    /// The first run (simpler setup §4): the card that stands where the lists
+    /// would be while no source exists, its three steps and its one action.
+    case cuesFirstRunTitle = "cues.firstRun.title"
+    case cuesFirstRunSource = "cues.firstRun.source"
+    case cuesFirstRunWatcher = "cues.firstRun.watcher"
+    case cuesFirstRunTask = "cues.firstRun.task"
+    case cuesFirstRunAdd = "cues.firstRun.add"
     case cuesSourceAddTitle = "cues.source.addTitle"
     case cuesSourceKind = "cues.source.kind"
     case cuesSourceURL = "cues.source.url"
-    case cuesSourcePreset = "cues.source.preset"
-    case cuesSourcePresetNone = "cues.source.presetNone"
+    /// The add sheet's second step's way back to the choices.
+    case cuesBack = "cues.back"
+    /// The X accounts requirement's way to the plugin's page.
+    case cuesSourceOpenPlugin = "cues.source.openPlugin"
     case cuesSourceCopyURL = "cues.source.copyURL"
     case cuesSourceAddressMade = "cues.source.addressMade"
     case cuesSourceAddressNotMade = "cues.source.addressNotMade"
@@ -1241,6 +1417,9 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case cuesSourceCopyToken = "cues.source.copyToken"
     /// The token's accessibility label. The token itself is never its value.
     case cuesSourceTokenAccessibilityFormat = "cues.source.tokenAccessibility"
+    /// GitHub's made secret, handed out as a token is, with its own words.
+    case cuesSourceCopySecret = "cues.source.copySecret"
+    case cuesSourceSecretAccessibilityFormat = "cues.source.secretAccessibility"
     /// A one-line push with curl: the door's port, the source, and the header
     /// with the token left as a placeholder.
     case cuesSourcePushExampleFormat = "cues.source.pushExample"
@@ -1293,6 +1472,11 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case cuesWatcherUsefulFormat = "cues.watcher.usefulFormat"
     case cuesWatcherNotUsefulFormat = "cues.watcher.notUsefulFormat"
     case cuesWatcherGone = "cues.watcher.gone"
+    /// A watcher's follow-up: its row's line and its page's fact, and the
+    /// way to take back its Always allow.
+    case cuesWatcherFollowUp = "cues.watcher.followUp"
+    case cuesWatcherFollowUpFormat = "cues.watcher.followUpFormat"
+    case cuesWatcherAskFirstAgain = "cues.watcher.askFirstAgain"
     case cuesMandatesTitle = "cues.mandates.title"
     case cuesMandatesEmpty = "cues.mandates.empty"
     case cuesMandatesAdd = "cues.mandates.add"
@@ -1421,6 +1605,8 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
     case menuTitleBeginVoiceCall = "menuTitle.beginVoiceCall"
     case menuTitleEndVoiceCall = "menuTitle.endVoiceCall"
     case menuTitleShowBrowser = "menuTitle.showBrowser"
+    case menuTitleShowLists = "menuTitle.showLists"
+    case menuTitleHideLists = "menuTitle.hideLists"
     case menuTitleHideMenuBarItem = "menuTitle.hideMenuBarItem"
     case menuTitleLinkCommandLineTool = "menuTitle.linkCommandLineTool"
 

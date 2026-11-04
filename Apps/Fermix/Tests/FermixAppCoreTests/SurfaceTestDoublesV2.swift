@@ -476,6 +476,7 @@ extension FakeDaemonGateway {
     }
 
     func cueSources() async throws -> ManagementCueSourceList {
+        if let cueSourcesGate { await cueSourcesGate() }
         let published: ManagementCueSourceList = try answer(.cuesSourcesList, "cues_sources_list")
 
         return cueSourcesResult ?? published
@@ -538,6 +539,12 @@ extension FakeDaemonGateway {
         try answer(.cuesWatchersGet, "cues_watchers_get")
     }
 
+    func revokeCueWatcherAlwaysAllow(name: String) async throws -> ManagementCueWatcherRowAnswer {
+        cueWatcherRevokes.append(name)
+
+        return try answer(.cuesWatchersAlwaysAllowRevoke, "cues_watchers_always_allow_revoke")
+    }
+
     func cueMandates() async throws -> ManagementCueMandateList {
         try answer(.cuesMandatesList, "cues_mandates_list")
     }
@@ -587,6 +594,52 @@ extension FakeDaemonGateway {
 
     func decideCueProposal(id: String, decision: ManagementCueDecision) async throws -> ManagementCueProposalAnswer {
         try answer(.cuesProposalsDecide, "cues_proposals_decide")
+    }
+
+    // MARK: - The home (M75)
+
+    func homeStatus() async throws -> ManagementHomeStatus {
+        let published: ManagementHomeStatus = try answer(.homeStatus, "home_status")
+        guard !homeStatusScript.isEmpty else { return published }
+
+        let next = homeStatusScript[min(homeStatusIndex, homeStatusScript.count - 1)]
+        homeStatusIndex += 1
+        return try next.get()
+    }
+
+    func candidates() async throws -> ManagementCandidates {
+        try answer(.homeCandidatesList, "home_candidates_list")
+    }
+
+    func snapshotsStatus() async throws -> ManagementHomeSnapshots {
+        try answer(.homeSnapshotsStatus, "home_snapshots_status")
+    }
+
+    func setRecoveryPassphrase(_ passphrase: String) async throws -> ManagementRecoveryKey {
+        try answer(.homeSnapshotsPassphrase, "home_snapshots_passphrase")
+    }
+
+    /// One press, recorded as it was sent, answered by the script or the
+    /// golden.
+    func homeAct(
+        _ action: ManagementHomeActionId,
+        key: String,
+        input: ManagementHomeActInput?
+    ) async throws -> ManagementHomeActed {
+        homeActs.append(HomeAct(action: action, key: key, input: input))
+        let published: ManagementHomeActed = try answer(.homeAct, "home_act")
+        guard !homeActScript.isEmpty else { return published }
+
+        let next = homeActScript[min(homeActIndex, homeActScript.count - 1)]
+        homeActIndex += 1
+        return try next.get()
+    }
+
+    func provisionOptions() async throws -> ManagementProvisionOptions {
+        provisionOptionsReads += 1
+        let published: ManagementProvisionOptions = try answer(.homeProvisionOptions, "home_provision_options")
+
+        return provisionOptionsResult ?? published
     }
 
     // MARK: - One answer
@@ -846,4 +899,11 @@ final class FakeProviderReadiness: @unchecked Sendable {
             as: ManagementSetupState.self
         )
     }
+}
+
+/// One `home.act` the pane sent.
+struct HomeAct: Equatable {
+    let action: ManagementHomeActionId
+    let key: String
+    let input: ManagementHomeActInput?
 }

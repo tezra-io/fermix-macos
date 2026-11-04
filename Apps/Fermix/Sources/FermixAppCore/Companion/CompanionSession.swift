@@ -13,7 +13,9 @@ import Foundation
 /// What the chat holds is decided by `CompanionReducer`; this owns the socket
 /// and the clock, sends what the reducer answers, and publishes the result to
 /// `model`, which nothing else writes. The files the engine grants are counted
-/// by `grants`, which sends through this, only on a negotiated connection.
+/// by `grants`, the owner's lists (M85) are kept by `lists`, and the files the
+/// composer hands over are `attachments`'; each sends through this, only on a
+/// negotiated connection.
 @MainActor
 public final class CompanionSession {
     private enum Phase: Equatable {
@@ -37,8 +39,34 @@ public final class CompanionSession {
     /// The engine's grants of phone-side files (M66 decision 1), for the
     /// chat's tiles, the player and the pane to hold a ref's file by.
     public private(set) lazy var grants = MediaGrants { [weak self] event in
-        self?.sendForGrants(event) ?? false
+        self?.sendNegotiated(event) ?? false
     }
+
+    /// The owner's lists (M85): the index, a store per list that a card and
+    /// the panel both draw, and the edits sent and not yet answered. Fed
+    /// every list event and the answers to its edits, and pulled again at
+    /// every handshake whose daemon serves lists.
+    public private(set) lazy var lists = ChecklistLibrary(
+        send: { [weak self] event in self?.sendNegotiated(event) ?? false },
+        messageIds: messageIds
+    )
+
+    /// The files the composer holds for the next message, each handed over to
+    /// the engine as it is added (version 7). Held here, as the draft is, so
+    /// leaving Chat does not lose them.
+    public private(set) lazy var attachments = ChatAttachments(
+        send: { [weak self] event in self?.sendNegotiated(event) ?? false },
+        ids: messageIds
+    )
+
+    /// Called each time Always On's summary may have moved, so the app reads
+    /// `home.status` (M75): on `home_status_changed`, which a version 6
+    /// connection is sent once after `server_hello` unless Always On is off
+    /// and then at each change; and, on a desktop whose home moved, each time
+    /// the server is out of reach or no longer knows this computer, since no
+    /// notice can arrive then. Never on connecting alone: the notice after
+    /// the hello is the cue.
+    public var homeStatusCue: (() -> Void)?
 
     /// What the owner is writing and has not sent. The chat view is rebuilt on
     /// every rail change and when Settings opens, so the text lives here, beside
@@ -62,6 +90,18 @@ public final class CompanionSession {
     private var onScreen: Set<Int> = []
     /// The handshake deadline or the reconnect timer; never both.
     private var deadline: DeadlineToken?
+    /// The daemon's sentence while the server this desktop reaches is away
+    /// or its home is moving (M75): every failed attempt after it says it
+    /// again, since the engine restarting for a move is part of the same
+    /// wait, until a handshake succeeds or the daemon refuses for good.
+    private var serverAway: String?
+    /// The socket the attempt in flight connects to, resolved at the attempt.
+    private var connectionPath = ""
+    /// The highest primary epoch a primary has shown at each socket (M75),
+    /// kept for the session's life and sent in every hello there: a primary
+    /// below it is an older copy of a home that moved. Another socket is
+    /// another home, with an epoch of its own.
+    private var seenEpochs: [String: Int] = [:]
     private var consecutiveFailures = 0
     /// The next proposal expiry this Mac's clock is waiting for, and its
     /// timer: one at a time, set again only when the next expiry moves.
@@ -106,11 +146,12 @@ public final class CompanionSession {
         attempt()
     }
 
-    /// A message to the agent. It enters the outbox now and is sent at once on
-    /// a live connection, or at the next handshake otherwise.
-    public func send(_ text: String) {
+    /// A message to the agent, with the files it carries, every one already
+    /// held by the engine. It enters the outbox now and is sent at once on a
+    /// live connection, or at the next handshake otherwise.
+    public func send(_ text: String, attachments: [CompanionSentAttachment] = []) {
         let clientMsgId = messageIds()
-        reduce { CompanionReducer.send(text, clientMsgId: clientMsgId, into: &$0) }
+        reduce { CompanionReducer.send(text, attachments: attachments, clientMsgId: clientMsgId, into: &$0) }
     }
 
     /// Stops the turn of the request with this id, running or waiting.
@@ -198,6 +239,7 @@ public final class CompanionSession {
         }
 
         phase = .connecting
+        connectionPath = path
         transport.connect(path: path) { [weak self] result in
             self?.connected(result)
         }
@@ -209,7 +251,7 @@ public final class CompanionSession {
         switch result {
         case .success:
             phase = .handshaking
-            transport.send(.clientHello(protocolVersion: protocolVersion))
+            transport.send(.clientHello(protocolVersion: protocolVersion, primaryEpoch: seenEpochs[connectionPath]))
             deadline = deadlines.schedule(after: CompanionProtocol.handshakeTimeout) { [weak self] in
                 self?.handshakeExpired()
             }
@@ -243,8 +285,14 @@ public final class CompanionSession {
 
     private func handshake(_ event: CompanionServerEvent) {
         switch event {
-        case .serverHello(let minimum, let maximum):
-            negotiate(CompanionVersionWindow(minimum: minimum, maximum: maximum))
+        case .serverHello(let minimum, let maximum, let primaryEpoch, let role, let commands, let inbox):
+            negotiate(
+                CompanionVersionWindow(minimum: minimum, maximum: maximum),
+                primaryEpoch: primaryEpoch,
+                role: role,
+                commands: commands,
+                inbox: inbox
+            )
         case .error(let refusal):
             refusedDuringHandshake(refusal)
         default:
@@ -252,32 +300,76 @@ public final class CompanionSession {
         }
     }
 
-    private func negotiate(_ window: CompanionVersionWindow) {
+    private func negotiate(
+        _ window: CompanionVersionWindow,
+        primaryEpoch: Int?,
+        role: CompanionEngineRole?,
+        commands: [CompanionCommand],
+        inbox: CompanionAttachmentInbox?
+    ) {
         cancelDeadline()
 
         guard window.contains(protocolVersion) else {
             refuse(window.direction(for: protocolVersion))
             return
         }
-
-        phase = .connected
-        consecutiveFailures = 0
-        model.show(.connected)
-        reduce { [onScreen] in CompanionReducer.negotiated(&$0, onScreen: onScreen) }
-        grants.negotiated()
-    }
-
-    /// A refusal that names a direction is the version window's, which no retry
-    /// changes; any other is the daemon's own reason, and the connection is
-    /// tried again.
-    private func refusedDuringHandshake(_ refusal: CompanionServerError) {
-        guard let direction = refusal.direction else {
-            log.error("companion daemon refused the handshake: \(refusal.reason, privacy: .public)")
-            drop(showing: .disconnected(String(format: ProductStrings[.companionErrorRefusedFormat], refusal.reason)))
+        guard admits(primaryEpoch: primaryEpoch, role: role) else {
+            stalePrimary()
             return
         }
 
-        refuse(direction)
+        phase = .connected
+        consecutiveFailures = 0
+        serverAway = nil
+        model.show(.connected)
+        model.show(commands: commands)
+        reduce { [onScreen] in CompanionReducer.negotiated(&$0, onScreen: onScreen) }
+        grants.negotiated()
+        let version = min(protocolVersion, window.maximum)
+        lists.negotiated(serves: version >= CompanionProtocol.listsVersion)
+        attachments.negotiated(inbox: version >= CompanionProtocol.attachmentsVersion ? inbox : nil)
+    }
+
+    /// Keeps a primary's epoch as the highest seen at this socket, and says
+    /// whether its hello may connect: a primary below the highest, or with
+    /// none once one was seen, is an older copy of a home that moved. A
+    /// device's epoch, or one from a role this build does not know, is
+    /// neither compared nor kept. A hello with no role comes from a daemon
+    /// older than the field, which is a primary.
+    private func admits(primaryEpoch: Int?, role: CompanionEngineRole?) -> Bool {
+        guard role == nil || role == .primary else { return true }
+
+        let seen = seenEpochs[connectionPath]
+        if let seen, (primaryEpoch ?? 0) < seen { return false }
+
+        if let primaryEpoch {
+            seenEpochs[connectionPath] = max(seen ?? primaryEpoch, primaryEpoch)
+        }
+        return true
+    }
+
+    /// A refusal that names a direction is the version window's, which no retry
+    /// changes. A desktop whose home moved refuses for its own reasons: its
+    /// server no longer knows it, its server is out of reach, or this app has
+    /// seen a later primary. Any other is the daemon's own reason, said in its
+    /// own sentence where it sent one, and the connection is tried again.
+    private func refusedDuringHandshake(_ refusal: CompanionServerError) {
+        switch refusal.reason {
+        case CompanionProtocol.desktopRevokedReason:
+            desktopRevoked(Self.sentence(for: refusal))
+        case CompanionProtocol.primaryUnreachableReason:
+            serverUnreachable(Self.sentence(for: refusal))
+        case CompanionProtocol.stalePrimaryReason:
+            stalePrimary()
+        default:
+            guard let direction = refusal.direction else {
+                log.error("companion daemon refused the handshake: \(refusal.reason, privacy: .public)")
+                drop(showing: .disconnected(Self.sentence(for: refusal)))
+                return
+            }
+
+            refuse(direction)
+        }
     }
 
     private func route(_ event: CompanionServerEvent) {
@@ -291,16 +383,36 @@ public final class CompanionSession {
             grants.answered(path.ref, .granted(MediaGrant(path)))
         case .mediaMissing(let ref):
             grants.answered(ref, .missing)
+        case .homeStatusChanged:
+            homeStatusCue?()
+        case .attachStatus(let attachId, let status):
+            attachments.answered(attachId, status)
         case .error(let refusal):
             routeRefusal(refusal)
+        case .checklists, .checklist:
+            lists.receive(event)
+        case .accepted(let receipt) where lists.accepted(receipt):
+            break
         default:
             reduce { CompanionReducer.receive(event, into: &$0) }
         }
     }
 
-    /// A refusal naming a media ref answers that ref's fetch; any other is the
-    /// chat's.
+    /// A refusal naming a media ref answers that ref's fetch; the server out
+    /// of reach or no longer knowing this desktop ends the connection; one
+    /// of a list edit, or of a list pull, is the lists'; one naming an attach
+    /// id is the attachments'; any other is the chat's.
     private func routeRefusal(_ refusal: CompanionServerError) {
+        if refusal.reason == CompanionProtocol.desktopRevokedReason {
+            desktopRevoked(Self.sentence(for: refusal))
+            return
+        }
+        if refusal.reason == CompanionProtocol.primaryUnreachableReason {
+            serverUnreachable(Self.sentence(for: refusal))
+            return
+        }
+        if lists.refused(refusal) { return }
+        if attachments.refused(refusal) { return }
         guard let ref = refusal.ref else {
             reduce { CompanionReducer.receive(.error(refusal), into: &$0) }
             return
@@ -314,12 +426,67 @@ public final class CompanionSession {
 
     private func refuse(_ direction: CompanionVersionDirection) {
         log.error("companion versions do not overlap: \(direction.rawValue, privacy: .public)")
+        stop(showing: Self.sentence(for: direction)) { CompanionReducer.disconnected(&$0) }
+    }
+
+    /// The engine answering is an older copy of a home that moved (M75): it
+    /// said so, or its hello showed a lower epoch than one seen here. Nothing
+    /// more is sent to it and nothing is retried; the outbox is kept, and
+    /// asking for chat again tries once more.
+    private func stalePrimary() {
+        log.error("companion: the engine is an older copy of a home that moved")
+        stop(showing: ProductStrings[.companionConnectionStalePrimary]) { CompanionReducer.disconnected(&$0) }
+    }
+
+    /// The engine here is a desktop its server no longer knows (M75): every
+    /// connection is refused until the engine restarts, so the session stops
+    /// as for a version refusal, the outbox is dropped with a line saying so
+    /// rather than kept as sending, and the composer takes nothing. Asking
+    /// for chat again tries once more. Always On's summary is read, since no
+    /// notice can follow.
+    private func desktopRevoked(_ sentence: String) {
+        log.error("companion: the server no longer knows this desktop")
+        stop(showing: sentence) { CompanionReducer.revoked(&$0) }
+        homeStatusCue?()
+    }
+
+    /// The engine here is a desktop whose server cannot be reached, or whose
+    /// home is moving (M75), before or after the handshake. The connection
+    /// is ended here, as the daemon is about to end it, so its close is not
+    /// read as a second drop; the outbox is kept and sent at the next
+    /// handshake, the composer keeps taking messages into it, and the chat
+    /// says the daemon's sentence until then. Always On's summary is read at
+    /// each such refusal: no notice can arrive while the server is away, and
+    /// this is when the summary moves to "cannot reach" and back.
+    private func serverUnreachable(_ sentence: String) {
+        log.error("companion: the server this desktop reaches is unreachable")
+        serverAway = sentence
+        drop(showing: .waiting(sentence))
+        homeStatusCue?()
+    }
+
+    /// Ends the connection and stops trying: no retry changes what the daemon
+    /// said, until chat is asked for again.
+    private func stop(showing sentence: String, _ change: (inout CompanionChat) -> Void) {
         cancelDeadline()
         transport.close()
         phase = .refused
-        update { CompanionReducer.disconnected(&$0) }
+        serverAway = nil
+        update(change)
         grants.disconnected()
-        model.show(.refused(Self.sentence(for: direction)))
+        lists.disconnected()
+        attachments.disconnected()
+        model.show(.refused(sentence))
+    }
+
+    /// A refusal in the daemon's own sentence, or, where it sent none, in the
+    /// app's words for its reason.
+    private static func sentence(for refusal: CompanionServerError) -> String {
+        guard let message = refusal.message, !message.isEmpty else {
+            return String(format: ProductStrings[.companionErrorRefusedFormat], refusal.reason)
+        }
+
+        return message
     }
 
     private func transportFailed(_ failure: CompanionTransportFailure) {
@@ -335,6 +502,8 @@ public final class CompanionSession {
         transport.close()
         update { CompanionReducer.disconnected(&$0) }
         grants.disconnected()
+        lists.disconnected()
+        attachments.disconnected()
         retry(showing: connection)
     }
 
@@ -343,7 +512,7 @@ public final class CompanionSession {
         consecutiveFailures += 1
 
         phase = .waiting
-        model.show(connection)
+        model.show(serverAway.map(CompanionConnection.waiting) ?? connection)
         deadline = deadlines.schedule(after: delay) { [weak self] in
             self?.reconnectDue()
         }
@@ -406,9 +575,9 @@ public final class CompanionSession {
         update { _ in }
     }
 
-    /// Sends one of the grants' events on a negotiated connection, and says
-    /// whether there was one.
-    private func sendForGrants(_ event: CompanionClientEvent) -> Bool {
+    /// Sends one of the grants' or the lists' events on a negotiated
+    /// connection, and says whether there was one.
+    private func sendNegotiated(_ event: CompanionClientEvent) -> Bool {
         guard phase == .connected else { return false }
 
         transport.send(event)

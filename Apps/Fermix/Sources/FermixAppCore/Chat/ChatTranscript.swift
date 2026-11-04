@@ -46,6 +46,9 @@ struct ChatTranscript: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        // Only the newest card that draws a list is live (M85 §08).
+        let liveLists = ChecklistCards.live(in: model.rows)
+
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: ChatMetrics.rowGap) {
@@ -55,15 +58,16 @@ struct ChatTranscript: View {
 
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                         let previous = index > 0 ? items[index - 1] : nil
-                        let opensNewTurn = ChatTimeline.opensNewTurn(after: previous, before: item)
 
                         ChatItemView(
                             item: item,
+                            seam: ChatTimeline.seam(after: previous, before: item),
                             marked: marked(item),
+                            listsLive: liveLists.contains(item.rowSeq ?? -1),
                             answer: session.answerApproval,
                             decide: session.answerProposal
                         )
-                            .padding(.top, opensNewTurn ? ChatMetrics.turnGap - ChatMetrics.rowGap : 0)
+                            .padding(.top, ChatTimeline.turnPadding(after: previous, before: item))
                             .id(item.id)
                     }
                 }

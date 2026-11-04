@@ -190,11 +190,29 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     var cueStatusResult: ManagementCueStatus?
     var cueSourcesResult: ManagementCueSourceList?
     var cueProposalsResult: ManagementCueProposalList?
+    /// Holds `cues.sources.list` open, so a case can see what else the pane
+    /// asked while that read is still out.
+    var cueSourcesGate: (@Sendable () async -> Void)?
     var cueSpecs: [ManagementCueSourceSpec] = []
     var cueFormRequests: [ManagementCueFormRequest] = []
     var cueSourceUpdates: [CueValuesWrite] = []
     var cueMandateWrites: [CueValuesWrite] = []
+    var cueWatcherRevokes: [String] = []
     var cueProposalFilters: [ManagementCueProposalFilter] = []
+    /// The home (M75): the pictures `home.status` answers, one each in order,
+    /// an exhausted script keeping the last; empty means the golden. A
+    /// refusal in the script is thrown for that read.
+    var homeStatusScript: [Result<ManagementHomeStatus, any Error>] = []
+    var homeStatusIndex = 0
+    /// What the Always On pane pressed and read, in order.
+    var homeActs: [HomeAct] = []
+    var provisionOptionsReads = 0
+    var provisionOptionsResult: ManagementProvisionOptions?
+    /// The answers `home.act` gives, one each in order, an exhausted script
+    /// keeping the last; empty means the golden. A refusal in the script is
+    /// thrown for that press.
+    var homeActScript: [Result<ManagementHomeActed, any Error>] = []
+    var homeActIndex = 0
 
     /// The window this double has negotiated, cached exactly as the shipping
     /// gateway caches it. Without the cache a scripted `hello` change would take

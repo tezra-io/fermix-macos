@@ -84,7 +84,7 @@ struct CompanionSessionTests {
 
         #expect(harness.model.connection == .connected)
         #expect(harness.scheduler.liveCount == 0)
-        #expect(try harness.sent() == wire(hello, newestPagePull))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull))
     }
 
     @Test("asking again while connected changes nothing")
@@ -271,7 +271,7 @@ struct CompanionSessionTests {
         harness.scheduler.fireAll()
         harness.socket.deliver(E.hello())
 
-        #expect(try harness.sent() == wire(hello, newestPagePull, hello, historyPull(.after(seq: 12))))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull, hello, historyPull(.after(seq: 12)), listIndexPull))
     }
 
     // MARK: - The outbox
@@ -290,7 +290,7 @@ struct CompanionSessionTests {
 
         #expect(
             try harness.sent()
-                == wire(hello, newestPagePull, .msg(clientMsgId: "mac-1", profileId: "main", text: "Hello"))
+                == wire(hello, newestPagePull, .msg(clientMsgId: "mac-1", profileId: "main", text: "Hello"), listIndexPull)
         )
     }
 
@@ -310,7 +310,7 @@ struct CompanionSessionTests {
 
         #expect(
             try harness.sent()
-                == wire(hello, newestPagePull, first, second, hello, historyPull(.after(seq: 12)), first, second)
+                == wire(hello, newestPagePull, listIndexPull, first, second, hello, historyPull(.after(seq: 12)), first, second, listIndexPull)
         )
         #expect(harness.model.pending.map(\.clientMsgId) == ["mac-1", "mac-2"])
 
@@ -364,14 +364,14 @@ struct CompanionSessionTests {
         harness.socket.deliver(E.row(12))
 
         harness.session.pullOlder()
-        #expect(try harness.sent() == wire(hello, newestPagePull, historyPull(.after(seq: 10))))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull, historyPull(.after(seq: 10))))
 
         harness.socket.deliver(E.forward([11, 12], head: 12, next: 12))
         harness.session.pullOlder()
 
         #expect(
             try harness.sent()
-                == wire(hello, newestPagePull, historyPull(.after(seq: 10)), historyPull(.before(seq: 8)))
+                == wire(hello, newestPagePull, listIndexPull, historyPull(.after(seq: 10)), historyPull(.before(seq: 8)))
         )
     }
 
@@ -452,7 +452,7 @@ struct CompanionSessionTests {
         harness.socket.deliver(M.updated(13))
         harness.socket.deliver(M.page([M.exported(13, text: "Pick up milk", refs: [M.voice])], head: 13))
 
-        #expect(try harness.sent() == wire(hello, newestPagePull, M.read(after: 12, limit: 1)))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull, M.read(after: 12, limit: 1)))
         #expect(harness.model.rows.last?.text == "Pick up milk")
         #expect(harness.model.reshape?.seqs == [13])
         #expect(harness.scheduler.liveCount == 0)
@@ -464,13 +464,13 @@ struct CompanionSessionTests {
         harness.connected()
         harness.socket.deliver(E.backward(Array(1...12), head: 12))
         harness.session.rowsOnScreen([10, 11, 12])
-        #expect(try harness.sent() == wire(hello, newestPagePull))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull))
 
         harness.socket.fail(.peerClosed)
         harness.session.rowsOnScreen([9, 10, 11])
         harness.scheduler.fireAll()
         harness.socket.deliver(E.hello())
-        #expect(try harness.sent() == wire(hello, newestPagePull, hello, historyPull(.after(seq: 12))))
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull, hello, historyPull(.after(seq: 12)), listIndexPull))
 
         harness.socket.deliver(E.forward([], head: 12, next: 12))
         #expect(try harness.sent().last == wireObject(companion: M.read(after: 8, limit: 3)))
@@ -478,7 +478,7 @@ struct CompanionSessionTests {
         harness.socket.deliver(M.page((9...11).map(E.exported), head: 12))
         harness.session.rowsOnScreen([2, 3])
         #expect(try harness.sent().last == wireObject(companion: M.read(after: 1, limit: 2)))
-        #expect(try harness.sent().count == 6)
+        #expect(try harness.sent().count == 8)
     }
 
     // MARK: - Routing
@@ -519,6 +519,403 @@ struct CompanionSessionTests {
         harness.socket.deliver(E.hello(above.0, above.1))
 
         #expect(harness.model.rows.isEmpty)
+        #expect(harness.model.connection == .connected)
+    }
+
+
+    // MARK: - Always On's notice (version 6)
+
+    @Test("connecting says nothing of Always On, and each notice after it asks for one read, never the chat's")
+    func homeStatusNotice() throws {
+        let harness = Harness()
+        var cues = 0
+        harness.session.homeStatusCue = { cues += 1 }
+
+        harness.connected()
+        #expect(cues == 0, "the hello alone is no cue: an engine whose Always On is off sends nothing after it")
+
+        harness.socket.deliver(.homeStatusChanged)
+        harness.socket.deliver(.homeStatusChanged)
+
+        #expect(cues == 2)
+        #expect(harness.model.rows.isEmpty && harness.model.lastError == nil)
+        #expect(try harness.sent() == wire(hello, newestPagePull, listIndexPull), "a notice is answered by nothing on the chat wire")
+    }
+
+    @Test("a notice before the handshake, or after a version refusal, asks for nothing")
+    func homeStatusNoticeOutsideASession() {
+        let harness = Harness()
+        var cues = 0
+        harness.session.homeStatusCue = { cues += 1 }
+        harness.session.connect()
+
+        harness.socket.deliver(.homeStatusChanged)
+        harness.socket.deliver(E.hello(below.0, below.1))
+        harness.socket.deliver(.homeStatusChanged)
+
+        #expect(cues == 0)
+        #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
+    }
+
+    /// An engine older than this build's version 7, a server after a move
+    /// before its nightly update among them, refuses the hello as too new:
+    /// it is told to update, as every older engine is, and never hello'd at
+    /// a lower version.
+    @Test("an engine whose window ends below version 7 refuses this build's hello, and chat says to update the engine")
+    func engineBelowVersionSeven() throws {
+        let harness = Harness()
+        harness.session.connect()
+
+        harness.socket.deliver(E.refusal("unsupported_protocol_version", direction: .clientTooNew, window: .init(minimum: 5, maximum: 6)))
+
+        #expect(try harness.sent() == wire(.clientHello(protocolVersion: 7)))
+        #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionUpdateEngine]))
+        #expect(harness.scheduler.liveCount == 0)
+    }
+
+    // MARK: - After a move (M75)
+
+    /// The sentence a desktop's engine sends while its server is out of reach.
+    nonisolated private static let unreachable = "The server fermix-vm is unreachable. Fermix keeps your message until it is back."
+
+    private static func refusal(_ reason: String, message: String?) -> CompanionServerEvent {
+        .error(
+            CompanionServerError(
+                reason: reason,
+                message: message,
+                field: nil,
+                event: nil,
+                clientMsgId: nil,
+                direction: nil,
+                clientVersion: nil,
+                minVersion: nil,
+                maxVersion: nil,
+                ref: nil
+            )
+        )
+    }
+
+    private static func unreachableRefusal(message: String? = unreachable) -> CompanionServerEvent {
+        refusal(CompanionProtocol.primaryUnreachableReason, message: message)
+    }
+
+    @Test("a server out of reach at the handshake says the daemon's sentence, keeps the outbox and connects again")
+    func serverUnreachableAtTheHandshake() throws {
+        let harness = Harness()
+        harness.session.connect()
+        harness.session.send("Hello")
+
+        harness.socket.deliver(Self.unreachableRefusal())
+
+        #expect(harness.model.connection == .waiting(Self.unreachable))
+        #expect(harness.model.pending.map(\.clientMsgId) == ["mac-1"])
+        #expect(harness.socket.closeCount == 1)
+
+        // The daemon closing its end next is not a second drop: the sentence
+        // stays until the next attempt.
+        harness.socket.fail(.peerClosed)
+        #expect(harness.model.connection == .waiting(Self.unreachable))
+
+        harness.scheduler.fireAll()
+        harness.socket.deliver(E.hello())
+
+        #expect(harness.model.connection == .connected)
+        #expect(
+            try harness.sent()
+                == wire(hello, hello, newestPagePull, .msg(clientMsgId: "mac-1", profileId: "main", text: "Hello"), listIndexPull)
+        )
+    }
+
+    /// While the server is out of reach the desktop refuses every
+    /// connection, so no notice can arrive: each refusal is the cue to read
+    /// Always On, which is when its summary says the server cannot be reached
+    /// and when it says it is back.
+    @Test("a server out of reach asks for a read of Always On at each refusal, at the handshake and mid-session")
+    func serverUnreachableCuesAlwaysOn() {
+        let harness = Harness()
+        var cues = 0
+        harness.session.homeStatusCue = { cues += 1 }
+        harness.connected()
+
+        harness.socket.deliver(Self.unreachableRefusal())
+        #expect(cues == 1)
+
+        harness.scheduler.fireAll()
+        harness.socket.deliver(Self.unreachableRefusal())
+        #expect(cues == 2, "each refused reconnect reads again, on the chat's own backoff")
+
+        harness.scheduler.fireAll()
+        harness.socket.deliver(E.hello())
+        #expect(cues == 2, "once the server is back, its notice after the hello is the cue")
+    }
+
+    @Test("a server lost mid-session ends the connection with its sentence, and the outbox waits for the next")
+    func serverUnreachableMidSession() throws {
+        let harness = Harness()
+        harness.connected()
+        harness.session.send("Plan my week")
+
+        harness.socket.deliver(Self.unreachableRefusal())
+
+        #expect(harness.model.connection == .waiting(Self.unreachable))
+        #expect(harness.model.pending.map(\.clientMsgId) == ["mac-1"])
+        #expect(harness.model.lastError == nil, "the sentence is the connection's, not a refused request's")
+        #expect(harness.scheduler.scheduledDelays.last == CompanionSession.reconnectDelays[0])
+    }
+
+    @Test("a server out of reach with no sentence is named in the app's words for a refusal")
+    func serverUnreachableWithoutASentence() {
+        let harness = Harness()
+        harness.session.connect()
+
+        harness.socket.deliver(Self.unreachableRefusal(message: nil))
+
+        #expect(
+            harness.model.connection
+                == .waiting(String(format: ProductStrings[.companionErrorRefusedFormat], CompanionProtocol.primaryUnreachableReason))
+        )
+    }
+
+    /// The sentence a desktop's engine answers a message with while its home
+    /// moves to a server.
+    private static let moving = "Fermix is moving this home to north-box; your message is kept until it is done."
+
+    @Test("while the home moves, chat keeps taking messages into the outbox through the engine's restart, and sends them once it is back")
+    func composerWaitsThroughTheMove() throws {
+        let harness = Harness()
+        harness.connected()
+
+        harness.socket.deliver(Self.unreachableRefusal(message: Self.moving))
+
+        #expect(harness.model.connection == .waiting(Self.moving))
+        #expect(harness.model.connection.acceptsMessages, "the composer takes a message while the server is away")
+
+        harness.session.send("Did the move work?")
+        #expect(harness.model.pending.map(\.clientMsgId) == ["mac-1"])
+
+        // The engine restarts for the move: its socket is gone, then refuses.
+        // Both are the same wait, not an engine without chat or a lost link.
+        harness.socket.connectResult = .failure(.system(errno: ENOENT))
+        harness.scheduler.fireAll()
+        #expect(harness.model.connection == .waiting(Self.moving))
+        harness.socket.connectResult = .failure(.system(errno: ECONNREFUSED))
+        harness.scheduler.fireAll()
+        #expect(harness.model.connection == .waiting(Self.moving))
+        #expect(harness.model.connection.acceptsMessages)
+
+        harness.socket.connectResult = .success(())
+        harness.scheduler.fireAll()
+        harness.socket.deliver(E.hello())
+
+        #expect(harness.model.connection == .connected)
+        #expect(try harness.sent().suffix(2) == wire(.msg(clientMsgId: "mac-1", profileId: "main", text: "Did the move work?"), listIndexPull))
+
+        // A later drop of a connected chat is an ordinary one again.
+        harness.socket.fail(.peerClosed)
+        #expect(harness.model.connection == .disconnected(ProductStrings[.companionConnectionReconnecting]))
+        #expect(!harness.model.connection.acceptsMessages)
+    }
+
+    /// The sentence a desktop's engine refuses every connection with once its
+    /// server no longer knows this computer.
+    private static let revoked = "The server fermix-vm does not know this computer: it was removed from the server's devices, or the server was restored from a snapshot taken before this computer joined it. Fermix stopped reaching it."
+
+    @Test("a desktop its server no longer knows stops chat with the daemon's sentence and drops what waited, saying so")
+    func desktopRevoked() throws {
+        let harness = Harness()
+        harness.connected()
+        harness.socket.deliver(Self.unreachableRefusal())
+        harness.session.send("Is anyone there?")
+        harness.scheduler.fireAll()
+        harness.socket.deliver(E.hello())
+        #expect(harness.model.pending.map(\.clientMsgId) == ["mac-1"], "sent on the new connection, not yet accepted")
+
+        harness.socket.deliver(Self.refusal(CompanionProtocol.desktopRevokedReason, message: Self.revoked))
+
+        #expect(harness.model.connection == .refused(Self.revoked))
+        #expect(!harness.model.connection.acceptsMessages, "nothing new is taken: it could never be sent")
+        #expect(harness.model.pending.isEmpty, "nothing waiting can be sent")
+        #expect(harness.model.lastError == ProductStrings[.companionErrorNotSentRevoked])
+        #expect(harness.scheduler.liveCount == 0, "nothing is retried until chat is asked for again")
+
+        // Asking for chat again tries once more, and hears the same refusal
+        // at the handshake.
+        harness.session.connect()
+        #expect(harness.socket.connectedPaths.count == 3)
+        harness.socket.deliver(Self.refusal(CompanionProtocol.desktopRevokedReason, message: Self.revoked))
+        #expect(harness.model.connection == .refused(Self.revoked))
+    }
+
+    @Test("a desktop its server no longer knows asks for one read of Always On, since no notice can follow")
+    func desktopRevokedCuesAlwaysOn() {
+        let harness = Harness()
+        var cues = 0
+        harness.session.homeStatusCue = { cues += 1 }
+        harness.connected()
+
+        harness.socket.deliver(Self.refusal(CompanionProtocol.desktopRevokedReason, message: Self.revoked))
+
+        #expect(cues == 1)
+        #expect(harness.scheduler.liveCount == 0, "nothing is retried, so nothing reads again")
+    }
+
+    @Test("a desktop's refusal of an unattended client is said in the daemon's sentence")
+    func unattendedClientSentence() {
+        let harness = Harness()
+        let sentence = "Only the Fermix app chats with the server from this computer, and this process was started by Fermix or runs detached."
+        harness.session.connect()
+
+        harness.socket.deliver(Self.refusal("unattended_client", message: sentence))
+
+        #expect(harness.model.connection == .disconnected(sentence))
+    }
+
+    // MARK: - A retired copy of a moved home (M75)
+
+    /// Connects, says hello as a primary at an epoch, and drops, so the next
+    /// attempt is the case's.
+    private static func seen(_ epoch: Int, by harness: Harness) {
+        harness.session.connect()
+        harness.socket.deliver(E.hello(epoch: epoch, role: .primary))
+        harness.socket.fail(.peerClosed)
+        harness.scheduler.fireAll()
+    }
+
+    @Test("every hello carries the highest epoch a primary showed here, and none before one")
+    func helloCarriesTheHighestEpoch() throws {
+        let harness = Harness()
+        Self.seen(2, by: harness)
+        harness.socket.deliver(E.hello(epoch: 3, role: .primary))
+        harness.socket.fail(.peerClosed)
+        harness.scheduler.fireAll()
+
+        let hellos = try harness.sent().filter { $0["type"] as? String == "client_hello" }
+        #expect(hellos == (try wire(
+            hello,
+            .clientHello(protocolVersion: CompanionProtocol.version, primaryEpoch: 2),
+            .clientHello(protocolVersion: CompanionProtocol.version, primaryEpoch: 3)
+        )))
+    }
+
+    @Test("a primary below the highest epoch seen is an older copy: refused in the app's words, sent nothing more, tried no more")
+    func lowerPrimaryIsRefused() throws {
+        let harness = Harness()
+        Self.seen(3, by: harness)
+        harness.session.send("Still there?")
+
+        harness.socket.deliver(E.hello(epoch: 2, role: .primary))
+
+        #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionStalePrimary]))
+        #expect(harness.scheduler.liveCount == 0)
+        #expect(try harness.sent().last == wireObject(companion: .clientHello(protocolVersion: CompanionProtocol.version, primaryEpoch: 3)))
+        #expect(harness.model.pending.map(\.clientMsgId) == ["mac-1"], "kept for the home that moved")
+    }
+
+    @Test("once an epoch was seen, a primary with none, or a hello with no role and a lower one, is an older copy too")
+    func primaryWithoutAnEpochIsRefused() {
+        for late in [E.hello(role: .primary), E.hello(epoch: 1)] {
+            let harness = Harness()
+            Self.seen(2, by: harness)
+
+            harness.socket.deliver(late)
+
+            #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionStalePrimary]))
+        }
+    }
+
+    @Test("a device's epoch is neither compared nor kept")
+    func deviceEpochIsNotCompared() throws {
+        let harness = Harness()
+        Self.seen(3, by: harness)
+
+        harness.socket.deliver(E.hello(epoch: 1, role: .device))
+        #expect(harness.model.connection == .connected, "a retired copy at a lower epoch serves its reads")
+        harness.socket.fail(.peerClosed)
+        harness.scheduler.fireAll()
+        harness.socket.deliver(E.hello(epoch: 9, role: .device))
+        harness.socket.fail(.peerClosed)
+        harness.scheduler.fireAll()
+
+        #expect(try harness.sent().last == wireObject(companion: .clientHello(protocolVersion: CompanionProtocol.version, primaryEpoch: 3)))
+    }
+
+    @Test("a primary's own stale_primary refusal is said in the app's words and not retried")
+    func stalePrimaryRefusal() {
+        let harness = Harness()
+        harness.session.connect()
+
+        harness.socket.deliver(Self.refusal(
+            CompanionProtocol.stalePrimaryReason,
+            message: "This engine is at epoch 2; you have seen epoch 3: the primary moved, reconnect to the current one"
+        ))
+
+        #expect(harness.model.connection == .refused(ProductStrings[.companionConnectionStalePrimary]))
+        #expect(harness.scheduler.liveCount == 0)
+    }
+
+    @Test("another socket is another home, with an epoch of its own")
+    func anotherSocketStartsAgain() throws {
+        var path = Harness.path
+        let harness = Harness(socketPath: { path })
+        Self.seen(3, by: harness)
+        harness.socket.deliver(E.hello(epoch: 3, role: .primary))
+        harness.socket.fail(.peerClosed)
+        path = "/tmp/fermix-test/other/companion.sock"
+
+        harness.scheduler.fireAll()
+        harness.socket.deliver(E.hello(epoch: 1, role: .primary))
+
+        #expect(harness.model.connection == .connected)
+        #expect(try harness.sent().last { $0["type"] as? String == "client_hello" } == wireObject(companion: hello))
+        #expect(harness.socket.connectedPaths.last == path)
+    }
+
+    // MARK: - Attachments and commands (version 7)
+
+    private static let inbox = CompanionAttachmentInbox(dir: "/tmp/fermix-test/companion/inbox", maxBytes: 20_971_520)
+    private static let commands = [CompanionCommand(name: "new", aliases: [], description: "Start a new conversation")]
+
+    @Test("a hello's commands reach the model and its inbox the attachments, and a drop takes the inbox away but keeps the commands")
+    func helloNamesCommandsAndInbox() {
+        let harness = Harness()
+        harness.session.connect()
+
+        harness.socket.deliver(E.hello(commands: Self.commands, attachments: Self.inbox))
+
+        #expect(harness.model.commands == Self.commands)
+        #expect(harness.session.attachments.inbox == Self.inbox)
+
+        harness.socket.fail(.peerClosed)
+
+        #expect(harness.session.attachments.inbox == nil)
+        #expect(harness.model.commands == Self.commands)
+    }
+
+    @Test("a message carries its files' ids, and one of files alone is a message")
+    func messageCarriesAttachIds() throws {
+        let harness = Harness()
+        harness.connected()
+
+        harness.session.send("", attachments: [CompanionSentAttachment(attachId: "att-1", name: "Plan.pdf")])
+
+        #expect(try harness.sent().last == wireObject(companion: .msg(clientMsgId: "mac-1", profileId: "main", text: "", attachIds: ["att-1"])))
+        #expect(harness.model.pending.map(\.request) == [.message(text: "", attachments: [CompanionSentAttachment(attachId: "att-1", name: "Plan.pdf")])])
+    }
+
+    @Test("a refusal naming an attach id is the attachments', never the chat's")
+    func attachRefusalIsNotTheChats() {
+        let harness = Harness()
+        harness.connected()
+        var refusal = CompanionServerError(
+            reason: "request_failed", message: "That file is too large.", field: nil, event: nil, clientMsgId: nil,
+            direction: nil, clientVersion: nil, minVersion: nil, maxVersion: nil, ref: nil
+        )
+        refusal.attachId = "att-1"
+
+        harness.socket.deliver(.error(refusal))
+        harness.socket.deliver(.attachStatus(attachId: "att-2", status: .present))
+
+        #expect(harness.model.lastError == nil)
         #expect(harness.model.connection == .connected)
     }
 }

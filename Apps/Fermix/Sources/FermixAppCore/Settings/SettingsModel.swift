@@ -51,9 +51,21 @@ public final class UserDefaultsSettingsPaneStore: SettingsPaneStoring {
 public final class SettingsModel: ObservableObject {
     @Published public internal(set) var setupState: SettingsReadState<ManagementSetupState> = .unread
     @Published public internal(set) var inventory: SettingsReadState<[ManagementSettingsSection]> = .unread
+    /// On a desktop after a move (M75), the daemon's sentence for why the
+    /// server's sections are missing from the inventory: this Mac's own are
+    /// listed and served, and the rest return when the server answers. Nil
+    /// whenever the inventory is whole.
+    @Published public internal(set) var primaryMissing: String?
     @Published public internal(set) var sections: [String: SettingsReadState<ManagementSettingsSectionRows>] = [:]
     @Published public internal(set) var detections: SettingsReadState<ManagementDetections> = .unread
     @Published public internal(set) var plugins: SettingsReadState<ManagementPluginCatalog> = .unread
+    /// The plugin whose page Integrations opens as it next reads the
+    /// catalogue: the X plugin, from a Cues source that reads with its
+    /// sign-in (`showPluginPage`).
+    @Published public internal(set) var askedPluginPage: String?
+    /// The page the Cues sheet opens on as the Cues pane next shows: a
+    /// watcher's, from a cue's label in Chat (`showCueWatcher`).
+    @Published public internal(set) var askedCuesPage: CuesSheetPage?
     /// The MCP servers the owner added (M74). `requiresNewerEngine` where the
     /// daemon's `hello` does not list `mcp.servers.list`, which is the state
     /// of that one tab: every other pane is still served.
@@ -142,6 +154,16 @@ public final class SettingsModel: ObservableObject {
     /// the one sheet, so there is one instance for both.
     public private(set) lazy var phone = PhonePairingModel(settings: self, sleeper: sleeper)
 
+    /// The Always On pane's reads and presses (M75). It hangs off this model
+    /// for the phone's reason: the pane and the notice that raises its
+    /// notifications read one summary, so there is one instance for both.
+    public private(set) lazy var alwaysOn = AlwaysOnModel(settings: self, notices: alwaysOnNotices)
+
+    /// The website logins the Browser pane lists and edits (M84 §11), over the
+    /// one store the composition built. The store is the app's, not the
+    /// daemon's, so nothing here reaches `gateway`.
+    let logins: WebsiteLoginsModel
+
     /// Each write the daemon accepted: a row, a secret, the primary provider.
     /// The overview reader reads after every one, since a save is what sets
     /// voice up (M56 §4.1). Not published state: a save is an event, not a
@@ -150,6 +172,8 @@ public final class SettingsModel: ObservableObject {
 
     let gateway: any DaemonQuerying
     private let store: any SettingsPaneStoring
+    /// Where the Always On notices raised are kept across launches.
+    private let alwaysOnNotices: any AlwaysOnNoticeStoring
     let sleeper: any Sleeping
     /// The system browser, for the hop a sign-in needs (RFC 8252) and the one
     /// to ChatGPT's usage settings.
@@ -161,13 +185,17 @@ public final class SettingsModel: ObservableObject {
         store: any SettingsPaneStoring,
         sleeper: any Sleeping,
         opener: any ExternalOpening,
-        permissions: PermissionLedger
+        permissions: PermissionLedger,
+        logins: any LoginStore,
+        alwaysOnNotices: any AlwaysOnNoticeStoring
     ) {
         self.gateway = gateway
         self.store = store
+        self.alwaysOnNotices = alwaysOnNotices
         self.sleeper = sleeper
         self.opener = opener
         self.permissions = permissions
+        self.logins = WebsiteLoginsModel(store: logins)
         self.selectedPane = store.lastSettingsPane.flatMap(SettingsPane.init(rawValue:)) ?? .providers
     }
 
@@ -236,11 +264,16 @@ public final class SettingsModel: ObservableObject {
         return drawn.filter { $0.matches(needle) || rowsMatch(needle, in: $0) }
     }
 
-    /// Whether the sidebar lists this pane. Every pane but Cues is always
-    /// there; Cues is there only where the running daemon has cues
-    /// (`drawsCuesPane`), with no row and no notice otherwise.
+    /// Whether the sidebar lists this pane. Every pane but Cues and Always On
+    /// is always there; Cues is there only where the running daemon has cues
+    /// (`drawsCuesPane`), and Always On only where it serves the home
+    /// (`drawsAlwaysOnPane`), with no row and no notice otherwise.
     public func draws(_ pane: SettingsPane) -> Bool {
-        pane == .cues ? drawsCuesPane : true
+        switch pane {
+        case .cues: return drawsCuesPane
+        case .alwaysOn: return drawsAlwaysOnPane
+        default: return true
+        }
     }
 
     /// Whether any row this pane has read carries the searched text in its
@@ -294,11 +327,13 @@ public final class SettingsModel: ObservableObject {
     /// The section index is boot bound, so an entry reads it only until it has
     /// an answer: it changes across a restart, and `restartCompleted` reads it
     /// again. Read on every entry, it re-asked for a list that could not have
-    /// moved.
+    /// moved. An index a desktop answered without its server's sections is
+    /// read again, since the server may be back.
     public func windowAppeared() async {
         await refreshSetupState()
-        if inventory.value == nil { await loadInventory() }
+        if inventory.value == nil || primaryMissing != nil { await loadInventory() }
         await refreshCueGate()
+        refreshAlwaysOnGate()
         await paneAppeared(selectedPane)
     }
 
@@ -339,11 +374,13 @@ public final class SettingsModel: ObservableObject {
         await refreshSetupState()
         await loadInventory()
         await refreshCueGate()
+        refreshAlwaysOnGate()
         await paneAppeared(selectedPane)
         // A restart is what starts or stops cues, so the pane on screen reads
         // its lists again: their rows are the restarted daemon's now.
         if selectedPane == .cues, drawsCuesPane { await refreshCues() }
         await phone.restartCompleted()
+        await alwaysOn.restartCompleted()
     }
 
     public func refreshSetupState() async {
@@ -367,7 +404,9 @@ public final class SettingsModel: ObservableObject {
     public func loadInventory() async {
         beginRead(\.inventory)
         do {
-            publish(.loaded(try await gateway.settingsSections().sections), to: \.inventory)
+            let answer = try await gateway.settingsSections()
+            publish(answer.primaryMissing, to: \.primaryMissing)
+            publish(.loaded(answer.sections), to: \.inventory)
             noteServed()
         } catch {
             publish(.failure(error), to: \.inventory)

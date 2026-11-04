@@ -274,9 +274,13 @@ struct SecretInput: View {
     let label: String
     @Binding var value: String
     let onSubmit: () -> Void
+    /// What the empty field says. Every credential is pasted, so that is the
+    /// default; a field whose label already names what goes in it, such as a
+    /// website login's password, passes an empty one.
+    var prompt = ProductStrings[.settingsSecretPrompt]
 
     var body: some View {
-        SecureField(label, text: $value, prompt: Text(ProductStrings[.settingsSecretPrompt]))
+        SecureField(label, text: $value, prompt: Text(prompt))
             .settingsTextField()
             .labelsHidden()
             .accessibilityLabel(label)

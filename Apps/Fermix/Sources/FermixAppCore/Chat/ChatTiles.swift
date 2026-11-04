@@ -3,8 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// A row's strip (M66 §3.2): its previews in one sideways row, then its
-/// files' cards in another, then its links' cards (M72), each on the row's
-/// side. A row with more than fits scrolls
+/// files' cards in another, each on the row's side. A row with more than fits scrolls
 /// sideways, by trackpad or a shifted wheel, by the arrows at its ends, or by
 /// the arrow keys from tile to tile; a plain wheel still scrolls the
 /// transcript. Nothing opens over the chat.
@@ -29,10 +28,6 @@ struct ChatStripView: View {
                 ChatStripLane(items: strip.cards, itemWidth: card, width: width, trailing: trailing) { item in
                     ChatCard(item: item, width: card)
                 }
-            }
-
-            if !strip.links.isEmpty {
-                ChatLinkLane(links: strip.links, width: width, trailing: trailing)
             }
         }
         .accessibilityElement(children: .contain)
@@ -355,8 +350,7 @@ private struct ChatNamedRef {
 }
 
 /// An item drawn by its content, by what it is: a file a path names, or a
-/// phone-side file. A link is drawn from its address, as a card, and is never
-/// among them.
+/// phone-side file.
 private struct ChatPreviewTile: View {
     let item: ChatStripItem
     let size: CGSize
@@ -365,7 +359,6 @@ private struct ChatPreviewTile: View {
         switch item {
         case .file(let file): ChatFilePreviewTile(named: ChatNamedFile(file: file), size: size)
         case .media(let ref): ChatRefPreviewTile(named: ChatNamedRef(ref: ref), size: size)
-        case .link: EmptyView()
         }
     }
 }
@@ -538,7 +531,7 @@ private struct ChatPreviewFace: View {
     }
 }
 
-/// Everything that draws no preview, as a compact card: a link, a file whose
+/// Everything that draws no preview, as a compact card: a file whose
 /// content a tile does not draw (text, code, HTML, SVG, anything outside the
 /// Fermix home), and a phone-side file of the same kinds.
 private struct ChatCard: View {
@@ -549,7 +542,6 @@ private struct ChatCard: View {
         switch item {
         case .media(let ref): ChatRefCard(named: ChatNamedRef(ref: ref), width: width)
         case .file(let file): ChatFileCard(named: ChatNamedFile(file: file), width: width)
-        case .link(let link): ChatLinkCard(link: link)
         }
     }
 }

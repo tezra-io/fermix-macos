@@ -45,8 +45,9 @@ extension ManagementVocabulary {
 ///
 /// The eleven the engine serves today have a minimum protocol version of 1; the
 /// thirty-one M34 §7.3 adds, the seven the phone channel added, the three the
-/// iMessage channel added, the twelve of MCP servers and the twenty-four of
-/// cues have a minimum of 2. The
+/// iMessage channel added, the twelve of MCP servers, the twenty-six of cues,
+/// the ten of the home and the one of its cloud provisioner have a minimum of
+/// 2. The
 /// minimum is read from the contract (`ManagementContract.minimumVersion(for:)`),
 /// never restated here: one fact, in the checksum-pinned artifact.
 public enum ManagementMethod: String, CaseIterable, Sendable {
@@ -137,6 +138,9 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case cuesSourcesURLGet = "cues.sources.url.get"
     case cuesWatchersList = "cues.watchers.list"
     case cuesWatchersGet = "cues.watchers.get"
+    /// Takes back a follow-up's Always allow: the watcher page's Ask first
+    /// again. Nothing grants it here; only a card does.
+    case cuesWatchersAlwaysAllowRevoke = "cues.watchers.always_allow.revoke"
     case cuesMandatesList = "cues.mandates.list"
     case cuesMandatesChoices = "cues.mandates.choices"
     case cuesMandatesAdd = "cues.mandates.add"
@@ -148,6 +152,25 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case cuesProposalsList = "cues.proposals.list"
     case cuesProposalsGet = "cues.proposals.get"
     case cuesProposalsDecide = "cues.proposals.decide"
+    // The home (M75): the one picture of where it runs, its recovery
+    // snapshots, and every Always On step.
+    case homeStatus = "home.status"
+    /// The server's own steps (Always On setup §3.5) are rail-only: the
+    /// socket refuses them and `home.act` takes each step, so the app never
+    /// asks one.
+    case homeEnrollOpen = "home.enroll.open"
+    case homeEnrollWithdraw = "home.enroll.withdraw"
+    case homeCandidatesList = "home.candidates.list"
+    case homeMoveReadiness = "home.move.readiness"
+    case homeMoveStart = "home.move.start"
+    case homeSnapshotsStatus = "home.snapshots.status"
+    case homeSnapshotsRun = "home.snapshots.run"
+    case homeSnapshotsPassphrase = "home.snapshots.passphrase"
+    /// Every Always On step, as the summary offers it (Always On setup §3.4).
+    case homeAct = "home.act"
+    /// What a cloud provider sells, for the choice of size and place (M75
+    /// lean v1 §4.3).
+    case homeProvisionOptions = "home.provision.options"
 
     /// The method name in a form the request-id pattern accepts.
     public var identifierSlug: String { rawValue.replacingOccurrences(of: ".", with: "-") }
@@ -178,6 +201,19 @@ public enum ManagementErrorCode: ManagementVocabulary {
     /// The pairing session is not retained by this daemon. Added with the phone
     /// channel.
     case unknownPairingSession
+    /// After a move, the server this Mac forwards to cannot be reached, or
+    /// did not answer in time (M75). `details.sentence` names it.
+    case primaryUnreachable
+    /// The server refused a request that configures the computer that
+    /// forwarded it (M75). `details.sentence` says why.
+    case deviceClassMethod
+    /// After a move, the server had a forwarded request whose answer did not
+    /// arrive (`home.move.start`), so its outcome is not known yet. Not a
+    /// failure: `details.sentence` says where it shows, which is `home.status`.
+    case unconfirmed
+    /// What a `home.act` was drawn from has changed, so nothing was done:
+    /// `details.sentence` says so, and the surface reads `home.status` again.
+    case changed
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -197,7 +233,11 @@ public enum ManagementErrorCode: ManagementVocabulary {
         "unknown_job": .unknownJob,
         "external_change": .externalChange,
         "config_unreadable": .configUnreadable,
-        "unknown_pairing_session": .unknownPairingSession
+        "unknown_pairing_session": .unknownPairingSession,
+        "primary_unreachable": .primaryUnreachable,
+        "device_class_method": .deviceClassMethod,
+        "unconfirmed": .unconfirmed,
+        "changed": .changed
     ]
 
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }

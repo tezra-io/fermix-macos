@@ -54,11 +54,11 @@ public struct StatusProposalLine: Equatable, Sendable {
     }
 }
 
-/// Reads the proposal line on the status menu's own refresh (M60 §4.7): the
-/// daemon's count of proposals waiting from `cues.status`, and the oldest
-/// waiting one's id from `cues.proposals.list`, which is the card the line
-/// opens Chat at. A daemon whose `hello` does not list `cues.status` is never
-/// asked, and the menu then draws no line.
+/// Reads the proposal line on the status menu's own refresh (M60 §4.7) from
+/// one `cues.proposals.list`: the daemon's count of proposals waiting, and the
+/// oldest one, which is the card the line opens Chat at. A daemon whose
+/// `hello` does not list the method is never asked, and the menu then draws
+/// no line.
 @MainActor
 public final class StatusProposalReader {
     /// The line as last read, or nil while nothing waits or nothing answered.
@@ -92,14 +92,13 @@ public final class StatusProposalReader {
     }
 
     private func read() async throws -> StatusProposalLine? {
-        let served = try await gateway.servedMethods()
-        guard served.contains(.cuesStatus), served.contains(.cuesProposalsList) else { return nil }
+        guard try await gateway.servedMethods().contains(.cuesProposalsList) else { return nil }
 
-        let count = try await gateway.cuesStatus().counts.proposalsWaiting
-        guard count > 0 else { return nil }
+        // Oldest first, and `waiting` counts every one, past the page it lists.
+        let waiting = try await gateway.cueProposals(.waiting)
+        guard waiting.waiting > 0, let oldest = waiting.proposals.first else { return nil }
 
-        let oldest = try await gateway.cueProposals(.waiting).proposals.first?.proposalId
-        return oldest.map { StatusProposalLine(count: count, oldestProposalId: $0) }
+        return StatusProposalLine(count: waiting.waiting, oldestProposalId: oldest.proposalId)
     }
 }
 

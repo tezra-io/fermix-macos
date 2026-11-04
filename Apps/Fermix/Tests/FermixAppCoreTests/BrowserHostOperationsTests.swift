@@ -330,11 +330,383 @@ struct BrowserHostOperationsTests {
         _ = client
     }
 
+    // MARK: - Sign-in (protocol 2)
+
+    @Test("page.login_for answers the saved login's site and username and nothing else")
+    func loginForAnswersTheLogin() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        tab.page.loginForResult = .success(SavedLogin(id: UUID(), site: "example.com", username: "person@example.com"))
+
+        let response = try await Self.send(
+            transport,
+            .pageLoginFor(id: 28, BrowserHostPageLoginForRequest(tabId: tab.wireID, site: "www.example.com"))
+        )
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(NSDictionary(dictionary: result).isEqual(to: ["login_site": "example.com", "username": "person@example.com"]))
+        #expect(tab.page.loginForSites == ["www.example.com"])
+        _ = client
+    }
+
+    @Test("page.sign_in answers the fields it typed, the page when observed, and never a value or a username")
+    func signInAnswersTheFields() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        tab.page.signInResult = .success(BrowserSignInOutcome(filled: [.username, .password], effect: .unobserved, url: "https://example.com/login"))
+
+        let response = try await Self.send(transport, .pageSignIn(id: 29, Self.signInRequest(tab.wireID)))
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(Set(result.keys) == ["url", "title", "filled"])
+        #expect(result["filled"] as? [String] == ["username", "password"])
+        #expect(result["url"] as? String == "https://example.com/login")
+        #expect(tab.page.signInRequests == [
+            BrowserSignInRequest(site: "example.com", loginSite: "example.com", usernameRef: 11, passwordRef: 12)
+        ])
+        #expect(tab.page.signInLooks == [nil], "a sign-in the engine does not observe takes no look")
+        _ = client
+    }
+
+    @Test("page.sign_in observed on a page that changed hands the page its look and carries the page back")
+    func signInCarriesTheChangedPage() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        let snapshot = BrowserPageSnapshot(
+            title: "Welcome", url: "https://example.com/home", readyState: .complete, tabLoading: false,
+            nodes: [BrowserPageNode(id: 0, role: "RootWebArea")],
+            elements: 1, crossOriginFrames: 0, closedShadowRoots: false, evaluateMilliseconds: 1
+        )
+        tab.page.signInResult = .success(BrowserSignInOutcome(filled: [.password], effect: .observed(snapshot), url: "https://example.com/home"))
+
+        let response = try await Self.send(
+            transport,
+            .pageSignIn(id: 29, Self.signInRequest(tab.wireID, usernameRef: nil, observe: true))
+        )
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["filled"] as? [String] == ["password"])
+        #expect((result["page"] as? [String: Any])?["url"] as? String == "https://example.com/home")
+        #expect(tab.page.signInLooks == [.some(Self.look)])
+        _ = client
+    }
+
+    @Test("page.sign_in observed whose look could not be taken, a dialog holding the page say, answers with no page")
+    func observedSignInWithNoLookCarriesNoPage() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        tab.page.signInResult = .success(BrowserSignInOutcome(filled: [.password], effect: .unobserved, url: "https://example.com/login"))
+
+        let response = try await Self.send(
+            transport,
+            .pageSignIn(id: 29, Self.signInRequest(tab.wireID, usernameRef: nil, observe: true))
+        )
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(Set(result.keys) == ["url", "title", "filled"])
+        #expect(tab.page.signInLooks == [.some(Self.look)])
+        _ = client
+    }
+
+    @Test("page.sign_in naming neither field is refused before the page is asked")
+    func signInWithNoFieldRefused() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+
+        let response = try await Self.send(
+            transport,
+            .pageSignIn(id: 29, Self.signInRequest(tab.wireID, usernameRef: nil, passwordRef: nil))
+        )
+
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["reason"] as? String == "invalid_request")
+        #expect(tab.page.signInRequests.isEmpty)
+        _ = client
+    }
+
+    @Test("each sign-in refusal answers its own reason, and no message names the username")
+    func signInRefusalsAnswerTheirReasons() async throws {
+        let cases: [(BrowserLoginRefusal, String)] = [
+            (.insecurePage, "sign_in_insecure_page"),
+            (.wrongSite(site: "example.com"), "sign_in_wrong_site"),
+            (.noLogin(host: "example.com"), "sign_in_no_login"),
+            (.field(ref: 12, .notPassword), "sign_in_field"),
+            (.field(ref: 11, .notUsername), "sign_in_field"),
+            (.field(ref: nil, .twoDocuments), "sign_in_field"),
+            (.field(ref: 12, .focus), "sign_in_field"),
+            (.pageMoved(.origin), "sign_in_page_moved"),
+            (.pageMoved(.documentOrigin), "sign_in_page_moved"),
+            (.pageMoved(.login), "sign_in_page_moved"),
+            (.storeUnavailable(.unavailable(status: -34018)), "sign_in_store_unavailable"),
+            (.storeUnavailable(.unavailable(status: nil)), "sign_in_store_unavailable"),
+            (.storeUnavailable(.timedOut), "sign_in_store_unavailable")
+        ]
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+
+        var messages: Set<String> = []
+        for (refusal, reason) in cases {
+            tab.page.signInResult = .failure(refusal)
+            let response = try await Self.send(transport, .pageSignIn(id: 29, Self.signInRequest(tab.wireID)))
+
+            let error = try #require(response["error"] as? [String: Any])
+            #expect(error["reason"] as? String == reason, "\(refusal)")
+            let message = try #require(error["message"] as? String)
+            #expect(!message.isEmpty && !message.contains("person@example.com"))
+            messages.insert(message)
+        }
+        #expect(messages.count == cases.count, "every refusal has its own sentence")
+        #expect(messages.contains("the keychain refused (OSStatus -34018)"))
+        _ = client
+    }
+
+    @Test("while the ledger holds a password, a screenshot the page refuses answers secret_on_screen and writes nothing")
+    func screenshotRefusedWhileASecretShows() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        client.ledger.add(LoginSecret("correct-horse-battery"))
+        tab.page.shownSecretsResult = .failure(BrowserLoginRefusal.secretOnScreen)
+        let path = try tab.capturePath("screenshots/2.png")
+
+        let response = try await Self.send(
+            transport,
+            .pageScreenshot(id: 8, BrowserHostPageScreenshotRequest(tabId: tab.wireID, fullPage: false, path: path))
+        )
+
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["reason"] as? String == "secret_on_screen")
+        #expect(tab.page.guardedFingerprints.map(\.count) == [1])
+        #expect(tab.page.screenshotFullPageRequests.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: path))
+        _ = client
+    }
+
+    @Test("while the ledger holds a password, a pdf the page refuses answers secret_on_screen")
+    func pdfRefusedWhileASecretShows() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        client.ledger.add(LoginSecret("correct-horse-battery"))
+        tab.page.shownSecretsResult = .failure(BrowserLoginRefusal.secretOnScreen)
+        let path = try tab.capturePath("pdfs/2.pdf")
+
+        let response = try await Self.send(transport, .pagePdf(id: 9, tabId: tab.wireID, path: path))
+
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["reason"] as? String == "secret_on_screen")
+        #expect(!FileManager.default.fileExists(atPath: path))
+        _ = client
+    }
+
+    @Test("with nothing in the ledger, a capture never asks the page for the guard")
+    func emptyLedgerSkipsTheGuard() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        let path = try tab.capturePath("screenshots/3.png")
+
+        _ = try await Self.send(
+            transport,
+            .pageScreenshot(id: 8, BrowserHostPageScreenshotRequest(tabId: tab.wireID, fullPage: false, path: path))
+        )
+
+        #expect(tab.page.guardedFingerprints.isEmpty)
+        #expect(tab.page.screenshotFullPageRequests == [false])
+        _ = client
+    }
+
+    @Test("every line the client sends while the ledger holds a password is scrubbed: an answer and an event")
+    func clientScrubsAnswersAndEvents() async throws {
+        let password = LedgerForms.awkward
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        client.ledger.add(LoginSecret(password))
+        tab.page.actResult = .success(
+            BrowserActOutcome(effect: .unobserved, input: .scripted, url: "https://example.com/", read: .text("echo \(password) end"))
+        )
+
+        let response = try await Self.send(transport, .pageAct(id: 10, Self.actRequest(tab.wireID, kind: .get, field: .text)))
+        let before = transport.sent.count
+        client.downloadRefused(UUID(), tab: try #require(tab.coordinator.model.tabs.first).id, filename: password, reason: "refused")
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["value"] as? String == "echo \(LoginLedger.hidden) end")
+        let events = try transport.sentObjects().dropFirst(before)
+        #expect(events.count == 2)
+        #expect(events.first?["filename"] as? String == LoginLedger.hidden)
+        for line in transport.sent {
+            #expect(!String(decoding: line, as: UTF8.self).contains("w<o>rd"))
+        }
+        _ = client
+    }
+
+    // MARK: - Looks
+
+    @Test("an act the engine does not observe reaches the page with no look, and answers with no page")
+    func unobservedActTakesNoLook() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+
+        let response = try await Self.send(transport, .pageAct(id: 10, Self.actRequest(tab.wireID, kind: .click, ref: 4)))
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["page"] == nil)
+        #expect(tab.page.actedOn == [.click(ref: 4)])
+        #expect(tab.page.actLooks == [nil])
+        #expect(tab.page.loadBudgets.isEmpty)
+        #expect(tab.page.snapshotRequests.isEmpty)
+        _ = client
+    }
+
+    @Test("an observed act hands the page the engine's look, and its page carries the document's ready state")
+    func observedActHandsItsLook() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        let page = Self.page(readyState: .interactive)
+        tab.page.actResult = .success(BrowserActOutcome(effect: .observed(page), input: .trusted, url: page.url))
+
+        let response = try await Self.send(
+            transport, .pageAct(id: 10, Self.actRequest(tab.wireID, kind: .click, ref: 4, observe: true))
+        )
+
+        let result = try #require(response["result"] as? [String: Any])
+        let wirePage = try #require(result["page"] as? [String: Any])
+        #expect(wirePage["ready_state"] as? String == "interactive")
+        #expect(tab.page.actLooks == [.some(Self.look)])
+        _ = client
+    }
+
+    @Test("an observed act whose look could not be taken, a dialog holding the page say, answers with no page")
+    func observedActWithNoLookCarriesNoPage() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        tab.page.actResult = .success(BrowserActOutcome(effect: .unobserved, input: .trusted, url: "https://example.com/"))
+
+        let response = try await Self.send(
+            transport, .pageAct(id: 10, Self.actRequest(tab.wireID, kind: .click, ref: 4, observe: true))
+        )
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["page"] == nil)
+        #expect(result["url"] as? String == "https://example.com/")
+        #expect(tab.page.actLooks == [.some(Self.look)])
+        _ = client
+    }
+
+    @Test("an upload reaches the page with no look")
+    func uploadTakesNoLook() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        try FileManager.default.createDirectory(at: tab.workspace, withIntermediateDirectories: true)
+        let file = tab.workspace.appendingPathComponent("photo.png")
+        try Data("png-bytes".utf8).write(to: file)
+
+        let response = try await Self.send(transport, .pageUpload(id: 10, tabId: tab.wireID, ref: 7, path: file.path))
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["tab_id"] as? String == tab.wireID)
+        #expect(tab.page.actedOn == [.upload(ref: 7, path: file.path)])
+        #expect(tab.page.actLooks == [nil])
+        #expect(tab.page.loadBudgets.isEmpty)
+        _ = client
+    }
+
+    @Test("page.snapshot on a load still in flight waits the settle budget, then answers the page as it stands")
+    func snapshotReadsASlowLoadAtTheBudget() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        tab.page.loaded = false
+        tab.page.snapshotResult = Self.page(readyState: .interactive)
+
+        let response = try await Self.send(transport, .pageSnapshot(id: 9, Self.snapshotRequest(tab.wireID)))
+
+        let result = try #require(response["result"] as? [String: Any], "a slow load is never wait_timeout")
+        #expect(result["ready_state"] as? String == "interactive")
+        #expect(tab.page.loadBudgets == [BrowserPageSettle.settleBudget])
+        #expect(tab.page.snapshotRequests.count == 1)
+        _ = client
+    }
+
+    @Test("a complete document read while the tab was still loading answers ready_state loading, though the load is over by the answer")
+    func snapshotOfAPageBeingLeftIsLoading() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        let browserTab = try #require(tab.coordinator.model.tabs.first)
+        tab.page.snapshotResult = Self.page(readyState: .complete, tabLoading: true)
+
+        let response = try await Self.send(transport, .pageSnapshot(id: 9, Self.snapshotRequest(tab.wireID)))
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(!browserTab.isLoading, "the tab shows no load when the answer goes")
+        #expect(result["ready_state"] as? String == "loading", "the state when the page was read")
+        _ = client
+    }
+
+    @Test("a complete document read before a navigation began answers ready_state complete, though the tab is loading by the answer")
+    func snapshotReadBeforeANavigationIsComplete() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        let browserTab = try #require(tab.coordinator.model.tabs.first)
+        browserTab.pageChanged(BrowserPageState(url: URL(string: "https://example.com/"), isLoading: true))
+        tab.page.loaded = false
+        tab.page.snapshotResult = Self.page(readyState: .complete, tabLoading: false)
+
+        let response = try await Self.send(transport, .pageSnapshot(id: 9, Self.snapshotRequest(tab.wireID)))
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["ready_state"] as? String == "complete")
+        _ = client
+    }
+
+    @Test("tab.open observed takes the page's own look after a navigation, with no other wait in front of it")
+    func openTakesTheNavigationLook() async throws {
+        let coordinator = FakeHostCoordinator()
+        let (client, transport) = Self.attachedClient(coordinator: coordinator)
+
+        let response = try await Self.send(transport, .tabOpen(id: 1, Self.openRequest(task: "task-1", observe: true)))
+
+        let result = try #require(response["result"] as? [String: Any])
+        #expect((result["page"] as? [String: Any])?["ready_state"] as? String == "complete")
+        #expect(coordinator.page.navigationLooks == [Self.look])
+        #expect(coordinator.page.loadBudgets.isEmpty)
+        #expect(coordinator.page.snapshotRequests.isEmpty)
+        _ = client
+    }
+
+    @Test("tab.navigate whose navigation never commits answers navigation_refused, saying the page did not start loading and naming no address")
+    func navigationThatNeverCommitsIsRefused() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        tab.page.navigationLookFailure = BrowserPageDriveError.notStarted(within: BrowserPageSettle.navigationTimeout)
+        let navigate = BrowserHostTabNavigateRequest(
+            tabId: tab.wireID, url: "https://example.com/next", observe: true, snapshot: Self.lookOptions
+        )
+
+        let response = try await Self.send(transport, .tabNavigate(id: 2, navigate))
+
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["reason"] as? String == "navigation_refused", "as a navigation that ended without a page")
+        #expect(error["message"] as? String == "the page did not start loading within 30 seconds", "the engine knows what it asked for")
+        #expect(tab.page.navigationLooks == [Self.look])
+        _ = client
+    }
+
     // MARK: - Mechanics
+
+    /// The look every observed request in this suite names.
+    private static let look = BrowserSnapshotRequest(mode: .interactive, maxChars: 50_000, depth: 5)
+    private static let lookOptions = BrowserHostSnapshotOptions(mode: .interactive, maxChars: 50_000, depth: 5)
+
+    private static func page(readyState: BrowserReadyState, tabLoading: Bool = false) -> BrowserPageSnapshot {
+        BrowserPageSnapshot(
+            title: "Example", url: "https://example.com/next", readyState: readyState, tabLoading: tabLoading,
+            nodes: [BrowserPageNode(id: 0, role: "RootWebArea")],
+            elements: 1, crossOriginFrames: 0, closedShadowRoots: false, evaluateMilliseconds: 1
+        )
+    }
+
+    private static func snapshotRequest(_ tabId: String) -> BrowserHostPageSnapshotRequest {
+        BrowserHostPageSnapshotRequest(tabId: tabId, mode: .interactive, maxChars: 50_000, depth: 5)
+    }
+
+    private static func signInRequest(
+        _ tabId: String,
+        usernameRef: Int? = 11,
+        passwordRef: Int? = 12,
+        observe: Bool = false
+    ) -> BrowserHostPageSignInRequest {
+        BrowserHostPageSignInRequest(
+            tabId: tabId, site: "example.com", loginSite: "example.com", observe: observe,
+            usernameRef: usernameRef, passwordRef: passwordRef,
+            snapshot: observe ? Self.lookOptions : nil
+        )
+    }
 
     private static func actRequest(
         _ tabId: String,
         kind: BrowserHostActKind,
+        ref: Int? = nil,
+        observe: Bool = false,
         field: BrowserHostGetField? = nil,
         selector: String? = nil,
         text: String? = nil,
@@ -342,17 +714,19 @@ struct BrowserHostOperationsTests {
         timeoutMs: Int? = nil
     ) -> BrowserHostPageActRequest {
         BrowserHostPageActRequest(
-            tabId: tabId, kind: kind, observe: false, snapshot: nil, ref: nil, x: nil, y: nil,
+            tabId: tabId, kind: kind, observe: observe, snapshot: observe ? Self.lookOptions : nil, ref: ref, x: nil, y: nil,
             text: text, key: nil, fields: nil, field: field, selector: selector,
             waitUntil: waitUntil, timeoutMs: timeoutMs
         )
     }
 
-    private static func openRequest(task: String, taskTabCap: Int = 10, tabCap: Int = 60) -> BrowserHostTabOpenRequest {
+    private static func openRequest(
+        task: String, taskTabCap: Int = 10, tabCap: Int = 60, observe: Bool = false
+    ) -> BrowserHostTabOpenRequest {
         BrowserHostTabOpenRequest(
-            taskId: task, url: "https://example.com/", observe: false,
-            downloadDir: "/tmp/fermix-test/workspace/downloads", taskTabCap: taskTabCap, tabCap: tabCap, snapshot: nil,
-            visible: nil
+            taskId: task, url: "https://example.com/", observe: observe,
+            downloadDir: "/tmp/fermix-test/workspace/downloads", taskTabCap: taskTabCap, tabCap: tabCap,
+            snapshot: observe ? Self.lookOptions : nil, visible: nil
         )
     }
 
@@ -376,7 +750,8 @@ struct BrowserHostOperationsTests {
             browserRoot: { coordinator.browserDirectory },
             hostVersion: "0.2.0",
             coordinator: coordinator,
-            deadlines: ManualDeadlineScheduler()
+            deadlines: ManualDeadlineScheduler(),
+            loginStore: InMemoryLoginStore()
         )
         client.connect()
         return client
@@ -385,7 +760,7 @@ struct BrowserHostOperationsTests {
     private static func attachedClient(coordinator: FakeHostCoordinator) -> (client: BrowserHostClient, transport: Transport) {
         let transport = Transport()
         let client = Self.makeClient(coordinator: coordinator, transport: transport)
-        transport.deliver(.serverHello(minVersion: 1, maxVersion: 1))
+        transport.deliver(.serverHello(minVersion: 1, maxVersion: 2))
 
         return (client, transport)
     }
@@ -437,14 +812,27 @@ private struct OpenTab {
 /// A page with a web engine, a capture surface and a cookie store behind it,
 /// standing in for `WebKitBrowserPage` in the operations this suite proves.
 @MainActor
-private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, BrowserPageCapturing, BrowserPageCookies {
+private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, BrowserPageCapturing, BrowserPageCookies,
+                                        BrowserPageSigningIn {
     weak var events: (any BrowserPageEvents)?
     lazy var view = NSView()
 
     private(set) var actedOn: [BrowserPageAction] = []
+    /// The look each act was handed, nil where the engine asked for none.
+    private(set) var actLooks: [BrowserSnapshotRequest?] = []
     var actResult: Result<BrowserActOutcome, any Error> = .success(
         BrowserActOutcome(effect: .unobserved, input: .scripted, url: "https://example.com/")
     )
+
+    /// The budget of every wait for a load, and its answer: false is a load
+    /// still in flight when the budget ran out.
+    private(set) var loadBudgets: [Duration] = []
+    var loaded = true
+    private(set) var snapshotRequests: [BrowserSnapshotRequest] = []
+    private(set) var navigationLooks: [BrowserSnapshotRequest] = []
+    /// What the look after a navigation throws, nil where it reads the page.
+    var navigationLookFailure: (any Error)?
+    var snapshotResult: BrowserPageSnapshot = .empty
 
     private(set) var screenshotFullPageRequests: [Bool] = []
     var screenshotResult: Result<BrowserPageCapture, any Error> = .success(
@@ -466,12 +854,25 @@ private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, Browser
     func zoom(_ zoom: BrowserZoom) {}
     func close() {}
 
-    func waitUntilReady() async throws {}
+    func waitForLoad(within budget: Duration) async throws -> Bool {
+        loadBudgets.append(budget)
+        return loaded
+    }
 
-    func snapshot(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot { .empty }
+    func snapshot(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot {
+        snapshotRequests.append(request)
+        return snapshotResult
+    }
 
-    func act(_ action: BrowserPageAction, observing request: BrowserSnapshotRequest) async throws -> BrowserActOutcome {
+    func snapshotAfterNavigation(_ request: BrowserSnapshotRequest) async throws -> BrowserPageSnapshot {
+        navigationLooks.append(request)
+        if let navigationLookFailure { throw navigationLookFailure }
+        return snapshotResult
+    }
+
+    func act(_ action: BrowserPageAction, observing look: BrowserSnapshotRequest?) async throws -> BrowserActOutcome {
         actedOn.append(action)
+        actLooks.append(look)
         return try actResult.get()
     }
 
@@ -486,6 +887,36 @@ private final class FakeOperationsPage: BrowserPage, BrowserPageDriving, Browser
     func clearCookies() async throws -> Int {
         clearCalls += 1
         return try clearCookiesResult.get()
+    }
+
+    var loginForResult: Result<SavedLogin, any Error> = .failure(BrowserLoginRefusal.noLogin(host: "example.com"))
+    private(set) var loginForSites: [String] = []
+    var signInResult: Result<BrowserSignInOutcome, any Error> = .failure(BrowserLoginRefusal.pageMoved(.origin))
+    private(set) var signInRequests: [BrowserSignInRequest] = []
+    /// The look each sign-in was handed, nil where the engine asked for none.
+    private(set) var signInLooks: [BrowserSnapshotRequest?] = []
+    var shownSecretsResult: Result<Void, any Error> = .success(())
+    private(set) var guardedFingerprints: [[BrowserSecretFingerprint]] = []
+
+    func loginFor(site: String, store: any LoginStore) async throws -> SavedLogin {
+        loginForSites.append(site)
+        return try loginForResult.get()
+    }
+
+    func signIn(
+        _ request: BrowserSignInRequest,
+        store: any LoginStore,
+        ledger: LoginLedger,
+        observing look: BrowserSnapshotRequest?
+    ) async throws -> BrowserSignInOutcome {
+        signInRequests.append(request)
+        signInLooks.append(look)
+        return try signInResult.get()
+    }
+
+    func refuseShownSecrets(_ fingerprints: [BrowserSecretFingerprint]) async throws {
+        guardedFingerprints.append(fingerprints)
+        try shownSecretsResult.get()
     }
 }
 

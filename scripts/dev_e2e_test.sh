@@ -103,6 +103,11 @@ setup_case() {
   export DEV_E2E_TEST_APP="$APP"
   export DEV_E2E_TEST_SOURCE="$TEST_SOURCE" DEV_E2E_TEST_LABEL="$AGENT_LABEL"
   export DEV_E2E_TEST_IDENTITY="$IDENTITY"
+  # The development identity's profile, at the path the script derives from
+  # this case's own account; the signing stub proves it is the one handed over.
+  export DEV_E2E_TEST_PROFILE="$PROVISIONING_PROFILE"
+  mkdir -p "${PROVISIONING_PROFILE%/*}"
+  printf 'a provisioning profile\n' >"$PROVISIONING_PROFILE"
   mkdir -p "$ROOT_DIR/scripts" "$DEV_E2E_TEST_CONTROL" "$DEV_HOME" "$ENGINE_SRC/scripts/dev"
   : >"$DEV_E2E_TEST_EVENTS"
   : >"$DEV_E2E_TEST_CONTROL/inspected"
@@ -158,6 +163,7 @@ set -euo pipefail
 port="$(plutil -extract EnvironmentVariables.PORT raw -o - "$DEV_E2E_TEST_APP/Contents/Library/LaunchAgents/$DEV_E2E_TEST_LABEL.plist")"
 [ "$port" = 4530 ]
 [ "$2" = "$DEV_E2E_TEST_IDENTITY" ] || { echo "signed with '$2', not the keychain's Developer ID identity" >&2; exit 1; }
+[ "${3:-}" = "$DEV_E2E_TEST_PROFILE" ] || { echo "signed with the profile '${3:-}', not the development identity's" >&2; exit 1; }
 echo sign >>"$DEV_E2E_TEST_EVENTS"
 STUB
   cat >"$ROOT_DIR/scripts/verify_staged_app.sh" <<'STUB'
@@ -334,6 +340,29 @@ case_no_identity() {
   [ -S "$DEV_HOME/daemon.sock" ] || fail "stopped the running engine without an identity to rebuild with"
 }
 
+# No development provisioning profile: the dev bundle claims its own logins
+# keychain group, which macOS kills an app for without a profile, so the loop
+# refuses before the running loop is touched and says how to make one.
+case_no_provisioning_profile() {
+  owned_service
+  rm "$PROVISIONING_PROFILE"
+  if (up --fast) >"$WORK_DIR/refusal" 2>&1; then fail "staged a keychain-group bundle without its profile"; fi
+  grep -Fq "no development provisioning profile at $PROVISIONING_PROFILE" "$WORK_DIR/refusal" ||
+    fail "the refusal did not name the profile's path: $(cat "$WORK_DIR/refusal")"
+  grep -Fq 'Fermix Dev Developer ID' "$WORK_DIR/refusal" || fail "the refusal did not say which profile to make"
+  [ ! -s "$DEV_E2E_TEST_EVENTS" ] || fail "mutated before refusing for a missing profile"
+  [ -S "$DEV_HOME/daemon.sock" ] || fail "stopped the running engine without a profile to rebuild with"
+  [[ "$(status)" == *"profile  absent at $PROVISIONING_PROFILE"* ]] || fail "status did not say the profile is absent"
+}
+
+# With the profile, the bundle is signed with it, and status names it.
+case_signed_with_provisioning_profile() {
+  owned_service
+  up --fast >/dev/null
+  grep -q '^sign$' "$DEV_E2E_TEST_EVENTS" || fail "up did not sign the bundle"
+  [ "$(status | sed -n 's/^profile  //p')" = "$PROVISIONING_PROFILE" ] || fail "status did not name the profile"
+}
+
 case_two_identities() {
   write_identities "$IDENTITY" 'Developer ID Application: Other Team (TEAM654321)'
   if (up --fast) >"$WORK_DIR/refusal" 2>&1; then fail "chose between two identities silently"; fi
@@ -399,6 +428,20 @@ case_development_identity() {
     fail "the staged agent plist registers another label"
   [ "$(plutil -extract AssociatedBundleIdentifiers.0 raw -o - "$plist")" = "$APP_LABEL" ] ||
     fail "the staged agent plist names another bundle"
+}
+
+# The agent is Interactive, so the engine it execs runs at an app's priority,
+# 31. An Adaptive job that nothing boosts over XPC stays in the throttled band
+# (4), and a Standard one gets launchd's light limits (20): on 2026-10-31 every
+# database call timed out under load in both app-launched engines at 4 while a
+# terminal-started one, at 31, had none.
+case_agent_priority() {
+  local plist
+  stage_and_sign "$IDENTITY" >/dev/null
+  plist="$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
+
+  [ "$(plutil -extract ProcessType raw -o - "$plist")" = "Interactive" ] ||
+    fail "the staged agent plist does not run the engine at an app's priority"
 }
 
 # There is one launcher.json per support folder and the development identity
@@ -523,7 +566,10 @@ BTM
 
 if [ "${1:-}" = '--case' ]; then
   WORK_DIR="$(mktemp -d /private/tmp/fermix-dev-loop-test.XXXXXX)"
-  trap 'rm -rf "$WORK_DIR"' EXIT
+  # A case passes only by reaching its end. The bash macOS ships reports 0 for
+  # a script an unset variable stopped once an EXIT trap has run, even to the
+  # trap's own $?, so the trap refuses a case that never finished.
+  trap 'rm -rf "$WORK_DIR"; [ "${case_finished:-}" = 1 ] || exit 1' EXIT
   # The account this case runs in. dev_e2e.sh derives the development
   # identity's support folder from the account at source time, so the fake
   # account exists before it is sourced and every case then reads the record
@@ -548,11 +594,14 @@ if [ "${1:-}" = '--case' ]; then
     build_version) case_build_version ;;
     invalid_version) case_invalid_version ;;
     development_identity) case_development_identity ;;
+    agent_priority) case_agent_priority ;;
     installed_record_untouched) case_installed_record_untouched ;;
     installed_labels_untouched) case_installed_labels_untouched ;;
     no_identity) case_no_identity ;;
     two_identities) case_two_identities ;;
     signed_with_identity) case_signed_with_identity ;;
+    no_provisioning_profile) case_no_provisioning_profile ;;
+    signed_with_provisioning_profile) case_signed_with_provisioning_profile ;;
     version_owner) case_version_owner ;;
     version_foreign) case_version_foreign ;;
     profile_fresh_home) case_profile_fresh_home ;;
@@ -566,11 +615,12 @@ if [ "${1:-}" = '--case' ]; then
     toolchain_no_buildable_sdk) case_toolchain_no_buildable_sdk ;;
     *) fail "unknown test case: $2" ;;
   esac
+  case_finished=1
   exit
 fi
 
 failed=0
-for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version development_identity installed_record_untouched installed_labels_untouched no_identity two_identities signed_with_identity version_owner version_foreign profile_fresh_home profile_appended profile_foreign interrupted_transaction agent_disallowed toolchain_xcode toolchain_current_tools toolchain_newer_tools toolchain_no_buildable_sdk; do
+for scenario in foreign foreign_pid unknown_owner pid_owner restart manual_open down port build_version invalid_version development_identity agent_priority installed_record_untouched installed_labels_untouched no_identity two_identities signed_with_identity no_provisioning_profile signed_with_provisioning_profile version_owner version_foreign profile_fresh_home profile_appended profile_foreign interrupted_transaction agent_disallowed toolchain_xcode toolchain_current_tools toolchain_newer_tools toolchain_no_buildable_sdk; do
   if bash "$0" --case "$scenario"; then echo "ok $scenario"; else failed=1; echo "FAILED $scenario" >&2; fi
 done
 exit "$failed"

@@ -2,13 +2,16 @@ import AppKit
 import SwiftUI
 
 /// The browser pane's own measures (redlines §8 decision 37). The pane's
-/// width is the split's (`PaneSplit`): 600pt as the window widens for it, more
-/// where the body cannot use the width, down to its floor on a small screen.
+/// width is its column's (`BrowserColumn`): 600pt as the window widens for it,
+/// then as wide as the person drags it.
 enum BrowserPaneMetrics {
-    /// A tab gives up width to its neighbours down to this, and never takes
-    /// more than the widest; its title truncates in between.
-    static let tabMinWidth: Double = 72
-    static let tabMaxWidth: Double = 180
+    /// Every tab is this wide, its title truncated, so a title that arrives
+    /// as its page loads never moves the tabs after it, and the row scrolled
+    /// to the tab in front stays there.
+    static let tabWidth: Double = 160
+    /// Between two tabs, and what the strip leaves at the toolbar's ends.
+    static let tabGap: Double = Spacing.xs
+    static let stripInset: Double = Spacing.m
     /// A tab's close control, a small circle inside the regular row.
     static let tabCloseSize: Double = 16
     static let tabCloseSymbolSize: Double = 9
@@ -67,15 +70,15 @@ enum BrowserText {
     }
 }
 
-/// The browser pane (plan §4.3): the third pane of the primary window, beside
-/// the body and inside the frame.
+/// The browser pane (plan §4.3): the primary window's trailing column
+/// (`BrowserColumn`), beside the body and inside the frame.
 ///
-/// A header row on the frame's own glass, under the band, carries the tab
-/// strip, the address capsule between back, forward and reload, and the pane's
-/// own two actions, with a progress hairline along its foot; under it the page
-/// in front, hosted as the engine built it. The window's toolbar belongs to the
-/// surface beside the pane, so the pane draws nothing in it, removes no title
-/// from it, and draws no page title of its own.
+/// Its tabs stand in its own part of the window's toolbar, over the pane,
+/// each a pill the toolbar's height. Under the toolbar, a header row on the
+/// frame's own glass carries the address capsule between back, forward and
+/// reload, and the pane's own two actions, with a progress hairline along its
+/// foot; under it the page in front, hosted as the engine built it. The
+/// pane removes no title from the toolbar and draws no page title of its own.
 ///
 /// It draws nothing while the pane is closed, and it observes the browser's
 /// model rather than the window doing so, so a page loading redraws the pane
@@ -86,6 +89,8 @@ struct BrowserPaneView: View {
     /// What the person types into a page's prompt, reset to the page's own
     /// default as each prompt arrives.
     @State private var promptText = ""
+    /// The pane's width, which its tab strip fits in the toolbar over it.
+    @State private var paneWidth: Double = 0
 
     init(browser: BrowserCoordinator) {
         self.browser = browser
@@ -106,8 +111,17 @@ struct BrowserPaneView: View {
             }
             page
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Any width at all: the column's width is the column's, and a page or
+        // an address that would like more never widens it.
+        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .leading) { BrowserPaneEdge() }
         .background(alignment: .topLeading) { BrowserShortcuts(browser: browser) }
+        .onGeometryChange(for: Double.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            paneWidth = width
+        }
+        .toolbar { tabsItem }
         .alert(
             model.dialog.map { BrowserText.dialogTitle($0.dialog) } ?? "",
             isPresented: dialogShown,
@@ -147,9 +161,26 @@ struct BrowserPaneView: View {
         }
     }
 
+    /// The tabs, in the toolbar over the pane, as wide as the pane less the
+    /// toolbar's ends. They draw their own pills, so the toolbar's shared
+    /// glass, which would wrap the whole strip in one more capsule, is off.
+    @ToolbarContentBuilder
+    private var tabsItem: some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            ToolbarItem(placement: .primaryAction) { tabStrip }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .primaryAction) { tabStrip }
+        }
+    }
+
+    private var tabStrip: some View {
+        BrowserTabStrip(browser: browser, tabs: model.tabs, selected: model.selectedTabID, host: model.host)
+            .frame(width: max(0, paneWidth - 2 * BrowserPaneMetrics.stripInset), alignment: .leading)
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            BrowserTabStrip(browser: browser, tabs: model.tabs, selected: model.selectedTabID, host: model.host)
             if let tab = model.selectedTab {
                 BrowserNavigationRow(browser: browser, tab: tab, focusRequests: model.addressFocusRequests)
                     .id(tab.id)
@@ -223,7 +254,11 @@ private struct BrowserShortcuts: View {
     }
 }
 
-/// The tabs, then the plain capsule that opens a new one.
+/// The tabs, in a row that scrolls sideways once they no longer fit, as a
+/// task with many tabs fills it, then the round pill that opens a new one,
+/// which stays at the row's end. The tab in front is scrolled into view
+/// whenever it changes, a new one included, and an end with more tabs past it
+/// fades, as the chat's sideways rows do.
 private struct BrowserTabStrip: View {
     let browser: BrowserCoordinator
     let tabs: [BrowserTab]
@@ -231,40 +266,82 @@ private struct BrowserTabStrip: View {
     /// Whose each tab is, and which tasks are being cancelled.
     let host: BrowserHostReducer
 
-    var body: some View {
-        HStack(spacing: Spacing.xxs) {
-            ForEach(tabs) { tab in
-                let task = host.owner(of: tab.id)?.task
-                BrowserTabChip(
-                    browser: browser,
-                    tab: tab,
-                    isSelected: tab.id == selected,
-                    task: task,
-                    cancelling: task.map(host.pendingRelease.contains) == true
-                )
-            }
+    /// Which ends have more tabs past them, which fade.
+    @State private var edges = ChatStripEdges(leading: false, trailing: false)
+    /// The tab the row is scrolled to: the one in front, centred, so it is
+    /// never left under a fading end.
+    @State private var position: BrowserTab.ID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-            Button { browser.newTab(profile: .shared) } label: {
-                Label(ProductStrings[.browserNewTab], systemImage: "plus")
-                    .labelStyle(.iconOnly)
+    var body: some View {
+        HStack(spacing: BrowserPaneMetrics.tabGap) {
+            tabRow
+                .frame(maxWidth: tabsWidth > 0 ? tabsWidth : nil)
+            newTab
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// The tabs' own width, so a row with room to spare is only as wide as
+    /// its tabs and the new-tab pill follows the last of them.
+    private var tabsWidth: Double {
+        let count = Double(tabs.count)
+        return count * BrowserPaneMetrics.tabWidth + max(0, count - 1) * BrowserPaneMetrics.tabGap
+    }
+
+    private var tabRow: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: BrowserPaneMetrics.tabGap) {
+                ForEach(tabs) { tab in
+                    let task = host.owner(of: tab.id)?.task
+                    BrowserTabChip(
+                        browser: browser,
+                        tab: tab,
+                        isSelected: tab.id == selected,
+                        task: task,
+                        cancelling: task.map(host.pendingRelease.contains) == true
+                    )
+                }
             }
-            .buttonStyle(SecondaryButtonStyle(.row))
+            .scrollTargetLayout()
+        }
+        .scrollIndicators(.never)
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        // A position the row resolves as it lays out, so a tab opened in
+        // front is scrolled to once it is in the row, not before.
+        .scrollPosition(id: $position, anchor: .center)
+        .onScrollGeometryChange(for: ChatStripEdges.self, of: { ChatStripEdges(ChatStripScroll($0)) }) { _, now in
+            edges = now
+        }
+        .mask { ChatStripFade(edges: edges) }
+        .onChange(of: selected, initial: true) { _, now in
+            withAnimation(reduceMotion ? nil : .default) { position = now }
+        }
+    }
+
+    private var newTab: some View {
+        Button { browser.newTab(profile: .shared) } label: {
+            Label(ProductStrings[.browserNewTab], systemImage: "plus")
+                .labelStyle(.iconOnly)
+                .frame(width: ToolbarPillMetrics.height, height: ToolbarPillMetrics.height)
+                .contentShape(Circle())
+                .toolbarPill(in: Circle(), strong: true)
+        }
+            .buttonStyle(.plain)
             .keyboardShortcut("t", modifiers: .command)
             .help(ProductStrings[.browserNewTab])
             .accessibilityLabel(ProductStrings[.browserNewTab])
             .contextMenu {
                 Button(ProductStrings[.browserNewPrivateTab]) { browser.newTab(profile: .private) }
             }
-
-            Spacer(minLength: 0)
-        }
     }
 }
 
 /// One tab: its title, a mark where it is private, a file or a task's, and
 /// its close control.
 ///
-/// The tab in front sits on the secondary capsule; the others are plain words.
+/// Every tab is a pill the toolbar's height, as a surface's search field is
+/// (`toolbarPill`): the one in front in full, the others on a quieter pill.
 /// Its close control carries Command-W, so the key closes the tab in front and
 /// the last one takes the pane with it. A task's tab is not the person's to
 /// close: the same control cancels the task, once, and the task's release
@@ -312,18 +389,9 @@ private struct BrowserTabChip: View {
         .fermixType(Typography.style(.callout))
         .foregroundStyle((isSelected ? Palette.ink : Palette.secondary).color)
         .padding(.leading, Spacing.s)
-        .padding(.trailing, Spacing.xxs)
-        .frame(
-            minWidth: BrowserPaneMetrics.tabMinWidth,
-            maxWidth: BrowserPaneMetrics.tabMaxWidth,
-            minHeight: HitTarget.rowAction
-        )
-        .background {
-            if isSelected {
-                ButtonRecipe.shape.fill(ButtonRecipe.secondaryFill.color)
-                    .overlay(ButtonRecipe.shape.strokeBorder(ButtonRecipe.secondaryBorder.color, lineWidth: Stroke.hairline))
-            }
-        }
+        .padding(.trailing, Spacing.xs)
+        .frame(width: BrowserPaneMetrics.tabWidth, height: ToolbarPillMetrics.height)
+        .toolbarPill(in: Capsule(), strong: isSelected)
         .onHover { isHovering = $0 }
         .help(title)
     }
@@ -596,5 +664,22 @@ final class BrowserPaneStage: NSView, BrowserPageStage {
         guard page.superview === self else { return }
 
         page.removeFromSuperview()
+    }
+}
+
+
+/// A hairline down the pane's leading edge, through the toolbar's band, which
+/// sets the pane apart from the body beside it and marks the edge a person
+/// drags to share the window between them (owner, 2026-11-03, after the line
+/// ChatGPT draws beside its side pane). Paint only: the drag is the column's
+/// own divider under it.
+private struct BrowserPaneEdge: View {
+    var body: some View {
+        Rectangle()
+            .fill(Palette.hairline(.standard).color)
+            .frame(width: Stroke.hairline)
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }

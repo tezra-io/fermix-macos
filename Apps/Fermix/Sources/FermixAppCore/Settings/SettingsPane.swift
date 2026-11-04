@@ -28,7 +28,8 @@ public enum SettingsPaneGroup: String, CaseIterable, Sendable {
     }
 }
 
-/// The sixteen Settings panes (M34 §5, §3.4; Cues, M60 app surface §4.1).
+/// The seventeen Settings panes (M34 §5, §3.4; Cues, M60 app surface §4.1;
+/// Always On, M75).
 ///
 /// The raw value is the `fermix://settings/<pane>` slug **and** the wire value
 /// `settings.sections` publishes, so the route family, the sidebar and the
@@ -59,6 +60,9 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
     case browser
 
     // System
+    /// Drawn only where the daemon lists `home.status` in its `hello`
+    /// (`SettingsModel.drawsAlwaysOnPane`).
+    case alwaysOn = "always_on"
     case sandbox
     case secrets
     case permissions
@@ -76,7 +80,7 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
             return .connections
         case .voice, .meetings, .computer, .codingAgents, .search, .images, .browser:
             return .capabilities
-        case .sandbox, .secrets, .permissions:
+        case .alwaysOn, .sandbox, .secrets, .permissions:
             return .system
         }
     }
@@ -96,6 +100,7 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
         case .search: return .settingsPaneSearch
         case .images: return .settingsPaneImages
         case .browser: return .settingsPaneBrowser
+        case .alwaysOn: return .settingsPaneAlwaysOn
         case .sandbox: return .settingsPaneSandbox
         case .secrets: return .settingsPaneSecrets
         case .permissions: return .settingsPanePermissions
@@ -119,6 +124,7 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
         case .search: return "magnifyingglass"
         case .images: return "photo"
         case .browser: return "safari"
+        case .alwaysOn: return "server.rack"
         case .sandbox: return "shield.lefthalf.filled"
         case .secrets: return "key"
         case .permissions: return "lock.shield"
@@ -143,6 +149,7 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Sendable {
         case .search: return .settingsKeywordsSearch
         case .images: return .settingsKeywordsImages
         case .browser: return .settingsKeywordsBrowser
+        case .alwaysOn: return .settingsKeywordsAlwaysOn
         case .sandbox: return .settingsKeywordsSandbox
         case .secrets: return .settingsKeywordsSecrets
         case .permissions: return .settingsKeywordsPermissions

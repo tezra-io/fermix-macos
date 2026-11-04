@@ -11,9 +11,8 @@ import WebKit
 /// the page script instead, which the page sees with `isTrusted` false.
 @MainActor
 final class WebKitPageActions {
-    /// The engine's own settle budget: how long an action waits for the page
-    /// to change before it is reported `unchanged`.
-    static let settleBudget: Duration = .milliseconds(1500)
+    /// How often a look glances at the page, and a `wait` act checks its
+    /// condition.
     private static let pollInterval: Duration = .milliseconds(50)
     /// A value short enough to type as keys; anything longer, or holding a
     /// character the US layout has no key for, goes through the value setter.
@@ -24,32 +23,44 @@ final class WebKitPageActions {
     /// Set immediately before the click that opens a file chooser, so the
     /// page's own `runOpenPanelWith` delegate call knows what to answer.
     private let expectUpload: (String) -> Void
-    /// The page's own wait for a navigation in flight to finish, taken before
-    /// the after-snapshot so a click or a submit that starts one never reads
-    /// the page it just asked for mid-load.
-    private let waitUntilReady: @MainActor () async throws -> Void
+    /// The page's own wait for a navigation in flight, for at most the budget
+    /// it is given, answering whether the load finished: a look waits on it
+    /// so a click or a submit that starts a load never reads the page mid-load
+    /// while the budget lasts.
+    private let waitForLoad: @MainActor (Duration) async throws -> Bool
+    /// The page's own wait for the navigation its last load started to
+    /// commit, for at most the timeout it is given, answering whether it is
+    /// over: the look after `tab.open` or `tab.navigate` reads nothing before.
+    private let waitForCommit: @MainActor (Duration) async throws -> Bool
+    /// How many navigations WebKit has started in the page so far, which
+    /// tells a navigation the look is about from a load already in flight.
+    private let navigations: @MainActor () -> Int
 
     init(
         webView: WKWebView,
         script: WebKitPageScript,
         expectUpload: @escaping (String) -> Void,
-        waitUntilReady: @escaping @MainActor () async throws -> Void
+        waitForLoad: @escaping @MainActor (Duration) async throws -> Bool,
+        waitForCommit: @escaping @MainActor (Duration) async throws -> Bool,
+        navigations: @escaping @MainActor () -> Int
     ) {
         self.webView = webView
         self.script = script
         self.expectUpload = expectUpload
-        self.waitUntilReady = waitUntilReady
+        self.waitForLoad = waitForLoad
+        self.waitForCommit = waitForCommit
+        self.navigations = navigations
     }
 
-    func perform(_ action: BrowserPageAction, observing request: BrowserSnapshotRequest) async throws -> BrowserActOutcome {
-        let before = try await fingerprint()
-        let receipt = try await carryOut(action)
-        let (effect, url) = await settle(from: before, observing: request)
+    /// One act, carried out, then looked at as the engine asked: with no
+    /// `look`, it answers as soon as its input is delivered.
+    func perform(_ action: BrowserPageAction, observing look: BrowserSnapshotRequest?) async throws -> BrowserActOutcome {
+        let (receipt, effect) = try await deliver(observing: look) { try await self.carryOut(action) }
 
         return BrowserActOutcome(
             effect: effect,
             input: receipt.input,
-            url: url,
+            url: address(),
             value: receipt.value,
             filled: receipt.filled,
             submitted: receipt.submitted,
@@ -362,36 +373,242 @@ final class WebKitPageActions {
         }
     }
 
-    // MARK: - Settling
+    // MARK: - Sign-in (M84 §8)
 
-    private func fingerprint() async throws -> BrowserPageFingerprint {
-        try await script.call("fingerprint", [])
+    /// The tab's top page as a sign-in checks it: `https`, on `site` by key,
+    /// and the origin the checks were made on.
+    private struct SecureTop {
+        let url: URL
+        let host: String
+        let key: String
+        let origin: String
     }
 
-    /// Polls the fingerprint until it moves off `before` or the settle budget
-    /// runs out. A page that stops answering once the action landed — one
-    /// holding a dialog, say — is `unobserved`: the action itself stands.
-    private func settle(
-        from before: BrowserPageFingerprint,
-        observing request: BrowserSnapshotRequest
-    ) async -> (BrowserPageEffect, url: String) {
-        let deadline = ContinuousClock.now + Self.settleBudget
-        var last = before
+    /// `page.login_for`: the tab's top page is `https` and its host is
+    /// `site`'s by key, and the saved login that host uses (its own site's,
+    /// else the closest parent domain's), attributes only.
+    /// Answers the top origin too, which the page holds for the
+    /// `page.sign_in` that follows.
+    func loginFor(site: String, store: any LoginStore) async throws -> (login: SavedLogin, origin: String) {
+        try await waitUntilLoaded()
+        let top = try secureTop(site: site)
+        let found = try await Self.storeRead(missing: .noLogin(host: top.key)) { try await store.login(forHost: top.host) }
+        guard let login = found else { throw BrowserLoginRefusal.noLogin(host: top.key) }
 
-        while ContinuousClock.now < deadline {
-            guard let fingerprint = try? await fingerprint() else { return (.unobserved, before.url) }
-            last = fingerprint
-            if !last.isSamePage(as: before) {
-                guard (try? await waitUntilReady()) != nil else { return (.unobserved, last.url) }
-                guard let snapshot = try? await WebKitPageSnapshot(script: script).take(request) else {
-                    return (.unobserved, last.url)
-                }
-                return (.changed(snapshot), last.url)
-            }
-            try? await Task.sleep(for: Self.pollInterval)
+        return (login, top.origin)
+    }
+
+    /// `page.sign_in`: the `page.login_for` checks again, the same origin and
+    /// the same login as then, the password read only for a `passwordRef` and
+    /// handed to the ledger before the page has it, then one `fillLogin`,
+    /// looked at after as an act is.
+    func signIn(
+        _ request: BrowserSignInRequest,
+        expectedOrigin: String?,
+        store: any LoginStore,
+        ledger: LoginLedger,
+        observing look: BrowserSnapshotRequest?
+    ) async throws -> BrowserSignInOutcome {
+        try await waitUntilLoaded()
+        let top = try secureTop(site: request.site)
+        guard top.origin == expectedOrigin else { throw BrowserLoginRefusal.pageMoved(.origin) }
+        let found = try await Self.storeRead(missing: .pageMoved(.login)) { try await store.login(forHost: top.host) }
+        guard let login = found, login.site == request.loginSite else { throw BrowserLoginRefusal.pageMoved(.login) }
+
+        let fill = try await loginFill(request, login: login, topURL: top.url, store: store, ledger: ledger)
+        let (_, effect) = try await deliver(observing: look) { try await self.fillLogin(fill) }
+
+        return BrowserSignInOutcome(filled: fill.fields, effect: effect, url: address())
+    }
+
+    /// A sign-in checks the page's address, so it waits for a load in flight
+    /// to finish first, within the script's own bound, and refuses a page
+    /// still loading after it (`wait_timeout`) rather than check one whose
+    /// navigation may not have committed.
+    private func waitUntilLoaded() async throws {
+        guard try await waitForLoad(WebKitPageScript.timeout) else { throw BrowserPageDriveError.waitTimedOut }
+    }
+
+    private func secureTop(site: String) throws -> SecureTop {
+        guard
+            let url = webView.url, url.scheme?.lowercased() == "https",
+            let host = url.host(percentEncoded: false)?.lowercased(), !host.isEmpty
+        else {
+            throw BrowserLoginRefusal.insecurePage
+        }
+        guard
+            case .success(let siteKey) = LoginSite.key(site),
+            case .success(let hostKey) = LoginSite.key(host),
+            siteKey == hostKey
+        else {
+            throw BrowserLoginRefusal.wrongSite(site: site)
         }
 
-        return (.unchanged, last.url)
+        let port = url.port.flatMap { $0 == 443 ? nil : $0 }
+        return SecureTop(url: url, host: host, key: hostKey, origin: "https://\(host)" + (port.map { ":\($0)" } ?? ""))
+    }
+
+    /// The values the fill types. The keychain's secret is read only when a
+    /// password field is named, and the ledger holds it from that moment.
+    private func loginFill(
+        _ request: BrowserSignInRequest,
+        login: SavedLogin,
+        topURL: URL,
+        store: any LoginStore,
+        ledger: LoginLedger
+    ) async throws -> BrowserLoginFill {
+        var password: LoginSecret?
+        if request.passwordRef != nil {
+            let secret = try await Self.storeRead(missing: .pageMoved(.login)) { try await store.password(for: login.id) }
+            ledger.add(secret)
+            password = secret
+        }
+
+        return BrowserLoginFill(
+            topURL: topURL,
+            usernameRef: request.usernameRef,
+            username: request.usernameRef == nil ? nil : login.username,
+            passwordRef: request.passwordRef,
+            password: password
+        )
+    }
+
+    private func fillLogin(_ fill: BrowserLoginFill) async throws {
+        let answer: FillAnswer = try await script.call("fillLogin", [fill.scriptArgument()])
+        try answer.check()
+    }
+
+    /// A store read in the host's vocabulary: a login that is not there is
+    /// `missing`, and the keychain's own refusals are `store_unavailable`.
+    private static func storeRead<Value>(
+        missing: BrowserLoginRefusal,
+        _ read: () async throws -> Value
+    ) async throws -> Value {
+        do {
+            return try await read()
+        } catch let error as LoginStoreError {
+            switch error {
+            case .notFound, .site: throw missing
+            default: throw BrowserLoginRefusal.storeUnavailable(error)
+            }
+        }
+    }
+
+    // MARK: - Looking
+
+    /// The look after `tab.open` or `tab.navigate`: its own navigation's
+    /// commit, within `timeout`, then its load and the page holding still,
+    /// within the navigation budget from the commit, and the page as it
+    /// stands once that is spent. It has moved by definition, so it waits for
+    /// no move. Only its own navigation failing or never committing fails it; a
+    /// navigation the page starts after that load and that fails leaves the
+    /// document shown, which it reads. `timeout` is the engine's but in a
+    /// test.
+    func lookAfterNavigation(
+        _ request: BrowserSnapshotRequest,
+        within timeout: Duration = BrowserPageSettle.navigationTimeout
+    ) async throws -> BrowserPageSnapshot {
+        try await settle(.afterNavigation(from: navigations(), timeout: timeout))
+        return try await WebKitPageSnapshot(script: script, webView: webView).take(request)
+    }
+
+    /// Delivers an input, then takes the look the engine asked for. With no
+    /// look the input answers as soon as it is delivered: no glance, no
+    /// settle and no snapshot.
+    private func deliver<Receipt>(
+        observing look: BrowserSnapshotRequest?,
+        _ input: @MainActor () async throws -> Receipt
+    ) async throws -> (Receipt, BrowserPageEffect) {
+        guard let look else { return (try await input(), .unobserved) }
+
+        let before = try await glance(within: WebKitPageScript.timeout)
+        let receipt = try await input()
+        return (receipt, await lookAfterAct(from: before, observing: look))
+    }
+
+    /// The look after an act or a sign-in's fill: the page it ended on, read
+    /// once the settle says so, whether or not it moved, since the engine
+    /// judges the change against its own last look. A page that stops
+    /// answering, a dialog holding it say, or a load that fails ends it
+    /// `unobserved`, with no page: the action itself stands.
+    private func lookAfterAct(
+        from before: BrowserPageSettle.Glance,
+        observing look: BrowserSnapshotRequest
+    ) async -> BrowserPageEffect {
+        do {
+            try await settle(.afterAct(from: before))
+            return .observed(try await WebKitPageSnapshot(script: script, webView: webView).take(look))
+        } catch {
+            return .unobserved
+        }
+    }
+
+    /// Does what `settling` decides until the look is over and the page is
+    /// to be read. `settling` bounds every wait and glance by what is left of
+    /// the look's budget, and past it answers only `read`, so the loop ends.
+    /// A page that does not answer a glance in time, a dialog holding it say,
+    /// throws, and so does a navigation that never commits, as one that ended
+    /// without a page.
+    private func settle(_ settling: BrowserPageSettle) async throws {
+        var settling = settling
+        let started = ContinuousClock.now
+        var step = settling.opening
+        while true {
+            switch step {
+            case .read:
+                return
+            case .glance(let bound):
+                let seen = try await glance(within: bound)
+                step = settling.next(seen, at: started.duration(to: .now))
+            case .poll(let left):
+                try await Task.sleep(for: min(Self.pollInterval, left))
+                step = settling.afterWait(at: started.duration(to: .now))
+            case .awaitLoad(let left):
+                step = try await awaitLoad(within: left, settling, from: started)
+            case .awaitCommit(let timeout):
+                let committed = try await waitForCommit(timeout)
+                step = settling.afterCommit(committed, at: started.duration(to: .now))
+            case .neverCommitted(let timeout):
+                throw BrowserPageDriveError.notStarted(within: timeout)
+            }
+        }
+    }
+
+    /// Waits for the navigation in flight, for at most `left`, and answers
+    /// the step after it. A load still in flight at the end is read as it
+    /// stands. A load that fails ends the look where `settling` says it does
+    /// (`afterFailedLoad`), and otherwise fails it.
+    private func awaitLoad(
+        within left: Duration,
+        _ settling: BrowserPageSettle,
+        from started: ContinuousClock.Instant
+    ) async throws -> BrowserPageSettle.Step {
+        do {
+            _ = try await waitForLoad(left)
+        } catch let failure as BrowserPageDriveError {
+            guard case .navigationFailed = failure, let step = settling.afterFailedLoad() else { throw failure }
+            return step
+        }
+
+        return settling.afterWait(at: started.duration(to: .now))
+    }
+
+    /// The page's fingerprint, whether WebKit has a navigation in flight,
+    /// which the fingerprint cannot see until the new document commits, and
+    /// how many navigations it has started.
+    private func glance(within bound: Duration) async throws -> BrowserPageSettle.Glance {
+        let fingerprint: BrowserPageFingerprint = try await script.call("fingerprint", [], within: bound)
+        return BrowserPageSettle.Glance(fingerprint: fingerprint, loading: webView.isLoading, navigations: navigations())
+    }
+
+    /// The address of the document the page shows, as WebKit reports it
+    /// rather than the page, so an answer never waits on a script call, even
+    /// on a page a dialog holds. It is the current history entry, which a new
+    /// load replaces only once it commits: `webView.url` already names a load
+    /// still in flight. With no entry yet, `webView.url` names the page, and a
+    /// web view that has loaded nothing shows the empty document.
+    private func address() -> String {
+        (webView.backForwardList.currentItem?.url ?? webView.url)?.absoluteString ?? "about:blank"
     }
 
     private func window() throws -> NSWindow {
@@ -453,4 +670,38 @@ private struct RectGetAnswer: Decodable {
 
 private struct WaitAnswer: Decodable {
     let done: Bool
+}
+
+/// `fillLogin`'s answer: `{ok: true}`, or the one word it refused with, the
+/// ref it was about and what was wrong.
+private struct FillAnswer: Decodable {
+    let ok: Bool?
+    let error: String?
+    let ref: Int?
+    let detail: String?
+
+    func check() throws {
+        switch error {
+        case nil where ok == true:
+            return
+        case "stale":
+            guard let ref else { break }
+            throw BrowserPageDriveError.staleRef(ref)
+        case "field":
+            guard let problem = Self.problems[detail ?? ""] else { break }
+            throw BrowserLoginRefusal.field(ref: ref, problem)
+        case "moved":
+            throw BrowserLoginRefusal.pageMoved(.documentOrigin)
+        default:
+            break
+        }
+        throw BrowserPageDriveError.script("fillLogin answered \(error ?? "no word")")
+    }
+
+    private static let problems: [String: BrowserLoginFieldProblem] = [
+        "username": .notUsername,
+        "password": .notPassword,
+        "documents": .twoDocuments,
+        "focus": .focus
+    ]
 }

@@ -106,17 +106,18 @@ struct DesignTypeAndMetricsTests {
         #expect(ramp.text.contains("@ScaledMetric"), "the ramp draws at a size nothing scales")
     }
 
-    /// The whole product draws with the system font, and no font ships.
+    /// The product draws with the system font everywhere, the chat included
+    /// (owner, 2026-10-31: one face across the app).
     ///
     /// The ramp resolves through `TypeStyle.font`, which is `.system` and
     /// nothing else, so this is the half a value assertion cannot see: a view
-    /// that reached past the ramp for a face of its own, or a face bundled as a
-    /// resource. Both are how a "we use the system font" claim stops being
-    /// true without any table changing.
-    @Test("no surface loads a font of its own, and none is bundled")
-    func everyFaceIsTheSystemFace() throws {
+    /// that reached past the ramp for a face of its own, or a face bundled as
+    /// a resource. Both are how a "one face" claim stops being true without
+    /// any table changing.
+    @Test("no surface loads a font of its own, and no face is bundled")
+    func everyFaceIsTheSystem() throws {
         let files = try SourceTree.swiftFiles(under: "", excluding: false)
-        let forbidden = ["Font.custom(", ".custom(", "NSFont(name:", "CTFontCreateWithName"]
+        let forbidden = ["Font.custom(", ".custom(", "NSFont(name:", "CTFontCreateWithName", "CTFontManagerRegister"]
 
         for file in files {
             for needle in forbidden {

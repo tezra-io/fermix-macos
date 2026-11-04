@@ -55,7 +55,7 @@ struct CompanionBlocksTests {
     func textDoneCarriesItsBlocks() throws {
         let line = Self.textDone(blocks: #"[{"type":"places","places":[\#(Self.fullPlace),\#(Self.barePlace)]}]"#)
 
-        guard case .textDone(_, _, _, let blocks) = try CompanionServerEvent.decode(line) else {
+        guard case .textDone(_, _, _, let blocks, _) = try CompanionServerEvent.decode(line) else {
             Issue.record("the line did not decode as text_done")
             return
         }
@@ -77,7 +77,7 @@ struct CompanionBlocksTests {
     func applePlaceCarriesItsIdentifier() throws {
         let line = Self.textDone(blocks: #"[{"type":"places","places":[\#(Self.applePlace),\#(Self.fullPlace)]}]"#)
 
-        guard case .textDone(_, _, _, let blocks) = try CompanionServerEvent.decode(line),
+        guard case .textDone(_, _, _, let blocks, _) = try CompanionServerEvent.decode(line),
               case .places(let places)? = blocks.first
         else {
             Issue.record("the line did not decode as text_done with places")
@@ -176,6 +176,33 @@ struct CompanionBlocksTests {
         }
         #expect(throws: CompanionDecodeFailure.missingField("blocks.0.type")) {
             _ = try CompanionServerEvent.decode(Self.textDone(blocks: #"[{"places":[]}]"#))
+        }
+    }
+
+    /// M85: the lists a reply's turn read or changed, by id with the rows it
+    /// touched. The vendored goldens carry no reply with one, so the line is
+    /// PROTOCOL.md's own example, after a places block as the engine orders
+    /// them.
+    @Test("a checklists block names each list by id with the rows its turn touched, after the places")
+    func checklistsBlockDecodes() throws {
+        let lists = #"{"type":"checklists","lists":[{"list_id":"ck_3m9q2x7d1a","title":"Fermix","rows":["ci_7k2m9d0q4a","ci_2x8w1d5h3n"]},{"list_id":"ck_5r0t3v8b2c","title":"Portfolio site","rows":["ci_5p3q8r1t6v"]},{"list_id":"ck_8w1d0q4h6z","title":"Groceries","rows":[]}]}"#
+        let line = Self.textDone(blocks: #"[{"type":"places","places":[\#(Self.barePlace)]},\#(lists)]"#)
+
+        guard case .textDone(_, _, _, let blocks, _) = try CompanionServerEvent.decode(line), blocks.count == 2,
+              case .checklists(let refs) = blocks[1]
+        else {
+            Issue.record("the line did not decode as text_done with places and lists")
+            return
+        }
+
+        #expect(refs == [
+            CompanionChecklistRef(listId: "ck_3m9q2x7d1a", title: "Fermix", rows: ["ci_7k2m9d0q4a", "ci_2x8w1d5h3n"]),
+            CompanionChecklistRef(listId: "ck_5r0t3v8b2c", title: "Portfolio site", rows: ["ci_5p3q8r1t6v"]),
+            CompanionChecklistRef(listId: "ck_8w1d0q4h6z", title: "Groceries", rows: [])
+        ])
+        #expect(CompanionServerWire.object(try CompanionServerEvent.decode(line)) as NSDictionary == (try wireObject(line)))
+        #expect(throws: CompanionDecodeFailure.missingField("blocks.0.lists.0.rows")) {
+            _ = try CompanionServerEvent.decode(Self.textDone(blocks: #"[{"type":"checklists","lists":[{"list_id":"ck_3m9q2x7d1a","title":"Fermix"}]}]"#))
         }
     }
 

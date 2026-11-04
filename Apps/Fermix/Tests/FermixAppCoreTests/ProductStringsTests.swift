@@ -286,7 +286,7 @@ struct ProductStringsTests {
     /// is named, reviewable, and asserted.
     @Test("the proper nouns are the product, vendor, and macOS surface names")
     func properNouns() {
-        for noun in ["Fermix", "Telegram", "Slack", "Discord", "ChatGPT", "Claude", "Codex", "Terminal", "Setup", "Doctor", "Realtime", "Messages", "Finder"] {
+        for noun in ["Fermix", "Telegram", "Slack", "Discord", "GitHub", "ChatGPT", "Claude", "Codex", "Terminal", "Setup", "Doctor", "Realtime", "Messages", "Finder"] {
             #expect(ProductCopyRules.properNouns.contains(noun), "\(noun)")
         }
 
@@ -300,16 +300,21 @@ struct ProductStringsTests {
     /// rots into a rubber stamp.
     @Test("a product name is exempt as a phrase and its generic half is not")
     func properPhrasesDoNotExemptTheirWords() {
-        #expect(ProductCopyRules.properPhrases == ["Claude Code", "VS Code", "Google Meet", "Setup Assistant", "Full Disk Access"])
+        #expect(
+            ProductCopyRules.properPhrases
+                == ["Claude Code", "VS Code", "Google Meet", "Setup Assistant", "Full Disk Access", "Always On"]
+        )
         #expect(ProductCopyRules.titleCaseOffenders(in: "Use Claude Code sign-in").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "The Google Meet account is signed in").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "Run the Setup Assistant to register it").isEmpty)
         #expect(ProductCopyRules.titleCaseOffenders(in: "Needs Full Disk Access").isEmpty)
+        #expect(ProductCopyRules.titleCaseOffenders(in: "Open Always On in Settings").isEmpty)
 
         #expect(ProductCopyRules.titleCaseOffenders(in: "Open the Meet window") == ["Meet"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Show the Code panel") == ["Code"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Ask the Assistant about it") == ["Assistant"])
         #expect(ProductCopyRules.titleCaseOffenders(in: "Grant Access to the Disk") == ["Access", "Disk"])
+        #expect(ProductCopyRules.titleCaseOffenders(in: "Keep it On") == ["On"])
         #expect(!ProductCopyRules.properNouns.contains("Code"))
         #expect(!ProductCopyRules.properNouns.contains("Meet"))
         #expect(!ProductCopyRules.properNouns.contains("Assistant"))

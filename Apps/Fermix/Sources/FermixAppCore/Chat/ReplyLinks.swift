@@ -19,16 +19,15 @@ enum ReplyLinks {
     /// The schemes an address is written with.
     static let schemes: Set<String> = ["http", "https"]
 
-    /// Every address written out in a parsed reply, as a link marked as
-    /// written (`ReplyWrittenLink`): an address is the text it is, as a path
-    /// is.
+    /// Every address written out in a parsed reply, as a link to itself, as
+    /// a path written out is.
     static func linked(_ reply: AttributedString) -> AttributedString {
         var linked = withoutAddressLinks(reply)
         let text = String(linked.characters)
         for address in addresses(inText: text) {
             guard let range = Range(address.range, in: linked), linked[range].runs.allSatisfy(isPlain) else { continue }
 
-            linked.linkWritten(range, to: address.url)
+            linked[range].link = address.url
         }
 
         return linked

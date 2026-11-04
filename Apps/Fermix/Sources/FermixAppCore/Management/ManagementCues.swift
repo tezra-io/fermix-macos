@@ -209,6 +209,25 @@ public enum ManagementCueWatcherState: ManagementVocabulary, Hashable {
     }
 }
 
+/// Whether a watcher's follow-up can run (`x-cue-vocabulary.follow_up_states`):
+/// ready, or held while something it needs is off or not set up, which its
+/// sentence names.
+public enum ManagementCueFollowUpState: ManagementVocabulary, Hashable {
+    case ready
+    case held
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = ["ready": .ready, "held": .held]
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+
+    /// Whether its sentence is drawn in the attention style: a held one is.
+    public var drawsAttention: Bool { self == .held }
+}
+
 /// Whether a watcher asks a model about each item, or passes everything.
 public enum ManagementCueWatcherFilter: ManagementVocabulary, Hashable {
     case llm
@@ -560,6 +579,42 @@ public struct ManagementCueSourceForm: Decodable, Equatable, Sendable {
         public let kind: String
     }
 
+    /// Something the owner can watch, as the add sheet's first step lists
+    /// it (M60 simpler setup §7): the same list on every answer, featured
+    /// ones first.
+    public struct Choice: Decodable, Equatable, Sendable {
+        public let id: String
+        public let label: String
+        public let sentence: String
+        public let kind: String
+        public let preset: String?
+        public let featured: Bool
+
+        /// The form this choice opens: asked for by its preset where it has
+        /// one, by its kind otherwise.
+        public func request(verify: String?) -> ManagementCueFormRequest {
+            guard let preset else { return ManagementCueFormRequest(kind: kind, verify: verify) }
+
+            return ManagementCueFormRequest(preset: preset, verify: verify)
+        }
+
+        /// What Add names the source by: its preset, or its kind.
+        public var addition: ManagementCueSourceChoice {
+            preset.map(ManagementCueSourceChoice.preset) ?? .kind(kind)
+        }
+    }
+
+    /// What a choice needs set up first, read from the plugin it reads
+    /// with: the X plugin's sign-in for X accounts. It never stops the add.
+    public struct Requirement: Decodable, Equatable, Sendable {
+        public let state: ManagementCueRequirementState
+        public let sentence: String
+        public let plugin: String
+    }
+
+    /// Empty from an engine inside the window that predates the choices.
+    public let choices: [Choice]
+    public let requirement: Requirement?
     public let kinds: [Kind]
     public let presets: [Preset]
     public let rows: [ManagementSettingRow]
@@ -567,16 +622,60 @@ public struct ManagementCueSourceForm: Decodable, Equatable, Sendable {
     public let notes: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case kinds, presets, rows, notes
+        case choices, requirement, kinds, presets, rows, notes
         case consentSentence = "consent_sentence"
+    }
+
+    /// `choices` and `requirement` arrived inside protocol 2 without moving
+    /// a method minimum, so an engine inside the window that predates them
+    /// omits both keys, and its form decodes as it did before (as
+    /// `ManagementSettingRow.info` did).
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        choices = try container.decodeIfPresent([Choice].self, forKey: .choices) ?? []
+        requirement = try container.decodeIfPresent(Requirement.self, forKey: .requirement)
+        kinds = try container.decode([Kind].self, forKey: .kinds)
+        presets = try container.decode([Preset].self, forKey: .presets)
+        rows = try container.decode([ManagementSettingRow].self, forKey: .rows)
+        consentSentence = try container.decode(String.self, forKey: .consentSentence)
+        notes = try container.decode([String].self, forKey: .notes)
     }
 }
 
-/// `cues.sources.add`: the new row, and a new local push source's first
-/// token, handed out once.
+/// Whether a choice's requirement is met: signed in, or a sign-in owed.
+public enum ManagementCueRequirementState: ManagementVocabulary, Hashable {
+    case ready
+    case needsSignIn
+    case unrecognized(String)
+
+    public static let publishedValues: [String: Self] = ["ready": .ready, "needs_sign_in": .needsSignIn]
+    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
+    public var unrecognizedValue: String? {
+        if case .unrecognized(let value) = self { return value }
+        return nil
+    }
+}
+
+/// `cues.sources.add`: the new row under the name in force, a new local
+/// push source's first token, and the secret Fermix made for a new GitHub
+/// source, each handed out once.
 public struct ManagementCueSourceAdded: Decodable, Equatable, Sendable {
     public let source: ManagementCueSource
     public let token: String?
+    /// Absent from an engine inside the window that predates it, as
+    /// `choices` is.
+    public let secret: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case source, token, secret
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decode(ManagementCueSource.self, forKey: .source)
+        token = try container.decodeIfPresent(String.self, forKey: .token)
+        secret = try container.decodeIfPresent(String.self, forKey: .secret)
+    }
 }
 
 /// The answer of `cues.sources.update`, `.enable` and `.disable`.
@@ -609,8 +708,9 @@ public struct ManagementCueSourceAddress: Decodable, Equatable, Sendable {
 
 // MARK: - Watchers
 
-/// One watcher, read-only: watchers are made and changed in chat. Never an
-/// item's text, a reason or a hint.
+/// One watcher: watchers are made and changed in chat, and the app only takes
+/// back its follow-up's Always allow. Never an item's text, a reason or a
+/// hint.
 public struct ManagementCueWatcher: Decodable, Equatable, Sendable {
     public struct FilterModel: Decodable, Equatable, Sendable {
         public let provider: String?
@@ -629,13 +729,26 @@ public struct ManagementCueWatcher: Decodable, Equatable, Sendable {
     }
 
     public struct Counts: Decodable, Equatable, Sendable {
-        /// Every item its words to listen for let through, kept or not.
+        /// Every item its keywords to listen for let through, kept or not.
         public let offered: Int
         public let waiting: Int
         public let passed: Int
         public let dropped: Int
         public let acted: Int
         public let failed: Int
+    }
+
+    /// The job an item that passes sets off, in the daemon's words. It always
+    /// asks first on a card unless the owner's Always allow on one lets it
+    /// run with no card.
+    public struct FollowUp: Equatable, Sendable {
+        public let jobId: String
+        public let name: String
+        /// False while each run asks first. A daemon older than Always allow
+        /// publishes no such field, which is asking first.
+        public let alwaysAllowed: Bool
+        public let state: ManagementCueFollowUpState
+        public let statusSentence: String
     }
 
     public let id: String
@@ -657,9 +770,12 @@ public struct ManagementCueWatcher: Decodable, Equatable, Sendable {
     public let counts: Counts
     public let instructionCount: Int
     public let createdAt: String?
+    /// Nil for a watcher with none, and from a daemon older than follow-ups.
+    public let followUp: FollowUp?
 
     private enum CodingKeys: String, CodingKey {
         case id, name, enabled, filter, state, sources, task, counts
+        case followUp = "follow_up"
         case filterModel = "filter_model"
         case statusSentence = "status_sentence"
         case taskNotes = "task_notes"
@@ -667,6 +783,24 @@ public struct ManagementCueWatcher: Decodable, Equatable, Sendable {
         case filterBudget = "filter_budget"
         case instructionCount = "instruction_count"
         case createdAt = "created_at"
+    }
+}
+
+extension ManagementCueWatcher.FollowUp: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case name, state
+        case jobId = "job_id"
+        case alwaysAllowed = "always_allowed"
+        case statusSentence = "status_sentence"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        jobId = try fields.decode(String.self, forKey: .jobId)
+        name = try fields.decode(String.self, forKey: .name)
+        alwaysAllowed = try fields.decodeIfPresent(Bool.self, forKey: .alwaysAllowed) ?? false
+        state = try fields.decode(ManagementCueFollowUpState.self, forKey: .state)
+        statusSentence = try fields.decode(String.self, forKey: .statusSentence)
     }
 }
 
@@ -683,7 +817,7 @@ public struct ManagementCueWatcherList: Decodable, Equatable, Sendable {
 }
 
 /// `cues.watchers.get`: the row plus the owner's own words, its purpose, its
-/// words to listen for and its instructions, and its examples counted, never
+/// keywords to listen for and its instructions, and its examples counted, never
 /// shown.
 public struct ManagementCueWatcherDetail: Decodable, Equatable, Sendable {
     public struct Instruction: Decodable, Equatable, Sendable {
@@ -729,6 +863,12 @@ public struct ManagementCueWatcherDetail: Decodable, Equatable, Sendable {
 /// `cues.watchers.get`'s envelope.
 public struct ManagementCueWatcherAnswer: Decodable, Equatable, Sendable {
     public let watcher: ManagementCueWatcherDetail
+}
+
+/// `cues.watchers.always_allow.revoke`'s envelope: the watcher's row once
+/// its follow-up asks first again.
+public struct ManagementCueWatcherRowAnswer: Decodable, Equatable, Sendable {
+    public let watcher: ManagementCueWatcher
 }
 
 // MARK: - Mandates

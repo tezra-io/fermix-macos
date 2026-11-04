@@ -6,8 +6,9 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
     public let serverSeq: Int
     public let text: String
     /// Who wrote the row, in the daemon's own word, and when, as the daemon
-    /// wrote the time. A reply held from its turn's `text_done` has neither:
-    /// that event names the turn, not the row's role or time.
+    /// wrote the time. A reply held from its turn's `text_done` has no role,
+    /// which that event does not name, and has the time only where the daemon
+    /// sent it (`ts`).
     public let role: String?
     public let timestamp: String?
     /// On a user's row, the request it recorded.
@@ -26,6 +27,9 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
     /// (M72 §8.3). Every event that brings a reply carries them, its turn's
     /// `text_done` too, so history bringing the row again changes nothing.
     public let blocks: [CompanionBlock]
+    /// Where a row Fermix sent on its own came from, where the engine named
+    /// it: a scheduled job's run or a cue's.
+    public let origin: CompanionRowOrigin?
 
     public var id: Int { serverSeq }
 
@@ -39,7 +43,8 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
         turnId: String?,
         mediaRefs: [CompanionMediaRef] = [],
         linkPreviews: [CompanionLinkPreview] = [],
-        blocks: [CompanionBlock] = []
+        blocks: [CompanionBlock] = [],
+        origin: CompanionRowOrigin? = nil
     ) {
         self.serverSeq = serverSeq
         self.text = text
@@ -51,6 +56,7 @@ public struct CompanionRow: Equatable, Sendable, Identifiable {
         self.mediaRefs = mediaRefs
         self.linkPreviews = linkPreviews
         self.blocks = blocks
+        self.origin = origin
     }
 }
 
@@ -67,7 +73,8 @@ extension CompanionRow {
             turnId: nil,
             mediaRefs: row.mediaRefs,
             linkPreviews: row.linkPreviews ?? [],
-            blocks: row.blocks?.known ?? []
+            blocks: row.blocks?.known ?? [],
+            origin: CompanionRowOrigin(metadata: row.metadata)
         )
     }
 
@@ -84,17 +91,19 @@ extension CompanionRow {
             turnId: nil,
             mediaRefs: row.mediaRefs,
             linkPreviews: row.linkPreviews ?? [],
-            blocks: row.blocks?.known ?? []
+            blocks: row.blocks?.known ?? [],
+            origin: CompanionRowOrigin(metadata: row.metadata)
         )
     }
 
-    /// A reply part at its row, from the turn's `text_done`, with its blocks.
-    init(reply turnId: String, serverSeq: Int, text: String, inReplyTo: String?, blocks: [CompanionBlock]) {
+    /// A reply part at its row, from the turn's `text_done`, with its blocks
+    /// and the time its row stores, where the daemon sent it.
+    init(reply turnId: String, serverSeq: Int, text: String, inReplyTo: String?, blocks: [CompanionBlock], timestamp: String?) {
         self.init(
             serverSeq: serverSeq,
             text: text,
             role: nil,
-            timestamp: nil,
+            timestamp: timestamp,
             clientMsgId: nil,
             inReplyTo: inReplyTo,
             turnId: turnId,
@@ -103,11 +112,42 @@ extension CompanionRow {
     }
 
     /// Whether two rows at one seq draw alike: the same text, files,
-    /// previews (M66 §3.1) and blocks (M72 §8.5). Who wrote a row and when
+    /// previews (M66 §3.1), blocks (M72 §8.5) and the origin whose label
+    /// stands over it. Who wrote a row and when
     /// are not what changes its height when history brings it again.
     func drawsAlike(_ other: CompanionRow) -> Bool {
         text == other.text && mediaRefs == other.mediaRefs && linkPreviews == other.linkPreviews
-            && blocks == other.blocks
+            && blocks == other.blocks && origin == other.origin
+    }
+}
+
+/// Where a row Fermix sent on its own came from, as the engine stored it in
+/// the row's `metadata.origin`: a scheduled job's run, named as the owner's
+/// jobs are named, or a cue's run, named by its watcher as `cues.status`
+/// names it. A turn's reply, a reminder and a call's row carry none.
+public struct CompanionRowOrigin: Equatable, Sendable {
+    public enum Kind: String, Sendable {
+        case job
+        case cue
+    }
+
+    public let kind: Kind
+    public let name: String
+
+    public init(kind: Kind, name: String) {
+        self.kind = kind
+        self.name = name
+    }
+
+    /// The origin a row's metadata names, or nil where it names none, or a
+    /// kind this build does not know.
+    init?(metadata: [String: CompanionJSONValue]?) {
+        guard case .object(let origin)? = metadata?["origin"],
+              case .string(let word)? = origin["kind"], let kind = Kind(rawValue: word),
+              case .string(let name)? = origin["name"], !name.isEmpty
+        else { return nil }
+
+        self.init(kind: kind, name: name)
     }
 }
 
@@ -124,11 +164,30 @@ public struct CompanionTurn: Equatable, Sendable {
     public internal(set) var text: String
     /// The latest tool call the turn reported, as the daemon reported it.
     public internal(set) var tool: CompanionToolEvent?
+    /// What the turn said it was doing, oldest first (version 6): each tool's
+    /// step in the engine's words and each summary of its reasoning.
+    public internal(set) var steps: [CompanionTurnStep] = []
+}
+
+/// One thing a turn said it was doing while it ran.
+public enum CompanionTurnStep: Equatable, Sendable {
+    /// A tool's step, in the engine's sentence for it.
+    case activity(String)
+    /// The model's summary of a step of its reasoning, as it wrote it.
+    case reasoning(String)
+}
+
+/// A file a message carries: the id its `attach_file` handed it over by, and
+/// its name, which the message shows while it is being sent.
+public struct CompanionSentAttachment: Equatable, Sendable {
+    public let attachId: String
+    public let name: String
 }
 
 /// What a request asks of the agent.
 public enum CompanionRequest: Equatable, Sendable {
-    case message(text: String)
+    /// Words, files the engine already holds (version 7), or both.
+    case message(text: String, attachments: [CompanionSentAttachment] = [])
     /// A slash command. An approval's answer is one.
     case command(name: String, args: String?)
     /// Version 4: the owner's answer to a proposal, by id and word alone.
@@ -147,8 +206,13 @@ public struct CompanionOutboxEntry: Equatable, Sendable, Identifiable {
     /// sent: the daemon refuses one id with different content as a conflict.
     var event: CompanionClientEvent {
         switch request {
-        case .message(let text):
-            return .msg(clientMsgId: clientMsgId, profileId: CompanionProtocol.profileId, text: text)
+        case .message(let text, let attachments):
+            return .msg(
+                clientMsgId: clientMsgId,
+                profileId: CompanionProtocol.profileId,
+                text: text,
+                attachIds: attachments.map(\.attachId)
+            )
         case .command(let name, let args):
             return .command(clientMsgId: clientMsgId, profileId: CompanionProtocol.profileId, name: name, args: args)
         case .proposalAnswer(let proposalId, let decision):
@@ -164,10 +228,10 @@ public struct CompanionOutboxEntry: Equatable, Sendable, Identifiable {
 
 /// Where the owner's answer to a proposal stands on this Mac.
 public enum CompanionProposalStanding: Equatable, Sendable {
-    /// Nothing sent: Deny and Confirm.
+    /// Nothing sent: the card's buttons.
     case open
-    /// An answer is on its way or accepted: both buttons wait for the daemon,
-    /// so the card is never answered twice.
+    /// An answer is on its way or accepted: every button waits for the
+    /// daemon, so the card is never answered twice.
     case answered(CompanionProposalDecision)
     /// Past its `expires_at` on this Mac's own clock with no answer sent.
     case expired
@@ -186,8 +250,8 @@ public struct CompanionProposalCard: Equatable, Sendable, Identifiable {
 
     /// Whether the card asks the owner now: the daemon says it waits, nothing
     /// was sent, and this Mac's clock has not passed its expiry. Only such a
-    /// card draws Deny and Confirm, and only such cards are counted as
-    /// waiting for a decision.
+    /// card draws its buttons, and only such cards are counted as waiting
+    /// for a decision.
     public var awaitsDecision: Bool {
         proposal.state == .waiting && standing == .open
     }

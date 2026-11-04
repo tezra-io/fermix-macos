@@ -2,22 +2,29 @@ import SwiftUI
 
 /// A cue proposal waiting on the owner (M60 §4.7): a task under a mandate in
 /// approve mode wants to run one call, and runs it only if the owner confirms.
+/// Since companion version 5 a watcher's follow-up asks on the same card to
+/// run once, and names the follow-up in place of a call.
 ///
-/// Fermix's lines (the summary, the task, the watcher and the expiry) are
-/// drawn as Fermix's. What a model or a stranger wrote, the call's arguments
-/// and the item that led to it, is drawn only by `OutsideTextBlock`.
+/// Fermix's lines (the summary, the task, the watcher, the expiry, and a
+/// follow-up's instructions, tools and where it reports, which are the
+/// owner's own words) are drawn as Fermix's. What a model or a stranger
+/// wrote, the call's arguments, the filter's reason and the item that led to
+/// it, is drawn only by `OutsideTextBlock`.
 ///
-/// Deny and Confirm are drawn alike, and neither is the default button, so
-/// Return does nothing on the card: an answer takes a click or a keypress on
-/// a button itself. A press sends the proposal's id and the word, disables
-/// both, and shows Running… for a confirm; the daemon's resolution replaces
-/// the buttons with its sentence, and what the tool answered under it as
-/// outside text. At its expiry on this Mac's clock the buttons go and the
-/// card says nothing ran, until the daemon's resolution replaces that too.
+/// A mandate's card answers Deny and Confirm; a follow-up's answers Skip and
+/// Run, and Always allow where its card offers it, the words Telegram uses
+/// for the same card. The buttons are drawn alike, and none is the default
+/// button, so Return does nothing on the card: an answer takes a click or a
+/// keypress on a button itself. A press sends the proposal's id and the
+/// word, disables every button, and shows Running… for an answer that runs;
+/// the daemon's resolution replaces the buttons with its sentence, and what
+/// the tool answered under it as outside text. At its expiry on this Mac's
+/// clock the buttons go and the card says nothing ran, until the daemon's
+/// resolution replaces that too.
 ///
-/// VoiceOver reads the card as one group: the summary, the call, the item,
-/// the expiry, then the buttons. The expiry is told when the card appears and
-/// a minute before it, never every second.
+/// VoiceOver reads the card as one group: the summary, the call or the
+/// follow-up, the reason, the item, the expiry, then the buttons. The expiry
+/// is told when the card appears and a minute before it, never every second.
 struct ChatProposalCard: View {
     let card: CompanionProposalCard
     let decide: (String, CompanionProposalDecision) -> Void
@@ -28,8 +35,20 @@ struct ChatProposalCard: View {
         VStack(alignment: .leading, spacing: Spacing.s) {
             lead
 
-            OutsideTextBlock(header: ProductStrings[.outsideCall], facts: [], text: proposal.outside.argsText, face: .code)
-                .accessibilitySortPriority(4)
+            if case .followUp(let followUp) = proposal.ask {
+                followUpLines(followUp)
+                    .accessibilitySortPriority(4)
+            }
+
+            if let argsText = proposal.outside.argsText {
+                OutsideTextBlock(header: ProductStrings[.outsideCall], facts: [], text: argsText, face: .code)
+                    .accessibilitySortPriority(4)
+            }
+
+            if let reason = proposal.outside.reason {
+                OutsideTextBlock(header: ProductStrings[.outsideReason], facts: [], text: reason, face: .item)
+                    .accessibilitySortPriority(3.5)
+            }
 
             if let cue = proposal.outside.cue {
                 OutsideTextBlock(header: Self.itemHeader(of: proposal), facts: Self.facts(of: cue), text: cue.text ?? "", face: .item)
@@ -81,6 +100,23 @@ struct ChatProposalCard: View {
         }
     }
 
+    /// A follow-up in the owner's words: what it will do, then where it
+    /// reports and its tools.
+    private func followUpLines(_ followUp: CompanionFollowUp) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+            Text(String(format: ProductStrings[.proposalFollowUpInstructionsFormat], followUp.instructions))
+                .fermixType(Typography.style(.body))
+                .foregroundStyle(Palette.ink.color)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(Self.facts(of: followUp))
+                .fermixType(Typography.style(.calloutSmall))
+                .foregroundStyle(Palette.secondary.color)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: ChatMetrics.rowRadius, style: .continuous)
     }
@@ -101,7 +137,7 @@ struct ChatProposalCard: View {
                     .foregroundStyle(Palette.secondary.color)
             }
         case .answered(let decision):
-            buttons(running: decision == .confirm)
+            buttons(running: Self.runs(after: decision))
         case .expired:
             Text(ProductStrings[.proposalExpired])
                 .fermixType(Typography.style(.body))
@@ -118,7 +154,7 @@ struct ChatProposalCard: View {
         }
     }
 
-    /// Deny and Confirm, alike, enabled only while the card asks.
+    /// The card's answers, alike, enabled only while the card asks.
     private func buttons(running: Bool) -> some View {
         HStack(spacing: Spacing.xs) {
             Spacer(minLength: 0)
@@ -129,9 +165,8 @@ struct ChatProposalCard: View {
                     .foregroundStyle(Palette.secondary.color)
             }
 
-            Group {
-                Button(ProductStrings[.proposalDeny]) { decide(card.id, .deny) }
-                Button(ProductStrings[.proposalConfirm]) { decide(card.id, .confirm) }
+            ForEach(Self.answers(of: proposal), id: \.decision) { answer in
+                Button(answer.title) { decide(card.id, answer.decision) }
             }
             .buttonStyle(SecondaryButtonStyle(.row))
             .disabled(!card.awaitsDecision)
@@ -174,6 +209,43 @@ struct ChatProposalCard: View {
         return [watcher, waits].compactMap { $0 }.reduce(task) { ProductStrings.middot($0, $1) }
     }
 
+    /// Where a follow-up reports and its tools: Fermix's and the owner's
+    /// words, never the item's.
+    static func facts(of followUp: CompanionFollowUp) -> String {
+        let reports = String(format: ProductStrings[.proposalFollowUpReportsToFormat], followUp.reportsTo)
+        guard !followUp.tools.isEmpty else { return reports }
+
+        return ProductStrings.middot(
+            reports,
+            String(format: ProductStrings[.proposalFollowUpToolsFormat], followUp.tools.joined(separator: ", "))
+        )
+    }
+
+    /// The card's answers, left to right: a follow-up's Skip and Run, with
+    /// Always allow before them where its card offers it, and a mandate's
+    /// Deny and Confirm. The answer that runs is last.
+    static func answers(of proposal: CompanionProposal) -> [ProposalAnswer] {
+        guard case .followUp = proposal.ask else {
+            return [
+                ProposalAnswer(title: ProductStrings[.proposalDeny], decision: .deny),
+                ProposalAnswer(title: ProductStrings[.proposalConfirm], decision: .confirm)
+            ]
+        }
+
+        let always = proposal.offersAlwaysAllow
+            ? [ProposalAnswer(title: ProductStrings[.proposalAlwaysAllow], decision: .alwaysAllow)]
+            : []
+        return always + [
+            ProposalAnswer(title: ProductStrings[.proposalSkip], decision: .deny),
+            ProposalAnswer(title: ProductStrings[.proposalRun], decision: .confirm)
+        ]
+    }
+
+    /// Whether an answer sent starts a run: Confirm, Run and Always allow do.
+    static func runs(after decision: CompanionProposalDecision) -> Bool {
+        decision != .deny
+    }
+
     /// The item's header: the source Fermix received it from, and when, or,
     /// where its record names neither, only that it is the item.
     static func itemHeader(of proposal: CompanionProposal) -> String {
@@ -195,6 +267,12 @@ struct ChatProposalCard: View {
             cue.occurredAt.map { String(format: ProductStrings[.outsideDatedFormat], $0) }
         ].compactMap { $0 }
     }
+}
+
+/// One of a card's buttons: its title and the word it sends.
+struct ProposalAnswer: Equatable {
+    let title: String
+    let decision: CompanionProposalDecision
 }
 
 /// What the expiry's announcements wait on: the card, and whether it asks.

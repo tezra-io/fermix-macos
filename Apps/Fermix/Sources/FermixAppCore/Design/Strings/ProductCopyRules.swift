@@ -34,14 +34,17 @@ public enum ProductCopyRules {
     public static let properNouns: Set<String> = [
         "Fermix", "Mac", "Terminal",
         "Setup", "Doctor", "Home", "Logs", "Pet",
-        "Telegram", "Slack", "Discord",
+        "Telegram", "Slack", "Discord", "GitHub",
         "ChatGPT", "Claude", "Codex", "OpenAI", "Anthropic", "OpenRouter", "Ollama", "Realtime",
         "Google", "Android",
         "Login", "Items", "System", "Settings", "Permissions",
         "Applications", "Library", "Launchpad", "Spotlight", "Messages", "Finder", "Maps",
         "Homebrew", "Homebrew-managed",
         // The apps an MCP import reads, and the store their keys go to (M74).
-        "Cursor", "Windsurf", "Keychain"
+        "Cursor", "Windsurf", "Keychain",
+        // The system the owner's own Always On server runs, and the address
+        // a server keeps (M75). A cloud provider's name is the engine's.
+        "Linux", "IPv4"
     ]
 
     /// Multi-word product names the copy deck spells exactly.
@@ -50,7 +53,9 @@ public enum ProductCopyRules {
     /// generic halves stay offenders everywhere else. Exempting the bare words
     /// instead would let every future string capitalise `Code` or `Meet`
     /// mid-sentence with the gate silent, which is how an allowlist rots.
-    public static let properPhrases: [String] = ["Claude Code", "VS Code", "Google Meet", "Setup Assistant", "Full Disk Access"]
+    public static let properPhrases: [String] = [
+        "Claude Code", "VS Code", "Google Meet", "Setup Assistant", "Full Disk Access", "Always On"
+    ]
 
     public static func violations(in value: String) -> Set<CopyViolation> {
         let lowered = value.lowercased()

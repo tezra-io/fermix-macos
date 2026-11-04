@@ -11,22 +11,20 @@ import Foundation
 /// once it is on screen. The items are found in this order:
 ///
 /// 1. The row's media refs, in their order.
-/// 2. The stored link previews whose address is not one the text links to.
-/// 3. The paths the text links to that are worth seeing: anything inside the
+/// 2. The paths the text links to that are worth seeing: anything inside the
 ///    Fermix home, and a picture, video, sound, PDF or document anywhere. A
 ///    path that is only talked about (`/etc/hosts`) stays a link in the text.
-/// 4. The web addresses the text links to, each with its stored preview where
-///    it has one, less the ones a place under the text stands for: its page,
-///    and anything on its own website, which its card opens or offers
-///    (M72 §8.5).
 ///
-/// They are drawn in three kinds, each keeping that order: first the
+/// A web address is never a tile: it stays a link where the text writes it,
+/// which names where it goes while the pointer rests on it (`ChatProse`;
+/// owner, 2026-10-30, in place of M72's link cards).
+///
+/// They are drawn in two kinds, each keeping that order: first the
 /// previews, the phone-side files and the paths inside the Fermix home that
 /// are a picture, a video, a PDF or a document, which draw what the file
-/// holds; then every other file as a compact card; then the web addresses,
-/// each as its link card. An item's kind is read from its path or from the
-/// type its row names, so a tile keeps its shape whatever its file turns out
-/// to be.
+/// holds; then every other file as a compact card. An item's kind is read
+/// from its path or from the type its row names, so a tile keeps its shape
+/// whatever its file turns out to be.
 ///
 /// Its words are read once, as the row draws them (`ReplyText`): Fermix's as
 /// markdown, a person's as the plain text they typed.
@@ -41,8 +39,6 @@ struct ChatStrip: Equatable {
     let previews: [ChatStripItem]
     /// Every other file, as a compact card.
     let cards: [ChatStripItem]
-    /// The web addresses, each as its link card.
-    let links: [ChatStripLink]
     /// The sound files inside the Fermix home the text names, in reading
     /// order: each plays in the row rather than showing as a tile.
     let sounds: [URL]
@@ -57,43 +53,30 @@ struct ChatStrip: Equatable {
 
     /// Every item, previews first: the order they are drawn and counted in.
     var items: [ChatStripItem] {
-        previews + cards + links.map(ChatStripItem.link)
+        previews + cards
     }
 
     /// The strip of a row's content. `plain` reads the words as a person's,
-    /// `blocks` are the records drawn above the strip, whose places' links it
-    /// leaves to their cards, `userHome` is what `~` reads as, and `home` the
-    /// Fermix home, nil where it could not be read, which leaves nothing
-    /// inside it.
+    /// `userHome` is what `~` reads as, and `home` the Fermix home, nil where
+    /// it could not be read, which leaves nothing inside it.
     init(
         text: String,
         plain: Bool,
         mediaRefs: [CompanionMediaRef],
-        linkPreviews: [CompanionLinkPreview],
-        blocks: [CompanionBlock],
         userHome: String,
         home: ChatHome?
     ) {
         let read = Self.read(text, plain: plain, userHome: userHome)
         let paths = read.files
-        let placed = ChatPlaceLinks(blocks)
-        let addresses = read.addresses
-        let previews = Self.paired(linkPreviews, with: addresses)
-            .filter { !placed.covers($0.opens) }
 
         voiceNote = mediaRefs.first { $0.kind == Self.voiceKind }
         sounds = Self.unique(paths.filter { Self.isSound($0, home: home) })
 
         let refs = mediaRefs.filter { $0.kind != Self.voiceKind }.map(ChatStripItem.media)
-        let loose = previews.filter { $0.written == nil }.map { ChatStripItem.link(ChatStripLink(address: $0.opens, preview: $0.preview)) }
         let files = paths.filter { Self.isTile($0, home: home) }.map(ChatStripItem.file)
-        let linked = addresses.filter { !placed.covers($0) }.map { address in
-            ChatStripItem.link(ChatStripLink(address: address, preview: previews.first { $0.written == address }?.preview))
-        }
-        let items = Self.unique(refs + loose + files + linked)
+        let items = Self.unique(refs + files)
         self.previews = items.filter { Self.drawsContent($0, home: home) }
-        cards = items.filter { $0.link == nil && !Self.drawsContent($0, home: home) }
-        links = items.compactMap(\.link)
+        cards = items.filter { !Self.drawsContent($0, home: home) }
 
         let shown = Set(items.map(\.id) + sounds.map { ChatStripItem.file($0).id })
         let kept = Self.withoutShownLines(text, shown: shown, userHome: userHome)
@@ -106,8 +89,7 @@ struct ChatStrip: Equatable {
     }
 
     /// Whether an item's tile draws what its file holds: a phone-side file,
-    /// or a path inside the Fermix home, of a type drawn by its content. A
-    /// link is drawn from its address.
+    /// or a path inside the Fermix home, of a type drawn by its content.
     private static func drawsContent(_ item: ChatStripItem, home: ChatHome?) -> Bool {
         switch item {
         case .media(let ref):
@@ -116,8 +98,6 @@ struct ChatStrip: Equatable {
             guard home?.contains(file) == true else { return false }
 
             return ChatPreviewPolicy.type(ofPath: file.path).map(ChatPreviewPolicy.showsContent) ?? false
-        case .link:
-            return false
         }
     }
 
@@ -146,10 +126,10 @@ struct ChatStrip: Equatable {
     /// The text less every line that names, and only names, something the
     /// row shows under it: a line whose whole content, once its indent, a
     /// list marker (`-`, `*`, `+`, `•`, `1.`) and a code span round it are set
-    /// aside, is one path or address with a tile or a player. A bare path or
-    /// address, one in code, and a markdown link whose words are its own
-    /// destination or that file's bare name all count; a link inside a
-    /// sentence, and a markdown link with words of its own, stay. Nothing in a
+    /// aside, is one path with a tile or a player. A bare path, one in code,
+    /// and a markdown link whose words are its own destination or that
+    /// file's bare name all count; a link inside a sentence, a markdown link
+    /// with words of its own, and every web address stay. Nothing in a
     /// code block (`ReplyFences`) is touched. Where a line goes, a blank line
     /// on either side of it closes up, and the text loses any blank lines at
     /// its ends. A text that loses no line is returned as it was.
@@ -203,26 +183,21 @@ struct ChatStrip: Equatable {
         return destination(wholly: target, userHome: userHome)
     }
 
-    /// Text that is one path or one address from end to end.
+    /// Text that is one path from end to end.
     private static func destination(wholly text: Substring, userHome: String) -> String? {
         guard !text.contains("`") else { return nil }
-        if let file = ReplyPaths.file(wholly: text, home: userHome) { return ChatStripItem.file(file).id }
 
-        return ReplyLinks.address(wholly: text).map { ChatStripItem.link(ChatStripLink(address: $0, preview: nil)).id }
+        return ReplyPaths.file(wholly: text, home: userHome).map { ChatStripItem.file($0).id }
     }
 
-    /// Plain text that is one bare path or one address, with nothing round it
-    /// but the marks that open or close a sentence.
+    /// Plain text that is one bare path, with nothing round it but the marks
+    /// that open or close a sentence.
     private static func bareDestination(_ text: Substring, userHome: String) -> String? {
         let string = String(text)
         let paths = ReplyPaths.barePaths(in: string)
-        if paths.count == 1, let path = paths.first, onlyMarks(string, besides: path) {
-            return ChatStripItem.file(ReplyPaths.fileURL(String(ReplyPaths.withoutLineReference(string[path])), home: userHome)).id
-        }
-        let addresses = ReplyLinks.addresses(inText: string)
-        guard addresses.count == 1, let address = addresses.first, onlyMarks(string, besides: address.range) else { return nil }
+        guard paths.count == 1, let path = paths.first, onlyMarks(string, besides: path) else { return nil }
 
-        return ChatStripItem.link(ChatStripLink(address: address.url, preview: nil)).id
+        return ChatStripItem.file(ReplyPaths.fileURL(String(ReplyPaths.withoutLineReference(string[path])), home: userHome)).id
     }
 
     private static func onlyMarks(_ text: String, besides range: Range<String.Index>) -> Bool {
@@ -240,57 +215,6 @@ struct ChatStrip: Equatable {
     private static func isBlank(_ line: Substring) -> Bool {
         line.allSatisfy(\.isWhitespace)
     }
-
-    // MARK: - Stored previews
-
-    /// A stored preview with the address it was made from: one the text
-    /// links to, where it is one, and what a click on it opens.
-    private struct Paired {
-        let preview: CompanionLinkPreview
-        let written: URL?
-        let opens: URL
-    }
-
-    /// Each stored preview with the address in the text it was made from:
-    /// the link the engine read it for (`link`), or, for a preview stored
-    /// before links were kept, the address it was stored under, found among
-    /// the ones the text links to. A click opens the address as the text
-    /// wrote it, or the one the engine read where the text has no such link
-    /// (an address in code); a preview whose address is no URL is left out.
-    private static func paired(_ previews: [CompanionLinkPreview], with addresses: [URL]) -> [Paired] {
-        previews.compactMap { preview in
-            let read = preview.link ?? preview.url
-            let written = addresses.first { isReading(read, of: $0) }
-            guard let opens = written ?? asWritten(read) else { return nil }
-
-            return Paired(preview: preview, written: written, opens: opens)
-        }
-    }
-
-    /// Whether the engine's reading of an address is an address the text
-    /// links to: the same destination once the closing marks either reading
-    /// leaves at the end are set aside (`Foo_(bar` read, `Foo_(bar)` linked).
-    private static func isReading(_ read: String, of written: URL) -> Bool {
-        guard let read = bare(read) else { return false }
-
-        return read == bare(written.absoluteString)
-    }
-
-    /// An address's destination with the closing marks either reading may leave
-    /// at its end set aside.
-    private static func bare(_ address: String) -> ChatDestination? {
-        var trimmed = Substring(address)
-        while let last = trimmed.last, ReplyMarks.closing.contains(last) {
-            trimmed = trimmed.dropLast()
-        }
-
-        return URL(string: String(trimmed)).map(ChatDestination.init)
-    }
-
-    /// An address as the engine read it, less what closes the sentence.
-    private static func asWritten(_ read: String) -> URL? {
-        URL(string: String(ReplyLinks.trimmed(Substring(read))))
-    }
 }
 
 /// One tile of a strip. Two items are one when they name one destination
@@ -302,22 +226,13 @@ enum ChatStripItem: Hashable, Identifiable {
     case media(CompanionMediaRef)
     /// A file a path in the text names, at the address the path makes.
     case file(URL)
-    case link(ChatStripLink)
 
     /// The item's destination, which no other item of the strip shares.
     var id: String {
         switch self {
         case .media(let ref): return "ref:" + ref.ref
         case .file(let file): return file.standardizedFileURL.absoluteString
-        case .link(let link): return ChatDestination(link.address).key
         }
-    }
-
-    /// The web address the item is, where it is one.
-    var link: ChatStripLink? {
-        guard case .link(let link) = self else { return nil }
-
-        return link
     }
 
     static func == (lhs: ChatStripItem, rhs: ChatStripItem) -> Bool {
@@ -329,16 +244,7 @@ enum ChatStripItem: Hashable, Identifiable {
     }
 }
 
-/// A web address as a tile: what a click opens, and the preview the engine
-/// stored for it, where it stored one.
-struct ChatStripLink: Equatable, Identifiable {
-    let address: URL
-    let preview: CompanionLinkPreview?
-
-    var id: String { ChatDestination(address).key }
-}
-
-/// An address as the strip compares two: the same destination only when they
+/// An address as the chat compares two: the same destination only when they
 /// are equal once the scheme and host are lowercased, the path, query and
 /// fragment compared as written. `/report` and `/report/`, two fragments and
 /// two queries stay two, since a site may serve each its own page.
@@ -353,90 +259,6 @@ struct ChatDestination: Hashable {
         parts.scheme = parts.scheme?.lowercased()
         parts.percentEncodedHost = parts.percentEncodedHost?.lowercased()
         key = parts.string ?? address.absoluteString
-    }
-}
-
-/// An address as the engine matches a reply's link to a place it found
-/// (M72 §8.4): the scheme and host lowercased, without the fragment and a
-/// trailing slash. A link the text writes and a place's own address that
-/// match are one destination, which the place's card opens.
-struct ChatPlaceLink: Hashable {
-    let key: String
-
-    init(_ address: URL) {
-        guard var parts = URLComponents(url: address, resolvingAgainstBaseURL: false) else {
-            key = address.absoluteString
-            return
-        }
-        parts.scheme = parts.scheme?.lowercased()
-        parts.percentEncodedHost = parts.percentEncodedHost?.lowercased()
-        parts.fragment = nil
-        while parts.percentEncodedPath.hasSuffix("/") {
-            parts.percentEncodedPath.removeLast()
-        }
-        key = parts.string ?? address.absoluteString
-    }
-}
-
-/// What the places in a reply's blocks stand for, which the strip leaves to
-/// their cards (M72 §8.5): each one's page at the source and its own website,
-/// as the engine matches them (`ChatPlaceLink`), and every page inside that
-/// website (`ChatPlaceSite`), such as its menu, which the card offers as the
-/// place's website.
-struct ChatPlaceLinks {
-    private let pages: Set<ChatPlaceLink>
-    private let sites: [ChatPlaceSite]
-
-    init(_ blocks: [CompanionBlock]) {
-        var places: [CompanionPlace] = []
-        for case .places(let found) in blocks {
-            places += found
-        }
-        let pages = places.flatMap { [$0.canonicalURL, $0.sourceURL] }.compactMap { $0.flatMap(URL.init(string:)) }
-        self.pages = Set(pages.map(ChatPlaceLink.init))
-        sites = places.compactMap { $0.canonicalURL.flatMap(URL.init(string:)).flatMap(ChatPlaceSite.init) }
-    }
-
-    /// Whether a link is one of the places', or a page on one's website.
-    func covers(_ address: URL) -> Bool {
-        pages.contains(ChatPlaceLink(address)) || sites.contains { $0.holds(address) }
-    }
-}
-
-/// A place's own website as the pages under it: its host, with or without
-/// `www.`, and its path, so `https://tequilamama.com/` holds every page of
-/// that site and `https://example.social/tequilamama` only the pages under
-/// that path, never the rest of a site many places share.
-struct ChatPlaceSite: Equatable {
-    let host: String
-    let path: String
-
-    init?(_ website: URL) {
-        guard let host = Self.host(of: website) else { return nil }
-
-        self.host = host
-        path = Self.path(of: website)
-    }
-
-    func holds(_ address: URL) -> Bool {
-        guard Self.host(of: address) == host else { return false }
-
-        let path = Self.path(of: address)
-        return path == self.path || path.hasPrefix(self.path + "/")
-    }
-
-    private static func host(of address: URL) -> String? {
-        guard let host = address.host(percentEncoded: false)?.lowercased(), !host.isEmpty else { return nil }
-
-        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-    }
-
-    private static func path(of address: URL) -> String {
-        var path = Substring(address.path(percentEncoded: true))
-        while path.hasSuffix("/") {
-            path = path.dropLast()
-        }
-        return String(path)
     }
 }
 

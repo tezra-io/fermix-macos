@@ -17,8 +17,21 @@
 # saved in the app never lands in the live daemon's items), engine built from
 # the worktree at ~/.cache/fermix-engine-m34
 # (FERMIX_REPO names the checkout it is a worktree of, for the refusal that
-# tells you how to create it). The live daemon on ~/.fermix:4030 and the mix
-# dev daemon on ~/.fermix-dev:4031 are untouched.
+# tells you how to create it), and the development identity's provisioning
+# profile at ~/Library/MobileDevice/Provisioning Profiles/
+# Fermix_Dev_Developer_ID.provisionprofile. The live daemon on ~/.fermix:4030
+# and the mix dev daemon on ~/.fermix-dev:4031 are untouched.
+#
+# WEBSITE LOGINS LIVE IN THE DEV BUNDLE'S OWN KEYCHAIN GROUP (M84 D6). The
+# bundle is signed with the development identity's Developer ID provisioning
+# profile, which authorizes its keychain access group
+# (scripts/entitlements/keychain/io.tezra.FermixPet.dev.entitlements), the group
+# a debug build compiles in; a login saved here never lands in the released
+# app's group. macOS kills an app whose signature claims a group without a
+# profile that authorizes it, so `up` refuses, before anything is touched,
+# without the profile; README says how the owner makes it. A debug build that
+# holds a group offers no Web Inspector, which reads a filled password out of
+# the page.
 #
 # The engine is built from that worktree EXACTLY AS IT STANDS, uncommitted work
 # included. This loop neither fetches, resets nor creates it: a dev loop that
@@ -129,6 +142,11 @@ JOURNAL="$RECORD_DIR/lifecycle-journal.json"
 # development identity. Both resolve the Fermix home through the record above.
 AGENT_LABEL="$(product_config agent_service_label)"
 APP_LABEL="$(product_config bundle_identifier)"
+# The development identity's Developer ID provisioning profile (see the
+# header), in the folder Apple's tools keep profiles in, under the name the
+# developer account gives the download of a profile named "Fermix Dev
+# Developer ID". scripts/sign_app.sh proves it authorizes this bundle.
+PROVISIONING_PROFILE="$HOME/Library/MobileDevice/Provisioning Profiles/Fermix_Dev_Developer_ID.provisionprofile"
 
 fail() {
   echo "dev_e2e: $*" >&2
@@ -196,6 +214,29 @@ REFUSAL
 
 engine_branch() {
   git -C "$ENGINE_SRC" rev-parse --abbrev-ref HEAD
+}
+
+# The development identity's provisioning profile is the developer's, made once
+# in the team's account, so this loop only checks that it is there; whether it
+# authorizes the bundle is scripts/sign_app.sh's question, asked before
+# anything is signed.
+#
+# The refusal is a heredoc inside a command substitution, where the bash macOS
+# ships still pairs quotes: it carries no apostrophe and no nested substitution.
+require_provisioning_profile() {
+  local folder="${PROVISIONING_PROFILE%/*}" name="${PROVISIONING_PROFILE##*/}"
+  [ -f "$PROVISIONING_PROFILE" ] || fail "$(
+    cat <<REFUSAL
+no development provisioning profile at $PROVISIONING_PROFILE.
+The dev bundle keeps website logins in its own keychain group, which macOS opens
+only to an app embedding a profile that authorizes it. Make a Developer ID
+profile named "Fermix Dev Developer ID" for the App ID $APP_LABEL in the team
+developer account, as the README section on testing with the latest engine says,
+then copy the download here:
+  mkdir -p "$folder"
+  cp ~/Downloads/$name "$folder/"
+REFUSAL
+  )"
 }
 
 engine_commit() {
@@ -345,7 +386,7 @@ stage_and_sign() {
   # would drop the PATH the agent refuses to launch without.
   plutil -insert EnvironmentVariables.PORT -string "$PORT" \
     "$APP/Contents/Library/LaunchAgents/$AGENT_LABEL.plist"
-  "$ROOT_DIR/scripts/sign_app.sh" "$APP" "$identity" >/dev/null
+  "$ROOT_DIR/scripts/sign_app.sh" "$APP" "$identity" "$PROVISIONING_PROFILE" >/dev/null
   "$ROOT_DIR/scripts/verify_staged_app.sh" "$APP" native signed development >/dev/null
 }
 
@@ -551,6 +592,7 @@ up() {
   local fast="${1:-}" identity sdk
   identity="$(signing_identity)" || return 1
   sdk="$(buildable_sdk)" || return 1
+  require_provisioning_profile
   ensure_secret_profile || return 1
   unregister_dev_services
   quit_app
@@ -601,6 +643,11 @@ status() {
     echo "identity $identity"
   else
     echo "identity none usable; up refuses (one Developer ID Application identity is required)"
+  fi
+  if [ -f "$PROVISIONING_PROFILE" ]; then
+    echo "profile  $PROVISIONING_PROFILE"
+  else
+    echo "profile  absent at $PROVISIONING_PROFILE; up refuses (the dev bundle's website logins need it)"
   fi
   if [ -e "$ENGINE_SRC/.git" ]; then
     echo "source   $ENGINE_SRC ($(engine_branch)), built as it stands"

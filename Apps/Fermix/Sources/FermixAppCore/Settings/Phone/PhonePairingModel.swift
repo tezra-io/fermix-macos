@@ -200,7 +200,11 @@ public final class PhonePairingModel: ObservableObject {
     // MARK: - Forgetting a phone
 
     /// The row asks first: its button becomes Forget this phone and Cancel.
+    /// Only a phone the list holds is asked about: a desktop a move paired
+    /// (M75) has no Forget.
     public func askToForget(_ device: String) {
+        guard devices.value?.phones.contains(where: { $0.deviceId == device }) == true else { return }
+
         forgetting.ask(device)
     }
 

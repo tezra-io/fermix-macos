@@ -422,8 +422,10 @@
 "companion.connection.homeUnavailable" = "Fermix cannot read its home on this Mac";
 "companion.connection.updateApp" = "This app is older than the Fermix engine it talks to. Update the app to chat.";
 "companion.connection.updateEngine" = "The Fermix engine is older than this app. Update the engine to chat.";
+"companion.connection.stalePrimary" = "This Fermix is an older copy of the one that moved, so chat stays closed here";
 "companion.error.refusedFormat" = "The daemon reported: %@";
 "companion.error.messageTooLong" = "The message is too long to send";
+"companion.error.notSentRevoked" = "What was waiting to send was not sent, since the server no longer knows this Mac";
 "companion.error.replyStopped" = "The reply was stopped";
 "companion.error.replyInterrupted" = "The reply was interrupted";
 "companion.error.replyFailedFormat" = "The reply did not finish: %@";
@@ -437,6 +439,16 @@
 "chat.send" = "Send";
 "chat.cancel" = "Cancel";
 "chat.sending" = "Sending";
+"chat.attach" = "Attach";
+"chat.attach.attaching" = "Attaching";
+"chat.attach.removeFormat" = "Remove %@";
+"chat.attach.pastedName" = "Pasted picture";
+"chat.attach.folder" = "A folder cannot be attached. Attach the files in it instead.";
+"chat.attach.tooLargeFormat" = "This file is larger than the %@ Fermix takes.";
+"chat.attach.unreadable" = "Fermix could not read this file.";
+"chat.attach.unwritable" = "Fermix could not take this file in. Try again.";
+"chat.attach.disconnected" = "Fermix disconnected before this file was attached. Remove it and add it again.";
+"chat.commands" = "Commands";
 "chat.approve" = "Approve";
 "chat.deny" = "Deny";
 "proposal.title" = "A task wants to act";
@@ -448,15 +460,26 @@
 "proposal.watcherFormat" = "Watcher: %@";
 "proposal.waitsUntilFormat" = "Waits until %@";
 "proposal.lastMinute" = "One minute left to decide on the task";
+"proposal.followUp.instructionsFormat" = "It will: %@";
+"proposal.followUp.toolsFormat" = "Tools: %@";
+"proposal.followUp.reportsToFormat" = "Reports to %@";
+"proposal.skip" = "Skip";
+"proposal.run" = "Run";
+"proposal.alwaysAllow" = "Always allow";
 "outside.call" = "Written from outside text";
 "outside.item" = "From %1$@, received %2$@";
 "outside.itemUnsourced" = "The item it acted on";
 "outside.result" = "What the tool answered";
+"outside.reason" = "Why the filter passed it";
 "outside.showAll" = "Show all";
 "outside.typeFormat" = "Type: %@";
 "outside.subjectFormat" = "Subject: %@";
 "outside.datedFormat" = "Dated: %@";
 "chat.thinking" = "Thinking";
+"toolbar.search.clear" = "Clear search";
+"chat.workedFor" = "Worked for %@";
+"chat.steps.show" = "Shows the steps Fermix took";
+"chat.steps.hide" = "Hides the steps Fermix took";
 "chat.showNewest" = "Show the newest message";
 "chat.search.prompt" = "Search the conversation";
 "chat.search.searching" = "Searching";
@@ -475,8 +498,6 @@
 "chat.kind.document" = "Document";
 "chat.kind.page" = "Page";
 "chat.kind.file" = "File";
-"chat.kind.link" = "Link";
-"chat.code" = "Code";
 "chat.code.language.shell" = "Shell";
 "chat.code.language.powerShell" = "PowerShell";
 "chat.code.language.batch" = "Batch";
@@ -519,8 +540,6 @@
 "chat.code.language.dockerfile" = "Dockerfile";
 "chat.code.language.makefile" = "Makefile";
 "chat.code.language.text" = "Text";
-"chat.table" = "Table";
-"chat.quote" = "Quote";
 "chat.list.bullet" = "•";
 "chat.list.bulletNested" = "◦";
 "chat.list.numberFormat" = "%lld.";
@@ -528,6 +547,16 @@
 "chat.task.open" = "Not done";
 "chat.code.copy" = "Copy";
 "chat.code.copied" = "Copied";
+"chat.message.copy" = "Copy message";
+"chat.origin.jobFormat" = "%@, a scheduled job";
+"chat.origin.cueFormat" = "%@, a cue";
+"chat.origin.openCue" = "Open this cue in Settings";
+"chat.link.heldTitle" = "This link may not go where it seems to";
+"chat.link.elsewhereFormat" = "Its words say %@, but it opens %@.";
+"chat.link.lookalikeFormat" = "Its address uses letters that pass for others. It opens %@.";
+"chat.link.hiddenNameFormat" = "Its address puts a name in front of the site it opens, %@.";
+"chat.link.openAnyway" = "Open anyway";
+"chat.link.cancel" = "Cancel";
 "chat.places.map" = "Map of the places";
 "chat.place.openInMaps" = "Open in Maps";
 "chat.place.showOnMap" = "Shows the place on the map.";
@@ -535,6 +564,41 @@
 "chat.place.copyAddress" = "Copy address";
 "chat.place.ratingFormat" = "%1$@ (%2$@)";
 "chat.place.distanceFormat" = "%1$@ %2$@";
+
+/* MARK: Lists */
+"lists.title" = "Lists";
+"lists.addItem" = "Add an item";
+"lists.openFormat" = "%d open";
+"lists.doneFormat" = "%d done";
+"lists.moreFormat" = "%d more";
+"lists.showLess" = "Show less";
+"lists.moreListsFormat" = "and %d more lists";
+"lists.done" = "Done";
+"lists.newList" = "New list";
+"lists.renameList" = "Rename list";
+"lists.moveToFolder" = "Move to folder";
+"lists.moveToList" = "Move to list";
+"lists.newFolder" = "New folder";
+"lists.noFolder" = "No folder";
+"lists.copyAsText" = "Copy as text";
+"lists.clearDone" = "Clear done";
+"lists.recentlyRemoved" = "Recently removed";
+"lists.removeList" = "Remove list";
+"lists.removedFormat" = "Removed %@.";
+"lists.undo" = "Undo";
+"lists.listRemoved" = "This list was removed.";
+"lists.hidePanel" = "Hide lists";
+"lists.openList" = "Open list";
+"lists.none" = "No lists yet.";
+"lists.moveUp" = "Move up";
+"lists.moveDown" = "Move down";
+"lists.remove" = "Remove";
+"lists.restore" = "Restore";
+"lists.listNamePrompt" = "List name";
+"lists.folderNamePrompt" = "Folder name";
+"lists.notePrompt" = "Add a note";
+"lists.listLabelFormat" = "%1$@, list, %2$@";
+"lists.listsLabelFormat" = "%@, lists";
 
 /* MARK: Browser */
 "browser.notice.notAnAddress" = "Enter a web address, such as fermix.ai.";
@@ -697,6 +761,8 @@
 "menuTitle.beginVoiceCall" = "Begin Voice Call";
 "menuTitle.endVoiceCall" = "End Voice Call";
 "menuTitle.showBrowser" = "Show Browser";
+"menuTitle.showLists" = "Show Lists";
+"menuTitle.hideLists" = "Hide Lists";
 "menuTitle.hideMenuBarItem" = "Hide Menu Bar Item";
 "menuTitle.linkCommandLineTool" = "Add the fermix Command to Terminal…";
 
@@ -734,6 +800,7 @@
 "settings.pane.search" = "Search";
 "settings.pane.images" = "Images";
 "settings.pane.browser" = "Browser";
+"settings.pane.alwaysOn" = "Always On";
 "settings.pane.secrets" = "Secrets";
 "settings.pane.sandbox" = "Sandbox";
 "settings.pane.permissions" = "Permissions";
@@ -752,9 +819,30 @@
 "settings.keywords.search" = "web places brave tavily duckduckgo";
 "settings.keywords.images" = "picture generation render backend";
 "settings.keywords.browser" = "tabs profile hosts chrome chromium download";
+"settings.keywords.alwaysOn" = "server cloud linux move snapshots recovery backup";
 "settings.keywords.secrets" = "keychain file store password";
 "settings.keywords.sandbox" = "commands environment permissions strict";
 "settings.keywords.permissions" = "microphone screen accessibility login items";
+
+/* MARK: Always On (M75 lean v1 §7) */
+"alwaysOn.learnMore" = "Learn more";
+"alwaysOn.linkOpenFailed" = "The browser could not open the page.";
+"alwaysOn.details" = "Details";
+"alwaysOn.provider.choose" = "Choose where Fermix creates your server.";
+"alwaysOn.token.checkingFormat" = "Checking the token with %@…";
+"alwaysOn.token.howToGetOne" = "How to get one";
+"alwaysOn.token.openConsoleFormat" = "Open %@";
+"alwaysOn.choose.title" = "Size and location";
+"alwaysOn.passphrase.title" = "Recovery passphrase";
+"alwaysOn.passphrase.body" = "Fermix encrypts every backup of your home to this passphrase and never stores it. Keep it in a password manager: no backup can be restored without it.";
+"alwaysOn.passphrase.onceBody" = "Type the recovery passphrase you set. Fermix checks it first and never stores it.";
+"alwaysOn.passphrase.field" = "Passphrase";
+"alwaysOn.passphrase.again" = "Passphrase again";
+"alwaysOn.passphrase.mismatch" = "The two passphrases are not the same.";
+"alwaysOn.ownServer.runFormat" = "Run this on your Linux server, and type the code below when it asks. The code works once, until %@.";
+"alwaysOn.ownServer.copy" = "Copy command";
+"alwaysOn.ownServer.copyCode" = "Copy code";
+"alwaysOn.notice.title" = "Always On";
 
 /* MARK: Settings chrome, banners and the restart sheet */
 "settings.back.accessibility" = "Back to Fermix";
@@ -837,6 +925,34 @@
 "settings.meetings.signInAgainAction" = "Sign in again…";
 "settings.meetings.googleAccountLabel" = "Google account";
 "settings.meetings.signInNotice" = "A browser window opens. Sign in there with the account the notetaker should use.";
+
+/* MARK: Settings, Browser: website logins (M84) */
+"settings.browser.loginsSection" = "Website logins";
+"settings.browser.loginsFooter" = "The agent signs in with these after you approve each one. It never sees the passwords.";
+"settings.browser.loginsUnavailable" = "Website logins need the released Fermix app.";
+"settings.browser.loginsEmpty" = "No logins yet. Add the sites you want the agent to sign in to.";
+"settings.browser.loginsAdd" = "Add login…";
+"settings.browser.loginsEdit" = "Edit…";
+"settings.browser.loginSite" = "Site";
+"settings.browser.loginSiteHint" = "Use the site’s address, like google.com. Its sign-in pages, like accounts.google.com, use it too.";
+"settings.browser.loginUsername" = "Username";
+"settings.browser.loginPassword" = "Password";
+"settings.browser.loginKeepPassword" = "Leave empty to keep the saved password.";
+"settings.browser.loginDeleteTitle" = "Delete the login for %@?";
+"settings.browser.loginDeleteBody" = "The agent can no longer sign in there.";
+"settings.browser.loginSiteRefused" = "Use a site’s address, like github.com.";
+"settings.browser.loginSiteTaken" = "You already have a login for this site. Edit that one.";
+"settings.browser.loginUsernameRequired" = "Enter the username you sign in with.";
+"settings.browser.loginTooShort" = "Fermix needs a password of at least 8 characters.";
+"settings.browser.loginStoreUnavailable" = "The keychain did not answer (%@).";
+"settings.browser.loginAddTitle" = "Add login";
+"settings.browser.loginEditTitle" = "Edit login";
+"settings.browser.loginAddAction" = "Add";
+"settings.browser.loginDelete" = "Delete…";
+"settings.browser.loginDeleteAction" = "Delete";
+"settings.browser.loginStoreTimedOut" = "The keychain did not answer in time.";
+"settings.browser.loginsFullFormat" = "Fermix keeps up to %lld logins. Delete one to add another.";
+"settings.browser.loginGone" = "This login is no longer saved.";
 
 /* MARK: Providers */
 "provider.verb.signIn" = "Sign in";
@@ -1113,20 +1229,25 @@
 "mcp.tool.useFormat" = "Use %@";
 
 /* MARK: Cues (M60 app surface §7) */
-"cues.subtitle" = "Outside items that can wake a task: feeds, streams, webhooks and your scripts.";
+"cues.subtitle" = "Fermix can watch blogs, X accounts, GitHub and your scripts, and wake a task when something matters.";
 "cues.learnMore" = "Learn more";
 "cues.guideOpenFailed" = "The browser could not open the cues guide.";
+"cues.judging.title" = "How watchers judge items";
 "cues.waiting.title" = "Waiting for you";
 "cues.waiting.showInChat" = "Show in chat";
 "cues.waiting.rowFormat" = "%1$@ wants to run %2$@";
 "cues.sources.title" = "Sources";
 "cues.sources.add" = "Add source";
-"cues.sources.empty" = "No sources yet.";
-"cues.source.addTitle" = "Add a source";
+"cues.firstRun.title" = "Nothing is watched yet";
+"cues.firstRun.source" = "Add something to watch: a blog, X accounts, GitHub or your scripts.";
+"cues.firstRun.watcher" = "In chat, tell Fermix what to look for. It makes a watcher.";
+"cues.firstRun.task" = "When something matches, your task runs, and asks you before it acts.";
+"cues.firstRun.add" = "Add a source";
+"cues.source.addTitle" = "What should Fermix watch?";
 "cues.source.kind" = "Kind";
 "cues.source.url" = "URL";
-"cues.source.preset" = "Preset";
-"cues.source.presetNone" = "None";
+"cues.back" = "Back";
+"cues.source.openPlugin" = "Open plugin";
 "cues.source.copyURL" = "Copy URL";
 "cues.source.addressMade" = "Made";
 "cues.source.addressNotMade" = "Not made yet";
@@ -1137,6 +1258,8 @@
 "cues.source.tokenOnce" = "Copy it now. Fermix shows it only once.";
 "cues.source.copyToken" = "Copy token";
 "cues.source.tokenAccessibility" = "Token for %@, shown once";
+"cues.source.copySecret" = "Copy secret";
+"cues.source.secretAccessibility" = "Secret for %@, shown once";
 "cues.source.pushExample" = "curl -sS http://127.0.0.1:%1$ld/cues/v1/%2$@ -H %3$@ --data @item.json";
 "cues.source.remove" = "Remove source…";
 "cues.source.removeConfirm" = "Remove %@? Its stored secrets are deleted.";
@@ -1157,12 +1280,12 @@
 "cues.removeDo" = "Remove";
 "cues.moreOptions" = "More options";
 "cues.watchers.title" = "Watchers";
-"cues.watchers.empty" = "No watchers yet.";
+"cues.watchers.empty" = "No watchers yet. Ask Fermix in chat to watch for something.";
 "cues.watchers.footer" = "Watchers are made and changed in chat.";
 "cues.watchers.openChat" = "Open chat";
 "cues.watcher.purpose" = "Purpose";
 "cues.watcher.instructions" = "Instructions";
-"cues.watcher.listenFor" = "Listens for";
+"cues.watcher.listenFor" = "Keywords";
 "cues.watcher.instructionFormat" = "%1$ld. %2$@";
 "cues.watcher.addedFormat" = "added %@";
 "cues.watcher.filter" = "Filter";
@@ -1186,6 +1309,9 @@
 "cues.watcher.usefulFormat" = "%ld marked useful";
 "cues.watcher.notUsefulFormat" = "%ld marked not useful";
 "cues.watcher.gone" = "This watcher is no longer in the list.";
+"cues.watcher.followUp" = "Follow-up";
+"cues.watcher.followUpFormat" = "Follow-up: %@";
+"cues.watcher.askFirstAgain" = "Ask first again";
 "cues.mandates.title" = "Mandates";
 "cues.mandates.empty" = "No mandates. Without one, a task only reports to you.";
 "cues.mandates.add" = "Add mandate";

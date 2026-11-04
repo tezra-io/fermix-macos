@@ -27,6 +27,9 @@ public final class MainWindowSurfaces {
     /// One instance for the same reason: the outbox and the held timeline
     /// outlive any view that shows them.
     public let companion: CompanionSession
+    /// The Lists panel beside the chat (M85 §09), which the toolbar's
+    /// button, the View menu and a reply's card all move.
+    public let lists: ChecklistPanelModel
 
     public init(
         home: HomeModel,
@@ -37,7 +40,8 @@ public final class MainWindowSurfaces {
         callGate: VoiceCallGate,
         onboarding: OnboardingModel,
         settings: SettingsModel,
-        companion: CompanionSession
+        companion: CompanionSession,
+        lists: ChecklistPanelModel
     ) {
         self.home = home
         self.doctor = doctor
@@ -48,5 +52,6 @@ public final class MainWindowSurfaces {
         self.onboarding = onboarding
         self.settings = settings
         self.companion = companion
+        self.lists = lists
     }
 }

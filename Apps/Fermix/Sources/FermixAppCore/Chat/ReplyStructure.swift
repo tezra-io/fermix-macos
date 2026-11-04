@@ -5,10 +5,11 @@ import Foundation
 /// draws (`MarkdownDocument` in the phone app) so the two apps agree:
 ///
 /// - A paragraph is its lines up to a blank line or a line that opens a
-///   list, a table or a quote. As CommonMark has it, a list item opens a list
-///   there only with words after its mark and, numbered, only from 1, so a
-///   wrapped line that opens with a year stays in its paragraph. A heading
-///   is a line of its paragraph.
+///   heading, a list, a table or a quote. As CommonMark has it, a list item
+///   opens a list there only with words after its mark and, numbered, only
+///   from 1, so a wrapped line that opens with a year stays in its paragraph.
+/// - A heading is one line, one to six `#`, a space and its words
+///   (`ReplyHeading`). The phone draws one as a bold line of its paragraph.
 /// - A list item is a line that opens, after any indent, with `-`, `*` or
 ///   `+`, or one to nine digits and `.` or `)`, and then a space. A line
 ///   indented past the list's own items carries on the item before it, blank
@@ -53,6 +54,9 @@ struct ReplyStructure {
         if Self.isBlank(line) {
             index += 1
             markCut()
+        } else if let heading = ReplyHeading(line) {
+            blocks.append(.heading(level: heading.level, words: words(heading.title)))
+            index += 1
         } else if let table = tableOpening(at: index) {
             readTable(table)
         } else if let item = ListLine(line) {
@@ -87,8 +91,8 @@ struct ReplyStructure {
 
     private func endsParagraph(at index: Int) -> Bool {
         let line = lines[index]
-        return Self.isBlank(line) || tableOpening(at: index) != nil || ListLine(line)?.interruptsParagraph == true
-            || Self.quoted(line) != nil
+        return Self.isBlank(line) || ReplyHeading(line) != nil || tableOpening(at: index) != nil
+            || ListLine(line)?.interruptsParagraph == true || Self.quoted(line) != nil
     }
 
     private mutating func readQuote() {

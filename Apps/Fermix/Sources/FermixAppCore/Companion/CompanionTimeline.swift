@@ -51,10 +51,14 @@ public struct CompanionLinkPreview: Equatable, Sendable, Decodable {
     public let description: String?
     /// The preview's picture, a media ref like any other.
     public let imageRef: String?
+    /// The site's icon, a media ref like the picture. Carried so a row keeps
+    /// what the engine stored; nothing draws it yet.
+    public private(set) var iconRef: String? = nil
 
     private enum CodingKeys: String, CodingKey {
         case link, url, site, title, description
         case imageRef = "image_ref"
+        case iconRef = "icon_ref"
     }
 }
 

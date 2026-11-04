@@ -107,6 +107,8 @@ enum ManagementV2ResultDecoder {
             try read(ManagementCueWatcherList.self, payload, identifier, method)
         case .cuesWatchersGet:
             try read(ManagementCueWatcherAnswer.self, payload, identifier, method)
+        case .cuesWatchersAlwaysAllowRevoke:
+            try read(ManagementCueWatcherRowAnswer.self, payload, identifier, method)
         case .cuesMandatesList:
             try read(ManagementCueMandateList.self, payload, identifier, method)
         case .cuesMandatesChoices:
@@ -121,6 +123,28 @@ enum ManagementV2ResultDecoder {
             try read(ManagementCueProposalCardAnswer.self, payload, identifier, method)
         case .cuesProposalsDecide:
             try read(ManagementCueProposalAnswer.self, payload, identifier, method)
+        case .homeStatus:
+            try read(ManagementHomeStatus.self, payload, identifier, method)
+        case .homeEnrollOpen:
+            try read(ManagementEnrollmentCode.self, payload, identifier, method)
+        case .homeEnrollWithdraw:
+            try read(ManagementEnrollmentWithdrawn.self, payload, identifier, method)
+        case .homeCandidatesList:
+            try read(ManagementCandidates.self, payload, identifier, method)
+        case .homeMoveReadiness:
+            try read(ManagementMoveReadiness.self, payload, identifier, method)
+        case .homeMoveStart:
+            try read(ManagementMoveStarted.self, payload, identifier, method)
+        case .homeSnapshotsStatus:
+            try read(ManagementHomeSnapshots.self, payload, identifier, method)
+        case .homeSnapshotsRun:
+            try read(ManagementSnapshotsStarted.self, payload, identifier, method)
+        case .homeSnapshotsPassphrase:
+            try read(ManagementRecoveryKey.self, payload, identifier, method)
+        case .homeAct:
+            try read(ManagementHomeActed.self, payload, identifier, method)
+        case .homeProvisionOptions:
+            try read(ManagementProvisionOptions.self, payload, identifier, method)
 
         // Every remaining method answers the uniform job view.
         case .providersProbeStart, .jobGet, .jobCancel, .authImportStart, .pluginsInstallStart,

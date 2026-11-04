@@ -144,7 +144,7 @@ struct ManagementClientResultTests {
         #expect(hello.protocolRange.currentVersion == 2)
         #expect(hello.protocolRange.minimum == 1)
         #expect(hello.protocolRange.maximum == 2)
-        #expect(hello.capabilities.methods.count == 89)
+        #expect(hello.capabilities.methods.count == 101)
         #expect(hello.engine.engineId == "fermix-core")
         #expect(hello.engine.productVersion == "0.9.0")
         #expect(hello.engine.distributionIdentity == "macos_app")
@@ -354,7 +354,7 @@ struct ManagementClientErrorTests {
     @Test("every published error code surfaces as a typed failure")
     func errorFixturesSurfaceTyped() async throws {
         let fixtures = try ManagementFixtures.load(.errors)
-        #expect(fixtures.count == 36)
+        #expect(fixtures.count == 45)
 
         for fixture in fixtures {
             let envelope = try fixture.object("response")
@@ -585,13 +585,10 @@ struct ManagementClientNegotiationTests {
                 #expect(code.isPublished, "\(fixture.name): \(code.wireValue) is not published")
             case "response":
                 // A published answer with every optional field absent. It has
-                // to decode into the typed row, because a null is never a state
-                // this client infers something from.
+                // to decode into the method's typed result, because a null is
+                // never a state this client infers something from.
                 let result = try #require(try fixture.object("response")["result"])
-                _ = try JSONDecoder().decode(
-                    ManagementPluginCatalog.self,
-                    from: try JSONSerialization.data(withJSONObject: result)
-                )
+                try Self.decodeAbsentFields(method: try fixture.string("method"), result, fixture: fixture.name)
             default:
                 Issue.record("\(fixture.name): unhandled expectation \(expectation)")
             }
@@ -599,6 +596,20 @@ struct ManagementClientNegotiationTests {
         }
 
         #expect(handled == (try ManagementFixtures.load(.compatibility).count))
+    }
+
+    /// The typed result a published answer with optional fields absent
+    /// decodes into, by its method.
+    private static func decodeAbsentFields(method: String, _ result: Any, fixture: String) throws {
+        let data = try JSONSerialization.data(withJSONObject: result)
+        switch ManagementMethod(rawValue: method) {
+        case .pluginsList?:
+            _ = try JSONDecoder().decode(ManagementPluginCatalog.self, from: data)
+        case .computerUsePermissionsGet?:
+            _ = try JSONDecoder().decode(ManagementComputerUsePermissions.self, from: data)
+        default:
+            Issue.record("\(fixture): no typed result for \(method)")
+        }
     }
 
     /// The app never retries through v0, so both markers are on every frame it

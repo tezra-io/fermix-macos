@@ -96,11 +96,11 @@ public struct TypeStyle: Equatable, Sendable {
 
     public var font: Font { font(at: size) }
 
-    /// The rung's face at whatever size the environment scaled it to.
+    /// The rung's face at whatever size the environment scaled it to: the
+    /// system's monospaced face for a monospaced rung, and the system's face
+    /// for every other.
     public func font(at scaled: Double) -> Font {
-        monospaced
-            ? .system(size: scaled, weight: weight.fontWeight, design: .monospaced)
-            : .system(size: scaled, weight: weight.fontWeight)
+        .system(size: scaled, weight: weight.fontWeight, design: monospaced ? .monospaced : .default)
     }
 
     /// How much the environment grew this rung, as a ratio, so the leading and

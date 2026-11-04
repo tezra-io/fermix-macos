@@ -407,6 +407,8 @@ struct IntegrationsPane: View {
         }
         .task {
             await model.refreshPlugins()
+            // A Cues source sent the owner here to sign in to its plugin.
+            if let asked = model.takeAskedPluginPage() { detail = asked }
             await model.refreshMCPServers()
         }
         // One follower for the list and the server sheet over it: a row that

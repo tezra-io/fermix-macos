@@ -25,6 +25,16 @@
 # 95 of them. The value is the launchd baseline the launcher already expects,
 # and it is declared once, in Product.json.
 #
+# ProcessType is Interactive because the agent execs the engine, which inherits
+# its priority, and the engine serves chat, voice, realtime and channel replies.
+# An Adaptive job that nothing boosts over XPC stays in the throttled background
+# band: on 2026-10-31 both app-launched engines ran at priority 4 and every
+# database call timed out under CPU load, about 1,800 in Fermix Dev and 617 in
+# the installed app, while a terminal-started engine at 31 had none. Standard is
+# no better than unset, launchd's light limits, which measured 20. Interactive
+# carries an app's limits, none, and runs the engine at 31, at an energy cost
+# the owner accepts.
+#
 # Usage: render_launch_agent_plist.sh <out_plist_path>
 set -euo pipefail
 
@@ -58,7 +68,7 @@ cat >"$OUT" <<PLIST
   </dict>
   <key>KeepAlive</key><true/>
   <key>Label</key><string>$LABEL</string>
-  <key>ProcessType</key><string>Adaptive</string>
+  <key>ProcessType</key><string>Interactive</string>
   <key>RunAtLoad</key><true/>
 </dict>
 </plist>

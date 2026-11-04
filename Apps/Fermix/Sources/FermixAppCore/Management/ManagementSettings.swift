@@ -222,6 +222,21 @@ public struct ManagementSettingsSection: Decodable, Equatable, Sendable {
 
 public struct ManagementSettingsInventory: Decodable, Equatable, Sendable {
     public let sections: [ManagementSettingsSection]
+    /// On a linked desktop whose server did not answer in time, the daemon's
+    /// sentence for why the server's sections are missing: this computer's
+    /// own are still listed. Null elsewhere, and absent from an engine from
+    /// before Always On, which decodes as null.
+    public let primaryMissing: String?
+
+    public init(sections: [ManagementSettingsSection], primaryMissing: String? = nil) {
+        self.sections = sections
+        self.primaryMissing = primaryMissing
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sections
+        case primaryMissing = "primary_missing"
+    }
 }
 
 /// One section's rows. `settings.get` serves exactly one section per call, which
