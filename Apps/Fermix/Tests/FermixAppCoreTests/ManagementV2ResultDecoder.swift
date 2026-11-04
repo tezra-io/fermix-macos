@@ -143,8 +143,6 @@ enum ManagementV2ResultDecoder {
             try read(ManagementRecoveryKey.self, payload, identifier, method)
         case .homeAct:
             try read(ManagementHomeActed.self, payload, identifier, method)
-        case .homeProvisionOptions:
-            try read(ManagementProvisionOptions.self, payload, identifier, method)
 
         // Every remaining method answers the uniform job view.
         case .providersProbeStart, .jobGet, .jobCancel, .authImportStart, .pluginsInstallStart,

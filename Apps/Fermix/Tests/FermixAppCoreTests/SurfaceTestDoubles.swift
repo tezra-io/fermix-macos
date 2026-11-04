@@ -204,10 +204,8 @@ final class FakeDaemonGateway: DaemonQuerying, @unchecked Sendable {
     /// refusal in the script is thrown for that read.
     var homeStatusScript: [Result<ManagementHomeStatus, any Error>] = []
     var homeStatusIndex = 0
-    /// What the Always On pane pressed and read, in order.
+    /// What the Always On pane pressed, in order.
     var homeActs: [HomeAct] = []
-    var provisionOptionsReads = 0
-    var provisionOptionsResult: ManagementProvisionOptions?
     /// The answers `home.act` gives, one each in order, an exhausted script
     /// keeping the last; empty means the golden. A refusal in the script is
     /// thrown for that press.

@@ -13,14 +13,13 @@ import Foundation
 
 /// The screen a summary maps to.
 public enum ManagementHomeSummaryState: ManagementVocabulary, Hashable {
-    /// Nothing is set up. Set up asks for a token.
+    /// Nothing is set up. Use my own Linux server opens a code for the
+    /// owner's server.
     case off
-    /// A code for a server of the owner's own is open, or the cloud provider
-    /// refused the token before anything was created.
+    /// A code for the owner's server is open, waiting for it.
     case connect
-    /// The token works: Create server, with the choice of size and place.
-    case choose
-    /// A step's job runs, or the server starts, installs Fermix or connects.
+    /// The owner's server used its code and connects, or a move back
+    /// connects to the server.
     case creating
     /// The server is held and waits for Move now.
     case ready
@@ -43,7 +42,6 @@ public enum ManagementHomeSummaryState: ManagementVocabulary, Hashable {
     public static let publishedValues: [String: Self] = [
         "off": .off,
         "connect": .connect,
-        "choose": .choose,
         "creating": .creating,
         "ready": .ready,
         "moving": .moving,
@@ -61,54 +59,36 @@ public enum ManagementHomeSummaryState: ManagementVocabulary, Hashable {
     }
 }
 
-/// What one summary action is, by its published id. Three are opened by the
-/// app itself and never sent: `learnMore` and `openConsole` open the action's
-/// `url`, and `update` is the app's own update. Every other one is sent as
-/// `home.act`.
+/// What one summary action is, by its published id. Two are opened by the
+/// app itself and never sent: `learnMore` opens the action's `url`, and
+/// `update` is the app's own update. Every other one is sent as `home.act`.
 public enum ManagementHomeActionId: ManagementVocabulary, Hashable {
-    case createServer
     case cancel
     case moveNow
     case tryAgain
     case learnMore
-    case turnOn
-    case restartServer
-    case startAgain
-    case createIn
-    case openConsole
-    case pasteToken
     case update
     case backUpNow
-    case replaceServer
     case checkAgain
     case ownServer
-    case deleteServer
     /// On a linked desktop: Fermix moves back from its server to this
     /// computer.
     case moveBack
     /// Fermix is restored on this computer from the copy of the server's
-    /// backups it keeps, after the server that stopped answering is deleted.
+    /// backups it keeps, once the owner deleted the server that stopped
+    /// answering, or stopped it for good.
     case restoreHere
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
-        "create_server": .createServer,
         "cancel": .cancel,
         "move_now": .moveNow,
         "try_again": .tryAgain,
         "learn_more": .learnMore,
-        "turn_on": .turnOn,
-        "restart_server": .restartServer,
-        "start_again": .startAgain,
-        "create_in": .createIn,
-        "open_console": .openConsole,
-        "paste_token": .pasteToken,
         "update": .update,
         "back_up_now": .backUpNow,
-        "replace_server": .replaceServer,
         "check_again": .checkAgain,
         "own_server": .ownServer,
-        "delete_server": .deleteServer,
         "move_back": .moveBack,
         "restore_here": .restoreHere
     ]
@@ -120,29 +100,22 @@ public enum ManagementHomeActionId: ManagementVocabulary, Hashable {
 
     /// Whether the app opens this one itself rather than sending it.
     public var isOpenedHere: Bool {
-        self == .learnMore || self == .openConsole || self == .update
+        self == .learnMore || self == .update
     }
 }
 
 /// What the app collects before it sends an action.
 public enum ManagementHomeActionNeed: ManagementVocabulary, Hashable {
-    /// The provider's token, from the token screen in `detail.providers`.
-    case token
     /// The recovery passphrase that is set, typed once: the engine checks it.
     case recoveryPassphrase
     /// A new recovery passphrase, where none is set: typed twice, and the
     /// two compared here.
     case newRecoveryPassphrase
-    /// The size and place, from `home.provision.options`, whose
-    /// recommendation is the default.
-    case choice
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
-        "token": .token,
         "recovery_passphrase": .recoveryPassphrase,
-        "new_recovery_passphrase": .newRecoveryPassphrase,
-        "choice": .choice
+        "new_recovery_passphrase": .newRecoveryPassphrase
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
     public var unrecognizedValue: String? {
@@ -154,10 +127,10 @@ public enum ManagementHomeActionNeed: ManagementVocabulary, Hashable {
 /// Where the screen stands, in the engine's word: what a surface following
 /// a step reads.
 public enum ManagementHomeOutcome: ManagementVocabulary, Hashable {
-    /// Always On is at something that moves the screen on by itself: a
-    /// step's job, the server setting up, a move from its request on.
+    /// Always On is at something that moves the screen on by itself: the
+    /// server connecting, a move from its request on, a restore.
     case running
-    /// It waits on a server of the owner's own to use its code.
+    /// It waits on the owner's server to use its code.
     case waiting
     /// The next step is the owner's.
     case done
@@ -180,52 +153,26 @@ public enum ManagementHomeOutcome: ManagementVocabulary, Hashable {
 
 /// What went wrong, on a `problem` summary.
 public enum ManagementHomeProblemKind: ManagementVocabulary, Hashable {
-    case turnedOff
     case cannotReach
-    case deleted
     case notSetUp
     case waitedTooLong
-    case noCapacity
-    case accountLimit
-    case readOnlyToken
-    case tokenRefused
-    case createFailed
     case update
     case diskFull
     case backupOld
     case notReady
-    case unreadable
-    /// Deleting a server stopped.
-    case deleteFailed
-    /// Turning the server on, or restarting it, stopped.
-    case powerFailed
-    /// Fermix is back on this computer, and the server Fermix created for
-    /// it still runs and costs money.
-    case serverRetired
     /// A move back to this computer, or a restore here, ended or stopped
     /// part-way.
     case returnFailed
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
-        "turned_off": .turnedOff,
         "cannot_reach": .cannotReach,
-        "deleted": .deleted,
         "not_set_up": .notSetUp,
         "waited_too_long": .waitedTooLong,
-        "no_capacity": .noCapacity,
-        "account_limit": .accountLimit,
-        "read_only_token": .readOnlyToken,
-        "token_refused": .tokenRefused,
-        "create_failed": .createFailed,
         "update": .update,
         "disk_full": .diskFull,
         "backup_old": .backupOld,
         "not_ready": .notReady,
-        "unreadable": .unreadable,
-        "delete_failed": .deleteFailed,
-        "power_failed": .powerFailed,
-        "server_retired": .serverRetired,
         "return_failed": .returnFailed
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
@@ -245,10 +192,10 @@ public struct ManagementHomeAction: Decodable, Equatable, Hashable, Sendable {
     public let id: ManagementHomeActionId
     public let label: String
     public let needs: [ManagementHomeActionNeed]
-    /// What the owner accepts before Fermix spends money, deletes, restarts a
-    /// server or moves; nil otherwise.
+    /// What the owner accepts before Fermix moves or restores; nil
+    /// otherwise.
     public let confirm: String?
-    /// `learnMore`'s docs page and `openConsole`'s console; nil otherwise.
+    /// `learnMore`'s docs page; nil otherwise.
     public let url: URL?
     /// The digest `home.act` checks against the summary as it is when the
     /// press arrives.
@@ -263,26 +210,6 @@ public struct ManagementHomeAction: Decodable, Equatable, Hashable, Sendable {
 
     /// The one thing the app collects before sending it, if any.
     public var need: ManagementHomeActionNeed? { needs.first }
-}
-
-/// One provider's token screen: its id (what a token is given for), its
-/// name, the token field's label, the screen's sentence, its "How to get one"
-/// steps, its console and the docs page at its part.
-public struct ManagementHomeSummaryProvider: Decodable, Equatable, Hashable, Sendable {
-    public let id: String
-    public let name: String
-    public let tokenLabel: String
-    public let sentence: String
-    public let steps: [String]
-    public let consoleUrl: URL
-    public let docsUrl: URL
-
-    private enum CodingKeys: String, CodingKey {
-        case id, name, sentence, steps
-        case tokenLabel = "token_label"
-        case consoleUrl = "console_url"
-        case docsUrl = "docs_url"
-    }
 }
 
 /// One line of Details, finished by the engine.
@@ -302,18 +229,14 @@ public struct ManagementHomeNotice: Decodable, Equatable, Sendable {
 /// `homeSummaryDetail`). The engine sends more (the server's facts, the
 /// backups, when it last saw a problem): their words are in `lines`.
 public struct ManagementHomeSummaryDetail: Decodable, Equatable, Sendable {
-    /// Every provider's token screen, wherever a token is asked for.
-    public let providers: [ManagementHomeSummaryProvider]?
     /// Details, each line finished by the engine.
     public let lines: [ManagementHomeSummaryLine]?
-    /// The sentence of the step in hand while a step's job runs.
+    /// The sentence of the step in hand while a move back or a restore runs.
     public let progress: String?
     /// The other actions the screen offers.
     public let alternatives: [ManagementHomeAction]?
     /// `on`: the actions Details offers.
     public let actions: [ManagementHomeAction]?
-    /// `choose`: how the provider bills.
-    public let billing: String?
     /// `ready` and `not_ready`: the last review's warnings and blocks.
     public let readiness: [ManagementReadinessItem]?
     /// `on`: what lives on the server, and that its host can read its disk.

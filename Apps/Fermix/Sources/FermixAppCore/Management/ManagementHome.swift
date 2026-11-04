@@ -154,23 +154,8 @@ public struct ManagementEnrollmentCode: Decodable, Equatable, Sendable {
     }
 }
 
-/// Which code a window holds: the one a person copies, or the one inside a
-/// server Fermix created (24 hours).
-public enum ManagementEnrollmentKind: ManagementVocabulary, Hashable {
-    case manual
-    case provisioned
-    case unrecognized(String)
-
-    public static let publishedValues: [String: Self] = ["manual": .manual, "provisioned": .provisioned]
-    public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
-    public var unrecognizedValue: String? {
-        if case .unrecognized(let value) = self { return value }
-        return nil
-    }
-}
-
-/// `home.enroll.withdraw`: the server's 24-hour window released. The app
-/// never asks it (`ManagementMethod.homeEnrollWithdraw`).
+/// `home.enroll.withdraw`: the window released, the code a desktop opened to
+/// move back. The app never asks it (`ManagementMethod.homeEnrollWithdraw`).
 public struct ManagementEnrollmentWithdrawn: Decodable, Equatable, Sendable {
     public let withdrawn: Bool
 }
@@ -179,21 +164,17 @@ public struct ManagementEnrollmentWithdrawn: Decodable, Equatable, Sendable {
 public struct ManagementEnrollmentWindow: Decodable, Equatable, Sendable {
     public let state: ManagementEnrollmentState
     public let expiresAt: String
-    /// Which code the window holds; absent from an engine before it.
-    public let kind: ManagementEnrollmentKind?
-    /// The server that enrolled with the window's code, which is how the
-    /// server Fermix created is known; null until one did.
+    /// The server that enrolled with the window's code; null until one did.
     public let candidateId: String?
 
-    public init(state: ManagementEnrollmentState, expiresAt: String, kind: ManagementEnrollmentKind? = nil, candidateId: String? = nil) {
+    public init(state: ManagementEnrollmentState, expiresAt: String, candidateId: String? = nil) {
         self.state = state
         self.expiresAt = expiresAt
-        self.kind = kind
         self.candidateId = candidateId
     }
 
     private enum CodingKeys: String, CodingKey {
-        case state, kind
+        case state
         case expiresAt = "expires_at"
         case candidateId = "candidate_id"
     }

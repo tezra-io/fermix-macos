@@ -825,14 +825,8 @@
 "settings.keywords.permissions" = "microphone screen accessibility login items";
 
 /* MARK: Always On (M75 lean v1 §7) */
-"alwaysOn.learnMore" = "Learn more";
 "alwaysOn.linkOpenFailed" = "The browser could not open the page.";
 "alwaysOn.details" = "Details";
-"alwaysOn.provider.choose" = "Choose where Fermix creates your server.";
-"alwaysOn.token.checkingFormat" = "Checking the token with %@…";
-"alwaysOn.token.howToGetOne" = "How to get one";
-"alwaysOn.token.openConsoleFormat" = "Open %@";
-"alwaysOn.choose.title" = "Size and location";
 "alwaysOn.passphrase.title" = "Recovery passphrase";
 "alwaysOn.passphrase.body" = "Fermix encrypts every backup of your home to this passphrase and never stores it. Keep it in a password manager: no backup can be restored without it.";
 "alwaysOn.passphrase.onceBody" = "Type the recovery passphrase you set. Fermix checks it first and never stores it.";

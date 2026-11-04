@@ -42,9 +42,8 @@ public enum ProductCopyRules {
         "Homebrew", "Homebrew-managed",
         // The apps an MCP import reads, and the store their keys go to (M74).
         "Cursor", "Windsurf", "Keychain",
-        // The system the owner's own Always On server runs, and the address
-        // a server keeps (M75). A cloud provider's name is the engine's.
-        "Linux", "IPv4"
+        // The system the owner's own Always On server runs (M75).
+        "Linux"
     ]
 
     /// Multi-word product names the copy deck spells exactly.

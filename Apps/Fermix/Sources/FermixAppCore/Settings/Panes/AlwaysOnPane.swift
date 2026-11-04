@@ -105,7 +105,9 @@ struct AlwaysOnScreenView: View {
             if case .unavailable(let failure)? = model.readFailure {
                 CueNote(text: failure, attention: true)
             }
-            ForEach(screen.notes, id: \.self) { CueNote(text: $0) }
+            if let note = screen.note {
+                CueNote(text: note)
+            }
             ForEach(screen.readiness, id: \.id) { item in
                 CueNote(text: item.sentence, attention: item.status == .block)
             }
@@ -131,16 +133,13 @@ struct AlwaysOnScreenView: View {
     }
 }
 
-/// The one main action, or the token field in its place while a token is
-/// asked for, and the engine's refusal or note under it.
+/// The one main action, and the engine's refusal or note under it.
 struct AlwaysOnMainAction: View {
     let screen: AlwaysOnScreen
     @ObservedObject var model: AlwaysOnModel
 
     var body: some View {
-        if model.asking?.isField == true, let target = screen.tokenTarget(picked: model.picked) {
-            AlwaysOnTokenStep(model: model, target: target, state: screen.state)
-        } else if let action = screen.action {
+        if let action = screen.action {
             HStack(spacing: Spacing.s) {
                 PrimaryAction(action.label, size: .row) {
                     Task { await model.press(action) }
@@ -177,103 +176,6 @@ struct AlwaysOnLinkAction: View {
 
             if model.working == action.id {
                 ProgressView().controlSize(.small)
-            }
-        }
-    }
-}
-
-/// The token step: the pick where the summary lists more than one provider,
-/// then that provider's field.
-struct AlwaysOnTokenStep: View {
-    @ObservedObject var model: AlwaysOnModel
-    let target: AlwaysOnTokenTarget
-    let state: ManagementHomeSummaryState
-
-    var body: some View {
-        switch target {
-        case .provider(let provider):
-            AlwaysOnTokenField(model: model, provider: provider, saysSentence: state != .connect)
-                .id(provider.id)
-        case .pick(let providers):
-            CueNote(text: ProductStrings[.alwaysOnProviderChoose])
-            ForEach(providers, id: \.id) { provider in
-                LinkButton(title: provider.name) { model.pick(provider: provider) }
-                    .fermixType(Typography.style(.callout))
-            }
-        }
-    }
-}
-
-/// One provider's token screen in the engine's words: its sentence, the
-/// paste field under its label, sent as soon as a token is pasted, "How to
-/// get one" with its steps and its console, and its part of the docs.
-struct AlwaysOnTokenField: View {
-    @ObservedObject var model: AlwaysOnModel
-    let provider: ManagementHomeSummaryProvider
-    /// `connect`'s own sentence is the provider's, so it is not said twice.
-    let saysSentence: Bool
-
-    @State private var token = ""
-
-    /// A token is at least this long, so a change that adds this much at once
-    /// was pasted.
-    static let pasted = 16
-
-    var body: some View {
-        if saysSentence {
-            CueNote(text: provider.sentence)
-        }
-        LabeledContent(provider.tokenLabel) {
-            SecretInput(label: provider.tokenLabel, value: $token, onSubmit: submit)
-                .onChange(of: token) { before, after in
-                    guard after.count - before.count >= Self.pasted else { return }
-
-                    submit()
-                }
-        }
-        .disabled(model.working != nil)
-
-        if model.working == .pasteToken {
-            HStack(spacing: Spacing.xs) {
-                ProgressView().controlSize(.small)
-                CueNote(text: String(format: ProductStrings[.alwaysOnTokenCheckingFormat], provider.name))
-            }
-        }
-        DisclosureGroup(ProductStrings[.alwaysOnHowToGetOne]) {
-            AlwaysOnSteps(steps: provider.steps)
-            LinkButton(title: String(format: ProductStrings[.alwaysOnOpenConsoleFormat], provider.name)) {
-                model.open(provider.consoleUrl)
-            }
-        }
-        .fermixType(Typography.style(.calloutSmall))
-        HStack(spacing: Spacing.s) {
-            LinkButton(title: ProductStrings[.alwaysOnLearnMore]) { model.open(provider.docsUrl) }
-            LinkButton(title: ProductStrings[.settingsSheetCancel], action: model.dismissAsk)
-                .disabled(model.working != nil)
-        }
-        .fermixType(Typography.style(.calloutSmall))
-    }
-
-    private func submit() {
-        let pasted = token
-        Task {
-            await model.submitToken(pasted, for: provider)
-            if model.refusal == nil { token = "" }
-        }
-    }
-}
-
-/// The engine's steps, numbered.
-struct AlwaysOnSteps: View {
-    let steps: [String]
-
-    var body: some View {
-        ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-                Image(systemName: "\(index + 1).circle")
-                    .foregroundStyle(Palette.secondary.color)
-                    .accessibilityHidden(true)
-                CueNote(text: step)
             }
         }
     }

@@ -27,7 +27,7 @@ enum ManagementV2Calls {
     /// CLI's; the app reads when the engine says the summary changed.
     static let unexercised: Set<String> = [
         "setup_session_create", "home_enroll_open", "home_enroll_withdraw", "home_move_readiness", "home_move_start",
-        "home_move_start_replacing_the_server", "home_snapshots_run", "home_status_wait"
+        "home_move_start_moving_back", "home_snapshots_run", "home_status_wait"
     ]
 
     /// The methods no surface calls, whose every golden is unexercised, so
@@ -325,21 +325,9 @@ enum ManagementV2Calls {
         "home_candidates_list": { _ = try await $0.candidates() },
         "home_snapshots_status": { _ = try await $0.snapshotsStatus() },
         "home_snapshots_passphrase": { _ = try await $0.setRecoveryPassphrase("invented-lighthouse-meridian") },
-        // Set up's token, for the one provider listed, so none is named.
-        "home_act": {
-            _ = try await $0.homeAct(
-                .pasteToken,
-                key: "ypJXbXCwrSQSdVK8_tXftA",
-                input: ManagementHomeActInput(token: "invented-hetzner-token-6d1f0c9a2b7e4f3a")
-            )
-        },
-        "home_act_create_server": {
-            _ = try await $0.homeAct(
-                .createServer,
-                key: "F09RF8MofBF6hdXN7NWtuA",
-                input: ManagementHomeActInput(type: "cpx22", location: "fsn1")
-            )
-        },
+        // Cancel the code for the owner's server: a step that collects
+        // nothing is sent with no input.
+        "home_act": { _ = try await $0.homeAct(.cancel, key: "PGFKmgUa3i48MJgwQSKf-g") },
         "home_act_move_now": {
             _ = try await $0.homeAct(
                 .moveNow,
@@ -347,12 +335,7 @@ enum ManagementV2Calls {
                 input: ManagementHomeActInput(recoveryPassphrase: "invented-harbor-juniper-lantern")
             )
         },
-        // A step that collects nothing is sent with no input.
-        "home_act_cancel": { _ = try await $0.homeAct(.cancel, key: "G5z__UAdjaH9J2d38M3Zuw") },
-
-        // What the provider in use sells, for the choice (M75 lean v1 §4.3):
-        // the engine knows which, so none is named.
-        "home_provision_options": { _ = try await $0.provisionOptions() }
+        "home_act_cancel": { _ = try await $0.homeAct(.cancel, key: "G5z__UAdjaH9J2d38M3Zuw") }
     ]
 
 }

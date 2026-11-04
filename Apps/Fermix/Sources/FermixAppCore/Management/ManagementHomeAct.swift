@@ -6,56 +6,25 @@ import Foundation
 
 // MARK: - What a step sends
 
-/// What an action's `needs` collected: a token (and the provider it is for,
-/// where the summary lists more than one), the recovery passphrase (typed
-/// once, or twice and compared here), or a size and place. Only the fields
-/// given are sent. The token and the passphrase are withheld from every
-/// print, so no log line or test failure carries either.
+/// What an action's `needs` collected: the recovery passphrase, typed once,
+/// or twice and compared here. It is withheld from every print, so no log
+/// line or test failure carries it.
 public struct ManagementHomeActInput: Encodable, Equatable, Sendable,
                                       CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public let token: String?
-    public let provider: String?
-    public let recoveryPassphrase: String?
-    public let type: String?
-    public let location: String?
+    public let recoveryPassphrase: String
 
-    public init(
-        token: String? = nil,
-        provider: String? = nil,
-        recoveryPassphrase: String? = nil,
-        type: String? = nil,
-        location: String? = nil
-    ) {
-        precondition(token.map { !$0.isEmpty } ?? true, "a token is sent as text")
-        precondition(recoveryPassphrase.map { !$0.isEmpty } ?? true, "a recovery passphrase is sent as text")
-        precondition((type == nil) == (location == nil), "a size is sent with its place")
-        self.token = token
-        self.provider = provider
+    public init(recoveryPassphrase: String) {
+        precondition(!recoveryPassphrase.isEmpty, "a recovery passphrase is sent as text")
         self.recoveryPassphrase = recoveryPassphrase
-        self.type = type
-        self.location = location
     }
 
-    /// Nothing was collected, so `home.act` is sent without `input`.
-    var isEmpty: Bool {
-        token == nil && provider == nil && recoveryPassphrase == nil && type == nil && location == nil
-    }
-
-    public var description: String {
-        "ManagementHomeActInput(token: \(Self.shown(token)), provider: \(provider ?? "none"), "
-            + "recovery_passphrase: \(Self.shown(recoveryPassphrase)), type: \(type ?? "none"), location: \(location ?? "none"))"
-    }
+    public var description: String { "ManagementHomeActInput(recovery_passphrase: withheld)" }
 
     public var debugDescription: String { description }
 
     public var customMirror: Mirror { Mirror(self, children: [:]) }
 
-    private static func shown(_ secret: String?) -> String {
-        secret == nil ? "none" : "withheld"
-    }
-
     private enum CodingKeys: String, CodingKey {
-        case token, provider, type, location
         case recoveryPassphrase = "recovery_passphrase"
     }
 }

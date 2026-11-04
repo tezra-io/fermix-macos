@@ -18,7 +18,7 @@ struct AlwaysOnTests {
         #expect(home.role == .primary && home.epoch == 4)
         #expect(home.primary == nil && home.primaryHome == nil && home.primaryMissing == nil)
         #expect(home.enrollment == ManagementEnrollmentWindow(
-            state: .used, expiresAt: "2026-10-27T09:22:00Z", kind: .manual, candidateId: "cand-5e2a9c1f7b3d4086"
+            state: .used, expiresAt: "2026-10-27T09:22:00Z", candidateId: "cand-5e2a9c1f7b3d4086"
         ))
         #expect(home.candidates.map(\.candidateId) == ["cand-5e2a9c1f7b3d4086"])
         #expect(home.move?.phase == .aborted && home.move?.phase.isPending == false)

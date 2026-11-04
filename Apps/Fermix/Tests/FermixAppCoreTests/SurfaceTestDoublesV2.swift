@@ -635,13 +635,6 @@ extension FakeDaemonGateway {
         return try next.get()
     }
 
-    func provisionOptions() async throws -> ManagementProvisionOptions {
-        provisionOptionsReads += 1
-        let published: ManagementProvisionOptions = try answer(.homeProvisionOptions, "home_provision_options")
-
-        return provisionOptionsResult ?? published
-    }
-
     // MARK: - One answer
 
     /// Record the call, apply the version gate, then decode the named fixture.

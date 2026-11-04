@@ -60,8 +60,8 @@ extension ManagementClient {
 
     /// One Always On step, as the summary offered it: the engine checks the
     /// key against the summary as it is now, runs every call behind the step
-    /// and answers the summary after it. The three actions the app opens
-    /// itself are never sent.
+    /// and answers the summary after it. The two actions the app opens itself
+    /// are never sent.
     public func homeAct(
         _ action: ManagementHomeActionId,
         key: String,
@@ -76,7 +76,7 @@ extension ManagementClient {
             params: ManagementHomeActParams(
                 action: action.wireValue,
                 key: try requireText(key, field: "key"),
-                input: input?.isEmpty == false ? input : nil
+                input: input
             ),
             as: ManagementHomeActed.self
         )

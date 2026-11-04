@@ -138,11 +138,10 @@ struct ManagementV2FixtureTests {
             ("summary action", Array(ManagementHomeActionId.publishedValues.keys)),
             ("summary problem", Array(ManagementHomeProblemKind.publishedValues.keys)),
             ("summary need", Array(ManagementHomeActionNeed.publishedValues.keys)),
-            ("summary outcome", Array(ManagementHomeOutcome.publishedValues.keys)),
-            ("enrollment kind", Array(ManagementEnrollmentKind.publishedValues.keys))
+            ("summary outcome", Array(ManagementHomeOutcome.publishedValues.keys))
         ]
 
-        #expect(modelled.count == 63)
+        #expect(modelled.count == 62)
         for (name, values) in modelled {
             #expect(
                 published.contains(Set(values)),
@@ -268,7 +267,7 @@ struct ManagementV2FixtureTests {
             seen.insert(fixture.name)
         }
 
-        #expect(seen.count == 181, "every success record was decoded")
+        #expect(seen.count == 179, "every success record was decoded")
     }
 
     /// A published error code with no fixture is a code nobody has ever seen

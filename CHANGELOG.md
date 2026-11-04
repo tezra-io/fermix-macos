@@ -4,6 +4,8 @@ The release notes, kept as the work lands. One line per change a person sees or 
 
 ## Unreleased
 
+- Settings: Always On runs Fermix on a Linux server you set up yourself. Use my own Linux server gives you the one command to run there and the code it asks for. Fermix no longer creates, turns on, restarts, replaces or deletes servers, so the pane asks for no cloud token, size or place and opens no provider's console. When your server stops answering and this Mac keeps a backup of it, Restore on this Mac first asks you to confirm you deleted the server, or stopped it for good, since a copy that runs again would answer the same channels as this Mac, then restores the backup here.
+
 ## 0.8.0 (2026-11-03)
 
 - Runs the Fermix engine 0.18.0. Computer use can focus, select, tick, expand and scroll an app's controls by name and wait for one to change, without moving your pointer. A cue source can follow X accounts with the X sign-in you already have, with no token to paste. With open loops on, Fermix may ask afterwards how something you mentioned went, such as an interview or a result you are waiting for. In the browser the agent fills and sends a form in one step, and when a task needs you to finish a step, such as typing a code or confirming a payment, it leaves that page open in front and carries on there once you answer. A long task on Claude no longer stops after Fermix shortens its context, a full disk no longer stops Fermix, and commands the agent runs can no longer read the cookies of the sites you are signed in to in this app's browser.

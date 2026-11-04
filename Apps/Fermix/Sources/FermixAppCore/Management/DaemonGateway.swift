@@ -154,7 +154,6 @@ public protocol DaemonQuerying: Sendable {
         key: String,
         input: ManagementHomeActInput?
     ) async throws -> ManagementHomeActed
-    func provisionOptions() async throws -> ManagementProvisionOptions
 }
 
 /// The production gateway: one negotiated client, shared by every surface.

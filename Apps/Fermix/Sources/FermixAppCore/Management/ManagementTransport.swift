@@ -45,14 +45,10 @@ public struct DefaultManagementTimeoutPolicy: ManagementTimeoutPolicy {
     /// way (M74 §5); its reads, its scan and its check, which is a job,
     /// answer at once.
     public static let write: Duration = .seconds(20)
-    /// An Always On step runs inside the request: a token check takes up to
-    /// about 45 s, and a move's review sent to the server up to 60 s
-    /// (management PROTOCOL.md, `home.act`), so a client gives it 90 s.
+    /// An Always On step runs inside the request: a move's review sent to
+    /// the server takes up to 60 s (management PROTOCOL.md, `home.act`), so a
+    /// client gives it 90 s.
     public static let act: Duration = .seconds(90)
-    /// What a cloud provider sells is read from the provider inside the
-    /// request, up to three calls of at most 10 s each, so the client waits
-    /// for all three.
-    public static let cloud: Duration = .seconds(35)
 
     public init() {}
 
@@ -66,8 +62,6 @@ public struct DefaultManagementTimeoutPolicy: ManagementTimeoutPolicy {
             return Self.write
         case .homeAct:
             return Self.act
-        case .homeProvisionOptions:
-            return Self.cloud
         default:
             return Self.standard
         }

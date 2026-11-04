@@ -139,9 +139,9 @@ public enum ManagementJobKind: ManagementVocabulary, Hashable {
     case imessageGrant
     case imessagePolicyConfirm
     case mcpCheck
-    /// Creating, turning on, resetting or deleting the Always On server at
-    /// its cloud provider (M75 lean v1 §4.3).
-    case homeProvision
+    /// Restore here: Fermix restored on this computer from the copy of the
+    /// Always On server's backups it keeps.
+    case homeRestore
     case unrecognized(String)
 
     public static let publishedValues: [String: Self] = [
@@ -159,7 +159,7 @@ public enum ManagementJobKind: ManagementVocabulary, Hashable {
         "imessage_grant": .imessageGrant,
         "imessage_policy_confirm": .imessagePolicyConfirm,
         "mcp_check": .mcpCheck,
-        "home_provision": .homeProvision
+        "home_restore": .homeRestore
     ]
     public static func unrecognizedCase(_ value: String) -> Self { .unrecognized(value) }
     public var unrecognizedValue: String? {

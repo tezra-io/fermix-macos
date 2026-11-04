@@ -896,21 +896,10 @@ public enum ProductStringKey: String, CaseIterable, Sendable {
 
     // Always On (Always On setup §8.3): the pane's own words. Every sentence,
     // label, line and confirm on a screen is the engine's; these are how the
-    // pane asks for a secret, how it draws the choice of size and place, and
-    // the notification title around them.
-    /// A provider's part of the Always On docs, on its token screen.
-    case alwaysOnLearnMore = "alwaysOn.learnMore"
+    // pane asks for the recovery passphrase, shows the code for the owner's
+    // server, and the notification title around them.
     case alwaysOnLinkOpenFailed = "alwaysOn.linkOpenFailed"
     case alwaysOnDetails = "alwaysOn.details"
-    /// Where the engine offers more than one cloud provider, the line above
-    /// their names.
-    case alwaysOnProviderChoose = "alwaysOn.provider.choose"
-    /// The provider's name, as the engine gives it.
-    case alwaysOnTokenCheckingFormat = "alwaysOn.token.checkingFormat"
-    case alwaysOnHowToGetOne = "alwaysOn.token.howToGetOne"
-    /// The provider's name, as the engine gives it.
-    case alwaysOnOpenConsoleFormat = "alwaysOn.token.openConsoleFormat"
-    case alwaysOnChangeTitle = "alwaysOn.choose.title"
     case alwaysOnPassphraseTitle = "alwaysOn.passphrase.title"
     /// Where no recovery passphrase is set: it is typed twice.
     case alwaysOnPassphraseBody = "alwaysOn.passphrase.body"

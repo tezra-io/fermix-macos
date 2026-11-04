@@ -5,10 +5,9 @@ import Foundation
 ///
 /// Every sentence, label, line and confirm is the engine's
 /// (`home.status.summary`), and every press is one `home.act` the engine
-/// runs. The app keeps three things of its own: how it asks for a secret
-/// (the token field and the passphrase sheet), how it draws the choice of
-/// size and place, and that the engine is restarting after this app's own
-/// Move now.
+/// runs. The app keeps two things of its own: how it asks for the recovery
+/// passphrase (its sheet), and that the engine is restarting after this
+/// app's own Move now.
 
 /// What the pane shows as a whole.
 public enum AlwaysOnPage: Equatable, Sendable {
@@ -64,14 +63,13 @@ extension AlwaysOnPage {
 public struct AlwaysOnScreen: Equatable, Sendable {
     public let state: ManagementHomeSummaryState
     public let sentence: String
-    /// The sentence of the step in hand while a step's job runs.
+    /// The sentence of the step in hand while a move back or a restore runs.
     public let progress: String?
     /// The bar that claims no percentage shows while the engine says the
     /// screen moves on by itself (`outcome` `running`).
     public let showsBar: Bool
-    /// The engine's other sentences for the screen: how the provider bills,
-    /// a problem's note.
-    public let notes: [String]
+    /// A problem's one more sentence, where the engine gives one.
+    public let note: String?
     /// The last review's warnings and blocks.
     public let readiness: [ManagementReadinessItem]
     /// The one main action, or none when all is well.
@@ -83,8 +81,6 @@ public struct AlwaysOnScreen: Equatable, Sendable {
     public let lines: [ManagementHomeSummaryLine]
     public let data: String?
     public let detailActions: [ManagementHomeAction]
-    /// Every provider's token screen, where a token is asked for.
-    public let providers: [ManagementHomeSummaryProvider]
 
     public init(_ summary: ManagementHomeSummary) {
         let detail = summary.detail
@@ -92,67 +88,21 @@ public struct AlwaysOnScreen: Equatable, Sendable {
         sentence = summary.sentence
         progress = detail.progress
         showsBar = summary.outcome == .running
-        notes = [detail.billing, detail.note].compactMap { $0 }
+        note = detail.note
         readiness = detail.readiness ?? []
         action = summary.action.flatMap { $0.isOffered ? $0 : nil }
         alternatives = (detail.alternatives ?? []).filter(\.isOffered)
         lines = detail.lines ?? []
         data = detail.data
         detailActions = (detail.actions ?? []).filter(\.isOffered)
-        providers = detail.providers ?? []
     }
 
     /// Whether Details has anything to hold.
     public var hasDetails: Bool { !lines.isEmpty || data != nil || !detailActions.isEmpty }
-
-    /// Which provider's token the field takes: the only one listed, else the
-    /// one the owner picked, else a pick from every one listed, in the
-    /// engine's order. None where the summary lists no provider.
-    public func tokenTarget(picked: String?) -> AlwaysOnTokenTarget? {
-        if providers.count == 1, let only = providers.first { return .provider(only) }
-        if let chosen = providers.first(where: { $0.id == picked }) { return .provider(chosen) }
-
-        return providers.isEmpty ? nil : .pick(providers)
-    }
-}
-
-/// The choice of size and place as its sheet draws it: the engine's sentence
-/// for the recommendation, then each city's offers in the engine's order,
-/// each its label and price as sent. A city with nothing in stock has no
-/// rows, so it is not drawn.
-public struct AlwaysOnChoice: Equatable, Sendable {
-    public struct City: Equatable, Sendable {
-        public let city: String
-        public let offers: [ManagementProvisionOffer]
-    }
-
-    public let sentence: String
-    public let cities: [City]
-    /// The pick chosen until the owner picks another.
-    public let recommended: ManagementProvisionPick?
-
-    public init(_ options: ManagementProvisionOptions) {
-        sentence = options.sentence
-        cities = options.locations
-            .map { location in City(city: location.city, offers: options.offers.filter { $0.location == location.id }) }
-            .filter { !$0.offers.isEmpty }
-        recommended = options.recommended
-    }
-}
-
-/// Which provider's token a token field takes.
-public enum AlwaysOnTokenTarget: Equatable, Sendable {
-    /// More than one is listed and none is picked: the owner picks first.
-    case pick([ManagementHomeSummaryProvider])
-    case provider(ManagementHomeSummaryProvider)
 }
 
 /// A press waiting on the owner: what its action needs, or its confirm.
 public enum AlwaysOnAsk: Equatable, Sendable, Identifiable {
-    /// The token field, in place of the action.
-    case token(ManagementHomeAction)
-    /// The sheet of size and place, with the action's confirm.
-    case choice(ManagementHomeAction)
     /// The passphrase sheet, with the action's confirm: typed twice where
     /// none is set, once where one is.
     case passphrase(ManagementHomeAction, twice: Bool)
@@ -163,8 +113,6 @@ public enum AlwaysOnAsk: Equatable, Sendable, Identifiable {
     /// is sent at once.
     public static func asking(for action: ManagementHomeAction) -> AlwaysOnAsk? {
         switch action.need {
-        case .token?: return .token(action)
-        case .choice?: return .choice(action)
         case .newRecoveryPassphrase?: return .passphrase(action, twice: true)
         case .recoveryPassphrase?: return .passphrase(action, twice: false)
         case .unrecognized?, nil: return action.confirm.map { _ in .confirm(action) }
@@ -173,7 +121,7 @@ public enum AlwaysOnAsk: Equatable, Sendable, Identifiable {
 
     public var action: ManagementHomeAction {
         switch self {
-        case .token(let action), .choice(let action), .passphrase(let action, _), .confirm(let action): return action
+        case .passphrase(let action, _), .confirm(let action): return action
         }
     }
 
@@ -181,15 +129,7 @@ public enum AlwaysOnAsk: Equatable, Sendable, Identifiable {
 
     /// Whether this ask is drawn as a sheet.
     public var isSheet: Bool {
-        switch self {
-        case .choice, .passphrase: return true
-        case .token, .confirm: return false
-        }
-    }
-
-    /// Whether this ask is the token field, drawn in place of the action.
-    public var isField: Bool {
-        if case .token = self { return true }
+        if case .passphrase = self { return true }
         return false
     }
 }

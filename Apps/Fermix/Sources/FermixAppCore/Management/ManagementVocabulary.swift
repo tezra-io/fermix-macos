@@ -45,9 +45,8 @@ extension ManagementVocabulary {
 ///
 /// The eleven the engine serves today have a minimum protocol version of 1; the
 /// thirty-one M34 §7.3 adds, the seven the phone channel added, the three the
-/// iMessage channel added, the twelve of MCP servers, the twenty-six of cues,
-/// the ten of the home and the one of its cloud provisioner have a minimum of
-/// 2. The
+/// iMessage channel added, the twelve of MCP servers, the twenty-six of cues
+/// and the ten of the home have a minimum of 2. The
 /// minimum is read from the contract (`ManagementContract.minimumVersion(for:)`),
 /// never restated here: one fact, in the checksum-pinned artifact.
 public enum ManagementMethod: String, CaseIterable, Sendable {
@@ -168,9 +167,6 @@ public enum ManagementMethod: String, CaseIterable, Sendable {
     case homeSnapshotsPassphrase = "home.snapshots.passphrase"
     /// Every Always On step, as the summary offers it (Always On setup §3.4).
     case homeAct = "home.act"
-    /// What a cloud provider sells, for the choice of size and place (M75
-    /// lean v1 §4.3).
-    case homeProvisionOptions = "home.provision.options"
 
     /// The method name in a form the request-id pattern accepts.
     public var identifierSlug: String { rawValue.replacingOccurrences(of: ".", with: "-") }

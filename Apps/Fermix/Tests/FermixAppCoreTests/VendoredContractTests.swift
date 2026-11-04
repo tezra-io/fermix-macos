@@ -138,7 +138,7 @@ struct ManagementContractTests {
         let published = try ManagementContract.vendored().methods
 
         #expect(Set(published) == modelled)
-        #expect(published.count == 101)
+        #expect(published.count == 100)
     }
 
     /// The per-method minimum is what makes an N-1 daemon usable rather than a
@@ -149,15 +149,15 @@ struct ManagementContractTests {
     /// apart from a method that really is serveable at 1 — so the §7.1 gate
     /// would send it to an N-1 daemon and the designed refusal would never be
     /// reached.
-    @Test("the schema publishes a minimum for all 101 methods and the app models exactly those")
+    @Test("the schema publishes a minimum for all 100 methods and the app models exactly those")
     func perMethodMinimumsComeFromTheSchema() throws {
         let contract = try ManagementContract.vendored()
 
         #expect(Set(contract.minimumVersions.keys) == Set(contract.methods))
         #expect(Set(contract.minimumVersions.keys) == Set(ManagementMethod.allCases.map(\.rawValue)))
-        #expect(contract.minimumVersions.count == 101)
+        #expect(contract.minimumVersions.count == 100)
         #expect(contract.minimumVersions.values.filter { $0 == 1 }.count == 11)
-        #expect(contract.minimumVersions.values.filter { $0 == 2 }.count == 90)
+        #expect(contract.minimumVersions.values.filter { $0 == 2 }.count == 89)
 
         #expect(contract.minimumVersion(for: .lifecyclePrepare) == 1)
         #expect(contract.minimumVersion(for: .settingsGet) == 2)

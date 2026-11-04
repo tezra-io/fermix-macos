@@ -13,7 +13,7 @@ extension AlwaysOnModel {
         refusal = nil
         notice = nil
         switch action.id {
-        case .learnMore, .openConsole: open(action.url)
+        case .learnMore: open(action.url)
         case .update: checkForUpdates?()
         default: await ask(action)
         }
@@ -23,13 +23,7 @@ extension AlwaysOnModel {
     private func ask(_ action: ManagementHomeAction) async {
         guard let ask = AlwaysOnAsk.asking(for: action) else { return await act(action, input: nil) }
 
-        if case .token = ask, page.screen?.providers.isEmpty != false {
-            log.error("\(action.id.wireValue, privacy: .public) asks for a token, and the summary lists no provider")
-            refusal = ProductStrings[.daemonErrorUnexpectedShape]
-            return
-        }
         asking = ask
-        if case .choice = ask { await readOptions() }
     }
 
     /// The press waiting on the owner was put down: nothing is sent.
@@ -45,57 +39,6 @@ extension AlwaysOnModel {
 
         closeAsk()
         await act(action, input: nil)
-    }
-
-    // MARK: - The token
-
-    /// The provider the owner picked, where the summary lists more than one.
-    public func pick(provider: ManagementHomeSummaryProvider) {
-        picked = provider.id
-    }
-
-    /// Sends a pasted token for one provider. The provider is named only
-    /// where the summary lists more than one; the engine takes the one there
-    /// is otherwise. A refusal is the engine's sentence under the field,
-    /// which stays while the summary still offers the action.
-    public func submitToken(_ token: String, for provider: ManagementHomeSummaryProvider) async {
-        guard case .token(let action)? = asking, working == nil else { return }
-
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let listed = page.screen?.providers.count ?? 0
-        await act(action, input: ManagementHomeActInput(token: trimmed, provider: listed > 1 ? provider.id : nil))
-    }
-
-    // MARK: - The choice
-
-    /// What the provider in use sells, for the choice: the engine knows
-    /// which one, so none is named.
-    func readOptions() async {
-        options = .loading
-        do {
-            options = .loaded(try await gateway.provisionOptions())
-        } catch {
-            options = .failure(error)
-            settings.noteRead(error, "home.provision.options")
-        }
-    }
-
-    /// Sends the row the owner chose, else the recommended one, as itself:
-    /// the engine makes no choice of its own, so with neither nothing is
-    /// sent. Pressing the sheet's action is accepting its confirm.
-    public func submitChoice(_ pick: ManagementProvisionPick?) async {
-        guard case .choice(let action)? = asking, working == nil else { return }
-        guard let row = row(picked: pick) else { return }
-
-        await act(action, input: ManagementHomeActInput(type: row.type, location: row.location))
-    }
-
-    /// The row a choice sends and draws checked: the one the owner picked,
-    /// else the recommendation, else none.
-    public func row(picked pick: ManagementProvisionPick?) -> ManagementProvisionPick? {
-        pick ?? options.value?.recommended
     }
 
     // MARK: - The recovery passphrase
@@ -119,16 +62,14 @@ extension AlwaysOnModel {
     /// that sets Always On up, Move now's answer still reads the screen it
     /// was pressed on, since the engine restarts right after answering: the
     /// pane says it is restarting until the engine answers with a summary
-    /// that moved. A linked desktop's replace, and a move back, answer
-    /// `moving` and nothing restarts here: a move back restarts this Mac's
-    /// engine later, as the home is put in place, and the chat's reconnect
-    /// and the notice after it read the screen then, as after any restart.
-    /// A refusal is the engine's sentence under the action,
-    /// and the summary is read again: a press drawn on an older screen is
-    /// `changed`, and a step the server took whose answer was lost is
-    /// `unconfirmed`, which is no failure. A refused token keeps its field
-    /// open under the sentence while the summary still offers the action;
-    /// a sheet or a confirm closes.
+    /// that moved. A move back answers `moving` and nothing restarts here:
+    /// it restarts this Mac's engine later, as the home is put in place, and
+    /// the chat's reconnect and the notice after it read the screen then, as
+    /// after any restart. A refusal is the engine's sentence under the
+    /// action, and the summary is read again: a press drawn on an older
+    /// screen is `changed`, and a step the server took whose answer was lost
+    /// is `unconfirmed`, which is no failure. The sheet or the confirm
+    /// closes either way.
     private func act(_ action: ManagementHomeAction, input: ManagementHomeActInput?) async {
         working = action.id
         defer { working = nil }
@@ -139,7 +80,7 @@ extension AlwaysOnModel {
             if case .move? = acted.result, acted.summary.state != .moving { restartingFrom = acted.summary.key }
             await take(acted.summary)
         } catch {
-            if asking?.isField != true { closeAsk() }
+            closeAsk()
             say(error)
             settings.noteRead(error, "home.act \(action.id.wireValue)")
             await refresh()
@@ -161,9 +102,8 @@ extension AlwaysOnModel {
         ownServer = nil
     }
 
-    /// A page the engine gave the address of: Learn more, a provider's
-    /// console or its part of the docs. A browser that could not open it is
-    /// said under the action.
+    /// The page the engine gave the address of: Learn more's. A browser that
+    /// could not open it is said under the action.
     public func open(_ url: URL?) {
         guard let url else {
             log.error("an action that opens a page came with no url")

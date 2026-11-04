@@ -29,13 +29,8 @@ public final class AlwaysOnModel: ObservableObject {
     @Published public private(set) var olderEngine = false
     /// The last read's refusal, while it is the latest word.
     @Published public private(set) var readFailure: SettingsReadState<ManagementHomeStatus>?
-    /// The press waiting on the owner: the token field, a sheet, a confirm.
+    /// The press waiting on the owner: the passphrase sheet or a confirm.
     @Published public internal(set) var asking: AlwaysOnAsk?
-    /// The provider the owner picked on the token step, by its id, where the
-    /// summary lists more than one.
-    @Published public internal(set) var picked: String?
-    /// What the provider in use sells, read as a choice opens.
-    @Published public internal(set) var options: SettingsReadState<ManagementProvisionOptions> = .unread
     /// The action whose `home.act` is out, which holds every button.
     @Published public internal(set) var working: ManagementHomeActionId?
     /// The engine's refusal of the last press, said under the action.
@@ -96,8 +91,8 @@ public final class AlwaysOnModel: ObservableObject {
         await refresh()
     }
 
-    /// The pane went: the code it showed, the press it waited on and the
-    /// provider picked on it leave with it.
+    /// The pane went: the code it showed and the press it waited on leave
+    /// with it.
     public func paneDisappeared() {
         paneVisible = false
         ownServer = nil
@@ -180,8 +175,6 @@ public final class AlwaysOnModel: ObservableObject {
 
     func closeAsk() {
         asking = nil
-        picked = nil
-        options = .unread
     }
 
     private func post(_ notice: ManagementHomeNotice) async {

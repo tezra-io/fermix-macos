@@ -1,10 +1,11 @@
 import Foundation
 
 /// The system notifications of Always On (Always On setup §3.1): the server
-/// is ready, the move is done, the server cannot be reached, a server must be
-/// set up again, and the newest backup is a week old. Each is the summary's
-/// `notice`, worded by the engine; the app raises one the first time it sees
-/// its id, from any summary it reads or a press answers, across launches.
+/// is ready, the move is done, the server cannot be reached, the newest
+/// backup is a week old, and Fermix is back on this computer while the
+/// server still runs its retired copy. Each is the summary's `notice`,
+/// worded by the engine; the app raises one the first time it sees its id,
+/// from any summary it reads or a press answers, across launches.
 
 /// Where the ids of the notices this app raised are kept, so a relaunch does
 /// not raise a standing one again.
