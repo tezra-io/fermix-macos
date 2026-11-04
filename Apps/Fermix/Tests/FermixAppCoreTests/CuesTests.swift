@@ -631,17 +631,17 @@ struct CuesTests {
         #expect(golden.options.map(\.value) == ["keyword", "decision_model"])
         #expect(
             CueScreenProjection.hints(golden, value: "keyword")
-                == [CueScreenHint(text: "Set up OpenAI, OpenRouter or Venice first.", tone: .warn)]
+                == [CueScreenHint(text: "Set up OpenRouter, Venice or OpenAI first.", tone: .warn)]
         )
 
         let ready = try Self.screenRow(decisionHint: "Uses OpenAI · gpt-6-luna", disabled: false)
         #expect(CueScreenProjection.hints(ready, value: "decision_model") == [CueScreenHint(text: "Uses OpenAI · gpt-6-luna", tone: .neutral)])
         #expect(CueScreenProjection.hints(ready, value: "keyword").isEmpty, "an option not in use says nothing until it is chosen")
 
-        let lost = try Self.screenRow(decisionHint: "Set up OpenAI, OpenRouter or Venice first.", disabled: true)
+        let lost = try Self.screenRow(decisionHint: "Set up OpenRouter, Venice or OpenAI first.", disabled: true)
         #expect(
             CueScreenProjection.hints(lost, value: "decision_model")
-                == [CueScreenHint(text: "Set up OpenAI, OpenRouter or Venice first.", tone: .warn)],
+                == [CueScreenHint(text: "Set up OpenRouter, Venice or OpenAI first.", tone: .warn)],
             "the option in use that is disabled says so once"
         )
     }
@@ -739,9 +739,9 @@ struct CuesTests {
         #expect(golden.kind == .choice && !golden.suggestions && !golden.restart, "a closed choice that applies live")
         #expect(golden.label == "Decision model" && golden.explanation != nil)
         #expect(!CuesPaneKeys.drawsSegmented(golden), "a pop-up, as every other choice row")
-        #expect(golden.options.map(\.label) == ["Automatic", "OpenAI · gpt-6-luna", "OpenRouter · Jev", "Venice · Jev"])
+        #expect(golden.options.map(\.label) == ["Automatic", "OpenRouter · Jev", "Venice · Jev", "OpenAI · gpt-6-luna"])
         #expect(golden.options.map(\.hint) == [
-            "Set up OpenAI, OpenRouter or Venice first.", "Set up this provider first.", "Set up this provider first.", "Set up this provider first."
+            "Set up OpenRouter, Venice or OpenAI first.", "Set up this provider first.", "Set up this provider first.", "Set up this provider first."
         ])
         #expect(golden.options.allSatisfy { $0.disabled }, "nothing is set up in the golden")
         #expect(
