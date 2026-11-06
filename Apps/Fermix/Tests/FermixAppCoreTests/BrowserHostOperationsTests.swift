@@ -79,6 +79,36 @@ struct BrowserHostOperationsTests {
         _ = client
     }
 
+    /// A whole document read with no selector is as long as the page makes
+    /// it (one published HTML spec is about 16 MB of markup), and the daemon
+    /// reads no line over its cap: the request is answered `act_failed` by
+    /// its own id, with a message that says to narrow the read, and the
+    /// connection stays up.
+    @Test("a get answer longer than the daemon's line answers act_failed by its id")
+    func oversizedGetAnswersActFailed() async throws {
+        let (client, transport, tab) = try await Self.attachedWithOneTab()
+        let document = String(repeating: "<p>a</p>", count: 5 * 1_048_576 / 8)
+        tab.page.actResult = .success(
+            BrowserActOutcome(effect: .unobserved, input: .scripted, url: "https://example.com/", read: .text(document))
+        )
+
+        let response = try await Self.send(
+            transport,
+            .pageAct(id: 10, Self.actRequest(tab.wireID, kind: .get, field: .html))
+        )
+
+        #expect(response["id"] as? Int == 10)
+        #expect(response["ok"] as? Bool == false)
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["reason"] as? String == "act_failed")
+        let message = try #require(error["message"] as? String)
+        #expect(message.contains("too large"))
+        #expect(message.contains("selector"))
+        #expect(transport.sent.allSatisfy { $0.count <= BrowserHostProtocol.maximumLineBytes })
+        #expect(transport.closeCount == 0)
+        _ = client
+    }
+
     // MARK: - wait
 
     @Test("page.act wait forwards its condition and answers once it holds")

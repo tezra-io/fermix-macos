@@ -586,4 +586,25 @@ struct BrowserHostProtocolTests {
 
         #expect((object?["reason"] as? String)?.count == BrowserHostProtocol.maximumReasonChars)
     }
+
+    /// A page's `alert()` or `prompt()` carries whatever text the page likes.
+    /// `dialog.opened` clips `message` and `default` to the schema's own
+    /// `maxLength`, counted as the schema counts it, in code points, so the
+    /// event fits the line whatever the page wrote: one letter under five
+    /// million combining marks is a single character and still clipped.
+    @Test("a dialog.opened message and default are clipped to the schema's maxLength")
+    func dialogTextIsClipped() throws {
+        let properties = try #require(BrowserHostFixtures.definition("dialog.opened")["properties"] as? [String: Any])
+        let cap = try #require((properties["message"] as? [String: Any])?["maxLength"] as? Int)
+        #expect((properties["default"] as? [String: Any])?["maxLength"] as? Int == cap)
+        let marks = "a" + String(repeating: "\u{301}", count: 5 * 1_048_576)
+        let plain = String(repeating: "b", count: 5 * 1_048_576)
+
+        let line = try BrowserHostEvent.dialogOpened(tabId: "t1", kind: .prompt, message: marks, defaultText: plain).line()
+        let object = try #require(JSONSerialization.jsonObject(with: line) as? [String: Any])
+
+        #expect((object["message"] as? String)?.unicodeScalars.count == cap)
+        #expect((object["default"] as? String)?.unicodeScalars.count == cap)
+        #expect(line.count <= BrowserHostProtocol.maximumLineBytes)
+    }
 }

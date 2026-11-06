@@ -5,6 +5,7 @@ The release notes, kept as the work lands. One line per change a person sees or 
 ## Unreleased
 
 - Settings: Always On runs Fermix on a Linux server you set up yourself. Use my own Linux server gives you the one command to run there and the code it asks for. Fermix no longer creates, turns on, restarts, replaces or deletes servers, so the pane asks for no cloud token, size or place and opens no provider's console. When your server stops answering and this Mac keeps a backup of it, Restore on this Mac first asks you to confirm you deleted the server, or stopped it for good, since a copy that runs again would answer the same channels as this Mac, then restores the backup here.
+- Browser: when the agent reads more of a page than Fermix can send back, such as a whole long specification, a very long title or one huge block of text, Fermix stays open and tells the agent to read a smaller part of the page, where before the app quit.
 
 ## 0.8.0 (2026-11-03)
 

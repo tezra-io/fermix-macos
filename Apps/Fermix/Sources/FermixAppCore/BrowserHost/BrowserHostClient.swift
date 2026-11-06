@@ -346,24 +346,65 @@ public final class BrowserHostClient {
 
     // MARK: - Sending
 
+    /// Every event fits the line by construction: its ids, versions and
+    /// reasons are this build's own or held to the contract's caps, a
+    /// download's name to 255 bytes, and a dialog's text to 65,536 scalars a
+    /// field.
     private func send(_ event: BrowserHostEvent) {
-        lines.send(outgoingLine(describing: "event \(event.wireType)") { try event.encoded() })
+        lines.send(fittingLine(describing: "event \(event.wireType)") { try event.encoded() })
     }
 
+    /// An answer is as long as the page it reads: a whole document read with
+    /// no selector, a title or one text node can run past the line the daemon
+    /// reads, which is the page's doing, not a defect here. One that does not
+    /// fit answers its request `act_failed` in its place, by the same id, and
+    /// the connection stays up.
     private func respond(_ response: BrowserHostResponse) {
-        lines.send(outgoingLine(describing: "response \(response.id)") { try response.encoded() })
+        let line = scrubbedLine(describing: "response \(response.id)") { try response.encoded() }
+        do throws(BrowserHostEncodeFailure) {
+            lines.send(try BrowserHostProtocol.bounded(line))
+        } catch {
+            log.error("browser host response \(response.id, privacy: .public) too large to send: \(String(describing: error), privacy: .public)")
+            let refusal = BrowserHostResponse(id: response.id, error: Self.tooLargeError(error))
+            lines.send(fittingLine(describing: "response \(response.id)") { try refusal.encoded() })
+        }
     }
 
-    /// The one way out for every line: encoded, scrubbed of every password the
-    /// ledger holds, so a password a sign-in typed never reaches the daemon in
-    /// an answer, an event or an error whatever the page did with it, then
-    /// held to the contract's cap. Every line this build sends fits it; one
-    /// that does not is a programming defect rather than a wire condition.
-    private func outgoingLine(describing what: String, _ encode: () throws -> Data) -> Data {
+    /// A line encoded and scrubbed of every password the ledger holds, so a
+    /// password a sign-in typed never reaches the daemon in an answer, an
+    /// event or an error whatever the page did with it. Every value this
+    /// build sends encodes (its numbers are finite: the page's arrive as JSON
+    /// text, the rest from the system), so a failure is a programming defect.
+    private func scrubbedLine(describing what: String, _ encode: () throws -> Data) -> Data {
         do {
-            return try BrowserHostProtocol.bounded(ledger.scrub(encode()))
+            return try ledger.scrub(encode())
         } catch {
             preconditionFailure("browser host \(what) could not be encoded: \(error)")
+        }
+    }
+
+    /// A line of a kind that fits the contract's cap by construction, every
+    /// event and the refusal that stands in for an answer too large to send,
+    /// held to that cap: one that does not is a programming defect rather than
+    /// a wire condition.
+    private func fittingLine(describing what: String, _ encode: () throws -> Data) -> Data {
+        do throws(BrowserHostEncodeFailure) {
+            return try BrowserHostProtocol.bounded(scrubbedLine(describing: what, encode))
+        } catch {
+            preconditionFailure("browser host \(what) is over the line cap: \(error)")
+        }
+    }
+
+    /// An answer too large to send, in the act vocabulary: the engine is told
+    /// to read less of the page.
+    private static func tooLargeError(_ failure: BrowserHostEncodeFailure) -> BrowserHostError {
+        switch failure {
+        case .lineTooLarge(let bytes):
+            let limit = BrowserHostProtocol.maximumLineBytes
+            return BrowserHostError(
+                reason: .actFailed,
+                message: "the answer was too large to send (\(bytes) bytes, over the \(limit)-byte line limit); narrow it with a selector"
+            )
         }
     }
 

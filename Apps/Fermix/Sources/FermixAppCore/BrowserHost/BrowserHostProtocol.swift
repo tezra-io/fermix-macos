@@ -28,6 +28,10 @@ public enum BrowserHostProtocol {
     /// (`x-max-reason-chars`).
     public static let maximumReasonChars = 200
 
+    /// The longest `message` and `default` a `dialog.opened` carries, in
+    /// Unicode scalars (the schema's `maxLength` on both).
+    public static let maximumDialogTextChars = 65_536
+
     /// The most nodes one `page` carries (`x-max-nodes`).
     public static let maximumNodes = 50_000
 
@@ -58,7 +62,7 @@ public enum BrowserHostProtocol {
     /// A line this build sends, refused when it is longer than the daemon
     /// reads (`line_too_large` would close the connection). Every line is held
     /// to it last, after the login ledger's scrub.
-    public static func bounded(_ line: Data) throws -> Data {
+    public static func bounded(_ line: Data) throws(BrowserHostEncodeFailure) -> Data {
         guard line.count <= maximumLineBytes else {
             throw BrowserHostEncodeFailure.lineTooLarge(bytes: line.count)
         }
@@ -632,6 +636,8 @@ public enum BrowserHostEvent: Equatable, Sendable {
     case attached(hostVersion: String, profileId: String)
     case availability(available: Bool, reason: String?)
     case tabClosed(tabId: String, by: BrowserHostTabClosedBy)
+    /// A page's dialog. `message` and `defaultText` are the page's own text,
+    /// clipped to `BrowserHostProtocol.maximumDialogTextChars` at encode time.
     case dialogOpened(tabId: String, kind: BrowserHostDialogKind, message: String, defaultText: String?)
     case downloadBegan(downloadId: String, tabId: String, filename: String)
     case downloadProgress(downloadId: String, receivedBytes: Int, totalBytes: Int?)
@@ -697,8 +703,8 @@ extension BrowserHostEvent: Encodable {
         case .dialogOpened(let tabId, let kind, let message, let defaultText):
             try container.encode(tabId, forKey: .tabId)
             try container.encode(kind, forKey: .kind)
-            try container.encode(message, forKey: .message)
-            try container.encodeIfPresent(defaultText, forKey: .defaultText)
+            try container.encode(Self.dialogText(message), forKey: .message)
+            try container.encodeIfPresent(defaultText.map(Self.dialogText), forKey: .defaultText)
         case .downloadBegan(let downloadId, let tabId, let filename):
             try container.encode(downloadId, forKey: .downloadId)
             try container.encode(tabId, forKey: .tabId)
@@ -733,6 +739,16 @@ extension BrowserHostEvent: Encodable {
     /// scrubs it first and bounds what it sends.
     public func encoded() throws -> Data {
         try BrowserHostProtocol.lineEncoder().encode(self)
+    }
+
+    /// A dialog's text cut to the schema's `maxLength`, which counts code
+    /// points. A cut by scalars also bounds the bytes, which a cut by
+    /// `Character` would not: one character can carry any number of
+    /// combining marks.
+    private static func dialogText(_ text: String) -> String {
+        var clipped = String.UnicodeScalarView()
+        clipped.append(contentsOf: text.unicodeScalars.prefix(BrowserHostProtocol.maximumDialogTextChars))
+        return String(clipped)
     }
 }
 
