@@ -21,8 +21,9 @@ final class WebKitPageActions {
     private let webView: WKWebView
     private let script: WebKitPageScript
     /// Set immediately before the click that opens a file chooser, so the
-    /// page's own `runOpenPanelWith` delegate call knows what to answer.
-    private let expectUpload: (String) -> Void
+    /// page's own `runOpenPanelWith` delegate call knows what to answer, and
+    /// cleared with `nil` once the upload ends, however it ends.
+    private let expectUpload: (String?) -> Void
     /// The page's own wait for a navigation in flight, for at most the budget
     /// it is given, answering whether the load finished: a look waits on it
     /// so a click or a submit that starts a load never reads the page mid-load
@@ -39,7 +40,7 @@ final class WebKitPageActions {
     init(
         webView: WKWebView,
         script: WebKitPageScript,
-        expectUpload: @escaping (String) -> Void,
+        expectUpload: @escaping (String?) -> Void,
         waitForLoad: @escaping @MainActor (Duration) async throws -> Bool,
         waitForCommit: @escaping @MainActor (Duration) async throws -> Bool,
         navigations: @escaping @MainActor () -> Int
@@ -301,9 +302,15 @@ final class WebKitPageActions {
     /// The page's own file input, opened by a scripted click: the input is
     /// commonly hidden behind a styled label with no box a person could click,
     /// and a scripted `click()` opens its chooser regardless (plan §4.8, check
-    /// 4). `expectUpload` primes the delegate before the click can raise it.
+    /// 4). `expectUpload` primes the delegate before the click can raise it,
+    /// and disarms it on every way out: WebKit asks the delegate while the
+    /// click's own call is still running, so a grant left armed here is one no
+    /// chooser of this upload's took (a ref that is not a file input, a stale
+    /// one, an input that opened no chooser), and the next chooser in the tab,
+    /// whatever page raised it, would be answered with the file.
     private func upload(ref: Int, path: String) async throws -> ActReceipt {
         expectUpload(path)
+        defer { expectUpload(nil) }
         _ = try await script
             .call("openChooser", [ref], as: BrowserScriptAnswer<OpenedChooser>.self)
             .value(for: ref)
